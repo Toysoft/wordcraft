@@ -1052,6 +1052,7 @@ impl Reader<'_> {
                 _ => {}
             }
         }
+        s.add_paragraph_spacing = root.child("w:compat").and_then(|c| c.child("w:doNotUseHTMLParagraphAutoSpacing")).is_some_and(on_off);
         Ok(())
     }
 
