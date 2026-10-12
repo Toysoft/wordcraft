@@ -122,6 +122,10 @@ pub struct Para {
     pub kind: Kind,
     pub list: Option<ListInfo>,
     pub align: Option<Align>,
+    /// Right-to-left paragraph (document `w:bidi`; HTML `dir="rtl"`; RTF `\rtlpar`).
+    /// Storage stays logical; consumers mirror presentation. `false` also means unspecified:
+    /// the flow cannot express an explicit left-to-right override.
+    pub rtl: bool,
     pub page_break: bool,
     pub inlines: Vec<Inline>,
     pub spacing: Spacing,
@@ -256,6 +260,9 @@ pub struct FTable {
     pub widths: Vec<f32>,
     /// The source table had no borders (HTML default); the document table gets no grid style.
     pub borderless: bool,
+    /// Right-to-left table (document `w:bidiVisual`; HTML `dir="rtl"`; RTF `\rtltbl`; ODT
+    /// `style:writing-mode` on the table style). Cell order stays logical.
+    pub rtl: bool,
 }
 
 impl FTable {
@@ -474,6 +481,9 @@ impl<'a> Builder<'a> {
             out.props.numbering = Some(NumRef { num, level: li.level.min(8) });
         }
         out.props.align = p.align;
+        if p.rtl {
+            out.props.bidi = Some(true);
+        }
         let sp = p.spacing;
         out.props.space_before = sp.before.or(out.props.space_before);
         out.props.space_after = sp.after.or(out.props.space_after);
@@ -617,6 +627,8 @@ impl<'a> Builder<'a> {
         // to `rows.len()` would allocate a full rows × cols cell grid only to clear it, which a
         // tall table (many rows, wide from merged cells) turns into a large transient spike.
         let mut tb = Table::new(1, cols, width);
+        tb.props.bidi_visual = t.rtl;
+
         if t.borderless {
             tb.props.style = None;
         }
@@ -774,7 +786,7 @@ fn rev_marks(doc: &Document, cp: &CharProps) -> (Option<RevMark>, Option<RevMark
 }
 
 /// Paragraph kind and list membership of a document paragraph.
-pub fn para_kind(doc: &Document, p: &Paragraph) -> (Kind, Option<ListInfo>) {
+pub fn para_kind(doc: &Document, p: &Paragraph) -> (Kind, Option<ListInfo>, bool) {
     let rp = doc.styles.resolve_para(&p.props);
     let style = p.props.style.as_deref().unwrap_or("Normal");
     let kind = if let Some(l) = rp.outline_level {
@@ -797,7 +809,7 @@ pub fn para_kind(doc: &Document, p: &Paragraph) -> (Kind, Option<ListInfo>) {
         let lv = doc.numbering.level(n.num, n.level)?;
         Some(ListInfo { ordered: !matches!(lv.format, NumFormat::Bullet | NumFormat::None), level: n.level.min(8) })
     });
-    (kind, list)
+    (kind, list, rp.bidi)
 }
 
 fn media_ext(key: &str, data: &[u8]) -> String {
@@ -820,12 +832,14 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
 /// [`flow_paras`]; `tracked` keeps tracked changes: deleted text stays, and text carries its
 /// insertion and deletion marks.
 fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
-    let (kind, list) = para_kind(doc, p);
+    let (kind, list, rtl) = para_kind(doc, p);
+
     let mut done: Vec<Para> = Vec::new();
     let mut out = Para {
         kind,
         list,
         align: p.props.align,
+        rtl,
         page_break: p.props.page_break_before.unwrap_or(false),
         inlines: Vec::new(),
         spacing: Spacing::default(),
@@ -854,6 +868,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         kind,
                         list: None,
                         align: p.props.align,
+                        rtl,
                         page_break: true,
                         inlines: Vec::new(),
                         spacing: Spacing::default(),
@@ -985,7 +1000,7 @@ fn flow_table(doc: &Document, t: &Table, depth: usize, tracked: bool) -> FTable 
     let visible = |b: &Option<wordcraft_doc::props::Borders>| b.as_ref().is_some_and(|b| b.any_visible());
     let borderless =
         t.props.style.is_none() && !visible(&t.props.borders) && t.rows.iter().flat_map(|r| &r.cells).all(|c| !visible(&c.props.borders));
-    FTable { rows, widths: t.grid.clone(), borderless }
+    FTable { rows, widths: t.grid.clone(), borderless, rtl: t.props.bidi_visual }
 }
 
 /// The document body as a flow.
@@ -1260,8 +1275,12 @@ mod tests {
     fn insert_covered_is_bounded_on_hostile_rowspan() {
         // Many rows each carrying the maximum rowspan would be O(rows × rowspan) covered cells;
         // the work cap must keep insertion bounded (and quick) instead of exhausting memory.
-        let mut t =
-            FTable { rows: (0..20_000).map(|_| vec![Cell { rowspan: 1000, ..Default::default() }]).collect(), widths: Vec::new(), borderless: false };
+        let mut t = FTable {
+            rows: (0..20_000).map(|_| vec![Cell { rowspan: 1000, ..Default::default() }]).collect(),
+            widths: Vec::new(),
+            borderless: false,
+            rtl: false,
+        };
         t.insert_covered();
         assert!(t.rows.iter().all(|r| r.len() <= 64), "a row grew past the column cap");
     }
@@ -1304,6 +1323,7 @@ mod tests {
             rows: vec![vec![Cell { rowspan: 2, ..Default::default() }, Cell::default()], vec![Cell::default()]],
             widths: vec![],
             borderless: false,
+            rtl: false,
         };
         t.insert_covered();
         assert_eq!(t.rows[1].len(), 2);

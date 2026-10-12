@@ -1221,6 +1221,12 @@ struct BoxLayout {
     last_top: f32,
 }
 
+/// The text area's left edge on the page: past the left margin and gutter, or, for a
+/// right-to-left section, with the gutter (binding side) on the right.
+pub fn body_x(s: &SectionProps) -> f32 {
+    if s.rtl { s.page_w - s.margin_right - s.gutter - s.text_width() } else { s.margin_left + s.gutter }
+}
+
 /// Where floating table `tl` goes in a box `width` wide whose next paragraph starts at `y`, and
 /// the area text keeps clear of. Positions relative to the page or its margins need the box's
 /// `frame`; without one (a table cell) they're relative to the box.
@@ -1259,7 +1265,9 @@ fn box_float_table_rect(
     };
     // Nor is there an area to align in: the table starts where the text is.
     let v_align = if frame.is_none() && matches!(f.v_rel, Anchor::Page | Anchor::Margin) { None } else { f.v_align };
-    let x = align_in(h_area, f.x, w, PageFrame::h_align(frame.as_ref(), f.h_align)) - if f.h_align.is_none() { legacy } else { 0.0 };
+    let align = PageFrame::h_align(frame.as_ref(), f.h_align);
+    let x = align_in(h_area, f.x, w, align);
+    let x = if f.h_align.is_none() { if tl.rtl { x + legacy - w } else { x - legacy } } else { x };
     let r = clear_of_float_tables(Rect::new(x, align_in(v_area, y_off, h, v_align), w, h), f, legacy, h_area.0, float_tables);
     let [dl, dt, dr, db] = f.dist_from_text();
     (r, r.inset(-dl, -dt, -dr, -db))
@@ -1690,7 +1698,7 @@ impl PageBuilder<'_> {
             return;
         }
         let total = self.notes_h();
-        let x = self.sect.margin_left + self.sect.gutter;
+        let x = body_x(self.sect);
         // The note area starts below the text (a page of continued notes alone: at its top).
         let area = self.bottom.max(self.body_floor());
         let fits = total <= self.orig_bottom - area + 0.01;
@@ -1743,8 +1751,9 @@ impl PageBuilder<'_> {
                 })),
                 None => {
                     let len = if cont { self.sect.text_width() } else { NOTE_SEP_W };
+                    let sx = if self.sect.rtl { x + self.sect.text_width() - len } else { x };
                     let sy = top + NOTE_SEP / 2.0;
-                    pg.items.push(Placed::Rule { x0: x, y0: sy, x1: x + len, y1: sy, border: Border::single(0.5) });
+                    pg.items.push(Placed::Rule { x0: sx, y0: sy, x1: sx + len, y1: sy, border: Border::single(0.5) });
                 }
             }
             for (n, ny) in placed {
@@ -1852,7 +1861,7 @@ impl PageBuilder<'_> {
         // A footer taller than the bottom margin pushes the body up (Word: no gap), leaving it at
         // least a little room.
         let bottom = (s.page_h - s.margin_bottom).min(self.foot_top.max(body_top + 36.0));
-        let body = Rect::new(s.margin_left + s.gutter, body_top, s.text_width(), (bottom - body_top).max(36.0));
+        let body = Rect::new(body_x(s), body_top, s.text_width(), (bottom - body_top).max(36.0));
         let mut decor = Vec::new();
         if !self.web {
             decor = page_border_rules(s);
@@ -1863,7 +1872,7 @@ impl PageBuilder<'_> {
                     if let [(ax, aw), (bx, bw)] = w {
                         // Midway across the space between neighbours (leftwards in an RTL section).
                         let mid = if bx >= ax { (ax + aw + bx) / 2.0 } else { (bx + bw + ax) / 2.0 };
-                        let x = s.margin_left + s.gutter + mid;
+                        let x = body_x(s) + mid;
                         decor.push(Placed::Rule { x0: x, y0: body_top, x1: x, y1: bottom, border: Border::single(0.5) });
                     }
                 }
@@ -1908,7 +1917,7 @@ impl PageBuilder<'_> {
         self.max_y.max(self.y)
     }
     fn col_x(&self) -> f32 {
-        self.sect.margin_left + self.sect.gutter + self.cols.get(self.col).map(|c| c.0).unwrap_or(0.0)
+        body_x(self.sect) + self.cols.get(self.col).map(|c| c.0).unwrap_or(0.0)
     }
     fn col_w(&self) -> f32 {
         self.cols.get(self.col).map(|c| c.1).unwrap_or_else(|| self.sect.text_width())
@@ -2624,7 +2633,7 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
     let Some(part) = ctx.doc.parts.get(&id) else { return sect.margin_top };
     let blocks = part.blocks.clone();
     // Placed as `headers_footers` draws it, so page-relative floats wrap the same way.
-    let frame = PageFrame { sect, origin: (sect.margin_left + sect.gutter, sect.header), number: 1, mirror: ctx.mirror };
+    let frame = PageFrame { sect, origin: (body_x(sect), sect.header), number: 1, mirror: ctx.mirror };
     let track = std::mem::replace(&mut ctx.track_totals, false);
     let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, Some(frame)).height;
     ctx.track_totals = track;
@@ -2666,7 +2675,7 @@ impl PageFrame<'_> {
     /// The widths of the page's left and right margins (the gutter is on the inside), and how
     /// far [`mirror_even_pages`] moves what is laid out on it.
     fn sides(&self) -> (f32, f32, f32) {
-        let (inside, outside) = (self.sect.margin_left + self.sect.gutter, self.sect.margin_right);
+        let (inside, outside) = (body_x(self.sect), if self.sect.rtl { self.sect.margin_left } else { self.sect.margin_right });
         let shift = outside - inside;
         if self.mirror && self.even() && shift.is_finite() { (outside, inside, shift) } else { (inside, outside, 0.0) }
     }
@@ -3664,7 +3673,7 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
         }
         // Too tall for a page: Word lets it run across pages like a table in the text, from its
         // own left edge.
-        tl.x = float_table_x(pb, tl.width, &f, legacy, ctx.mirror) - pb.col_x();
+        tl.x = float_table_x(pb, &tl, &f, legacy, ctx.mirror) - pb.col_x();
     }
     // A table in the text flow starts below the floating objects in its way.
     below_floats(pb, pb.col_x() + tl.x, pb.col_x() + tl.x + tl.width);
@@ -3800,7 +3809,7 @@ fn place_floating_table(pb: &mut PageBuilder, tl: &table::TableLayout, f: &Table
             Anchor::Margin => (s.margin_top, s.text_height()),
             _ => (pb.y, 0.0),
         };
-        let x = float_table_x(pb, w, f, legacy, mirror);
+        let x = float_table_x(pb, tl, f, legacy, mirror);
         let r = clear_of_float_tables(Rect::new(x, align_in(v_area, f.y, h, f.v_align), w, h), f, legacy, h_area.0, &pb.float_tables);
         // Like Word, a table that doesn't fit below the text before it moves to the next page with
         // its anchor: one placed relative to the paragraph when it would run off the page, one
@@ -3884,12 +3893,13 @@ fn float_table_h_area(pb: &PageBuilder, f: &TableFloat, mirror: bool) -> (f32, f
     }
 }
 
-/// A floating table's left edge on the page (`legacy`: the first cell's left margin before Word
-/// 2013 layout, when an offset places the cell's text).
-fn float_table_x(pb: &PageBuilder, w: f32, f: &TableFloat, legacy: f32, mirror: bool) -> f32 {
+/// A floating table's left edge on the page (`legacy`: the leading cell's margin before Word
+/// 2013 layout, when an offset places the cell's text; measured from the right for RTL tables).
+fn float_table_x(pb: &PageBuilder, tl: &table::TableLayout, f: &TableFloat, legacy: f32, mirror: bool) -> f32 {
+    let w = tl.width;
     let align = PageFrame::h_align(Some(&page_frame(pb, mirror)), f.h_align);
     let x = align_in(float_table_h_area(pb, f, mirror), f.x, w, align);
-    if f.h_align.is_none() { x - legacy } else { x }
+    if f.h_align.is_none() { if tl.rtl { x + legacy - w } else { x - legacy } } else { x }
 }
 
 /// Move `pb.y` below the floating objects in the way of something spanning `x0..x1` that
@@ -4053,7 +4063,7 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
             (ix.clone(), ix.page_at(paths, page.first_block))
         });
         let w = sect.text_width();
-        let x = sect.margin_left + sect.gutter;
+        let x = body_x(sect);
         if let Some(id) = hid
             && let Some(part) = ctx.doc.parts.get(&id)
         {

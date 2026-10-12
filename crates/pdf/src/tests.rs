@@ -787,6 +787,47 @@ fn synthetic_bold_text_is_extracted_once() {
 }
 
 #[test]
+fn rtl_table_cells_export_in_logical_order() {
+    // A right-to-left table mirrors its columns on the page, but the exported text layer keeps
+    // logical (document) order: the first cell's text comes first.
+    let mut d = Document::new();
+    let mut t = Table::new(1, 2, 400.0);
+    t.props.bidi_visual = true;
+    t.rows[0].cells[0].blocks = vec![para_block(Paragraph::with_text("first cell", CharProps::default()))];
+    t.rows[0].cells[1].blocks = vec![para_block(Paragraph::with_text("second cell", CharProps::default()))];
+    d.body = vec![Arc::new(Block::Table(t))];
+    let text = squash(&extract_text(&export(&d, &PdfOptions::default()).unwrap()).concat());
+    let (a, b) = (text.find("first cell"), text.find("second cell"));
+    assert!(matches!((a, b), (Some(a), Some(b)) if a < b), "logical order in the PDF text layer: {text:?}");
+}
+
+#[test]
+fn arabic_marks_extract_as_their_own_characters() {
+    // Base letters plus combining marks share one layout cluster: every glyph still maps to
+    // exactly one character (no .notdef gaps, no first-cluster reuse), in logical order.
+    for text in ["بَ", "بِسْمِ", "قال لا للسلام"] {
+        let mut d = Document::new();
+        d.body = vec![para_block(Paragraph::with_text(text, CharProps::default()))];
+        let bytes = export(&d, &PdfOptions::default()).unwrap();
+        let words = viewer_words(&bytes);
+        for expected_word in text.split_whitespace() {
+            assert!(words.iter().any(|w| w == expected_word), "word {expected_word:?} in {words:?}");
+        }
+    }
+    // A justified kashida paragraph extracts logically too.
+    let mut d = Document::new();
+    let mut j = Paragraph::with_text("بِسْمِ اللَّهِ ".repeat(8).trim_end(), CharProps::default());
+    j.props.bidi = Some(true);
+    j.props.align = Some(wordcraft_doc::props::Align::Justify);
+    j.props.kashida = Some(wordcraft_doc::props::Kashida::Medium);
+    d.body = vec![para_block(j)];
+    let bytes = export(&d, &PdfOptions::default()).unwrap();
+    let words = viewer_words(&bytes);
+    let word = "بِسْمِ";
+    assert!(words.iter().any(|w| w == word), "logical word {word:?} in: {words:?}");
+}
+
+#[test]
 fn turned_cell_text_exports_as_text() {
     // Table Layout › Text Direction (#226): turned cell text is drawn in a turned frame and
     // stays real text in the PDF.
