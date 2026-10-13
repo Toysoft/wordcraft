@@ -16,7 +16,6 @@ agent control. This page is the summary; the assessment is
 
 | Number | Value | Kind |
 |---|---|---|
-| 2026-10-13 | Styles gallery for DOCX files that mark no style `w:qFormat` (LibreOffice) shows Word's usual quick styles: Normal, No Spacing, Headings, Title, Subtitle… (#1238) |
 | Ribbon/menu catalog coverage | **487 / 502 (97.0%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
 | **Feature breadth** (weighted, incl. dialog options, styles, languages beyond the ribbon) | **~80%** | estimated |
 | **Ready for real work** (full target) | **~60%** (55–63%) | estimated, additive weighted sum over the dimensions |
