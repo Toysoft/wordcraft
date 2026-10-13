@@ -93,6 +93,7 @@ font can't match Word's metrics.
 | 2026-10-12 | trivial | Justified lines shrink their spaces by up to a quarter of their width, not a fifth, and only while that distorts them less than half as much as stretching them without the word would (measured in Word for Windows) |
 | 2026-10-12 | trivial | Paragraph borders take room above and below the text (distance plus width, a double line three widths), and a run of paragraphs with the same borders is spaced as one box (measured in Word for Windows) |
 | 2026-10-12 | trivial | Widow/orphan control moves a three-line paragraph whole when only two of its lines fit, instead of leaving its last line alone on the next page (measured in Word for Windows) |
+| 2026-10-13 | trivial | A missing Helvetica Neue is drawn with Arial (or its metric twin), as Word for Windows does, not with the default sans |
 | 2026-10-13 | trivial | A shape or picture dragged into another column anchors there, so the text in that column wraps around it (#884) |
 | 2026-10-13 | trivial | On a page with footnotes, a paragraph that ends there keeps its space after above the footnote separator; if it doesn't fit, its last line (and, with widow control, one more) goes to the next page with the note. Pages without notes are unchanged (#1116) |
 | 2026-10-12 | trivial | Spaces, tabs and ideographic spaces don't count toward a line's height, as in Word (a line of only them takes the paragraph mark's) |
