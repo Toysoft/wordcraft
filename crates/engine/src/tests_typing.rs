@@ -264,6 +264,9 @@ fn autocorrect_as_you_type() {
     // Fractions; "iPhone" and file names stay as typed.
     let s = typed("1/2 cup. iPhone. see readme.txt ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "½ cup. iPhone. See readme.txt ");
+    // Georgian has no sentence capitals (Mtavruli is only for all-caps text).
+    let s = typed("გამარჯობა. როგორ ხარ? ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "გამარჯობა. როგორ ხარ? ");
 }
 
 /// #835: the English replacement list applies only to English text. Polish "i" ("and") stays

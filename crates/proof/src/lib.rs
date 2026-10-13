@@ -67,6 +67,13 @@ impl Default for Options {
 
 pub use lang::ProofLang;
 
+/// Does `c` belong to a script that capitalises the first letter of sentences and titles?
+/// Georgian doesn't: Unicode maps Mkhedruli to Mtavruli capitals, but those are only for
+/// all-caps text, never for a sentence's first letter.
+pub fn capitalizes(c: char) -> bool {
+    !matches!(c, '\u{10A0}'..='\u{10FF}' | '\u{1C90}'..='\u{1CBF}' | '\u{2D00}'..='\u{2D2F}')
+}
+
 /// A problem found in text: byte range, kind, message and suggestions.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Issue {
@@ -685,7 +692,7 @@ pub fn check_grammar(text: &str) -> Vec<Issue> {
     let mut after_end = true;
     for (a, b) in &ws {
         let Some(w) = text.get(*a..*b) else { continue };
-        if after_end && w.chars().next().is_some_and(char::is_lowercase) && w.chars().all(char::is_alphabetic) {
+        if after_end && w.chars().next().is_some_and(|c| c.is_lowercase() && capitalizes(c)) && w.chars().all(char::is_alphabetic) {
             let fixed: String = w.chars().next().map(|f| f.to_uppercase().chain(w.chars().skip(1)).collect()).unwrap_or_default();
             v.push(Issue {
                 start: *a,
@@ -815,6 +822,8 @@ mod tests {
         assert!(msgs.iter().any(|m| m.contains("Capitalize")), "{msgs:?}");
         assert!(msgs.iter().any(|m| m.contains("Extra space")), "{msgs:?}");
         assert!(check_grammar("A university is an hour away.").is_empty(), "{:?}", check_grammar("A university is an hour away."));
+        // Georgian has no sentence capitals.
+        assert!(check_grammar("გამარჯობა. როგორ ხარ?").is_empty(), "{:?}", check_grammar("გამარჯობა. როგორ ხარ?"));
     }
 
     #[test]

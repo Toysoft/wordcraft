@@ -981,7 +981,7 @@ fn should_capitalize(word: &str, next: char) -> bool {
     if word == "e.g." || word == "i.e." {
         return true;
     }
-    word.chars().next().is_some_and(char::is_lowercase)
+    word.chars().next().is_some_and(|c| c.is_lowercase() && wordcraft_proof::capitalizes(c))
         && word.chars().all(|c| c.is_alphabetic() || "'’-.".contains(c))
         && !word.chars().any(char::is_uppercase)
         && !word.trim_end_matches('.').contains('.')
