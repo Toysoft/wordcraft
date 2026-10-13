@@ -320,6 +320,11 @@ fn main() -> eframe::Result {
             session.system_region = region;
             let mut app = WordApp::new(session, services(file_dialog, &cc.egui_ctx));
             load_prefs(&mut app);
+            if sample {
+                // The handbook in the interface language, now that the saved preference is known.
+                let lang = wordcraft_ui_egui::i18n::Lang::from_pref(&app.ui.language);
+                app.session.set_document(wordcraft_engine::sample::sample_document_in(lang.code()));
+            }
             load_user_dictionary(&mut app);
             // A region chosen in File › Options replaces the system's for the first blank
             // document too (#838).

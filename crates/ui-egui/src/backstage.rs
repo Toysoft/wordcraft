@@ -177,7 +177,7 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
             let mut s = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
             // The blank tile shows the region's paper (#838).
             s.system_region = region;
-            let _ = s.run("file.new", &json!({"template": template}));
+            let _ = s.run("file.new", &json!({"template": template, "lang": crate::i18n::current().code()}));
             let l = s.export_layout();
             let page = l.pages.first()?;
             let img = wordcraft_render::render_page(&s.doc, page, 150.0 / page.w * ppp, &crate::canvas::screen_render_options());
@@ -196,7 +196,7 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
         // The caption opens the template too, as in Word.
         let caption = ui.add(egui::Label::new(egui::RichText::new(tl!(label)).font(regular(12.5))).sense(Sense::click()));
         if resp.clicked() || caption.clicked() {
-            let _ = app.run("file.new", json!({"template": template}));
+            let _ = app.run("file.new", json!({"template": template, "lang": crate::i18n::current().code()}));
             app.ui.backstage = false;
             app.canvas.want_focus = true;
         }
