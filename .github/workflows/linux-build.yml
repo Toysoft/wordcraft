@@ -1,0 +1,86 @@
+name: WordCraft Linux Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Test and build WordCraft
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libgtk-3-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxinerama-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.90.0"
+
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run mini-toolbar tests
+        run: cargo test -p wordcraft-ui-egui mini_toolbar
+
+      - name: Check desktop application
+        run: cargo check --locked -p wordcraft
+
+      - name: Build desktop application
+        run: cargo build --locked --release -p wordcraft
+
+      - name: Package Linux executable
+        run: |
+          test -x target/release/wordcraft
+          mkdir -p dist
+          cp target/release/wordcraft dist/
+          tar -czf WordCraft-linux-x86_64.tar.gz -C dist wordcraft
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordCraft-linux-x86_64
+          path: WordCraft-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
