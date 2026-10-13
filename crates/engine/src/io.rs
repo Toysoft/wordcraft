@@ -415,6 +415,34 @@ pub fn write_file(path: &str, _bytes: &[u8]) -> Result<(), String> {
     Err(format!("{path}: files are saved through the browser on the web"))
 }
 
+/// True for a regular file with any execute bit set (any existing file off
+/// unix), for probing helper programs such as the TeX engines on PATH. The
+/// automation read root applies, as for any other read.
+pub fn file_is_executable(path: &std::path::Path) -> bool {
+    if crate::file_access::check_read(&path.to_string_lossy()).is_err() {
+        return false;
+    }
+    let Ok(meta) = std::fs::metadata(path) else { return false };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+/// Remove a worker scratch tree, best effort. Compiles stage their sources
+/// outside the document tree and always clean up after themselves.
+pub fn remove_scratch_dir(path: &std::path::Path) {
+    let _ = std::fs::remove_dir_all(path);
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn open_path_with(path: &std::path::Path, _password: Option<&str>) -> Result<(Document, bool), String> {
     Err(format!("{}: files are opened through the browser on the web", path.display()))

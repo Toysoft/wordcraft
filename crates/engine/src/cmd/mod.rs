@@ -43,6 +43,7 @@ pub mod table_mouse;
 pub mod table_resize;
 pub mod table_style;
 pub mod templates;
+pub mod tex;
 pub mod text;
 pub mod tools;
 pub mod view;
@@ -96,6 +97,7 @@ pub fn registry() -> Registry {
     v.extend(connectors::specs());
     v.extend(tools::specs());
     v.extend(templates::specs());
+    v.extend(tex::specs());
     v.extend(protect::specs());
     v.extend(speech::specs());
     v.extend(controls::specs());
