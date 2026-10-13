@@ -70,6 +70,7 @@ Document title opens Rename Document; the account badge opens Options › Genera
 | 2026-10-13 | trivial | Full screen (#980): View › Window › Full Screen and F11 (⌃⌘F on macOS), Escape leaves it once nothing else takes it (a selection collapses first); Next Field moves to Alt+F1; keyboard counts re-measured (152 commands, 172 combinations) |
 | 2026-10-14 | trivial | File dialogs: the system Save As type list names each format, the document's own first (#1399) |
 | 2026-10-12 | trivial | Web: a pasted picture inserts only when the page is the edit target (page focused; no dialog, Backstage or text field such as a comment or Find box taking input), once; otherwise it is ignored (#1349) |
+| 2026-10-13 | trivial | Crop handles on the canvas: Picture Format › Crop crop mode with handles, the cropped-away part dimmed, one undo step per drag; with the alignment guides, 50% → 75% |
 | 2026-10-13 | trivial | Mini toolbar: scrolled with its selection toward the ribbon (or the status bar), it slides under the rulers and ribbon with the text instead of drawing over them, and the part out of view takes no clicks |
 | 2026-10-12 | trivial | Mini toolbar: a click on the ribbon (or anywhere outside the document) puts it away until the selection changes, so it never covers the ribbon's drop-downs; it now draws below every popup and menu instead of over them |
 | 2026-10-13 | trivial | Cell Size Height/Width apply to the whole selection (#1242) |

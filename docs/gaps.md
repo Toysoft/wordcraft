@@ -74,7 +74,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
   equation puts MathML in HTML on the clipboard (#816; pasting into Word/LibreOffice not yet
   verified; OMML on the clipboard is #1297); only copies containing an equation get HTML,
   text-only copies stay plain text.
-- **UI/UX gaps:** #7, #18, #24; crop handles on the canvas (rotation handle landed, #332); context menus for objects (the table's landed; it still lacks Border Styles); Linux title bar theming (#78); File ›
+- **UI/UX gaps:** #7, #18, #24; context menus for objects (the table's landed; it still lacks Border Styles); Linux title bar theming (#78); File ›
   Options › Animation effects › Use system setting reads macOS (Reduce motion) and the Linux/BSD
   desktops (`apps/wordcraft/src/animations.rs`) but hasn't been tried on a Mac or in a real
   GNOME or KDE session yet.
@@ -99,6 +99,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 | 2026-10-14 | trivial | #19 narrowed: ODT import keeps sections (master-page changes, columned `text:section`s, page-numbering restarts) (#1379) |
 | 2026-10-14 | trivial | #16: PDF export writes right-to-left glyphs in visual order, so Hebrew and Arabic extract, copy and search as whole words (#1383) |
 | 2026-10-14 | trivial | RTF import keeps sections (#1378): gap 19 narrowed to RTF section export and ODT sections |
+| 2026-10-13 | trivial | Crop handles on the canvas landed: off the UI/UX gaps |
 | 2026-10-11 | trivial | Table column and row markers on the rulers landed (#700): the ruler's column markers are off the UI/UX gaps |
 | 2026-10-11 | trivial | UI/UX gaps: the table context menu landed, its items following the selection as in Word (Delete Cells, Rows, Columns or Table, Merge and Split Cells, Distribute, AutoFit, Text Direction, Insert Caption…, Table Properties…); objects' menus and Border Styles remain |
 | 2026-10-14 | trivial | #12 narrowed: Ink to Shape recognises single-stroke arrows |
