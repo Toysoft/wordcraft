@@ -21,6 +21,7 @@ font can't match Word's metrics.
 | Line breaking (UAX #14 with Word's exceptions: no break after `/`) | ✅ | `layout::tests::no_line_break_right_after_a_slash` | — |
 | Ligatures: none in Latin text unless asked for, like Word's default | 🟡 | `layout::tests::latin_text_forms_no_ligatures_by_default`; the per-run setting (`w14:ligatures`) isn't read yet, so text that asks for ligatures gets none | 1–2 |
 | Justification, Word 2013+ space shrinking (compat mode 15) | ✅ | #109 | — |
+| Justification, Word 2013+ space shrinking (compat mode 15) | ✅ | #109; spaces give up to a quarter of their width, and no more than half of what they would stretch without the word (`layout::tests::justified_spaces_shrink_by_up_to_a_quarter`, `justified_spaces_shrink_no_more_than_half_of_what_they_would_stretch`) | — |
 | Complex scripts (Myanmar, Khmer, Indic): shaped per script run with OpenType fallback fonts, one cluster per syllable, Myanmar wraps between syllables | 🟡 | `layout::tests_complex` (#604). Khmer, Thai and Lao still wrap only at spaces (need a dictionary) | 4–8 |
 | Kashida justification (Arabic) | ❌ | no kashida in `crates/layout` | 3–5 |
 | Distributed / Thai distributed alignment | 🟡 | read; layout untested | 1–2 |
@@ -84,6 +85,7 @@ font can't match Word's metrics.
 | 2026-10-12 | trivial | Latin text forms no standard ligatures by default, as in Word (measured in Word for Windows: each Calibri tt or ti pulled the rest of its line about 0.4 pt left) |
 | 2026-10-12 | trivial | Exact line spacing puts the baseline four-fifths of the way down the line, whatever the font and size (measured in Word for Windows) |
 | 2026-10-12 | trivial | A decimal tab puts the decimal point at the stop when its text ends the line (it was right-aligned there); measured in Word for Windows |
+| 2026-10-12 | trivial | Justified lines shrink their spaces by up to a quarter of their width, not a fifth, and only while that distorts them less than half as much as stretching them without the word would (measured in Word for Windows) |
 | 2026-10-13 | trivial | A shape or picture dragged into another column anchors there, so the text in that column wraps around it (#884) |
 | 2026-10-13 | trivial | On a page with footnotes, a paragraph that ends there keeps its space after above the footnote separator; if it doesn't fit, its last line (and, with widow control, one more) goes to the next page with the note. Pages without notes are unchanged (#1116) |
 | 2026-10-12 | trivial | Spaces, tabs and ideographic spaces don't count toward a line's height, as in Word (a line of only them takes the paragraph mark's) |
