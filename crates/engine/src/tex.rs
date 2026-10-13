@@ -221,6 +221,11 @@ pub struct TexState {
     pub compiled_revision: Option<u64>,
     /// Structured log entries from the last published compile.
     pub diagnostics: Vec<TexDiagnostic>,
+    /// Cite keys parsed from the bibliography beside the source: completion
+    /// data for `tex.bibKeys`, refreshed on open, explicit load and compile.
+    pub bib_keys: Vec<BibEntry>,
+    /// The bibliography file the keys came from, when one was loaded.
+    pub bib_path: Option<PathBuf>,
     /// Compile generation: each started compile takes the next number, and
     /// only the newest generation may publish, so superseded results die.
     pub compile_generation: u64,
@@ -279,6 +284,568 @@ pub fn compile_argv(engine: &TexEngine, source: &Path, outdir: &Path) -> Result<
     args.push(outdir.to_string_lossy().into_owned());
     args.push(source.to_string_lossy().into_owned());
     Ok((program, args))
+}
+
+// Bibliography and multi-file includes: cite keys plus staging.
+//
+// A `.bib` beside the `.tex` feeds `tex.bibKeys` (parsed here, never through
+// a worker) and is staged into the compile scratch so the engine resolves
+// `\cite`. `\input`/`\include` targets are resolved strictly inside the
+// document directory: absolute paths and `..` escapes are clean errors, never
+// reads outside the tree. Everything here is hostile-input safe: unbalanced
+// braces, NULs and absurd sizes cost entries, never panics.
+
+/// Largest `.bib` file parsed (bytes).
+pub const MAX_BIB_BYTES: usize = 4 << 20;
+/// Most bibliography files staged for one compile.
+pub const MAX_BIB_FILES: usize = 16;
+/// Most cite keys kept from the staged bibliographies.
+pub const MAX_BIB_ENTRIES: usize = 5_000;
+/// Longest cite key kept (bytes).
+pub const MAX_BIB_KEY_LEN: usize = 256;
+/// Most `\input`/`\include` files staged for one compile.
+pub const MAX_INCLUDE_FILES: usize = 64;
+/// Deepest `\input`/`\include` nesting followed.
+pub const MAX_INCLUDE_DEPTH: usize = 8;
+/// Largest single included `.tex` staged (bytes).
+pub const MAX_INCLUDE_BYTES: u64 = 4 << 20;
+/// Longest include/bibliography name honoured (bytes).
+pub const MAX_INCLUDE_NAME: usize = 1024;
+
+/// One BibTeX entry's cite key for completion.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BibEntry {
+    pub key: String,
+    pub entry_type: String,
+}
+
+/// Skip ASCII whitespace from `pos`.
+fn bib_skip_ws(bytes: &[u8], mut pos: usize) -> usize {
+    while pos < bytes.len() && matches!(bytes[pos], b' ' | b'\t' | b'\r' | b'\n') {
+        pos += 1;
+    }
+    pos
+}
+
+/// Entry types that define no cite key.
+fn bib_is_keyless(kind: &str) -> bool {
+    matches!(kind, "string" | "preamble" | "comment")
+}
+
+/// A cite key is valid when it is short, non-empty and holds none of BibTeX's
+/// structural characters or whitespace.
+fn bib_key_valid(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= MAX_BIB_KEY_LEN
+        && key.bytes().all(|b| !b.is_ascii_whitespace() && !matches!(b, b'"' | b'#' | b'\'' | b'(' | b')' | b',' | b'=' | b'{' | b'}' | b'%'))
+}
+
+/// Parse BibTeX entries into cite keys for completion. Hostile entries
+/// (unbalanced braces, empty or malformed keys, `@string`/`@preamble` noise)
+/// are skipped and parsing resumes at the next `@`, so one bad entry never
+/// hides the rest. Duplicate keys keep their first occurrence.
+pub fn parse_bibtex(text: &str) -> Vec<BibEntry> {
+    let bytes = text.as_bytes();
+    let mut out: Vec<BibEntry> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut pos = 0usize;
+    while pos < bytes.len() && out.len() < MAX_BIB_ENTRIES {
+        let Some(rel) = bytes[pos..].iter().position(|&b| b == b'@') else { break };
+        pos += rel;
+        let start = pos;
+        pos += 1;
+        let type_start = bib_skip_ws(bytes, pos);
+        let mut type_end = type_start;
+        while type_end < bytes.len() && bytes[type_end].is_ascii_alphabetic() {
+            type_end += 1;
+        }
+        if type_end == type_start {
+            pos = start + 1;
+            continue;
+        }
+        let kind = bytes.get(type_start..type_end).and_then(|s| std::str::from_utf8(s).ok()).map(str::to_ascii_lowercase).unwrap_or_default();
+        if kind.is_empty() {
+            pos = start + 1;
+            continue;
+        }
+        pos = bib_skip_ws(bytes, type_end);
+        if bytes.get(pos) != Some(&b'{') && bytes.get(pos) != Some(&b'(') {
+            pos = start + 1;
+            continue;
+        }
+        let open = bytes[pos];
+        let close = if open == b'{' { b'}' } else { b')' };
+        pos += 1;
+        // The cite key runs to the first comma or the closing delimiter.
+        let key_start = bib_skip_ws(bytes, pos);
+        let mut key_end = key_start;
+        while key_end < bytes.len() && bytes[key_end] != b',' && bytes[key_end] != close {
+            if key_end - key_start > MAX_BIB_KEY_LEN + 64 {
+                break;
+            }
+            key_end += 1;
+        }
+        let key = bytes.get(key_start..key_end).and_then(|s| std::str::from_utf8(s).ok()).map(str::trim).unwrap_or_default();
+        if bytes.get(key_end) == Some(&b',') {
+            pos = key_end + 1;
+        } else {
+            pos = key_end;
+        }
+        let valid_key = bib_key_valid(key);
+        // Skip the entry body, balancing the outer delimiter with awareness
+        // of `"..."` strings and `%` comments so braces inside them never
+        // miscount. An unbalanced body discards the entry and resumes at the
+        // next `@` so later valid entries still parse.
+        let mut depth = 1usize;
+        let mut in_quote = false;
+        let mut escaped = false;
+        let mut commented = false;
+        let mut closed = false;
+        while pos < bytes.len() {
+            let b = bytes[pos];
+            if b == b'\n' {
+                commented = false;
+                escaped = false;
+                pos += 1;
+                continue;
+            }
+            if commented {
+                pos += 1;
+                continue;
+            }
+            if in_quote {
+                if escaped {
+                    escaped = false;
+                } else if b == b'\\' {
+                    escaped = true;
+                } else if b == b'"' {
+                    in_quote = false;
+                }
+                pos += 1;
+                continue;
+            }
+            if b == b'%' {
+                commented = true;
+                pos += 1;
+                continue;
+            }
+            if b == b'"' {
+                in_quote = true;
+                pos += 1;
+                continue;
+            }
+            if b == open {
+                depth += 1;
+            } else if b == close {
+                depth -= 1;
+                if depth == 0 {
+                    closed = true;
+                    pos += 1;
+                    break;
+                }
+            }
+            pos += 1;
+        }
+        if !closed {
+            if let Some(next) = bytes[start + 1..].iter().position(|&b| b == b'@') {
+                pos = start + 1 + next;
+            } else {
+                break;
+            }
+            continue;
+        }
+        if valid_key && !bib_is_keyless(&kind) && seen.insert(key.to_string()) {
+            out.push(BibEntry { key: key.to_string(), entry_type: kind });
+        }
+    }
+    out
+}
+
+/// Strip TeX comments: an unescaped `%` (an even backslash run protects it,
+/// so `\\%` starts a comment but `\%` does not) drops to end of line.
+fn strip_tex_comments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut backslashes = 0usize;
+    let mut commented = false;
+    for ch in text.chars() {
+        if ch == '\n' {
+            commented = false;
+            backslashes = 0;
+            out.push(ch);
+            continue;
+        }
+        if commented {
+            continue;
+        }
+        if ch == '%' && backslashes.is_multiple_of(2) {
+            commented = true;
+            continue;
+        }
+        if ch == '\\' {
+            backslashes += 1;
+        } else {
+            backslashes = 0;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Scan one control word's argument: `{braced}` form, or the bare `\input f`
+/// space form otherwise. Returns the name and the position after it.
+fn scan_tex_arg(bytes: &[u8], from: usize, braced: bool) -> Option<(String, usize)> {
+    if braced {
+        let mut end = from + 1;
+        while end < bytes.len() && bytes[end] != b'}' && end - (from + 1) < 2048 {
+            end += 1;
+        }
+        if bytes.get(end) != Some(&b'}') {
+            return None;
+        }
+        let name = String::from_utf8_lossy(bytes.get(from + 1..end).unwrap_or_default()).trim().to_string();
+        Some((name, end + 1))
+    } else {
+        let mut end = from;
+        while end < bytes.len() && !matches!(bytes[end], b' ' | b'\t' | b'\r' | b'\n' | b'{') && end - from < 2048 {
+            end += 1;
+        }
+        let name = String::from_utf8_lossy(bytes.get(from..end).unwrap_or_default()).trim().to_string();
+        Some((name, end.max(from + 1)))
+    }
+}
+
+/// Control-word arguments (`\input`, `\include`, `\bibliography`,
+/// `\addbibresource`) in source order. Comments are stripped first so
+/// commented-out names never stage. Capped at `cap`; overlong names are kept
+/// for [`resolve_include`] to refuse with a clean error.
+fn find_tex_args(source: &[u8], words: &[&str], cap: usize) -> Vec<String> {
+    let text = strip_tex_comments(&String::from_utf8_lossy(source));
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() && out.len() < cap {
+        if bytes[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < bytes.len() && bytes[j].is_ascii_alphabetic() {
+            j += 1;
+        }
+        if j == i + 1 {
+            i += 1;
+            continue;
+        }
+        let word = bytes.get(i + 1..j).unwrap_or_default();
+        if !words.iter().any(|w| word == w.as_bytes()) {
+            i = j;
+            continue;
+        }
+        let is_bib = words.contains(&"bibliography");
+        let mut k = j;
+        while k < bytes.len() && matches!(bytes[k], b' ' | b'\t' | b'\r' | b'\n') {
+            k += 1;
+        }
+        if k >= bytes.len() {
+            break;
+        }
+        let braced = bytes[k] == b'{';
+        if !braced && is_bib {
+            // `\bibliography` without braces names no bibliography list.
+            i = k + 1;
+            continue;
+        }
+        match scan_tex_arg(bytes, k, braced) {
+            Some((name, next)) => {
+                i = next;
+                if name.is_empty() {
+                    continue;
+                }
+                if is_bib {
+                    for part in name.split(',') {
+                        if out.len() >= cap {
+                            break;
+                        }
+                        let trimmed = part.trim();
+                        if !trimmed.is_empty() {
+                            out.push(trimmed.to_string());
+                        }
+                    }
+                } else {
+                    out.push(name);
+                }
+            }
+            None => {
+                i = k + 1;
+            }
+        }
+    }
+    out
+}
+
+/// `\input`/`\include` targets (brace form plus the `\input file` space form)
+/// in source order.
+pub fn find_tex_includes(source: &[u8]) -> Vec<String> {
+    find_tex_args(source, &["input", "include"], MAX_INCLUDE_FILES)
+}
+
+/// `\bibliography{a,b}` and biblatex `\addbibresource{file.bib}` targets in
+/// source order (comma-split, trimmed).
+pub fn find_bibliography_names(source: &[u8]) -> Vec<String> {
+    find_tex_args(source, &["bibliography", "addbibresource"], MAX_BIB_FILES)
+}
+
+/// Shorten a requested name for error messages (char-boundary safe).
+fn short_tex_name(req: &str) -> String {
+    const MAX: usize = 80;
+    if req.len() <= MAX {
+        return req.to_string();
+    }
+    let mut cut = MAX;
+    while cut > 0 && !req.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}...", req.get(..cut).unwrap_or_default())
+}
+
+/// Resolve one `\input`/`\include`/`\bibliography` name strictly inside
+/// `doc_dir`. Absolute paths, Windows drives, `~` roots and any `..`
+/// component (slash or backslash) are refused with a clean error; the join
+/// can never name a file outside the document directory.
+pub fn resolve_include(doc_dir: &Path, requested: &str) -> Result<PathBuf, String> {
+    let req = requested.trim();
+    if req.is_empty() {
+        return Err("TeX include path is empty".to_string());
+    }
+    if req.len() > MAX_INCLUDE_NAME {
+        return Err(format!("TeX include path is over the {MAX_INCLUDE_NAME} byte limit"));
+    }
+    if req.contains('\0') {
+        return Err("TeX include path contains NUL".to_string());
+    }
+    let raw = req.as_bytes();
+    if matches!(raw.first(), Some(b'/') | Some(b'\\') | Some(b'~')) {
+        return Err(format!("TeX include `{}` is absolute: includes stay inside the document directory", short_tex_name(req)));
+    }
+    if raw.len() >= 2 && raw[1] == b':' && raw[0].is_ascii_alphabetic() {
+        return Err(format!("TeX include `{}` is absolute: includes stay inside the document directory", short_tex_name(req)));
+    }
+    let mut kept: Vec<&str> = Vec::new();
+    for comp in req.split(['/', '\\']) {
+        if comp.is_empty() || comp == "." {
+            continue;
+        }
+        if comp == ".." {
+            return Err(format!("TeX include `{}` escapes the document directory", short_tex_name(req)));
+        }
+        kept.push(comp);
+    }
+    if kept.is_empty() {
+        return Err("TeX include path is empty".to_string());
+    }
+    let mut out = doc_dir.to_path_buf();
+    for comp in kept {
+        out.push(comp);
+    }
+    Ok(out)
+}
+
+/// BibTeX/bibliography log lines: unresolved citations and BibTeX failures.
+/// Runs after the generic shapes so already-parsed lines are never doubled.
+fn parse_bib_line(line: &str, revision: u64) -> Option<TexDiagnostic> {
+    let lower = line.to_ascii_lowercase();
+    let citation = lower.contains("citation") && (lower.contains("undefined") || lower.contains("missing"));
+    let bibtex_warn = lower.contains("i didn't find a database entry")
+        || lower.contains("i found no \\citation")
+        || lower.contains("empty bibliography")
+        || lower.contains("there were undefined citations");
+    if citation || bibtex_warn {
+        let message = cap_message(line);
+        if message.is_empty() {
+            return None;
+        }
+        return Some(TexDiagnostic { file: String::new(), line: parse_input_line(line), severity: TexSeverity::Warning, message, revision });
+    }
+    let bibtex_fail = lower.contains("bibtex")
+        && (lower.contains("error")
+            || lower.contains("failed")
+            || lower.contains("not found")
+            || lower.contains("couldn't open")
+            || lower.contains("could not open"));
+    if bibtex_fail {
+        let message = cap_message(line);
+        if message.is_empty() {
+            return None;
+        }
+        return Some(TexDiagnostic { file: String::new(), line: parse_input_line(line), severity: TexSeverity::Error, message, revision });
+    }
+    None
+}
+
+/// One compile's staged sidecar: what the scratch dir holds besides main.tex.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct StagedInputs {
+    /// A `.bib` was staged: the engine resolves `\cite`.
+    pub has_bib: bool,
+    /// Staged `\input`/`\include` files.
+    pub includes: usize,
+    /// Staged bibliography file names.
+    pub bibs: Vec<String>,
+    /// Merged cite keys from the staged bibliographies.
+    pub bib_keys: Vec<BibEntry>,
+}
+
+/// Read one resolved sidecar file through the io gateway. A name without an
+/// extension also tries `name.<fallback>` (`\input{chapter1}` finds
+/// `chapter1.tex`; `\bibliography{refs}` finds `refs.bib`).
+#[cfg(not(target_arch = "wasm32"))]
+fn read_sidecar_file(resolved: &Path, what: &str, max: u64, fallback: &str) -> Result<(PathBuf, Vec<u8>), String> {
+    let direct = resolved.to_string_lossy().into_owned();
+    match crate::io::read_file_capped(&direct, max, what) {
+        Ok(bytes) => Ok((resolved.to_path_buf(), bytes)),
+        Err(first) => {
+            if resolved.extension().is_none() {
+                let with_ext = resolved.with_extension(fallback);
+                if let Ok(bytes) = crate::io::read_file_capped(&with_ext.to_string_lossy(), max, what) {
+                    return Ok((with_ext, bytes));
+                }
+            }
+            Err(first)
+        }
+    }
+}
+
+/// Stage one bibliography's bytes under `rel`: write it, record its name and
+/// merge its cite keys. Duplicates (same relative path) stage once.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::too_many_arguments)]
+fn stage_bib_bytes(
+    scratch: &Path,
+    staged: &mut std::collections::HashSet<PathBuf>,
+    bibs: &mut Vec<String>,
+    bib_keys: &mut Vec<BibEntry>,
+    seen_keys: &mut std::collections::HashSet<String>,
+    rel: PathBuf,
+    bytes: Vec<u8>,
+    display: &str,
+) -> Result<(), String> {
+    if bibs.len() >= MAX_BIB_FILES {
+        return Err(format!("TeX document stages more than {MAX_BIB_FILES} bibliographies"));
+    }
+    if !staged.insert(rel.clone()) {
+        return Ok(());
+    }
+    if let Some(parent) = rel.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        std::fs::create_dir_all(scratch.join(parent)).map_err(|e| format!("could not make scratch dir: {e}"))?;
+    }
+    crate::io::write_file(&scratch.join(&rel).to_string_lossy(), &bytes).map_err(|e| format!("could not stage bibliography `{display}`: {e}"))?;
+    if let Some(name) = rel.file_name().and_then(|s| s.to_str()) {
+        bibs.push(name.to_string());
+    }
+    for entry in parse_bibtex(&String::from_utf8_lossy(&bytes)) {
+        if seen_keys.insert(entry.key.clone()) {
+            bib_keys.push(entry);
+        }
+    }
+    Ok(())
+}
+
+/// Stage `\input`/`\include` files and `.bib` files into the scratch dir,
+/// preserving their layout relative to the document directory. Reads go
+/// through the io gateway (automation roots apply); the scratch tree itself
+/// is worker temp, like [`new_scratch`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn stage_compile_inputs(source_path: &Path, source_bytes: &[u8], scratch: &Path, stored_bib: Option<&Path>) -> Result<StagedInputs, String> {
+    let doc_dir: PathBuf = match source_path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        Some(dir) => dir.to_path_buf(),
+        None => PathBuf::from("."),
+    };
+    let mut staged: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut includes = 0usize;
+    let mut bib_names: Vec<String> = Vec::new();
+    // Includes breadth-first: each staged file contributes its own nested
+    // targets until the depth and total caps bite.
+    let mut work: Vec<(String, usize)> = find_tex_includes(source_bytes).into_iter().map(|name| (name, 0)).collect();
+    while let Some((name, depth)) = work.pop() {
+        if includes >= MAX_INCLUDE_FILES {
+            return Err(format!("TeX document includes more than {MAX_INCLUDE_FILES} files"));
+        }
+        let resolved = resolve_include(&doc_dir, &name)?;
+        let (actual, bytes) = read_sidecar_file(&resolved, "TeX include", MAX_INCLUDE_BYTES, "tex")
+            .map_err(|e| format!("could not read TeX include `{}`: {e}", short_tex_name(&name)))?;
+        let rel = actual
+            .strip_prefix(&doc_dir)
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|_| actual.file_name().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("include.tex")));
+        if !staged.insert(rel.clone()) {
+            continue;
+        }
+        if let Some(parent) = rel.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+            std::fs::create_dir_all(scratch.join(parent)).map_err(|e| format!("could not make scratch dir: {e}"))?;
+        }
+        crate::io::write_file(&scratch.join(&rel).to_string_lossy(), &bytes)
+            .map_err(|e| format!("could not stage TeX include `{}`: {e}", short_tex_name(&name)))?;
+        includes += 1;
+        let nested = find_tex_includes(&bytes);
+        if !nested.is_empty() && depth >= MAX_INCLUDE_DEPTH {
+            return Err(format!("TeX includes nest deeper than {MAX_INCLUDE_DEPTH} levels"));
+        }
+        for next in nested {
+            work.push((next, depth + 1));
+        }
+        bib_names.extend(find_bibliography_names(&bytes));
+    }
+    bib_names.extend(find_bibliography_names(source_bytes));
+    // Bibliographies: the same-stem file rides along when present; a
+    // `\bibliography` name that is missing is an error rather than a
+    // cryptic engine failure.
+    let mut bibs: Vec<String> = Vec::new();
+    let mut bib_keys: Vec<BibEntry> = Vec::new();
+    let mut seen_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut wanted: Vec<(String, bool)> = Vec::new();
+    if let Some(stem) = source_path.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()) {
+        wanted.push((format!("{stem}.bib"), false));
+    }
+    for name in bib_names {
+        wanted.push((name, true));
+    }
+    for (name, required) in wanted {
+        let resolved = match resolve_include(&doc_dir, &name) {
+            Ok(path) => path,
+            Err(e) => {
+                if required {
+                    return Err(format!("\\bibliography{{{n}}}: {e}", n = short_tex_name(&name)));
+                }
+                continue;
+            }
+        };
+        match read_sidecar_file(&resolved, "bibliography", MAX_BIB_BYTES as u64, "bib") {
+            Ok((actual, bytes)) => {
+                let rel = actual
+                    .strip_prefix(&doc_dir)
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|_| actual.file_name().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("refs.bib")));
+                stage_bib_bytes(scratch, &mut staged, &mut bibs, &mut bib_keys, &mut seen_keys, rel, bytes, &short_tex_name(&name))?;
+            }
+            Err(e) => {
+                if required {
+                    return Err(format!("could not read TeX bibliography `{}`: {e}", short_tex_name(&name)));
+                }
+            }
+        }
+    }
+    // An explicitly loaded bibliography may live outside the document
+    // directory: stage it flat under its file name, best effort.
+    if let Some(path) = stored_bib {
+        let path_str = path.to_string_lossy().into_owned();
+        if let Ok(bytes) = crate::io::read_file_capped(&path_str, MAX_BIB_BYTES as u64, "bibliography")
+            && let Some(file) = path.file_name().map(PathBuf::from)
+        {
+            let display = short_tex_name(&path_str);
+            let _ = stage_bib_bytes(scratch, &mut staged, &mut bibs, &mut bib_keys, &mut seen_keys, file, bytes, &display);
+        }
+    }
+    Ok(StagedInputs { has_bib: !bibs.is_empty(), includes, bibs, bib_keys })
 }
 
 /// What a guarded worker run produced.
@@ -363,6 +930,13 @@ pub fn find_rasterizer(explicit: Option<&Path>) -> Option<PathBuf> {
     dirs.iter().map(|d| d.join("pdftoppm")).find(|p| is_executable_file(p))
 }
 
+/// `bibtex` from PATH for the pdfTeX multi-pass, if one is executable. Like
+/// [`find_rasterizer`]: probing only, never spawning (wasm-safe).
+pub fn find_bibtex() -> Option<PathBuf> {
+    let dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|v| std::env::split_paths(&v).collect()).unwrap_or_default();
+    dirs.iter().map(|d| d.join("bibtex")).find(|p| is_executable_file(p))
+}
+
 /// First PDF page as PNG via the rasterizer (pdftoppm one-shot arguments).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn rasterize_pdf(rasterizer: &Path, pdf: &Path, prefix: &Path, timeout: Duration) -> Result<Vec<u8>, String> {
@@ -398,8 +972,17 @@ pub fn rasterize_pdf(_rasterizer: &Path, _pdf: &Path, _prefix: &Path, _timeout: 
 /// Compile one source file with an explicit engine: run the worker, pick up
 /// the same-stem PDF from the outdir, rasterize page one for the preview.
 /// Never touches the document model; the caller owns scratch cleanup.
+///
+/// Tectonic needs no extra flag for bibliographies: its default pass already
+/// runs BibTeX and reruns to resolve `\cite` (forcing `--pass bibtex_first`
+/// fails cold builds with `couldn't open main.aux`, because no `.aux` exists
+/// yet). The pdfTeX engines get an explicit multi-pass below when a `.bib`
+/// was staged.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn compile_tex(source_file: &Path, outdir: &Path, engine: &TexEngine, rasterizer: Option<&Path>, timeout: Duration) -> TexCompile {
+pub fn compile_tex(source_file: &Path, outdir: &Path, engine: &TexEngine, rasterizer: Option<&Path>, timeout: Duration, has_bib: bool) -> TexCompile {
+    if has_bib && matches!(engine, TexEngine::PdfLatex(_) | TexEngine::XeLatex(_)) {
+        return compile_pdftex_multi(source_file, outdir, engine, rasterizer, timeout);
+    }
     let name = engine.name().to_string();
     let fail = |log: String| TexCompile {
         engine: name.clone(),
@@ -421,10 +1004,37 @@ pub fn compile_tex(source_file: &Path, outdir: &Path, engine: &TexEngine, raster
     };
     let mut raw = outcome.stdout;
     raw.extend_from_slice(&outcome.stderr);
+    publish_outputs(source_file, outdir, &name, raw, outcome.timed_out, outcome.code, rasterizer, timeout)
+}
+
+/// Publish one finished worker run: cap the log, pick up the same-stem PDF
+/// and SyncTeX sidecar from the outdir, rasterize page one for the preview.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::too_many_arguments)]
+fn publish_outputs(
+    source_file: &Path,
+    outdir: &Path,
+    engine_name: &str,
+    raw: Vec<u8>,
+    timed_out: bool,
+    code: Option<i32>,
+    rasterizer: Option<&Path>,
+    timeout: Duration,
+) -> TexCompile {
+    let complete = |success: bool, timed_out: bool, log: String, pdf: Option<Vec<u8>>| TexCompile {
+        engine: engine_name.to_string(),
+        success,
+        timed_out,
+        log,
+        pdf,
+        preview_png: None,
+        synctex: None,
+        revision: 0,
+    };
     let mut log = cap_log_bytes(&raw);
-    if outcome.timed_out {
+    if timed_out {
         log.push_str(" [killed: wall clock expired]");
-        return TexCompile { engine: name, success: false, timed_out: true, log, pdf: None, preview_png: None, synctex: None, revision: 0 };
+        return complete(false, true, log, None);
     }
     let stem = source_file.file_stem().and_then(|s| s.to_str()).unwrap_or("main");
     let pdf_path = outdir.join(format!("{stem}.pdf"));
@@ -433,16 +1043,18 @@ pub fn compile_tex(source_file: &Path, outdir: &Path, engine: &TexEngine, raster
         _ => None,
     };
     let synctex = [format!("{stem}.synctex.gz"), format!("{stem}.synctex")].iter().find_map(|name| {
-        let p = outdir.join(name);
-        match std::fs::metadata(&p) {
-            Ok(m) if m.is_file() && m.len() <= crate::synctex::MAX_SYNCTEX_BYTES && m.len() > 0 => std::fs::read(&p).ok().filter(|b| !b.is_empty()),
+        let candidate = outdir.join(name);
+        match std::fs::metadata(&candidate) {
+            Ok(m) if m.is_file() && m.len() <= crate::synctex::MAX_SYNCTEX_BYTES && m.len() > 0 => {
+                std::fs::read(&candidate).ok().filter(|b| !b.is_empty())
+            }
             _ => None,
         }
     });
-    if outcome.code != Some(0) && pdf.is_none() {
-        return TexCompile { engine: name, success: false, timed_out: false, log, pdf: None, preview_png: None, synctex: None, revision: 0 };
+    if code != Some(0) && pdf.is_none() {
+        return complete(false, false, log, None);
     }
-    let success = !outcome.timed_out && pdf.is_some();
+    let success = pdf.is_some();
     let preview_png = match (&pdf, find_rasterizer(rasterizer)) {
         (Some(_), Some(r)) => match rasterize_pdf(&r, &pdf_path, &outdir.join("preview"), timeout) {
             Ok(png) => Some(png),
@@ -455,11 +1067,89 @@ pub fn compile_tex(source_file: &Path, outdir: &Path, engine: &TexEngine, raster
         },
         _ => None,
     };
-    TexCompile { engine: name, success, timed_out: outcome.timed_out, log, pdf, preview_png, synctex, revision: 0 }
+    TexCompile { engine: engine_name.to_string(), success, timed_out: false, log, pdf, preview_png, synctex, revision: 0 }
+}
+
+/// pdfTeX/XeTeX with a bibliography: engine, BibTeX, engine, engine, sharing
+/// one wall-clock budget. A missing `bibtex` binary (or a failing BibTeX run)
+/// is a log note, not a hard error: the reruns still resolve plain labels.
+#[cfg(not(target_arch = "wasm32"))]
+fn compile_pdftex_multi(source_file: &Path, outdir: &Path, engine: &TexEngine, rasterizer: Option<&Path>, timeout: Duration) -> TexCompile {
+    let name = engine.name().to_string();
+    let fail = |log: String| TexCompile {
+        engine: name.clone(),
+        success: false,
+        timed_out: false,
+        log,
+        pdf: None,
+        preview_png: None,
+        synctex: None,
+        revision: 0,
+    };
+    let (program, args) = match compile_argv(engine, source_file, outdir) {
+        Ok(v) => v,
+        Err(e) => return fail(e),
+    };
+    // One budget split across the four passes (at least a second each, so a
+    // tiny caller timeout still runs every pass once).
+    let per_pass = (timeout / 4).max(Duration::from_secs(1));
+    let outcome = match run_guarded(&program, &args, per_pass) {
+        Ok(o) => o,
+        Err(e) => return fail(e),
+    };
+    let mut raw = outcome.stdout;
+    raw.extend_from_slice(&outcome.stderr);
+    if outcome.timed_out {
+        return publish_outputs(source_file, outdir, &name, raw, true, None, rasterizer, timeout);
+    }
+    if let Some(bibtex) = find_bibtex() {
+        let stem = source_file.file_stem().and_then(|s| s.to_str()).unwrap_or("main");
+        let bib_args = vec![outdir.join(stem).to_string_lossy().into_owned()];
+        match run_guarded(&bibtex, &bib_args, per_pass) {
+            Ok(o) => {
+                raw.extend_from_slice(b"\n--- TeX citation pass ---\n");
+                raw.extend_from_slice(&o.stdout);
+                raw.extend_from_slice(&o.stderr);
+                if o.timed_out {
+                    return publish_outputs(source_file, outdir, &name, raw, true, None, rasterizer, timeout);
+                }
+            }
+            Err(e) => {
+                raw.extend_from_slice(format!("\n--- TeX citation pass not run: {e} ---\n").as_bytes());
+            }
+        }
+    } else {
+        raw.extend_from_slice(b"\n--- TeX citation pass skipped: no bibliography processor on PATH ---\n");
+    }
+    let mut code = outcome.code;
+    for _ in 0..2 {
+        match run_guarded(&program, &args, per_pass) {
+            Ok(o) => {
+                raw.extend_from_slice(&o.stdout);
+                raw.extend_from_slice(&o.stderr);
+                if o.timed_out {
+                    return publish_outputs(source_file, outdir, &name, raw, true, None, rasterizer, timeout);
+                }
+                code = o.code;
+            }
+            Err(e) => {
+                raw.extend_from_slice(format!("\n--- TeX rerun not run: {e} ---\n").as_bytes());
+                break;
+            }
+        }
+    }
+    publish_outputs(source_file, outdir, &name, raw, false, code, rasterizer, timeout)
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn compile_tex(source_file: &Path, _outdir: &Path, engine: &TexEngine, _rasterizer: Option<&Path>, _timeout: Duration) -> TexCompile {
+pub fn compile_tex(
+    source_file: &Path,
+    _outdir: &Path,
+    engine: &TexEngine,
+    _rasterizer: Option<&Path>,
+    _timeout: Duration,
+    _has_bib: bool,
+) -> TexCompile {
     let _ = source_file;
     TexCompile {
         engine: engine.name().to_string(),
@@ -785,6 +1475,11 @@ pub fn parse_tex_diagnostics(log: &str, revision: u64) -> Vec<TexDiagnostic> {
                 &mut out,
                 TexDiagnostic { file: String::new(), line: Some(n), severity: TexSeverity::Warning, message: cap_message(line), revision },
             );
+            continue;
+        }
+        if let Some(entry) = parse_bib_line(line, revision) {
+            flush_pending(&mut pending, &mut out, revision);
+            push_capped(&mut out, entry);
             continue;
         }
         // Anything else is prose, not a diagnostic: skipped.
@@ -1634,6 +2329,403 @@ mod synctex_jump_tests {
         let inv = s.run("tex.inverseSearch", &json!({"page": 1, "x": cx, "y": cy})).unwrap();
         let line = inv["line"].as_u64().unwrap_or(0) as i64;
         assert!((line - 3).abs() <= 1, "real inverse returns line {line} within one of 3");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod bib_tests {
+    use super::*;
+
+    const FIXTURE: &str = r#"% a comment with {braces} and @fake{key,
+@article{doe99,
+  author = {Doe, Jane},
+  title = {An Interesting Paper},
+  journal = {J. Tests},
+  year = {1999},
+}
+@book{smith00,
+  author = {Smith, John},
+  title = {A Great Book},
+  publisher = {Test Press},
+  year = {2000},
+}
+@misc{web01,
+  author = {Web, Author},
+  title = "A quoted title with {braces} inside",
+  year = {2001},
+}
+@string{jtests = {J. Tests}}
+@preamble{"\newcommand{\noop}[1]{#1}"}
+@comment{anything { goes } here, even unbalanced {
+@article{broken01,
+  author = {Nobody,
+@misc{,
+  title = {Empty key},
+}
+@article{doe99,
+  author = {Duplicate, Kept Once},
+}
+"#;
+
+    #[test]
+    fn fixture_parses_article_book_misc() {
+        let got = parse_bibtex(FIXTURE);
+        let keys: Vec<&str> = got.iter().map(|e| e.key.as_str()).collect();
+        assert_eq!(keys, vec!["doe99", "smith00", "web01"]);
+        assert_eq!(got[0].entry_type, "article");
+        assert_eq!(got[1].entry_type, "book");
+        assert_eq!(got[2].entry_type, "misc");
+    }
+
+    #[test]
+    fn hostile_entries_are_skipped_without_panic() {
+        for hunk in [
+            "",
+            "@@@",
+            "@article",
+            "@article{",
+            "@article{unbalanced, author = {nobody}",
+            "@article{key with spaces, x = {1}}",
+            "@article{, x = {1}}",
+            "@misc{key}\n@book{other,",
+            "no entries here: just prose % with @ signs",
+            "@STRING{up = {case}}, @Article{Mixed01, x={1}},",
+            "@article{\0nul, x = {1}}",
+            "@article{percent%key, x = {1}}",
+            "@article(nokey)",
+            "@comment no braces at all",
+        ] {
+            let got = parse_bibtex(hunk);
+            assert!(got.len() <= MAX_BIB_ENTRIES, "{got:?}");
+        }
+        // Uppercase kinds still parse.
+        let got = parse_bibtex("@STRING{up = {case}}\n@Article{Mixed01, x = {1}}\n");
+        assert_eq!(got.iter().map(|e| e.key.as_str()).collect::<Vec<_>>(), vec!["Mixed01"]);
+        assert_eq!(got[0].entry_type, "article");
+        // A broken entry never hides a later valid one.
+        let got = parse_bibtex("@article{broken, author = {nobody\n@article{good01, x = {1}}\n");
+        assert!(got.iter().any(|e| e.key == "good01"), "{got:?}");
+        assert!(!got.iter().any(|e| e.key == "broken"), "{got:?}");
+        // A huge but balanced value parses; an overlong key does not.
+        let big = format!("@article{{ok01, x = {{{v}}}}}\n", v = "y".repeat(10_000));
+        assert_eq!(parse_bibtex(&big).len(), 1);
+        let overlong = format!("@article{{{k}, x = {{1}}}}", k = "k".repeat(MAX_BIB_KEY_LEN + 1));
+        assert!(parse_bibtex(&overlong).is_empty());
+    }
+
+    #[test]
+    fn entry_count_is_capped() {
+        let mut big = String::new();
+        for i in 0..MAX_BIB_ENTRIES + 100 {
+            big.push_str(&format!("@misc{{k{i}, x = {{1}}}}\n"));
+        }
+        assert_eq!(parse_bibtex(&big).len(), MAX_BIB_ENTRIES);
+    }
+}
+
+#[cfg(test)]
+mod include_tests {
+    use super::*;
+
+    #[test]
+    fn brace_and_space_forms_found_in_order() {
+        let src = b"\\input{chapter1}\n\\include{chapters/intro}\n\\input plainname\n\\input{spaced}\n";
+        assert_eq!(find_tex_includes(src), vec!["chapter1", "chapters/intro", "plainname", "spaced"]);
+    }
+
+    #[test]
+    fn comments_and_lookalikes_ignored() {
+        let src = b"% \\input{evil}\n\\inputx{nope}\n\\inputter{nope}\n\\input{real} % \\include{alsono}\n\\input{}\n\\input";
+        assert_eq!(find_tex_includes(src), vec!["real"]);
+    }
+
+    #[test]
+    fn escaped_percent_does_not_comment() {
+        let src = b"100\\% \\input{real}\n";
+        assert_eq!(find_tex_includes(src), vec!["real"]);
+    }
+
+    #[test]
+    fn resolve_accepts_plain_relative() {
+        let doc = Path::new("/doc");
+        assert_eq!(resolve_include(doc, "chapter1").unwrap(), PathBuf::from("/doc/chapter1"));
+        assert_eq!(resolve_include(doc, "chapters/intro.tex").unwrap(), PathBuf::from("/doc/chapters/intro.tex"));
+        assert_eq!(resolve_include(doc, "./a").unwrap(), PathBuf::from("/doc/a"));
+        assert_eq!(resolve_include(doc, "a//b").unwrap(), PathBuf::from("/doc/a/b"));
+    }
+
+    #[test]
+    fn resolve_rejects_escapes_and_absolutes() {
+        let doc = Path::new("/doc");
+        for bad in ["", "   ", "../secret", "a/../../b", "..\\secret", "a\\..\\b", "/etc/passwd", "\\windows\\x", "C:\\x", "C:/x", "~/x", "a/b/.."] {
+            assert!(resolve_include(doc, bad).is_err(), "{bad:?} must be refused");
+        }
+        assert!(resolve_include(doc, "\0nul").is_err());
+        let overlong = "x".repeat(MAX_INCLUDE_NAME + 1);
+        assert!(resolve_include(doc, &overlong).is_err());
+    }
+
+    #[test]
+    fn bibliography_names_split_commas() {
+        let src = b"\\bibliography{refs, other}\n\\addbibresource{extra.bib}\n% \\bibliography{evil}\n";
+        assert_eq!(find_bibliography_names(src), vec!["refs", "other", "extra.bib"]);
+    }
+
+    #[test]
+    fn bib_log_lines_become_diagnostics() {
+        let log = "Citation `doe99' undefined.\nLaTeX Warning: Citation `x' undefined on input line 4.\nerror: the BibTeX engine had an unrecoverable error\nI didn't find a database entry for `missing01'\nJust prose.\n";
+        let got = parse_tex_diagnostics(log, 3);
+        assert_eq!(got.len(), 4, "{got:?}");
+        assert!(got.iter().all(|d| d.revision == 3));
+        assert_eq!(got[0].severity, TexSeverity::Warning);
+        assert_eq!(got[0].line, None);
+        assert_eq!(got[1].line, Some(4));
+        assert_eq!(got[2].severity, TexSeverity::Error);
+        assert_eq!(got[3].severity, TexSeverity::Warning);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32"), unix))]
+#[allow(clippy::unwrap_used)]
+mod bib_sidecar_tests {
+    use super::*;
+    use crate::Session;
+    use serde_json::json;
+
+    fn session() -> Session {
+        Session::new(wordcraft_doc::Document::new())
+    }
+
+    fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, format!("#!/bin/sh\n{body}")).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    }
+
+    fn open_doc(s: &mut Session, dir: &Path, content: &str) {
+        std::fs::write(dir.join("main.tex"), content).unwrap();
+        s.run("tex.open", &json!({"path": dir.join("main.tex")})).unwrap();
+    }
+
+    fn tick_args(engine: &Path) -> serde_json::Value {
+        json!({"engine": engine, "kind": "tectonic", "timeoutMs": 20_000, "rasterizer": "/nonexistent-pp"})
+    }
+
+    const BIB: &str = "@article{doe99,\n  author = {Doe, Jane},\n  title = {Paper},\n  journal = {J},\n  year = {1999},\n}\n@book{smith00,\n  author = {Smith, John},\n  title = {Book},\n  publisher = {P},\n  year = {2000},\n}\n";
+
+    const DOC_WITH_BIB: &str =
+        "\\documentclass{article}\n\\begin{document}\nHi~\\cite{doe99}.\n\\bibliographystyle{plain}\n\\bibliography{refs}\n\\end{document}\n";
+
+    #[test]
+    fn open_discovers_sibling_bib() {
+        let dir = new_scratch("wcbibopen").unwrap();
+        std::fs::write(dir.join("main.tex"), "hello\n").unwrap();
+        std::fs::write(dir.join("main.bib"), BIB).unwrap();
+        let mut s = session();
+        let opened = s.run("tex.open", &json!({"path": dir.join("main.tex")})).unwrap();
+        assert_eq!(opened["bibKeys"], json!(2));
+        let listed = s.run("tex.bibKeys", &json!({})).unwrap();
+        assert_eq!(listed["count"], json!(2));
+        assert_eq!(listed["keys"], json!(["doe99", "smith00"]));
+        assert_eq!(listed["entries"][0]["type"], json!("article"));
+        assert_eq!(listed["entries"][1]["type"], json!("book"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bibkeys_loads_explicit_path_and_rejects_hostile_params() {
+        let dir = new_scratch("wcbibkeys").unwrap();
+        std::fs::write(dir.join("main.tex"), "hello\n").unwrap();
+        std::fs::write(dir.join("extra.bib"), BIB).unwrap();
+        std::fs::write(dir.join("bad.bib"), [0xffu8, 0xfe, b'@', b'a', 0x00]).unwrap();
+        let mut s = session();
+        assert!(s.run("tex.bibKeys", &json!({})).is_ok(), "listing without source never panics");
+        assert!(s.run("tex.bibKeys", &json!(null)).is_ok());
+        assert!(s.run("tex.bibKeys", &json!({"path": 5})).is_err());
+        assert!(s.run("tex.bibKeys", &json!({"path": []})).is_err());
+        assert!(s.run("tex.bibKeys", &json!({"path": ""})).is_err());
+        assert!(s.run("tex.bibKeys", &json!({"path": "/nonexistent-dir-xyz/missing.bib"})).is_err());
+        let huge = "x".repeat(9000);
+        assert!(s.run("tex.bibKeys", &json!({"path": huge})).is_err());
+        open_doc(&mut s, &dir, "hello\n");
+        let bad = s.run("tex.bibKeys", &json!({"path": dir.join("bad.bib")})).unwrap();
+        assert_eq!(bad["count"], json!(0));
+        let loaded = s.run("tex.bibKeys", &json!({"path": dir.join("extra.bib")})).unwrap();
+        assert_eq!(loaded["count"], json!(2));
+        assert_eq!(loaded["keys"], json!(["doe99", "smith00"]));
+        let st = s.run("tex.status", &json!({})).unwrap();
+        assert_eq!(st["bibKeys"], json!(2));
+        assert!(s.run("tex.edit", &json!({"text": "hello again"})).is_ok(), "session still usable");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compile_stages_bib_for_fake_engine() {
+        let dir = new_scratch("wcbibcomp").unwrap();
+        std::fs::write(dir.join("refs.bib"), BIB).unwrap();
+        let engine = write_script(
+            &dir,
+            "tectonic",
+            "out=\"\"; src=\"\"; for a in \"$@\"; do if [ -d \"$a\" ]; then out=\"$a\"; fi; case \"$a\" in *.tex) src=\"$a\";; esac; done; stem=$(basename \"$src\" .tex); if [ -f \"$out/refs.bib\" ]; then echo \"STAGED-BIB-OK\"; else echo \"STAGED-BIB-MISSING\"; fi; echo \"%PDF-1.4 fake\" > \"$out/$stem.pdf\"; echo ok;",
+        );
+        let mut s = session();
+        open_doc(&mut s, &dir, DOC_WITH_BIB);
+        let out = s.run("tex.compile", &tick_args(&engine)).unwrap();
+        assert_eq!(out["success"], json!(true));
+        assert!(out["log"].as_str().unwrap_or("").contains("STAGED-BIB-OK"), "{}", out["log"]);
+        assert_eq!(out["bibs"], json!(["refs.bib"]));
+        let listed = s.run("tex.bibKeys", &json!({})).unwrap();
+        assert_eq!(listed["count"], json!(2), "compile refreshes completion keys");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compile_without_bib_stages_nothing() {
+        let dir = new_scratch("wcnobib").unwrap();
+        let engine = write_script(
+            &dir,
+            "tectonic",
+            "out=\"\"; src=\"\"; for a in \"$@\"; do if [ -d \"$a\" ]; then out=\"$a\"; fi; case \"$a\" in *.tex) src=\"$a\";; esac; done; stem=$(basename \"$src\" .tex); ls \"$out\" | grep -q bib && echo \"UNEXPECTED-BIB\" || echo \"NO-BIB-OK\"; echo \"%PDF-1.4 fake\" > \"$out/$stem.pdf\"; echo ok;",
+        );
+        let mut s = session();
+        open_doc(&mut s, &dir, "\\documentclass{article}\n\\begin{document}\nPlain.\n\\end{document}\n");
+        let out = s.run("tex.compile", &tick_args(&engine)).unwrap();
+        assert_eq!(out["success"], json!(true));
+        assert!(out["log"].as_str().unwrap_or("").contains("NO-BIB-OK"), "{}", out["log"]);
+        assert_eq!(out["bibs"], json!([]));
+        assert_eq!(out["includes"], json!(0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compile_stages_nested_includes() {
+        let dir = new_scratch("wcincludes").unwrap();
+        std::fs::create_dir_all(dir.join("parts")).unwrap();
+        std::fs::write(dir.join("chapter1.tex"), "chapter one \\input{parts/detail}\n").unwrap();
+        std::fs::write(dir.join("parts").join("part.tex"), "a part\n").unwrap();
+        std::fs::write(dir.join("parts").join("detail.tex"), "a detail\n").unwrap();
+        let engine = write_script(
+            &dir,
+            "tectonic",
+            "out=\"\"; src=\"\"; for a in \"$@\"; do if [ -d \"$a\" ]; then out=\"$a\"; fi; case \"$a\" in *.tex) src=\"$a\";; esac; done; stem=$(basename \"$src\" .tex); if [ -f \"$out/chapter1.tex\" ] && [ -f \"$out/parts/part.tex\" ] && [ -f \"$out/parts/detail.tex\" ]; then echo \"STAGED-INCLUDES-OK\"; else echo \"STAGED-INCLUDES-MISSING\"; fi; echo \"%PDF-1.4 fake\" > \"$out/$stem.pdf\"; echo ok;",
+        );
+        let mut s = session();
+        open_doc(&mut s, &dir, "\\documentclass{article}\n\\begin{document}\n\\input{chapter1}\n\\include{parts/part}\n\\end{document}\n");
+        let out = s.run("tex.compile", &tick_args(&engine)).unwrap();
+        assert_eq!(out["success"], json!(true));
+        assert!(out["log"].as_str().unwrap_or("").contains("STAGED-INCLUDES-OK"), "{}", out["log"]);
+        assert_eq!(out["includes"], json!(3));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compile_rejects_traversal_and_missing() {
+        let dir = new_scratch("wcincludevil").unwrap();
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("secret.tex"), "SECRET-MARKER-98765\n").unwrap();
+        let engine = write_script(&dir, "tectonic", "echo should never run; exit 99;");
+        let cases = [
+            ("parent escape", "\\input{../secret}"),
+            ("absolute", "\\input{/etc/passwd}"),
+            ("backslash escape", "\\input{..\\secret}"),
+            ("bib escape", "\\bibliography{../secret}"),
+            ("missing include", "\\input{nosuchfile}"),
+            ("missing bib", "\\bibliography{nosuchbib}"),
+        ];
+        for (what, frag) in cases {
+            let doc = format!("\\documentclass{{article}}\n\\begin{{document}}\n{frag}\n\\end{{document}}\n");
+            std::fs::write(dir.join("sub").join("main.tex"), &doc).unwrap();
+            let mut s = session();
+            s.run("tex.open", &json!({"path": dir.join("sub").join("main.tex")})).unwrap();
+            let err = s.run("tex.compile", &tick_args(&engine)).unwrap_err();
+            let msg = format!("{err}");
+            assert!(!msg.contains("SECRET-MARKER-98765"), "{what}: secret leaked: {msg}");
+            assert!(
+                msg.contains("escapes") || msg.contains("absolute") || msg.contains("not found") || msg.contains("could not read"),
+                "{what}: clean refusal, got: {msg}"
+            );
+            assert!(s.tex.last.is_none(), "{what}: nothing published");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pdftex_with_bib_runs_engine_thrice() {
+        let dir = new_scratch("wcpdftexbib").unwrap();
+        std::fs::write(dir.join("refs.bib"), BIB).unwrap();
+        // Fake pdflatex: counts its own passes in the outdir and echoes the
+        // count, so the test sees all three engine passes in one log.
+        let engine = write_script(
+            &dir,
+            "pdflatex",
+            "out=\"\"; for a in \"$@\"; do if [ -d \"$a\" ]; then out=\"$a\"; fi; done; n=$(cat \"$out/count\" 2>/dev/null || echo 0); n=$((n+1)); echo \"$n\" > \"$out/count\"; echo \"ENGINE-PASS-$n\"; echo \"%PDF-1.4 fake\" > \"$out/main.pdf\"; echo ok;",
+        );
+        let mut s = session();
+        open_doc(&mut s, &dir, DOC_WITH_BIB);
+        let out = s.run("tex.compile", &json!({"engine": engine, "kind": "pdflatex", "timeoutMs": 30_000, "rasterizer": "/nonexistent-pp"})).unwrap();
+        assert_eq!(out["success"], json!(true));
+        let log = out["log"].as_str().unwrap_or("").to_string();
+        assert!(log.contains("ENGINE-PASS-1"), "{log}");
+        assert!(log.contains("ENGINE-PASS-2"), "{log}");
+        assert!(log.contains("ENGINE-PASS-3"), "{log}");
+        assert_eq!(out["bibs"], json!(["refs.bib"]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bib_keys_survive_hostile_log_and_missing_rasterizer() {
+        let dir = new_scratch("wcbiblog").unwrap();
+        std::fs::write(dir.join("refs.bib"), BIB).unwrap();
+        let engine = write_script(
+            &dir,
+            "tectonic",
+            "out=\"\"; src=\"\"; for a in \"$@\"; do if [ -d \"$a\" ]; then out=\"$a\"; fi; case \"$a\" in *.tex) src=\"$a\";; esac; done; stem=$(basename \"$src\" .tex); echo \"%PDF-1.4 fake\" > \"$out/$stem.pdf\"; echo \"Citation \\`ghost\\' undefined.\"; echo \"error: the BibTeX engine had an unrecoverable error\";",
+        );
+        let mut s = session();
+        open_doc(&mut s, &dir, DOC_WITH_BIB);
+        let out = s.run("tex.compile", &tick_args(&engine)).unwrap();
+        assert_eq!(out["success"], json!(true));
+        let diag = s.run("tex.diagnostics", &json!({})).unwrap();
+        let entries = diag["entries"].as_array().cloned().unwrap_or_default();
+        assert!(entries.iter().any(|e| e["severity"] == json!("warning")), "{entries:?}");
+        assert!(entries.iter().any(|e| e["severity"] == json!("error")), "{entries:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn real_tectonic_resolves_citations_when_available() {
+        let bundled = PathBuf::from("/home/mitaoe/wordcraft-study/tools/tectonic");
+        let real: PathBuf = if bundled.is_file() {
+            bundled
+        } else {
+            match detect_from_path() {
+                TexEngine::Tectonic(found) => found,
+                _ => {
+                    eprintln!("real-bib-compile unverified: no tectonic engine found");
+                    return;
+                }
+            }
+        };
+        let dir = new_scratch("wcbibreal").unwrap();
+        std::fs::write(dir.join("main.tex"), DOC_WITH_BIB).unwrap();
+        std::fs::write(dir.join("refs.bib"), BIB).unwrap();
+        let mut s = session();
+        s.run("tex.open", &json!({"path": dir.join("main.tex")})).unwrap();
+        let compiled =
+            s.run("tex.compile", &json!({"engine": real, "kind": "tectonic", "timeoutMs": 120_000, "rasterizer": "/nonexistent-pp"})).unwrap();
+        if compiled["success"] != json!(true) {
+            eprintln!(
+                "real-bib-compile unverified: tectonic compile failed: {}",
+                compiled["log"].as_str().unwrap_or("").chars().take(300).collect::<String>()
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        assert!(compiled["pdfBytes"].as_u64().unwrap_or(0) > 0);
+        assert_eq!(compiled["bibs"], json!(["refs.bib"]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

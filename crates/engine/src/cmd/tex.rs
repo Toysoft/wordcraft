@@ -22,6 +22,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(r#"{"engine"?: string, "kind"?: "tectonic|pdflatex|xelatex", "timeoutMs"?: n, "rasterizer"?: string}"#)
             .pure(),
         CommandSpec::new("tex.diagnostics", "TeX Diagnostics", "TeX", diagnostics).params("{}").pure(),
+        CommandSpec::new("tex.bibKeys", "TeX Citation Keys", "TeX", bib_keys).params(r#"{"path"?: string}"#).pure(),
         CommandSpec::new("tex.close", "Close TeX Source", "TeX", close).params("{}").pure(),
         CommandSpec::new("tex.status", "TeX Status", "TeX", status).params("{}").pure(),
         CommandSpec::new("tex.forwardSearch", "TeX Forward Search", "TeX", forward_search).params(r#"{"line": n, "column"?: n}"#).pure(),
@@ -40,7 +41,64 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
         .map_err(|e| CmdError::Failed(format!("could not read TeX source: {e}")))?;
     let n = bytes.len();
     s.tex = crate::tex::TexState { source: Some(crate::tex::TexSource { path: PathBuf::from(path), bytes }), revision: 1, ..Default::default() };
-    Ok(json!({"path": path, "bytes": n}))
+    // Best effort: a `.bib` beside the source feeds completion and compiles.
+    if let Some(sib) = sibling_bib(path)
+        && let Ok(bib) = crate::io::read_file_capped(&sib.to_string_lossy(), crate::tex::MAX_BIB_BYTES as u64, "BibTeX bibliography")
+    {
+        s.tex.bib_keys = crate::tex::parse_bibtex(&String::from_utf8_lossy(&bib));
+        s.tex.bib_path = Some(sib);
+    }
+    Ok(json!({
+        "path": path,
+        "bytes": n,
+        "bibKeys": s.tex.bib_keys.len(),
+        "bibPath": s.tex.bib_path.as_ref().map(|b| b.to_string_lossy().into_owned()),
+    }))
+}
+
+/// The `.bib` beside a `.tex` path (same folder, same stem).
+fn sibling_bib(path: &str) -> Option<PathBuf> {
+    let file = PathBuf::from(path);
+    let stem = file.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).map(str::to_string)?;
+    let mut sib = file;
+    sib.set_file_name(format!("{stem}.bib"));
+    Some(sib)
+}
+
+/// Read and parse one `.bib` file through the io gateway (never a worker).
+fn load_bib_file(path: &str) -> Result<Vec<crate::tex::BibEntry>, String> {
+    let bytes = crate::io::read_file_capped(path, crate::tex::MAX_BIB_BYTES as u64, "BibTeX bibliography")
+        .map_err(|e| format!("could not read bibliography: {e}"))?;
+    Ok(crate::tex::parse_bibtex(&String::from_utf8_lossy(&bytes)))
+}
+
+/// Cite keys for completion: the bibliography beside the open source, or an
+/// explicit `.bib` path which is then remembered for compiles. Never spawns a
+/// worker, so this runs on every platform; hostile params are clean errors.
+fn bib_keys(s: &mut Session, v: &Value) -> CmdResult {
+    if let Some(raw) = v.get("path") {
+        let Some(path) = raw.as_str() else {
+            return Err(CmdError::Params("`path` (string) is required".to_string()));
+        };
+        if path.is_empty() {
+            return Err(CmdError::Params("`path` must not be empty".to_string()));
+        }
+        if path.len() > 8192 {
+            return Err(CmdError::Params("`path` is over the 8192 byte limit".to_string()));
+        }
+        let keys = load_bib_file(path).map_err(CmdError::Failed)?;
+        s.tex.bib_path = Some(PathBuf::from(path));
+        s.tex.bib_keys = keys;
+    }
+    let keys: Vec<&str> = s.tex.bib_keys.iter().map(|e| e.key.as_str()).collect();
+    let entries: Vec<Value> = s.tex.bib_keys.iter().map(|e| json!({"key": e.key, "type": e.entry_type})).collect();
+    Ok(json!({
+        "open": s.tex.source.is_some(),
+        "path": s.tex.bib_path.as_ref().map(|b| b.to_string_lossy().into_owned()),
+        "keys": keys,
+        "entries": entries,
+        "count": s.tex.bib_keys.len(),
+    }))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -109,8 +167,23 @@ fn run_compile(s: &mut Session, v: &Value, rev: u64) -> CmdResult {
         crate::io::remove_scratch_dir(&scratch);
         return Err(CmdError::Failed(format!("could not stage TeX source: {e}")));
     }
+    // Stage `\input` files and bibliographies beside the source, then
+    // compile. A traversal attempt or a missing named file fails here with a
+    // clean error; the scratch tree is removed either way.
+    let stored_bib = s.tex.bib_path.clone();
+    let stage_result = crate::tex::stage_compile_inputs(&source.path, &source.bytes, &scratch, stored_bib.as_deref());
+    let crate::tex::StagedInputs { has_bib, includes, bibs, bib_keys } = match stage_result {
+        Ok(staged) => staged,
+        Err(e) => {
+            crate::io::remove_scratch_dir(&scratch);
+            return Err(CmdError::Failed(e));
+        }
+    };
+    if has_bib {
+        s.tex.bib_keys = bib_keys;
+    }
     let generation = s.tex.begin_compile(rev);
-    let mut done = crate::tex::compile_tex(&src_file, &scratch, &engine, rasterizer.as_deref(), timeout);
+    let mut done = crate::tex::compile_tex(&src_file, &scratch, &engine, rasterizer.as_deref(), timeout, has_bib);
     crate::io::remove_scratch_dir(&scratch);
     done.revision = rev;
     s.tex.finish_compile(generation, done);
@@ -125,6 +198,8 @@ fn run_compile(s: &mut Session, v: &Value, rev: u64) -> CmdResult {
             "revision": c.revision,
             "stale": s.tex.preview_stale,
             "diagnostics": s.tex.diagnostics.len(),
+            "includes": includes,
+            "bibs": bibs,
         })),
         None => Err(CmdError::Failed("compile result was superseded by a newer edit".to_string())),
     }
@@ -235,6 +310,8 @@ fn status(s: &mut Session, _v: &Value) -> CmdResult {
         "stale": s.tex.preview_stale,
         "pendingRevision": s.tex.pending_revision,
         "compiledRevision": s.tex.compiled_revision,
+        "bibKeys": s.tex.bib_keys.len(),
+        "bibPath": s.tex.bib_path.as_ref().map(|b| b.to_string_lossy().into_owned()),
         "diagnostics": s.tex.diagnostics.len(),
     }))
 }
