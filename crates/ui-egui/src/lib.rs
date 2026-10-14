@@ -521,6 +521,7 @@ pub struct WordApp {
     /// keystroke, so one visit's keystrokes make a single undo step (and anything else in
     /// between, such as an Undo, starts a new one).
     pub(crate) info_editing: Option<(&'static str, u64)>,
+    recovery_seen: bool,
     /// Started on the Start screen with nothing to open (#1129): the id of the placeholder
     /// blank document the session holds until the user creates or opens one. While it is still
     /// the session's document, no document is open: the window shows no page and only the File
@@ -618,6 +619,7 @@ impl WordApp {
             #[cfg(not(target_arch = "wasm32"))]
             file_browser: file_browser::State::default(),
             info_editing: None,
+            recovery_seen: false,
             no_document: None,
         }
     }
@@ -713,6 +715,10 @@ impl WordApp {
     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        if id == "file.recover" && params.as_object().is_none_or(|p| p.is_empty()) {
+            self.ui.backstage = true;
+            self.ui.backstage_page = "recover".into();
+        }
         // A button whose command needs input the user hasn't given yet opens its dialog (#240).
         if let Some(name) = input_dialog(id, &params)
             && widgets::enabled(self, id)
@@ -1363,6 +1369,36 @@ impl WordApp {
                 let lang = i18n::Lang::from_pref(&self.ui.language);
                 json!({"language": self.ui.language, "effective": lang.code(), "available": i18n::Lang::all().map(|l| json!({"code": l.code(), "name": l.name()})).collect::<Vec<_>>()})
             }
+            "ui.recoveryDiscard" => {
+                if let Some(answer) = s("answer") {
+                    let Some(dialogs::Dialog::DiscardRecovery { id, .. }) = self.dialog.clone() else {
+                        return Some(Err("no recovery discard is pending".into()));
+                    };
+                    match answer {
+                        "cancel" => {
+                            self.dialog = None;
+                            json!({"discarded": false})
+                        }
+                        "discard" => {
+                            let result = self.execute("file.recover", json!({"discard": id}));
+                            if result.is_ok() {
+                                self.dialog = None;
+                            }
+                            return Some(result);
+                        }
+                        _ => return Some(Err("`answer` must be discard or cancel".into())),
+                    }
+                } else {
+                    let Some(id) = s("id") else {
+                        return Some(Err("`id` is required".into()));
+                    };
+                    let Some(info) = self.session.recovery_documents().into_iter().find(|d| d.id == id) else {
+                        return Some(Err("no such recovery copy".into()));
+                    };
+                    self.dialog = Some(dialogs::Dialog::DiscardRecovery { id: info.id, name: info.name });
+                    json!({"pending": "discardRecovery"})
+                }
+            }
             "ui.saveChanges" => {
                 let Some(choice) = s("answer").and_then(SaveChoice::parse) else {
                     return Some(Err("`answer` must be save, dontSave or cancel".into()));
@@ -1673,6 +1709,24 @@ impl WordApp {
         self.drain_inbox();
         self.drain_pasted();
         self.watch_fonts(ctx);
+        let document = self.session.document_id();
+        self.session.recovery_tick();
+        if self.session.document_id() != document {
+            self.autosave_path = None;
+            self.dialog = None;
+            self.ui.backstage = false;
+            self.canvas.want_focus = true;
+        }
+        if !self.recovery_seen && self.session.recovery_ready() {
+            self.recovery_seen = true;
+            if !self.session.recovery_documents().is_empty() && !self.session.dirty {
+                self.ui.backstage = true;
+                self.ui.backstage_page = "recover".into();
+            }
+        }
+        if let Some(wait) = self.session.recovery_wait() {
+            ctx.request_repaint_after(wait);
+        }
         self.autosave_tick(now_ms());
         if self.autosaves() && self.session.dirty {
             ctx.request_repaint_after(std::time::Duration::from_millis(1000));
@@ -1688,7 +1742,7 @@ impl WordApp {
                 let path = f.path().to_string_lossy().to_string();
                 let lp = path.to_ascii_lowercase();
                 let img = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".wmf", ".emf"].iter().any(|e| lp.ends_with(e));
-                let sheet = [".xlsx", ".xlsm", ".ods"].iter().any(|e| lp.ends_with(e));
+                let sheet = wordcraft_engine::cmd::mailings::is_spreadsheet_name(&lp);
                 let _ = if img {
                     self.run("insert.picture", json!({"path": path}))
                 } else if sheet {
@@ -1938,7 +1992,7 @@ impl WordApp {
             // Any recipient file ends the pending picker request, so a later .txt drop opens normally.
             let asked = std::mem::take(&mut self.recipient_list_pending);
             let list = lower.ends_with(".csv") || lower.ends_with(".tsv") || (lower.ends_with(".txt") && asked);
-            let sheet = [".xlsx", ".xlsm", ".ods"].iter().any(|e| lower.ends_with(e));
+            let sheet = wordcraft_engine::cmd::mailings::is_spreadsheet_name(&lower);
             self.recipient_list_pending = asked && !list && !sheet;
             let r = if sheet {
                 self.load_recipients(json!({"path": name, "data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}))
@@ -2218,6 +2272,7 @@ fn discards_document(id: &str, params: &Value) -> bool {
         "file.new" | "file.close" | "mailings.labels" => true,
         "mailings.envelopes" => params.get("add").and_then(Value::as_bool) != Some(true),
         "file.open" => params.get("path").is_some(),
+        "file.recover" => params.get("restore").is_some(),
         "mailings.finish" => params.get("path").and_then(Value::as_str).is_none(),
         _ => false,
     }
@@ -3212,6 +3267,95 @@ mod tests {
         frame(&mut a, vec![btn(body, true)]);
         frame(&mut a, vec![btn(body, false)]);
         assert_eq!(a.canvas.balloon, None, "a click on the page leaves the balloon");
+    }
+
+    /// #1055: with "only for the selected text" the margin column is gone and just the comment
+    /// under the caret floats, beside the page in a wide window and over its edge in a narrow one.
+    #[test]
+    fn selected_comment_floats_and_keeps_its_clicks() {
+        for width in [1700.0_f32, 1000.0] {
+            let ctx = egui::Context::default();
+            let mut a = app();
+            a.run("text.insert", json!({"text": "one two three. ".repeat(60)})).unwrap();
+            a.run("select.text", json!({"text": "two"})).unwrap();
+            a.run("review.newComment", json!({"text": "A comment with a few words in it"})).unwrap();
+            a.session.view.comments_pane = false;
+            assert!(canvas::markup_width(&a) > 0.0, "the margin is the default, as in Word");
+            a.run("review.trackingOptions", json!({"commentDisplay": "selected"})).unwrap();
+            assert_eq!(canvas::markup_width(&a), 0.0, "no margin column any more");
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 700.0));
+            let mut t = 0.0;
+            let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+                t += 1.0 / 60.0;
+                let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+                ctx.run_ui(input, |ui| {
+                    a.logic(ui.ctx());
+                    a.ui(ui);
+                })
+                .drop_without_applying_deltas();
+            };
+            let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            for _ in 0..30 {
+                frame(&mut a, Vec::new());
+            }
+            // The caret is in the text after the first comment: not inside its range.
+            a.run("caret.docStart", json!({})).unwrap();
+            for _ in 0..5 {
+                frame(&mut a, Vec::new());
+            }
+            assert!(a.canvas.balloon_rects.is_empty(), "width {width}: no comment under the caret, no card");
+            // Inside the commented word.
+            a.run("select.text", json!({"text": "two"})).unwrap();
+            a.run("caret.left", json!({})).unwrap();
+            for _ in 0..5 {
+                frame(&mut a, Vec::new());
+            }
+            assert_eq!(a.canvas.balloon_rects.len(), 1, "width {width}: the comment under the caret shows");
+            let (id, card) = a.canvas.balloon_rects[0];
+            let page = a.canvas.page_rects.first().copied().unwrap();
+            assert_eq!(
+                card.left() < page.right(),
+                width < 1100.0,
+                "width {width}: beside the page when the window has room, else over its edge: {card:?} {page:?}"
+            );
+            if width < 1100.0 {
+                let line = a.session.layout().caret_on(&a.session.sel.focus, a.session.page_hint).expect("caret laid out");
+                let bottom = page.min.y + (line.top + line.height) * canvas::PX_PER_PT;
+                assert!(card.top() >= bottom, "width {width}: over the page the card sits under the commented line: {card:?} vs {bottom}");
+            }
+            // The #1013 flow on the floating card: click, press inside, drag, release.
+            let (caret, scroll) = (a.session.sel.clone(), a.canvas.scroll_offset);
+            frame(&mut a, vec![egui::Event::PointerMoved(card.center())]);
+            frame(&mut a, vec![btn(card.center(), true)]);
+            frame(&mut a, vec![btn(card.center(), false)]);
+            for _ in 0..5 {
+                frame(&mut a, Vec::new());
+            }
+            assert_eq!(a.canvas.balloon, Some(id), "width {width}: a click on the card selects it");
+            assert_eq!(a.session.sel.focus.path, caret.focus.path, "width {width}: the document's caret stays in its paragraph");
+            let (_, card) = *a.canvas.balloon_rects.iter().find(|(i, _)| *i == id).unwrap();
+            let (from, to) = (card.left_top() + egui::vec2(30.0, 30.0), card.left_top() + egui::vec2(80.0, 30.0));
+            let caret = a.session.sel.clone();
+            frame(&mut a, vec![egui::Event::PointerMoved(from)]);
+            frame(&mut a, vec![btn(from, true)]);
+            for _ in 0..3 {
+                frame(&mut a, vec![egui::Event::PointerMoved(to)]);
+            }
+            assert!(!a.canvas.drag_selecting(), "width {width}: the press didn't start a drag in the document");
+            frame(&mut a, vec![btn(to, false)]);
+            assert_eq!(a.canvas.balloon, Some(id), "width {width}: still selected");
+            assert_eq!(a.session.sel, caret, "width {width}: the document's caret didn't move");
+            assert_eq!(a.canvas.scroll_offset, scroll, "width {width}: nothing scrolled");
+            // A click on the page text leaves the card, and the comment goes away with the caret.
+            let body = egui::pos2(page.left() + 120.0, page.top() + 40.0 + 150.0);
+            frame(&mut a, vec![egui::Event::PointerMoved(body)]);
+            frame(&mut a, vec![btn(body, true)]);
+            frame(&mut a, vec![btn(body, false)]);
+            for _ in 0..5 {
+                frame(&mut a, Vec::new());
+            }
+            assert_eq!(a.canvas.balloon, None, "width {width}: a click on the page leaves the card");
+        }
     }
 
     /// #1019: a double-click in the header area returned before the release ended the drag, so
@@ -5527,6 +5671,32 @@ mod tests {
 
     fn dialog_name(a: &WordApp) -> Option<&'static str> {
         a.dialog.as_ref().map(dialogs::Dialog::name)
+    }
+
+    /// #778: Edit Recipient List shows every record with the list's filter and sort, and its
+    /// Filter and Sort section maps to `mailings.filterRecipients`.
+    #[test]
+    fn recipient_list_dialog_carries_the_filter() {
+        let mut a = app();
+        a.run("mailings.recipients", json!({"csv": "Name,City\nAda,London\nAlan,Wilmslow\nGrace,London"})).unwrap();
+        a.run(
+            "mailings.filterRecipients",
+            json!({"rules": [{"field": "City", "op": "equal", "value": "London"}], "sort": [{"field": "Name", "descending": true}]}),
+        )
+        .unwrap();
+        a.run("mailings.editRecipients", json!({})).unwrap();
+        let Some(dialogs::Dialog::RecipientList { rows, filter, .. }) = &a.dialog else { panic!() };
+        assert_eq!(rows.len(), 3, "every record, not only the filtered ones");
+        assert!(filter.open);
+        let params = filter.params();
+        assert_eq!(params["rules"], json!([{"field": "City", "op": "equal", "value": "London", "join": "and"}]));
+        assert_eq!(params["sort"], json!([{"field": "Name", "descending": true}]));
+        // Applying the dialog's filter to a reloaded list gives the same records.
+        a.run("mailings.recipients", json!({"csv": "Name,City\nAda,London\nAlan,Wilmslow\nGrace,London"})).unwrap();
+        a.run("mailings.filterRecipients", params).unwrap();
+        let names: Vec<&str> = a.session.merge.rows.iter().map(|r| r[0].as_str()).collect();
+        assert_eq!(names, ["Grace", "Ada"]);
+        assert!(open_filters("recipients")[0].1.contains(&"xls"));
     }
 
     /// #240: Select Recipients needs data, so clicking it opens the recipient list instead of

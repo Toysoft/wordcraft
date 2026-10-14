@@ -322,6 +322,13 @@ pub struct Comment {
     pub resolved: bool,
     /// `Document::parts` id of the comment text.
     pub part: u32,
+    /// Word's durable id for the comment (`w16cid:durableId`, hex), kept across saves so Word
+    /// keeps tracking the same comment. `None` for comments made here: the writer assigns one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub durable_id: Option<String>,
+    /// The comment's UTC timestamp from the file (`w16cex:dateUtc`); `date` is local time there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_utc: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -466,6 +473,9 @@ pub struct Settings {
     /// 2013 and later, which places a table's border at the margin rather than its text and lets
     /// justified lines shrink their spaces to fit more text.
     pub compat_mode: u32,
+    /// Keep contextual paragraph spacing inside legacy table cells (`allowSpaceOfSameStyleInTable`).
+    /// Word ignores the layout override in compatibility mode 15, but the flag still round-trips.
+    pub allow_space_of_same_style_in_table: bool,
     /// Drawing grid spacing in points, across and down (View › Gridlines); ECMA-376's default is 1/8 inch.
     pub grid_h: f32,
     pub grid_v: f32,
@@ -597,6 +607,7 @@ impl Default for Settings {
             protect_formatting: false,
             protect_hash: Vec::new(),
             compat_mode: COMPAT_MODE_CURRENT,
+            allow_space_of_same_style_in_table: false,
             grid_h: DEFAULT_GRID,
             grid_v: DEFAULT_GRID,
             math: None,
@@ -635,10 +646,10 @@ pub struct Document {
     #[serde(skip_serializing_if = "NoteSeparators::is_empty")]
     pub endnote_separators: NoteSeparators,
     /// Embedded media (images) by key.
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub media: BTreeMap<String, Arc<Vec<u8>>>,
     /// Source-format parts we keep verbatim for round-trip (e.g. custom XML), by part name.
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub passthrough: BTreeMap<String, Arc<Vec<u8>>>,
 }
 

@@ -230,6 +230,7 @@ fn styles_and_lists_round_trip() {
         hidden: false,
         builtin: false,
         locked: true,
+        default: false,
         table: None,
     });
     d.styles.upsert(Style {
@@ -470,11 +471,27 @@ fn comments_round_trip() {
     let c1 = d.add_part(PartKind::Comment, vec![para_block(Paragraph::with_text("Done.", CharProps::default()))]);
     d.comments.insert(
         0,
-        Comment { author: "Ann".into(), initials: "A".into(), date: "2026-01-02T03:04:05Z".into(), parent: None, resolved: true, part: c0 },
+        Comment {
+            author: "Ann".into(),
+            initials: "A".into(),
+            date: "2026-01-02T03:04:05Z".into(),
+            parent: None,
+            resolved: true,
+            part: c0,
+            ..Default::default()
+        },
     );
     d.comments.insert(
         1,
-        Comment { author: "Ben".into(), initials: "B".into(), date: "2026-01-03T00:00:00Z".into(), parent: Some(0), resolved: false, part: c1 },
+        Comment {
+            author: "Ben".into(),
+            initials: "B".into(),
+            date: "2026-01-03T00:00:00Z".into(),
+            parent: Some(0),
+            resolved: false,
+            part: c1,
+            ..Default::default()
+        },
     );
     let mut p = Paragraph::with_text("commented text", CharProps::default());
     p.insert_object(0, InlineObject::CommentStart { id: 0 }, &CharProps::default()).unwrap();
@@ -1149,6 +1166,28 @@ fn rotated_drawing_canvas_round_trips() {
     assert!(canvas.is_some());
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].obj.frame().unwrap().2.rot, 15.0);
+}
+
+#[test]
+fn table_contextual_spacing_compatibility_flag_round_trips() {
+    for mode in [11, 12, 14, 15] {
+        for allow in [false, true] {
+            let mut d = Document::new();
+            d.settings.compat_mode = mode;
+            d.settings.allow_space_of_same_style_in_table = allow;
+            let r = rt(&d);
+            assert_eq!(r.settings.allow_space_of_same_style_in_table, allow);
+            assert_eq!(r.settings.compat_mode, mode);
+            if allow {
+                let bytes = wordcraft_docx::write(&d).unwrap();
+                let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+                let mut xml = String::new();
+                std::io::Read::read_to_string(&mut zip.by_name("word/settings.xml").unwrap(), &mut xml).unwrap();
+                // CT_Compat requires the boolean option before compatSetting.
+                assert!(xml.find("<w:allowSpaceOfSameStyleInTable").unwrap() < xml.find("<w:compatSetting").unwrap());
+            }
+        }
+    }
 }
 
 #[test]
