@@ -57,8 +57,16 @@ const MIN_SIZE: f32 = 6.0;
 /// Most corners a polygon may have.
 pub const MAX_CORNERS: usize = 8;
 
+#[cfg(test)]
+thread_local! {
+    /// How many times [`recognise`] ran on this thread (tests check the work stays bounded).
+    pub static RECOGNISED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The shape `pts` draws, if it is one.
 pub fn recognise(pts: &[[f32; 2]]) -> Option<InkShape> {
+    #[cfg(test)]
+    RECOGNISED.with(|c| c.set(c.get().saturating_add(1)));
     let p = clean(pts);
     let (first, last) = (*p.first()?, *p.last()?);
     if p.len() < 2 {
@@ -203,14 +211,38 @@ fn head_fits(tail: [f32; 2], tip: [f32; 2], apex: [f32; 2], b1: [f32; 2], b2: [f
 /// How far a two-stroke arrow's head apex may sit from the line's end, as a fraction of the line.
 const PAIR_REACH: f32 = 0.12;
 
+/// What a stroke can be in a two-stroke arrow, worked out once (one recognition): the ends of the
+/// straight line it is, if it is one, and the ways it can be an arrowhead on its own.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ArrowParts {
+    pub line: Option<([f32; 2], [f32; 2])>,
+    pub heads: Vec<[[f32; 2]; 3]>,
+}
+
+/// `pts` as a possible half of a two-stroke arrow (see [`pair_parts`]).
+pub fn arrow_parts(pts: &[[f32; 2]]) -> ArrowParts {
+    let p = clean(pts);
+    let found = recognise(&p);
+    let line = match found {
+        Some(InkShape::Line { a, b }) => Some((a, b)),
+        _ => None,
+    };
+    ArrowParts { line, heads: heads(&p, found.as_ref()) }
+}
+
 /// One arrow from two strokes: `line`, a straight stroke, and `head`, an open V (one barb end,
 /// the apex, the other end) or a small closed triangle, whose apex is at one end of the line and
 /// whose barbs point back along it (the single-stroke head limits). The arrow runs from the
 /// line's other end to that end; `None` when they don't make one.
 pub fn pair_arrow(line: &[[f32; 2]], head: &[[f32; 2]]) -> Option<InkShape> {
-    let Some(InkShape::Line { a, b }) = recognise(line) else { return None };
+    pair_parts(&arrow_parts(line), &arrow_parts(head))
+}
+
+/// [`pair_arrow`] on strokes already recognised by [`arrow_parts`]: cheap geometry only.
+pub fn pair_parts(line: &ArrowParts, head: &ArrowParts) -> Option<InkShape> {
+    let (a, b) = line.line?;
     let mut best: Option<(f32, InkShape)> = None;
-    for [apex, b1, b2] in heads(head) {
+    for &[apex, b1, b2] in &head.heads {
         for (tail, tip) in [(a, b), (b, a)] {
             let off = dist(apex, tip);
             let near = off <= (PAIR_REACH * dist(tail, tip)).max(3.0);
@@ -222,11 +254,11 @@ pub fn pair_arrow(line: &[[f32; 2]], head: &[[f32; 2]]) -> Option<InkShape> {
     best.map(|(_, arrow)| arrow)
 }
 
-/// The ways `pts` can be an arrowhead on its own, as `[apex, barb end, barb end]`: each corner of a
-/// closed triangle, or the corner of an open V whose two arms are straight.
-fn heads(pts: &[[f32; 2]]) -> Vec<[[f32; 2]; 3]> {
-    let p = clean(pts);
-    if let Some(InkShape::Polygon(c)) = recognise(&p)
+/// The ways the cleaned points `p` (which recognise as `found`) can be an arrowhead on their own,
+/// as `[apex, barb end, barb end]`: each corner of a closed triangle, or the corner of an open V
+/// whose two arms are straight.
+fn heads(p: &[[f32; 2]], found: Option<&InkShape>) -> Vec<[[f32; 2]; 3]> {
+    if let Some(InkShape::Polygon(c)) = found
         && let &[x, y, z] = c.as_slice()
     {
         return vec![[x, y, z], [y, z, x], [z, x, y]];
