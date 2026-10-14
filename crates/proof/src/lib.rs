@@ -23,10 +23,15 @@
 //!   suggestions tuned for Italian (missing accents, `REP` confusions, missing spaces),
 //!   conservative grammar rules with Italian messages, and `hyph-utf8`'s Italian patterns
 //!   (Beccari, MIT option).
+//! - **Russian** ([`ProofLang::Ru`], module [`ru`]): spelling against the Hunspell `ru_RU`
+//!   dictionary installed on the system (not bundled either), with `ё` optional and hyphenated
+//!   words (`кто-то`, `по-русски`, `северо-западный`) understood, suggestions tuned for Russian
+//!   (`е`/`ё`, `жи`/`ши`, `тся`/`ться`, voiced and voiceless pairs, missing spaces), Russian
+//!   grammar rules with Russian messages, and Russian word division.
 //! - **Other languages** ([`ProofLang::Other`]): no spelling or grammar marks, like Word without
 //!   the language's proofing tools.
 //! - **Hyphenation** ([`hyphen`]): dictionary, Liang patterns (English, Polish, Portuguese),
-//!   Bulgarian syllable rules, heuristic.
+//!   Bulgarian syllable rules, Russian word-division rules, heuristic.
 //!
 //! [`check_text`] checks a paragraph whose runs are in different languages.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -42,6 +47,7 @@ pub mod lang;
 pub mod patterns;
 pub mod pl;
 pub mod pt;
+pub mod ru;
 pub mod tr;
 
 use std::collections::HashSet;
@@ -353,6 +359,28 @@ pub fn has_dictionary(lang: Option<&str>) -> bool {
     ProofLang::from_tag(lang).is_proofed()
 }
 
+/// The Hunspell dictionary name (`pl_PL`, `pt_BR`) a proofing language needs but doesn't have
+/// installed, for a status-bar hint (#1167). `None` when the language's dictionary is available,
+/// or when it needs none (English has a built-in word list; unproofed languages aren't offered
+/// one). Reads the dictionary once (it is cached afterwards).
+pub fn missing_dictionary(lang: Option<&str>) -> Option<&'static str> {
+    match ProofLang::from_tag(lang) {
+        ProofLang::Pl => dictionary_needed(ProofLang::Pl, pl::has_dictionary()),
+        ProofLang::Pt => dictionary_needed(ProofLang::Pt, pt::has_dictionary()),
+        _ => None,
+    }
+}
+
+/// The Hunspell name `lang` needs when `installed` is false; only Polish and Portuguese use one.
+fn dictionary_needed(lang: ProofLang, installed: bool) -> Option<&'static str> {
+    match lang {
+        _ if installed => None,
+        ProofLang::Pl => Some("pl_PL"),
+        ProofLang::Pt => Some("pt_BR"),
+        _ => None,
+    }
+}
+
 /// Is `word` spelled correctly in the run's proofing language? A language without a dictionary
 /// can't be checked, so every word counts as correct (no red underlines for it).
 pub fn is_correct_for(word: &str, lang: Option<&str>) -> bool {
@@ -562,6 +590,7 @@ fn spelling_issue(text: &str, a: usize, b: usize, lang: ProofLang, opts: &Option
         ProofLang::Pt => "Possível erro de ortografia",
         ProofLang::It => "Possibile errore di ortografia",
         ProofLang::Tr => "Olası yazım hatası",
+        ProofLang::Ru => "Возможна орфографическая ошибка",
         _ => "Possible spelling mistake",
     };
     Some(Issue { start: a, end: b, kind: IssueKind::Spelling, message: message.into(), suggestions: Vec::new(), lang })
@@ -581,6 +610,7 @@ pub fn is_correct_in_with(word: &str, lang: ProofLang, opts: &Options) -> bool {
         ProofLang::Pt => accepted_by_options(word, opts) || pt::is_correct(word),
         ProofLang::It => accepted_by_options(word, opts) || it::is_correct(word),
         ProofLang::Tr => accepted_by_options(word, opts) || tr::is_correct(word),
+        ProofLang::Ru => accepted_by_options(word, opts) || ru::is_correct(word),
         ProofLang::Bg | ProofLang::Other => true,
     }
 }
@@ -594,6 +624,7 @@ pub fn suggest_in(word: &str, max: usize, lang: ProofLang) -> Vec<String> {
         ProofLang::Pt => pt::suggest(word, max),
         ProofLang::It => it::suggest(word, max),
         ProofLang::Tr => tr::suggest(word, max),
+        ProofLang::Ru => ru::suggest(word, max),
         ProofLang::Bg | ProofLang::Other => Vec::new(),
     }
 }
@@ -609,6 +640,7 @@ pub fn check_grammar_in(text: &str, lang: ProofLang) -> Vec<Issue> {
         ProofLang::Pt => pt::grammar::check(text),
         ProofLang::It => it::grammar::check(text),
         ProofLang::Tr => tr::grammar::check(text),
+        ProofLang::Ru => ru::grammar::check(text),
         ProofLang::Bg | ProofLang::Other => Vec::new(),
     }
 }
@@ -772,6 +804,23 @@ fn starts_consonant_sound(w: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn missing_dictionary_is_named_only_for_hunspell_languages_without_one() {
+        assert_eq!(dictionary_needed(ProofLang::Pl, false), Some("pl_PL"));
+        assert_eq!(dictionary_needed(ProofLang::Pt, false), Some("pt_BR"));
+        assert_eq!(dictionary_needed(ProofLang::Pl, true), None);
+        assert_eq!(dictionary_needed(ProofLang::Pt, true), None);
+        for l in [ProofLang::En, ProofLang::Bg, ProofLang::Other] {
+            assert_eq!(dictionary_needed(l, false), None);
+        }
+        // Installed dictionaries and the built-in English list: no hint.
+        pl::test_dict::install();
+        pt::test_dict::install();
+        for tag in [Some("pl-PL"), Some("pt-BR"), Some("en-US"), Some("fr-FR"), None] {
+            assert_eq!(missing_dictionary(tag), None, "{tag:?}");
+        }
+    }
+
     use super::*;
 
     /// #1063: the dictionaries folder is searched before the system locations; the dictionaries
@@ -1229,7 +1278,7 @@ mod tests {
             let _ = has_dictionary(Some(&s));
             let _ = is_correct_for(&s, Some(&s));
             let _ = hyphen::hyphen_points(&s, &hyphen::Limits::default());
-            for lang in [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Hr, ProofLang::Tr, ProofLang::Other] {
+            for lang in [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Hr, ProofLang::Tr, ProofLang::Ru, ProofLang::Other] {
                 let _ = check_spelling_in(&s, lang);
                 let _ = check_grammar_in(&s, lang);
                 let _ = is_correct_in(&s, lang);
@@ -1255,9 +1304,9 @@ mod tests {
         }
 
         #[test]
-        fn mixed_spans_never_panic(s in "\\PC{0,60}", cuts in proptest::collection::vec((0usize..80, 0usize..80, 0u8..5), 0..6)) {
-            let langs = [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::Tr, ProofLang::Other];
-            let spans: Vec<(Range<usize>, ProofLang)> = cuts.iter().map(|&(a, b, l)| (a.min(b)..a.max(b), langs[l as usize % 5])).collect();
+        fn mixed_spans_never_panic(s in "\\PC{0,60}", cuts in proptest::collection::vec((0usize..80, 0usize..80, 0u8..6), 0..6)) {
+            let langs = [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::Tr, ProofLang::Ru, ProofLang::Other];
+            let spans: Vec<(Range<usize>, ProofLang)> = cuts.iter().map(|&(a, b, l)| (a.min(b)..a.max(b), langs[l as usize % langs.len()])).collect();
             for i in check_text(&s, &spans) {
                 proptest::prop_assert!(i.start <= i.end && i.end <= s.len());
             }

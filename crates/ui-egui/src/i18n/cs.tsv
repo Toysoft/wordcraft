@@ -140,6 +140,9 @@
 	Book Title	Název knihy
 	Bookmark	Záložka
 	Bookmark name:	Název záložky:
+	Delete Bookmark	Odstranit záložku
+	Hidden bookmarks	Skryté záložky
+	Sort by:	Seřadit podle:
 	Border Painter	Štětec ohraničení
 	Border\nPainter	Štětec\nohraničení
 	Borders	Ohraničení
@@ -538,6 +541,7 @@
 	Immersive	Asistivní čtení
 	Immersive Reader	Asistivní čtečka
 	Immersive\nReader	Asistivní\nčtečka
+	In the margin	Na okraji
 	Include level number from:	Zahrnout číslo úrovně z:
 	Increase Font Size	Zvětšit velikost písma
 	Increase Indent	Zvětšit odsazení
@@ -615,6 +619,8 @@
 	Labels	Štítky
 	Landscape	Na šířku
 	Language	Jazyk
+	{language} (no dictionary)	{language} (bez slovníku)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Pro jazyk {language} není nainstalován žádný pravopisný slovník, proto se nekontroluje. WordCraft hledá slovník Hunspell {name} ve složce WORDCRAFT_DICTIONARIES a na obvyklých místech v systému.
 	Large\nOperator	Velký\noperátor
 	Lasso	Laso
 	Last Column	Poslední sloupec
@@ -789,6 +795,7 @@
 	OK	OK
 	One	Jeden
 	One Page	Jedna stránka
+	Only for the selected text	Pouze pro vybraný text
 	Only web (http, https) and email (mailto) links can be followed	Otevřít lze pouze webové (http, https) a e-mailové (mailto) odkazy
 	Open	Otevřít
 	OpenDocument Text (*.odt)	Text OpenDocument (*.odt)
@@ -2455,6 +2462,31 @@ preview	Title	Ukázka
 	Hindi	Hindské
 	Context	Podle kontextu
 	System	Systémové
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Filtrovat příjemce
+	Sort Recipients	Seřadit příjemce
+	Filter and Sort	Filtrovat a seřadit
+	And	A
+	Or	Nebo
+	Comparison	Porovnání
+	Compare to	Porovnat s
+	Add Condition	Přidat podmínku
+	Remove condition	Odebrat podmínku
+	Sort by	Seřadit podle
+	Then by	Potom podle
+	Ascending	Vzestupně
+	Descending	Sestupně
+	Equal to	Rovná se
+	Not equal to	Nerovná se
+	Less than	Menší než
+	Greater than	Větší než
+	Less than or equal	Menší nebo rovno
+	Greater than or equal	Větší nebo rovno
+	Is blank	Je prázdné
+	Is not blank	Není prázdné
+	Contains	Obsahuje
+	Does not contain	Neobsahuje
+	{count} of {total} recipients will be merged.	Příjemci ke sloučení: {count} z {total}.
 	Show KeyTips (Alt or F10)	Zobrazit klávesové tipy (Alt nebo F10)
 	Reading	Čtení
 	Reading Column Width	Šířka sloupce pro čtení
@@ -2464,6 +2496,14 @@ preview	Title	Ukázka
 	Correct accidental usage of cAPS LOCK key	Opravovat náhodné použití klávesy cAPS LOCK
 	Region:	Oblast:
 	Automatic ({region})	Automaticky ({region})
+	Text of the nearest paragraph with a given style (running headers)	Text nejbližšího odstavce s daným stylem (živá záhlaví)
+	Style name:	Název stylu:
+	Take the last match on the page	Vzít poslední shodu na stránce
+	Show its list number	Zobrazit jeho číslo v seznamu
+	Show its number relative to this field	Zobrazit jeho číslo vzhledem k tomuto poli
+	Show its number with all higher levels	Zobrazit jeho číslo se všemi vyššími úrovněmi
+	Number only, without the label's words	Jen číslo, bez slov popisku
+	Add whether it is above or below	Doplnit, zda je výše, nebo níže
 	Search	Hledat
 	Title Bar	Záhlaví okna
 	Copy to	Kopírovat do
@@ -2529,3 +2569,14 @@ preview	Title	Ukázka
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Soubory Hunspell .aff a .dic z této složky (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) mají přednost před systémovými.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: slovník nebyl nalezen
+
+# Backstage › Recover (#586)
+	Recover	Obnovit
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Zrcadlové okraje
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Existující soubor nebo webová stránka
+	Link to:	Odkaz na:
+	Place in This Document	Místo v tomto dokumentu

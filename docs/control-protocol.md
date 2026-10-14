@@ -1,6 +1,7 @@
 # Control protocol
 
 Start the app with a control port: `wordcraft --control 7981` (or `WORDCRAFT_CONTROL_PORT=7981`).
+A missing or invalid port after `--control` (not 1–65535) prints an error and exits with status 2.
 It listens on `127.0.0.1` only. Send one JSON object per line, with the window's key (see
 [Keys](#keys)); each gets one reply line:
 
@@ -18,7 +19,8 @@ connection (so an HTTP request sent to the port can't run a command); reconnect 
 Any local program (and possibly a web page) can reach a loopback port, so every request needs the
 window's key. Once the port is bound, the app writes a random key (256 bits, as hex) to
 `<settings>/control-key.<instance>` and removes the file when the window closes; a new start
-writes a new key. `<settings>` is the folder that holds the preferences: on Linux
+writes a new key. `WORDCRAFT_PROFILE_DIR` overrides the whole profile folder for isolated runs,
+including recovery copies. See [local recovery](recovery.md). `<settings>` is the folder that holds the preferences: on Linux
 `$XDG_CONFIG_HOME/wordcraft` (by default `~/.config/wordcraft`), on macOS
 `~/Library/Application Support/WordCraft`, on Windows `%APPDATA%\WordCraft`. `<instance>` is the
 Flatpak instance id inside Flatpak, and `local-<port>` otherwise. On Unix the file has mode 0600.
@@ -73,6 +75,15 @@ The `CharProps` and `ParaProps` that `format.set`, `para.set` and `styles.modify
 in [MCP server](mcp.md#character-and-paragraph-properties).
 
 Positions are `{"story": "body" | {"part": n}, "path": [block, row, cell, block, …], "off": byteOffset}`.
+
+### Closing the document
+
+`engine.execute` with `file.close` never shows the Save / Don't Save / Cancel prompt. On a
+document with unsaved changes it replies with an error (the app keeps running and the edits
+stay); save first (`file.save`), or pass `{"force": true}` to discard the changes and close.
+The bare form `{"method": "file.close", "force": true}` (a method name that is a command id) is
+guarded the same way, and only a boolean `true` counts as `force`. A document without unsaved
+changes closes at once (#1268).
 
 ### Native printing
 
