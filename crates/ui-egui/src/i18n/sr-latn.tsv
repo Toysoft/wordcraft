@@ -2092,6 +2092,7 @@
 	Start-up	Pokretanje
 	Show the Start screen when WordCraft starts	Prikaži početni ekran pri pokretanju programa WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Uključeno: WordCraft se otvara na Fajl › Početak, sa praznim dokumentom, šablonima i nedavnim dokumentima. Isključeno: otvara prazan dokument.
+	Copy to	Kopiraj u
 
 # Document naming and account controls.
 	Rename Document	Preimenuj dokument
@@ -2139,3 +2140,11 @@
 	Suggested	Predlozi
 	Set Proofing Language…	Postavi jezik provere…
 	Language Preferences…	Jezičke postavke…
+
+# Dictionaries folder (#1063)
+	Dictionaries	Rečnici
+	Dictionaries folder:	Fascikla rečnika:
+	Not set: the system's usual places	Nije podešeno: uobičajene lokacije u sistemu
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell .aff i .dic datoteke iz ove fascikle (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) koriste se pre sistemskih.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: rečnik nije pronađen

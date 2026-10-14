@@ -49,6 +49,8 @@ pub struct ObjectDrag {
     /// edited (`keep`, the selection to go back to).
     base: f32,
     keep: Option<wordcraft_engine::Selection>,
+    /// Ctrl/⌘ is held: dropping leaves the original and puts a copy at the new place.
+    copy: bool,
     /// The alignment guides a move snapped to, shown while dragging ([`crate::guides`]).
     guides: Vec<crate::guides::Guide>,
     /// The object drawn alone over its rotated bounds, for the preview: made once it moves.
@@ -175,6 +177,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
         }
         if ui.input(|i| i.pointer.primary_down()) {
             let shift = ui.input(|i| i.modifiers.shift);
+            d.copy = ui.input(|i| i.modifiers.command) && d.drag.grab == Grab::Move;
             if d.drag.grab == Grab::Rotate && d.keep.is_some() {
                 // A straightened frame's turn adds to the box's angle: Shift snaps the sum.
                 d.drag.turn_to(at, pages, scale, false);
@@ -225,13 +228,16 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             keep: None,
             guides: Vec::new(),
             preview: None,
+            copy: false,
         });
         return true;
     }
     let Some((object, grab)) = grab_at(app, layout, pages, scale, at) else { return false };
     // Shift/Ctrl+click adds an object to the selected ones (or takes it out), for Group.
     let adding = ui.input(|i| i.modifiers.shift || i.modifiers.command);
-    if pressed && adding && grab == Grab::Move && selected(app).is_some() {
+    // Ctrl on the object that is already selected starts a copy-drag instead.
+    let again = selected(app).is_some_and(|(p, _)| p == object.pos());
+    if pressed && adding && grab == Grab::Move && selected(app).is_some() && !(again && !ui.input(|i| i.modifiers.shift)) {
         let _ = app.run("select.addObject", json!({"pos": object.pos()}));
         return true;
     }
@@ -246,7 +252,8 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             .map_or(0.0, wordcraft_engine::cmd::objects::min_size);
         let drag = Drag::new(grab, object.page, object.rect, 0.0, at);
         let (base, keep) = (object.spin.deg, Some(app.session.sel.clone()));
-        app.canvas.obj_drag = Some(ObjectDrag { drag, object, min, picture: false, end: None, base, keep, guides: Vec::new(), preview: None });
+        app.canvas.obj_drag =
+            Some(ObjectDrag { drag, object, min, picture: false, end: None, base, keep, guides: Vec::new(), preview: None, copy: false });
         return true;
     }
     if pressed {
@@ -259,6 +266,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
         };
         // Objects in table cells can be selected and resized, not moved; charts neither.
         if !fixed(app, &object) && (grab != Grab::Move || movable(app, &object)) {
+            let copy = grab == Grab::Move && ui.input(|i| i.modifiers.command);
             app.canvas.obj_drag = Some(ObjectDrag {
                 drag: Drag::new(grab, object.page, object.rect, object.spin.deg, at),
                 object,
@@ -269,6 +277,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                 keep: None,
                 guides: Vec::new(),
                 preview: None,
+                copy,
             });
         }
     }
@@ -451,6 +460,10 @@ fn commit(app: &mut WordApp, d: &ObjectDrag) {
             let _ = app.run("arrange.rotation", json!({"degrees": deg}));
             return;
         }
+        Grab::Move if d.copy => {
+            let _ = app.run("arrange.copyTo", json!({"page": d.drag.to_page, "x": r.x, "y": r.y}));
+            return;
+        }
         Grab::Move => json!({"page": d.drag.to_page, "x": r.x, "y": r.y}),
         // An inline object stays in the text; a floating one keeps its far edges put.
         Grab::Resize(_) if d.object.floating() && movable(app, &d.object) => {
@@ -564,7 +577,13 @@ fn paint_end_drag(app: &WordApp, d: &ObjectDrag, painter: &Painter, t: &Tokens, 
 /// The pointer over an object or a handle (or dragging): its cursor.
 pub fn cursor(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at: Pos2) -> Option<egui::CursorIcon> {
     if let Some(d) = &app.canvas.obj_drag {
-        return Some(if d.end.is_some() { egui::CursorIcon::Crosshair } else { d.drag.grab.cursor() });
+        return Some(if d.end.is_some() {
+            egui::CursorIcon::Crosshair
+        } else if d.copy && d.drag.moved {
+            egui::CursorIcon::Copy
+        } else {
+            d.drag.grab.cursor()
+        });
     }
     if connector_end_at(app, layout, pages, scale, at).is_some() {
         return Some(egui::CursorIcon::Crosshair);

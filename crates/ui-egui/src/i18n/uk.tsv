@@ -2094,6 +2094,7 @@
 	Start-up	Запуск
 	Show the Start screen when WordCraft starts	Показувати початковий екран під час запуску WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Увімкнено: WordCraft відкривається на сторінці Файл › Основне з порожнім документом, шаблонами та нещодавніми документами. Вимкнено: відкривається порожній документ.
+	Copy to	Копіювати до
 
 # Document naming and account controls.
 	Rename Document	Перейменувати документ
@@ -2141,3 +2142,11 @@
 	Suggested	Пропоновані
 	Set Proofing Language…	Вибрати мову перевірки правопису…
 	Language Preferences…	Мовні параметри…
+
+# Dictionaries folder (#1063)
+	Dictionaries	Словники
+	Dictionaries folder:	Папка словників:
+	Not set: the system's usual places	Не задано: стандартні розташування в системі
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Файли Hunspell .aff і .dic із цієї папки (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) використовуються раніше за системні.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: словник не знайдено
