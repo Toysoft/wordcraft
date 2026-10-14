@@ -303,6 +303,18 @@ fn txt_export_writes_symbol_font_text_as_unicode() {
     assert_eq!(String::from_utf8(out).unwrap(), "Done \u{263A}\u{2713}");
 }
 
+/// #1008: code spans with pipes or backticks don't split table cells; escaped pipes stay.
+#[test]
+fn markdown_table_cells_keep_code_span_pipes() {
+    let md = "| A | B |\n|---|---|\n| ``a|b`` | z |\n| ``x`y`` | w |\n| p\\|q | v |\n";
+    let d = import("md", md.as_bytes()).unwrap().unwrap();
+    let out = String::from_utf8(export("md", &d).unwrap().unwrap()).unwrap();
+    // Exact rows: nothing shifted, truncated or re-escaped.
+    for want in ["| `a|b` | z |", "| ``x`y`` | w |", "| p\\|q | v |"] {
+        assert!(out.lines().any(|l| l == want), "{want} in:\n{out}");
+    }
+}
+
 /// #569: a file with an extension we don't know opens as text when it is text (a playlist), and
 /// a binary file is told apart.
 #[test]
