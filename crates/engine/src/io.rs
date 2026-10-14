@@ -406,6 +406,23 @@ pub fn read_file_capped(path: &str, max: u64, what: &str) -> Result<Vec<u8>, Str
     std::fs::read(path).map_err(|e| format!("{path}: {e}"))
 }
 
+/// [`read_file`] for a peek: at most `max` bytes from the start (a format sniff reads the head
+/// of a possibly large document instead of reading it whole).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn read_file_head(path: &str, max: usize) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    crate::file_access::check_read(path)?;
+    let f = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut head = Vec::new();
+    f.take(max as u64).read_to_end(&mut head).map_err(|e| format!("{path}: {e}"))?;
+    Ok(head)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn read_file_head(path: &str, _max: usize) -> Result<Vec<u8>, String> {
+    Err(format!("{path}: files are opened through the browser on the web"))
+}
+
 /// Write `bytes` to the file at `path`, inside the automation write root when there is one.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn write_file(path: &str, bytes: &[u8]) -> Result<(), String> {
@@ -444,4 +461,26 @@ pub fn save_path_with(path: &std::path::Path, _doc: &Document, _password: Option
 /// Windows-1252 (see [`wordcraft_formats::txt::decode`]).
 pub fn decode_text(b: &[u8]) -> String {
     wordcraft_formats::txt::decode(b)
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_file_head_reads_at_most_max_bytes_from_the_start() {
+        let dir = std::env::temp_dir().join(format!("wc-io-head-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("head.bin");
+        let body: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &body).unwrap();
+        let head = read_file_head(&path.to_string_lossy(), 1024).unwrap();
+        assert_eq!(head.len(), 1024);
+        assert_eq!(head, body[..1024]);
+        // A file shorter than `max` reads whole.
+        let short = read_file_head(&path.to_string_lossy(), 100_000).unwrap();
+        assert_eq!(short, body);
+        assert!(read_file_head(&dir.join("missing.bin").to_string_lossy(), 16).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
