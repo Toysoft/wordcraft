@@ -255,13 +255,15 @@ fn arabic_labels_lay_out_right_to_left() {
             );
             let galley = ui.painter().layout_job(job);
             let glyphs = &galley.rows[0].row.glyphs;
-            let x_of = |word: &str| glyphs.iter().filter(|g| word.contains(g.chr)).map(|g| g.pos.x).collect::<Vec<f32>>();
-            let (a, b) = (x_of(first), x_of(second));
+            // A glyph counts for a side only when its letter belongs to that word alone: Arabic
+            // words share letters (د lives in both words here), and a shared glyph would feed
+            // both sides of the comparison.
+            let x_of = |word: &str, other: &str| {
+                glyphs.iter().filter(|g| word.contains(g.chr) && !other.contains(g.chr)).map(|g| g.pos.x).collect::<Vec<f32>>()
+            };
+            let (a, b) = (x_of(first, second), x_of(second, first));
             assert!(!a.is_empty() && !b.is_empty(), "{label}: no glyphs for `{first}`/`{second}`");
-            assert!(
-                a.iter().all(|&x| b.iter().all(|&y| x > y)),
-                "`{label}`: `{first}` must sit right of `{second}` after the pass"
-            );
+            assert!(a.iter().all(|&x| b.iter().all(|&y| x > y)), "`{label}`: `{first}` must sit right of `{second}` after the pass");
         }
     });
     output.textures_delta.clear();
