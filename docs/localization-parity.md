@@ -1,6 +1,6 @@
 # Localization parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (Japanese catalog: 358 additional display labels, 2,429 entries) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (Japanese UI: 2,464 catalog entries; checker findings, proofing explanations and citation descriptions) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Interface languages, script support and proofing per language. How translation works (catalog
 format, adding a language, clean-room rule): `crates/ui-egui/src/i18n/mod.rs`.
@@ -20,14 +20,20 @@ native-speaker review (human).
 ## What WordCraft ships (measured)
 
 - **19 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, `uk`, `es`, `pt-br`,
-  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr` and Bulgarian `bg`. Catalogs have 2,057–2,454 entries
-  each; Polish has every key of every other catalog, including the built-in style names and the equation gallery, except the citation style names only Hungarian and Bulgarian translate so far (a test checks it). A test (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
+  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr` and Bulgarian `bg`. Catalogs have 2,071–2,492 entries
+  each; Polish covers every key required by the existing catalog-superset test, including built-in
+  style names and equation-gallery labels. The test retains its exclusions for the Italian,
+  Hungarian and Bulgarian catalogs (legacy, citation and gallery-fragment labels). Japanese and
+  Polish now translate the four GOST and
+  ISO 690 descriptions. Brand names and stored style IDs stay as before. A test
+  (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
   label and ribbon location is translated in every language.
   `pl`, `pl-PL` and `pl_PL.UTF-8` system locales pick Polish automatically.
-- Of the 675 English strings a scan extracts from `tl!(…)` calls and command labels/locations, each
-  catalog covers **661 (98%)**. Some newer dialog and pane strings (Equation tab tooltips, Zotero,
-  Read Aloud, Backstage greetings) aren't wrapped in `tl!` yet, so they show in English in every
-  language: the true share of visible strings is **~93–95%** (estimated).
+- The previous full UI scan extracted 675 English strings from `tl!(…)` calls and command
+  labels/locations, with **661 (98%)** covered in each catalog. Its earlier estimate of visible
+  string coverage was **~93–95%**, including unwrapped dialog and pane text. This Japanese
+  follow-up updates catalog counts and checker messages; it does not re-measure overall visible
+  string coverage.
 - Pending PRs: Norwegian Bokmål (#208) and Nynorsk (#210), Hebrew with RTL (#20).
 - **Proofing: English, Polish, Portuguese and Italian**, chosen per run from its language (`w:lang`, resolved through
   the styles; Review › Language and the status bar set it). Languages without proofing tools get
@@ -52,7 +58,7 @@ shared items below.
 | French | fr | 2,033 entries | most; newer dialogs partly English | Latin ✅ | no | partial | 1–2 |
 | Portuguese | pt-br (pt-PT none) | ~930; 98% / ~95% (pt-BR) | most | Latin ✅ | no | partial | 2–4 (pt-BR finish + pt-PT) |
 | Indonesian | id | 0 | ❌ | Latin ✅ | no | none | 3–4 |
-| Japanese | ja | 2,429 catalog entries; visible-string coverage not re-measured | most; built-in styles, equation gallery and preview labels expanded | CJK ✅, IME ✅; no vertical text, ruby or document grid | no | partial | 3–5 |
+| Japanese | ja | 2,464 catalog entries; visible-string coverage not re-measured | most; styles, equations, checker findings and citation descriptions expanded | CJK ✅, IME ✅; no vertical text, ruby or document grid | no | partial | 3–5 |
 | German | de | 2,021 entries; same key set as zh-hans (#574); 98% of extracted, ~95% of visible | most | Latin ✅ | no | partial | 1–2 |
 | Korean | ko | 0 | ❌ | Hangul ✅; macOS Korean IME fixes pending (#163, #164) | no | none | 3–5 |
 | Vietnamese | vi | 0 | ❌ | Latin with stacked diacritics, untested | no | none | 3–4 |
@@ -77,10 +83,19 @@ the Russian catalog, built-in style names shown translated, plus the citation st
 Polish is the only one besides English with proofing tools, and a Polish interface writes new
 documents in Polish (`pl-PL`).
 
-Japanese now has 2,429 catalog entries (2,071 existing plus 358 added): built-in style names,
-equation-gallery labels, watermark choices and preview text. This expands the display catalog;
-document style ids, inserted equations and document text keep their original values. This count
-does not establish complete visible-string coverage or add Japanese proofing.
+Japanese now has 2,464 catalog entries (2,071 existing plus 393 added): built-in style names,
+equation-gallery labels, watermark choices, preview text, English proofing explanations,
+accessibility findings and the descriptive parts of citation-style names. The UI translates
+checker findings and their guidance at the presentation boundary, including heading levels,
+contrast ratios, empty rows/columns and repeated words. Engine JSON, citation identifiers,
+document style ids, inserted equations and document text keep their original values. This
+count does not establish complete visible-string coverage or add Japanese proofing.
+
+The new checker-message templates are also supplied in Polish, Russian, Hungarian, Turkish,
+Bulgarian and Italian to retain the existing catalog-completeness checks. These supporting
+catalogs add 148 entries (Polish 28; the other five 24 each); Italian now has 2,473 entries.
+The Bulgarian link hint uses the existing bundled font glyphs. No font or test changes are
+needed; proofing rules and dictionaries remain as before.
 
 ## Proofing per language
 
@@ -164,6 +179,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Japanese checker findings, English proofing explanations and citation descriptions: 35 further entries (2,464 total); supporting catalogs add 148 entries, including Italian 24; Bulgarian link hint uses the bundled glyph set; existing completeness and font checks retained |
 | 2026-10-14 | minor | Japanese catalog: 358 additional display labels, 2,429 entries; no claim of complete visible-string coverage |
 | 2026-10-12 | minor | Italian proofing: it-IT spelling from the installed Hunspell dictionary (system `it_IT`, never bundled — upstream is GPL), accent-first suggestions, conservative grammar with Italian messages, TeX Italian hyphenation patterns (MIT option); Review › Language already offered Italian; an `it` interface writes it-IT documents |
 | 2026-10-11 | minor | Turkish interface catalog completed (2,325 entries, the same keys as Russian): equation gallery, built-in style names, watermarks, paper sizes and preview tiles; the interface audit checks Turkish too (#774) |

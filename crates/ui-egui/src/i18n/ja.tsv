@@ -2443,3 +2443,40 @@
 	x bar	x の上線
 	✓ None	✓ なし
 preview	Title	表題
+
+# Display-only checker messages; engine results and document text remain unchanged.
+	Capitalize the first word of a sentence	文の先頭の単語を大文字で始めてください
+	Chart or diagram has no alternative text	グラフまたは図に代替テキストがありません
+	Column {column} of a table is empty: it looks like spacing	表の {column} 列目が空です。間隔を空けるための列に見えます
+	Delete the column and use cell margins instead	列を削除し、セルの余白で調整してください
+	Delete the row and use cell margins or spacing instead	行を削除し、セルの余白や間隔で調整してください
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	代替テキスト ウィンドウで説明を入力するか (object.altText)、装飾用にしてください
+	Document has no title	文書にタイトルがありません
+	Extra space	余分なスペース
+	GOST (name sort)	GOST (著者名順)
+	GOST (title sort)	GOST (タイトル順)
+	Give it a title or description (table.altText)	表にタイトルまたは説明を付けてください (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	見出しレベルが飛んでいます (見出し {previous} の後に見出し {level})
+	ISO 690 (author-date)	ISO 690 (著者・年)
+	ISO 690 (numerical)	ISO 690 (番号方式)
+	Link text "click here" isn't descriptive	リンクの文字列 "click here" ではリンク先がわかりません
+	Missing alternative text	代替テキストがありません
+	Object isn't in line with text, so its reading order is unclear	オブジェクトが行内に配置されていないため、読み上げ順序が不明瞭です
+	Place it in line with text (Layout › Wrap Text)	行内に配置してください (レイアウト › 文字列の折り返し)
+	Possible spelling mistake	スペルミスの可能性があります
+	Remove the space before the punctuation	句読点の前のスペースを削除してください
+	Repeat the first row as a header row (table.repeatHeader)	先頭行をタイトル行として繰り返してください (table.repeatHeader)
+	Repeated word: "{word}"	単語が重複しています: "{word}"
+	Row {row} of a table is empty: it looks like spacing	表の {row} 行目が空です。間隔を空けるための行に見えます
+	Split the merged cells (Table Layout › Merge)	結合したセルを分割してください (表のレイアウト › 結合)
+	Table has merged cells, which screen readers can lose track of	表に結合したセルがあり、スクリーンリーダーが位置を見失う可能性があります
+	Table has no alternative text	表に代替テキストがありません
+	Table has no header row	表にタイトル行がありません
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	文字のコントラストが低いため読みづらくなっています ({ratio}:1、必要な比率 {needed}:1)
+	The spelling and grammar check is complete.	スペルチェックと文章校正が完了しました。
+	Use "a" before a consonant sound	子音で始まる語の前に "a" を使ってください
+	Use "an" before a vowel sound	母音で始まる語の前に "an" を使ってください
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	空の段落の代わりに、段落前後の間隔 (レイアウト › 段落) や改ページを使ってください
+	Use a darker or lighter text colour, or change the shading behind it	文字色を暗く/明るくするか、背景色を変えてください
+	Use the next heading level down, so the outline has no gaps	見出しレベルを 1 つずつ下げ、文書の構成に抜けがないようにしてください
+	{n} empty paragraphs in a row	{n} 個の空の段落が連続しています

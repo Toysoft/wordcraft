@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (Japanese catalog: 358 additional display labels, 2,429 entries) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (Japanese UI: 2,464 catalog entries; checker findings, proofing explanations and citation descriptions) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -135,6 +135,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-14 | Japanese UI adds 35 more display entries (2,464 total): English proofing explanations, accessibility findings and citation descriptions; supporting catalogs add 148 entries, including Italian 24; Bulgarian link hint uses the bundled glyph set; engine results and document data preserved, completeness and font checks retained |
 | 2026-10-14 | Japanese display catalog grows from 2,071 to 2,429 entries: built-in styles, equation-gallery labels, watermark choices and preview text; document ids, equation content and proofing unchanged |
 | 2026-10-12 | Text boxes from older Word files (VML) keep their internal margins, Resize shape to fit text and vertical alignment, so letterhead address blocks and form headers sit where Word puts them instead of 7 pt in and 4 pt down. Hidden drawings stay hidden (they were drawn as empty boxes) and are kept on save |
 | 2026-10-13 | Word's privacy options are kept and honoured when saving .docx (#1062): with Remove personal information, comments and tracked changes are saved by "Author" and the file has no creator or last-modified-by; with Remove date and time, they are saved without dates. The open document keeps the real names and dates; `file.privacyOptions` sets both |
@@ -288,6 +289,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Japanese checker findings, proofing explanations and citation descriptions; 2,464 entries; supporting catalogs kept complete with Italian additions, font checks retained; estimated localization readiness unchanged |
 | 2026-10-14 | minor | Japanese catalog: 358 additional display labels; estimated localization readiness unchanged |
 | 2026-10-12 | trivial | Progress log: VML text box margins, fit and alignment; hidden drawings |
 | 2026-10-13 | trivial | Progress log: comment balloon buttons work, empty comments can be deleted (#1085) |

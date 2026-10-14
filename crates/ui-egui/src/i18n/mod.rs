@@ -26,6 +26,9 @@
 //! - [`fmt`]: fill `{name}` placeholders after a lookup; translators may reorder them.
 
 mod catalog;
+mod messages;
+
+pub(crate) use messages::{accessibility_issue, proof_message};
 
 use std::cell::Cell;
 use std::sync::OnceLock;
