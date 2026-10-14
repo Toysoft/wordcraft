@@ -724,9 +724,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.read_target_page = None;
     }
     // Keys first, so this frame lays out and paints what was typed (handled after painting, a
-    // keystroke showed one frame later). Focus is the canvas's from the last frame.
+    // keystroke showed one frame later). Focus is the canvas's from the last frame — or being
+    // restored this frame (want_focus, set by refocus_after_chrome_click after a click on the
+    // ribbon or status-bar chrome): a keystroke in the very next frame must reach the document
+    // (#1093), not be lost to the one-frame focus lag.
     // While "Save changes?" is up, keys answer it rather than edit the document behind it.
-    if app.canvas.focused && !matches!(app.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })) {
+    let focused = app.canvas.focused || app.canvas.want_focus;
+    if focused && !matches!(app.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })) {
         crate::keys::canvas_events(app, ui.ctx());
     }
     crate::ink::replay_tick(app, ui.ctx());
@@ -913,7 +917,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let out = scroll_area.show_viewport(&mut ui_area, |ui, viewport| {
         origin = ui.min_rect().min - viewport.min.to_vec2();
         let content = Rect::from_min_size(ui.min_rect().min, geo.size);
-        let resp = ui.allocate_rect(content, Sense::click_and_drag());
+        // A stable id for the canvas: allocate_rect's auto id shifts when widgets are
+        // added or removed before the canvas (switching ribbon tabs changed it, which
+        // dropped keyboard focus from the page, #1093), so interact with an explicit
+        // id salted from this Ui's stable id instead.
+        ui.advance_cursor_after_rect(content);
+        let resp = ui.interact(content, ui.id().with("canvas"), Sense::click_and_drag());
         if let Some(tr) = scroll_target {
             ui.scroll_to_rect(Rect::from_min_size(ui.min_rect().min + tr.min.to_vec2(), tr.size()), None);
         }
