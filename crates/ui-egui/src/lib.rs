@@ -718,11 +718,11 @@ impl WordApp {
     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
-        // Comment text still being typed is written first, so a save has it and a close, New or
-        // Open counts it as a change; a refused draft stops the command (#1348).
-        if flushes_comment_drafts(id, &params) {
-            panes::flush_comment_drafts(self)?;
-        }
+        // Comment text still being typed is written first, so a save or export has it and a
+        // close, New or Open counts it as a change (#1348). A draft the document refuses is not
+        // part of it: saving and exporting go on without it (the refusal stays on the status
+        // line), and replacing the document asks Save / Don't Save / Cancel about it.
+        let refused = if flushes_comment_drafts(id, &params) { panes::flush_comment_drafts(self).err() } else { None };
         if id == "file.recover" && params.as_object().is_none_or(|p| p.is_empty()) {
             self.ui.backstage = true;
             self.ui.backstage_page = "recover".into();
@@ -734,7 +734,7 @@ impl WordApp {
             self.dialog = dialogs::Dialog::open(name, self);
             return Ok(json!({"pending": name}));
         }
-        if (self.session.dirty || self.save_unconfirmed()) && discards_document(id, &params) {
+        if (self.session.dirty || self.save_unconfirmed() || refused.is_some()) && discards_document(id, &params) {
             let name = self.prompt_name();
             self.dialog = Some(dialogs::Dialog::SaveChanges {
                 name,
@@ -761,6 +761,9 @@ impl WordApp {
             return r;
         }
         let r = self.execute_user(id, params);
+        if let Some(e) = refused {
+            self.status(e);
+        }
         let r = system_clipboard::explain(self, id, r);
         // Check Accessibility shows its findings in the Accessibility pane, kept up to date there.
         if id == "file.accessibility" && r.is_ok() {
@@ -1132,11 +1135,16 @@ impl WordApp {
             self.status(tl!("Wait for the print job to finish submitting before closing."));
             return false;
         }
-        if !self.quit_requested && panes::flush_comment_drafts(self).is_err() {
-            return false;
+        if self.quit_requested {
+            return true;
         }
         // No document open (#1129): nothing to save.
-        if self.quit_requested || !self.session.dirty || !self.has_document() {
+        if !self.has_document() {
+            return true;
+        }
+        // A comment draft the document refuses is an unsaved change: the prompt can drop it.
+        let refused = panes::flush_comment_drafts(self).is_err();
+        if !self.session.dirty && !refused {
             return true;
         }
         let _ = self.run("file.close", json!({}));
@@ -2289,15 +2297,29 @@ pub(crate) fn works_without_document(id: &str) -> bool {
     ) || id.starts_with("help.")
 }
 
+/// Commands that save, export, print, send or replace the document: comment text still being
+/// typed is written before them (#1348).
+fn flushes_comment_drafts(id: &str, params: &Value) -> bool {
+    matches!(
+        id,
+        "file.save"
+            | "file.saveAs"
+            | "file.saveTemplate"
+            | "file.open"
+            | "file.exportPdf"
+            | "file.exportPng"
+            | "file.print"
+            | "file.printPdf"
+            | "file.share"
+            | "ui.print"
+            | "ui.printSubmit"
+    ) || discards_document(id, params)
+}
+
 /// User commands that replace or close the document (`file.open` without a path only shows the
 /// file picker; the open that follows is checked). Envelopes, Labels and Finish & Merge make a
 /// new document in its place; a merge written to a file (`path`) and an envelope added to this
 /// document (`add`) leave it alone.
-/// Commands that save the document or replace it: comment drafts are written before them.
-fn flushes_comment_drafts(id: &str, params: &Value) -> bool {
-    matches!(id, "file.save" | "file.saveAs" | "file.open") || discards_document(id, params)
-}
-
 fn discards_document(id: &str, params: &Value) -> bool {
     match id {
         "file.new" | "file.close" | "mailings.labels" => true,
