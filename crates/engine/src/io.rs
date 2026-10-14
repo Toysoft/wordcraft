@@ -406,6 +406,24 @@ pub fn read_file_capped(path: &str, max: u64, what: &str) -> Result<Vec<u8>, Str
     std::fs::read(path).map_err(|e| format!("{path}: {e}"))
 }
 
+/// [`read_file`] for the first `max` bytes of a file: sniffing a format from its head
+/// without reading a huge file whole. A file larger than `max` is fine — only its head
+/// is read — but a non-file or unreadable file errors, as with [`read_file_capped`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn read_file_head(path: &str, max: u64) -> Result<Vec<u8>, String> {
+    crate::file_access::check_read(path)?;
+    use std::io::Read;
+    let f = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut head = Vec::new();
+    f.take(max).read_to_end(&mut head).map_err(|e| format!("{path}: {e}"))?;
+    Ok(head)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn read_file_head(path: &str, _max: u64) -> Result<Vec<u8>, String> {
+    Err(format!("{path}: files are opened through the browser on the web"))
+}
+
 /// Write `bytes` to the file at `path`, inside the automation write root when there is one.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn write_file(path: &str, bytes: &[u8]) -> Result<(), String> {
