@@ -2072,6 +2072,31 @@
 	Hindi	Hindi
 	Context	Kontext
 	System	System
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Empfänger filtern
+	Sort Recipients	Empfänger sortieren
+	Filter and Sort	Filtern und Sortieren
+	And	Und
+	Or	Oder
+	Comparison	Vergleich
+	Compare to	Vergleichen mit
+	Add Condition	Bedingung hinzufügen
+	Remove condition	Bedingung entfernen
+	Sort by	Sortieren nach
+	Then by	Dann nach
+	Ascending	Aufsteigend
+	Descending	Absteigend
+	Equal to	Gleich
+	Not equal to	Ungleich
+	Less than	Kleiner als
+	Greater than	Größer als
+	Less than or equal	Kleiner oder gleich
+	Greater than or equal	Größer oder gleich
+	Is blank	Ist leer
+	Is not blank	Ist nicht leer
+	Contains	Enthält
+	Does not contain	Enthält nicht
+	{count} of {total} recipients will be merged.	{count} von {total} Empfängern werden zusammengeführt.
 	Show KeyTips (Alt or F10)	Zugriffstasten anzeigen (Alt oder F10)
 	Reading	Lesen
 	Reading Column Width	Spaltenbreite beim Lesen
@@ -2081,6 +2106,14 @@
 	Correct accidental usage of cAPS LOCK key	Unbeabsichtigtes Verwenden der fESTSTELLTASTE korrigieren
 	Region:	Region:
 	Automatic ({region})	Automatisch ({region})
+	Text of the nearest paragraph with a given style (running headers)	Text des nächsten Absatzes mit einer bestimmten Formatvorlage (lebende Kolumnentitel)
+	Style name:	Formatvorlagenname:
+	Search from bottom of page to top	Seite von unten nach oben durchsuchen
+	Insert paragraph number	Absatznummer einfügen
+	Insert paragraph number in relative context	Absatznummer in relativem Kontext einfügen
+	Insert paragraph number in full context	Absatznummer in vollständigem Kontext einfügen
+	Suppress all non-delimiter characters	Alle Zeichen außer Trennzeichen unterdrücken
+	Insert position (above or below)	Position einfügen (oberhalb oder unterhalb)
 	Search	Suchen
 	Title Bar	Titelleiste
 	Copy to	Kopieren nach
