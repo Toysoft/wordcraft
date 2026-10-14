@@ -81,6 +81,11 @@ pub enum Inline {
         linear: String,
         display: bool,
     },
+    /// A footnote or endnote anchored at this point in the paragraph.
+    Note {
+        kind: wordcraft_doc::para::NoteKind,
+        blocks: Vec<FBlock>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -159,7 +164,7 @@ impl Para {
         for i in &self.inlines {
             match i {
                 Inline::Text(t, _) | Inline::Equation { linear: t, .. } => s.push_str(t),
-                Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
+                Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) | Inline::Note { .. } => {}
             }
         }
         s
@@ -175,7 +180,7 @@ impl Para {
                     _ => s.push_str(t),
                 },
                 Inline::Equation { linear: t, .. } => s.push_str(t),
-                Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
+                Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) | Inline::Note { .. } => {}
             }
         }
         s
@@ -506,6 +511,16 @@ impl<'a> Builder<'a> {
                         let obj = InlineObject::Equation { linear, display: *display, math: Default::default() };
                         append(&mut out, "", &CharProps::default(), Some(obj));
                     }
+                }
+                Inline::Note { kind, blocks } => {
+                    let part_blocks = part_blocks(self.doc, blocks);
+                    let pkind = match kind {
+                        wordcraft_doc::para::NoteKind::Footnote => wordcraft_doc::PartKind::Footnote,
+                        wordcraft_doc::para::NoteKind::Endnote => wordcraft_doc::PartKind::Endnote,
+                    };
+                    let id = self.doc.add_part(pkind, part_blocks);
+                    let obj = InlineObject::NoteRef { kind: *kind, id, custom: String::new() };
+                    append(&mut out, "", &CharProps::default(), Some(obj));
                 }
             }
         }
@@ -904,6 +919,15 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         out.push_text(&std::mem::take(&mut buf), &f);
                     }
                     out.inlines.push(Inline::Anchor(name.clone()));
+                }
+                Some(InlineObject::NoteRef { kind, id, .. }) => {
+                    if !buf.is_empty() {
+                        out.push_text(&std::mem::take(&mut buf), &f);
+                    }
+                    if let Some(part) = doc.parts.get(id) {
+                        let note_blocks = flow_blocks(doc, &part.blocks, 0, tracked);
+                        out.inlines.push(Inline::Note { kind: *kind, blocks: note_blocks });
+                    }
                 }
                 Some(o) => buf.push_str(o.plain_text()),
                 None => {}
