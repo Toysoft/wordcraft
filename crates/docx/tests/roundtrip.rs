@@ -8,7 +8,7 @@ use wordcraft_doc::props::{
     Align, Border, BorderStyle, Borders, CharProps, HeightRule, Highlight, LineSpacing, NumRef, ParaProps, Rgb, RowProps, TabAlign, TabLeader,
     TabStop, TableLook, TextColor, TextDirection, Underline, VAlign, VMerge, VertAlign,
 };
-use wordcraft_doc::section::{Columns, DocGrid, DocGridType, LineNumberRestart, LineNumbering, NumFormat, SectionProps, SectionStart};
+use wordcraft_doc::section::{Columns, DocGrid, DocGridType, LineNumberRestart, LineNumbering, NumFormat, PageVAlign, SectionProps, SectionStart};
 use wordcraft_doc::styles::{Style, StyleKind};
 use wordcraft_doc::table::{Cell, Table};
 use wordcraft_doc::{Block, Blocks, Comment, Document, InlineObject, Paragraph, PartKind, Revision, RevisionKind, Source, Watermark, para_block};
@@ -279,7 +279,7 @@ fn tables_with_merges_round_trip() {
     t.props.look = TableLook { header_row: true, total_row: true, banded_rows: false, first_column: false, last_column: true, banded_columns: true };
     t.props.shading = Some(Rgb(1, 1, 1));
     t.props.caption = Some("Sales".into());
-    t.rows[0].props = RowProps { height: Some(20.0), height_rule: HeightRule::Exact, header: true, cant_split: true, fmt_change: None };
+    t.rows[0].props = RowProps { height: Some(20.0), height_rule: HeightRule::Exact, header: true, cant_split: true, ..Default::default() };
     t.rows[1].props = RowProps { height: Some(15.0), height_rule: HeightRule::AtLeast, ..Default::default() };
     t.merge(0, 0, 0, 1); // horizontal
     t.merge(1, 2, 2, 2); // vertical
@@ -322,8 +322,12 @@ fn sections_headers_footers_round_trip() {
     let mut d = Document::new();
     let page = |instr: &str| {
         let mut p = Paragraph::with_text("Page ", CharProps::default());
-        p.insert_object(5, InlineObject::Field { instr: instr.into(), result: "1".into(), locked: false, code: false }, &CharProps::default())
-            .unwrap();
+        p.insert_object(
+            5,
+            InlineObject::Field { instr: instr.into(), result: "1".into(), locked: false, code: false, form: String::new() },
+            &CharProps::default(),
+        )
+        .unwrap();
         p
     };
     let h1 = d.add_part(PartKind::Header, vec![para_block(Paragraph::with_text("Header one", CharProps::default()))]);
@@ -334,7 +338,7 @@ fn sections_headers_footers_round_trip() {
         title_page: true,
         page_num_start: Some(3),
         page_num_format: NumFormat::UpperRoman,
-        valign: VAlign::Center,
+        valign: PageVAlign::Center,
         page_borders: Some(Borders::box_(Border::single(1.0))),
         line_numbers: Some(LineNumbering { count_by: 5, start: 1, distance: 18.0, restart: LineNumberRestart::Section }),
         gutter: 18.0,
@@ -370,7 +374,7 @@ fn sections_headers_footers_round_trip() {
     assert_eq!(part_text(&r, secs[0].1.headers.first), "First page header");
     assert_eq!(secs[0].1.headers.default, secs[1].1.headers.default, "shared header part stays shared");
     let fp = r.parts.get(&secs[0].1.footers.default.unwrap()).unwrap().blocks[0].as_para().unwrap();
-    assert_eq!(fp.objects, vec![InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false }]);
+    assert_eq!(fp.objects, vec![InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() }]);
     assert_eq!(part_text(&r, secs[1].1.footers.default), "Page 1");
     assert_eq!(r.parts.get(&secs[0].1.headers.default.unwrap()).unwrap().kind, PartKind::Header);
 }
@@ -723,7 +727,13 @@ fn toc_field_wraps_its_entries() {
         let end = head.len();
         head.insert_object(
             end,
-            InlineObject::Field { instr: "TOC \\o \"1-2\" \\h \\z \\u".into(), result: String::new(), locked: false, code: false },
+            InlineObject::Field {
+                instr: "TOC \\o \"1-2\" \\h \\z \\u".into(),
+                result: String::new(),
+                locked: false,
+                code: false,
+                form: String::new(),
+            },
             &CharProps::default(),
         )
         .unwrap();
@@ -808,7 +818,7 @@ fn toc_field_skips_nested_stories() {
     let end = head.len();
     head.insert_object(
         end,
-        InlineObject::Field { instr: "TOC \\o \"1-1\" \\h \\z \\u".into(), result: String::new(), locked: false, code: false },
+        InlineObject::Field { instr: "TOC \\o \"1-1\" \\h \\z \\u".into(), result: String::new(), locked: false, code: false, form: String::new() },
         &CharProps::default(),
     )
     .unwrap();
@@ -847,7 +857,8 @@ fn tracked_changes_round_trip() {
     let p = para_runs(&[("kept ", CharProps::default()), ("added\t", ins.clone()), ("removed", del.clone()), ("gone", both.clone())]);
     let mut p = p;
     let end = p.len();
-    p.insert_object(end, InlineObject::Field { instr: "DATE".into(), result: "today".into(), locked: false, code: false }, &del).unwrap();
+    p.insert_object(end, InlineObject::Field { instr: "DATE".into(), result: "today".into(), locked: false, code: false, form: String::new() }, &del)
+        .unwrap();
     d.body = vec![para_block(p.clone())];
     let r = rt(&d);
     assert_eq!(r.revisions, d.revisions);
@@ -894,9 +905,9 @@ fn tracked_paragraph_marks_round_trip() {
 fn fields_and_special_chars_round_trip() {
     let mut p = Paragraph::with_text("a\tb\nc\u{000C}d\u{000E}e\u{2011}f\u{00AD}g  spaced  ", CharProps::default());
     let fields = [
-        InlineObject::Field { instr: "PAGE".into(), result: "4".into(), locked: false, code: false },
-        InlineObject::Field { instr: "DATE \\@ \"M/d/yyyy\"".into(), result: "1/2/2026".into(), locked: true, code: false },
-        InlineObject::Field { instr: "NUMPAGES".into(), result: String::new(), locked: false, code: false },
+        InlineObject::Field { instr: "PAGE".into(), result: "4".into(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "DATE \\@ \"M/d/yyyy\"".into(), result: "1/2/2026".into(), locked: true, code: false, form: String::new() },
+        InlineObject::Field { instr: "NUMPAGES".into(), result: String::new(), locked: false, code: false, form: String::new() },
     ];
     for f in &fields {
         let end = p.len();
@@ -1169,6 +1180,28 @@ fn rotated_drawing_canvas_round_trips() {
 }
 
 #[test]
+fn table_contextual_spacing_compatibility_flag_round_trips() {
+    for mode in [11, 12, 14, 15] {
+        for allow in [false, true] {
+            let mut d = Document::new();
+            d.settings.compat_mode = mode;
+            d.settings.allow_space_of_same_style_in_table = allow;
+            let r = rt(&d);
+            assert_eq!(r.settings.allow_space_of_same_style_in_table, allow);
+            assert_eq!(r.settings.compat_mode, mode);
+            if allow {
+                let bytes = wordcraft_docx::write(&d).unwrap();
+                let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+                let mut xml = String::new();
+                std::io::Read::read_to_string(&mut zip.by_name("word/settings.xml").unwrap(), &mut xml).unwrap();
+                // CT_Compat requires the boolean option before compatSetting.
+                assert!(xml.find("<w:allowSpaceOfSameStyleInTable").unwrap() < xml.find("<w:compatSetting").unwrap());
+            }
+        }
+    }
+}
+
+#[test]
 fn compatibility_mode_round_trips() {
     // New documents are Word 2013+ documents; an older file keeps its mode, so saving it doesn't
     // change how Word lays it out.
@@ -1276,10 +1309,173 @@ fn settings_core_theme_round_trip() {
     let r = rt(&d);
     assert_eq!(r.settings, d.settings);
     assert_eq!(r.core, d.core);
-    // Watermarks aren't stored in DOCX by this crate (yet).
+    // #1290: the watermark is written as a VML text shape in the headers and read back.
     let mut w = d.clone();
     w.settings.watermark = Some(Watermark::default());
-    assert_eq!(rt(&w).settings.watermark, None);
+    assert_eq!(rt(&w).settings.watermark, w.settings.watermark);
+}
+
+fn part_xml(bytes: &[u8], name: &str) -> String {
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(&mut z.by_name(name).unwrap(), &mut xml).unwrap();
+    xml
+}
+
+/// Header parts in the document, by id.
+fn header_ids(doc: &Document) -> Vec<u32> {
+    doc.parts.iter().filter(|(_, p)| p.kind == PartKind::Header).map(|(id, _)| *id).collect()
+}
+
+/// #1290: a watermark round-trips through Word's VML text shape: text, font, colour, diagonal and
+/// semitransparent, defaults or not.
+#[test]
+fn watermark_roundtrips() {
+    for wm in [
+        Watermark::default(),
+        Watermark {
+            text: "Riservato & <interno>".into(),
+            font: "Georgia".into(),
+            color: Rgb(0x80, 0x10, 0x20),
+            diagonal: false,
+            semitransparent: false,
+        },
+    ] {
+        let mut d = doc_with(vec![Paragraph::with_text("Body", CharProps::default())]);
+        d.settings.watermark = Some(wm.clone());
+        let r = rt(&d);
+        assert_eq!(r.settings.watermark, Some(wm));
+        assert_eq!(paras(&r).len(), 1, "the body gains nothing");
+    }
+}
+
+/// #1290: a document without headers gains one default header holding only the watermark (an
+/// empty paragraph once read back); saving again neither adds another nor duplicates the shape.
+#[test]
+fn watermark_without_header_gains_one() {
+    let mut d = doc_with(vec![Paragraph::with_text("Body", CharProps::default())]);
+    d.settings.watermark = Some(Watermark::default());
+    let bytes = wordcraft_docx::write(&d).unwrap();
+    let hdr = part_xml(&bytes, "word/header1.xml");
+    assert_eq!(hdr.matches("<v:shape ").count(), 1);
+    assert!(hdr.contains(r#"id="PowerPlusWaterMarkObject1""#) && hdr.contains("rotation:315") && hdr.contains(r#"<v:fill opacity=".5"/>"#));
+    // The text sits between the top and bottom edges: on one line Word gives it no height.
+    assert!(hdr.contains(r#"path="m0,0l21600,0m0,21600l21600,21600e""#));
+    assert!(part_xml(&bytes, "word/document.xml").contains(r#"<w:headerReference w:type="default""#));
+    let r = wordcraft_docx::read(&bytes).unwrap();
+    assert_eq!(r.settings.watermark, d.settings.watermark);
+    let ids = header_ids(&r);
+    assert_eq!(ids.len(), 1);
+    assert_eq!(r.last_section.headers.default, ids.first().copied());
+    let blocks = &r.parts[&ids[0]].blocks;
+    assert_eq!(blocks.len(), 1);
+    let p = blocks[0].as_para().unwrap();
+    assert!(p.text.is_empty() && p.objects.is_empty(), "the shape leaves nothing behind: {p:?}");
+    // Second generation: stable.
+    let r2 = rt(&r);
+    assert_eq!(r2.settings.watermark, d.settings.watermark);
+    assert_eq!(header_ids(&r2).len(), 1);
+    assert_eq!(r2.parts[&header_ids(&r2)[0]].blocks.len(), 1);
+}
+
+/// #1290: a header keeps its own text, and the watermark goes into its first paragraph (no extra
+/// line). Each header part carries the shape; footers don't.
+#[test]
+fn watermark_joins_existing_headers() {
+    let mut d = doc_with(vec![Paragraph::with_text("Body", CharProps::default())]);
+    let h = d.add_part(PartKind::Header, vec![para_block(Paragraph::with_text("Head", CharProps::default()))]);
+    let hf = d.add_part(PartKind::Header, vec![para_block(Paragraph::with_text("First", CharProps::default()))]);
+    let f = d.add_part(PartKind::Footer, vec![para_block(Paragraph::with_text("Foot", CharProps::default()))]);
+    d.last_section.headers.default = Some(h);
+    d.last_section.headers.first = Some(hf);
+    d.last_section.title_page = true;
+    d.last_section.footers.default = Some(f);
+    d.settings.watermark = Some(Watermark::default());
+    let bytes = wordcraft_docx::write(&d).unwrap();
+    for name in ["word/header1.xml", "word/header2.xml"] {
+        assert_eq!(part_xml(&bytes, name).matches("<v:shape ").count(), 1, "{name}");
+    }
+    assert!(!part_xml(&bytes, "word/footer1.xml").contains("v:shape"));
+    let r = wordcraft_docx::read(&bytes).unwrap();
+    assert_eq!(r.settings.watermark, d.settings.watermark);
+    assert_eq!(header_ids(&r).len(), 2, "no header was added");
+    assert_eq!(part_text(&r, r.last_section.headers.default), "Head");
+    assert_eq!(part_text(&r, r.last_section.headers.first), "First");
+    for id in header_ids(&r) {
+        assert_eq!(r.parts[&id].blocks.len(), 1);
+    }
+}
+
+/// #1290: only the slots the pages show and nothing fills get the watermark's own header: a
+/// later section still links to the earlier one's header, and a title page with no first-page
+/// header gets one.
+#[test]
+fn watermark_header_respects_linking() {
+    let mut d = Document::new();
+    let h = d.add_part(PartKind::Header, vec![para_block(Paragraph::with_text("Head", CharProps::default()))]);
+    let mut s1 = SectionProps::default();
+    s1.headers.default = Some(h);
+    s1.title_page = true;
+    let mut p1 = Paragraph::with_text("One", CharProps::default());
+    p1.section = Some(Box::new(s1));
+    d.body = vec![para_block(p1), para_block(Paragraph::with_text("Two", CharProps::default()))];
+    d.last_section.title_page = true;
+    d.settings.watermark = Some(Watermark::default());
+    let r = rt(&d);
+    assert_eq!(r.settings.watermark, d.settings.watermark);
+    let secs = r.sections();
+    assert_eq!(part_text(&r, secs[0].1.headers.default), "Head");
+    let first = secs[0].1.headers.first.expect("a first-page header for the watermark");
+    assert_eq!(part_text(&r, Some(first)), "");
+    assert_eq!(secs[1].1.headers, Default::default(), "the second section still links to the first");
+    assert_eq!(header_ids(&r).len(), 2);
+}
+
+/// #1290: a header holding only a table takes the watermark in the paragraph after the table
+/// (one every story ends with), so it gains no line.
+#[test]
+fn watermark_in_table_only_header() {
+    let mut d = doc_with(vec![Paragraph::with_text("Body", CharProps::default())]);
+    let t = Table::new(1, 2, 400.0);
+    let h = d.add_part(PartKind::Header, vec![Arc::new(Block::Table(t))]);
+    d.last_section.headers.default = Some(h);
+    let blocks = |d: &Document| d.parts[&d.last_section.headers.default.unwrap()].blocks.len();
+    let plain = blocks(&rt(&d));
+    d.settings.watermark = Some(Watermark::default());
+    let r = rt(&d);
+    assert_eq!(r.settings.watermark, d.settings.watermark);
+    assert_eq!(blocks(&r), plain);
+}
+
+/// #1290: with different odd and even pages, a document with only a default header gains an
+/// even-page header for the watermark; a later section stays linked to both.
+#[test]
+fn watermark_even_pages_header() {
+    let mut d = Document::new();
+    let h = d.add_part(PartKind::Header, vec![para_block(Paragraph::with_text("Head", CharProps::default()))]);
+    let mut s1 = SectionProps::default();
+    s1.headers.default = Some(h);
+    let mut p1 = Paragraph::with_text("One", CharProps::default());
+    p1.section = Some(Box::new(s1));
+    d.body = vec![para_block(p1), para_block(Paragraph::with_text("Two", CharProps::default()))];
+    d.settings.even_odd_headers = true;
+    d.settings.watermark = Some(Watermark::default());
+    let r = rt(&d);
+    assert_eq!(r.settings.watermark, d.settings.watermark);
+    let secs = r.sections();
+    assert_eq!(part_text(&r, secs[0].1.headers.default), "Head");
+    assert!(secs[0].1.headers.even.is_some() && secs[0].1.headers.first.is_none());
+    assert_eq!(secs[1].1.headers, Default::default());
+}
+
+/// #1290: a blank watermark isn't written (it wouldn't read back), and adds no header.
+#[test]
+fn blank_watermark_writes_nothing() {
+    let mut d = doc_with(vec![Paragraph::with_text("Body", CharProps::default())]);
+    d.settings.watermark = Some(Watermark { text: "  ".into(), ..Watermark::default() });
+    let r = rt(&d);
+    assert_eq!(r.settings.watermark, None);
+    assert!(header_ids(&r).is_empty());
 }
 
 /// A document that uses everything, for second-generation stability checks.
@@ -1991,7 +2187,7 @@ fn enclosed_characters_round_trip_in_words_structure() {
         let off = p.len();
         p.insert_object(
             off,
-            InlineObject::Field { instr: e.instr(), result: "字".into(), locked: false, code: false },
+            InlineObject::Field { instr: e.instr(), result: "字".into(), locked: false, code: false, form: String::new() },
             &CharProps { size, ..Default::default() },
         )
         .unwrap();

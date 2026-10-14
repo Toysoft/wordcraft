@@ -37,7 +37,8 @@ pub fn specs() -> Vec<CommandSpec> {
             .key("Mod+Alt+F")
             .params(r#"{"text"?: string, "mark"?: string (a custom mark instead of the number)}"#),
         CommandSpec::new("references.endnote", "Insert Endnote", "References › Footnotes", |s, v| note(s, v, NoteKind::Endnote))
-            .key("Mod+Alt+D")
+            // macOS takes ⌘⌥D to show and hide the Dock; Word for Mac uses ⌘⌥E.
+            .key(super::mac_or("Mod+Alt+E", "Mod+Alt+D"))
             .params(r#"{"text"?: string, "mark"?: string (a custom mark instead of the number)}"#),
         CommandSpec::new("references.convertNotes", "Convert Notes", "References › Footnotes", |s, v| {
             let (foot, end) = match p::req_str(v, "to")? {
@@ -225,6 +226,13 @@ struct TocEntry {
     lead: usize,
 }
 
+/// The headings of the body, in document order, as (body block, level 1–9, text, leading page
+/// breaks): what Insert › Link › Place in This Document lists.
+pub(crate) fn headings(s: &Session) -> Vec<(usize, u8, String, usize)> {
+    let f = FieldCode::parse("TOC \\o \"1-9\" \\u");
+    toc_entries(s, &f).into_iter().map(|e| (e.path.last(), e.level.saturating_add(1), e.text, e.lead)).collect()
+}
+
 /// The heading level (1–9) of a built-in heading style.
 fn heading_style_level(p: &Paragraph) -> Option<u8> {
     p.props.style.as_deref()?.strip_prefix("Heading")?.trim().parse::<u8>().ok().filter(|l| (1..=9).contains(l))
@@ -327,6 +335,13 @@ fn toc_range(s: &Session) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
+/// The caret is in the table of contents (its heading or an entry), where Word's context menu
+/// offers Update Field for the whole table.
+pub fn caret_in_toc(s: &Session) -> bool {
+    let at = &s.sel.focus;
+    at.story == StoryRef::Body && at.path.depth() == 0 && toc_range(s).is_some_and(|(start, end)| (start..=end).contains(&at.path.last()))
+}
+
 /// A TOC imported as a range field (`FieldStart`…`FieldEnd`: one without a TOC heading, or with
 /// content around it the engine's TOC can't reproduce) becomes the engine's TOC before an update,
 /// so Update Table refreshes it rather than adding a second one: an empty `TOC` field where the
@@ -353,7 +368,7 @@ fn range_toc_to_field(s: &mut Session) -> Result<(), CmdError> {
     let end = Pos { off: after_end, ..r.end.clone() };
     let props = s.doc.para_at(&r.start).map(|p| p.props_of_char(r.start.off).clone()).unwrap_or_default();
     let at = s.doc.delete_range(&r.start, &end)?;
-    let field = InlineObject::Field { instr: r.instr.trim().to_string(), result: String::new(), locked: false, code: false };
+    let field = InlineObject::Field { instr: r.instr.trim().to_string(), result: String::new(), locked: false, code: false, form: String::new() };
     let after = s.doc.insert_object(&at, field, &props)?;
     if s.doc.para_at(&after).is_some_and(|p| after.off < p.len()) {
         s.doc.split_paragraph(&after)?;
@@ -403,7 +418,7 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
     let mut head = Paragraph::with_text(&title, CharProps::default()).styled("TOCHeading");
     head.insert_object(
         head.len(),
-        InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, code: false },
+        InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, code: false, form: String::new() },
         &CharProps::default(),
     )?;
     let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) {
@@ -423,7 +438,7 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
 
 /// A hidden `_Toc` bookmark around the heading at body block `i` (after its leading page breaks),
 /// reusing one already there; its name.
-fn toc_bookmark(s: &mut Session, i: usize, lead: usize) -> Result<String, CmdError> {
+pub(crate) fn toc_bookmark(s: &mut Session, i: usize, lead: usize) -> Result<String, CmdError> {
     const MARK: usize = wordcraft_doc::para::OBJ.len_utf8();
     let para = s.doc.para(StoryRef::Body, &Path::top(i)).ok_or_else(|| CmdError::Failed("heading is gone".into()))?;
     if let Some(InlineObject::BookmarkStart { name }) = para.object_at(lead)
@@ -533,7 +548,7 @@ fn note(s: &mut Session, v: &Value, kind: NoteKind) -> CmdResult {
         NoteKind::Endnote => (PartKind::Endnote, "EndnoteText", "EndnoteReference"),
     };
     let mut para = Paragraph::new().styled(style);
-    let id = s.doc.add_part(pk, Vec::new());
+    let id = s.doc.try_add_part(pk, Vec::new())?;
     para.insert_object(
         0,
         InlineObject::NoteRef { kind, id, custom: custom.clone() },
@@ -687,7 +702,7 @@ fn caption(s: &mut Session, v: &Value) -> CmdResult {
     let chapter = p::u64(v, "chapter").filter(|l| (1..=9).contains(l));
     let sep = p::str(v, "separator").and_then(|x| CHAPTER_SEPARATORS.iter().find(|s| **s == x)).copied().unwrap_or("-");
     let mut para = Paragraph::new().styled("Caption");
-    let field = |instr: String| InlineObject::Field { instr, result: String::new(), locked: false, code: false };
+    let field = |instr: String| InlineObject::Field { instr, result: String::new(), locked: false, code: false, form: String::new() };
     if !p::bool(v, "excludeLabel").unwrap_or(false) {
         para.insert_text(0, &format!("{label} "), &CharProps::default())?;
     }
