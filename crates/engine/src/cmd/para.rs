@@ -165,14 +165,18 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"kind": "bottom|top|left|right|none|all|outside|inside|horizontalLine", "width"?: pt, "color"?: "RRGGBB", "style"?: "single|double|dotted|dashed|thick|triple|dotDash|wave", "sides"?: Sides} where Sides = {"top"|"left"|"bottom"|"right"|"between": {"style"?, "width"?: pt, "color"?: "RRGGBB"} | null}: exactly these sides (others off), instead of `kind`"#,
         ),
         CommandSpec::new("para.sort", "Sort", "Home › Paragraph", sort).params(r#"{"descending"?: bool}"#),
-        CommandSpec::new("para.keepNext", "Keep with Next", "Home › Paragraph › Line and Page Breaks", |s, v| tog(s, v, |p| p.keep_next, |p, b| p.keep_next = Some(b))),
-        CommandSpec::new("para.keepLines", "Keep Lines Together", "Home › Paragraph › Line and Page Breaks", |s, v| tog(s, v, |p| p.keep_lines, |p, b| p.keep_lines = Some(b))),
+        CommandSpec::new("para.keepNext", "Keep with Next", "Home › Paragraph › Line and Page Breaks", |s, v| tog(s, v, |p| p.keep_next, |p, b| p.keep_next = Some(b)))
+            .params(r#"{"value"?: bool}"#),
+        CommandSpec::new("para.keepLines", "Keep Lines Together", "Home › Paragraph › Line and Page Breaks", |s, v| tog(s, v, |p| p.keep_lines, |p, b| p.keep_lines = Some(b)))
+            .params(r#"{"value"?: bool}"#),
         CommandSpec::new("para.pageBreakBefore", "Page Break Before", "Home › Paragraph › Line and Page Breaks", |s, v| {
             tog(s, v, |p| p.page_break_before, |p, b| p.page_break_before = Some(b))
-        }),
+        })
+        .params(r#"{"value"?: bool}"#),
         CommandSpec::new("para.widowControl", "Widow/Orphan Control", "Home › Paragraph › Line and Page Breaks", |s, v| {
             tog(s, v, |p| p.widow_control, |p, b| p.widow_control = Some(b))
-        }),
+        })
+        .params(r#"{"value"?: bool}"#),
         CommandSpec::new("para.asianTypography", "Asian Typography", "Home › Paragraph › Asian Typography", asian_typography).params(
             r#"{"kinsoku"?: bool (East Asian line-breaking rules), "wordWrap"?: bool (false: Latin words may break at any character), "overflowPunct"?: bool (hanging punctuation), "topLinePunct"?: bool (compress punctuation at the start of a line), "autoSpaceDE"?: bool (space between Asian and Latin text), "autoSpaceDN"?: bool (space between Asian text and numbers)} — flags left out stay as they are; returns the flags at the caret"#,
         ),
@@ -222,7 +226,8 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("styles.apply", "Apply Styles", "Home › Styles", apply_styles)
             .params(r#"{"style"?: string (name or id)}"#)
-            .key("Mod+Shift+S")
+            // On macOS ⌘⇧S is Save As, as in Word for Mac.
+            .key(super::non_mac("Mod+Shift+S"))
             .pure(),
         CommandSpec::new("styles.addToGallery", "Add to Style Gallery", "Home › Styles", |s, v| {
             let id = style_id(s, p::req_str(v, "style")?)?;
@@ -532,8 +537,11 @@ fn list(s: &mut Session, v: &Value, default: ListKind) -> CmdResult {
     let num = match prev_num {
         Some(n) => n.num,
         None => match kind {
-            ListKind::Bullet | ListKind::BulletChar(_) => s.doc.numbering.find_kind(kind).unwrap_or_else(|| s.doc.numbering.add_list(kind)),
-            _ => s.doc.numbering.add_list(kind),
+            ListKind::Bullet | ListKind::BulletChar(_) => match s.doc.numbering.find_kind(kind) {
+                Some(n) => n,
+                None => s.doc.numbering.try_add_list(kind)?,
+            },
+            _ => s.doc.numbering.try_add_list(kind)?,
         },
     };
     fmt(s, &|p| {

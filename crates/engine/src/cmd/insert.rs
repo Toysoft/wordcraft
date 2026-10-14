@@ -223,7 +223,9 @@ pub(crate) fn picture(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// Insert an encoded image at the selection as an inline picture, `width` points wide (default:
-/// its natural size at 96 ppi), never wider than the text column.
+/// its natural size at 96 ppi), never wider than the text column. The caret ends after it, so a
+/// script's next typing doesn't replace it (#965); Picture Format commands still act on it. The
+/// app selects a picture the person inserts (`WordApp::run`).
 fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str) -> CmdResult {
     if bytes.len() > 200 << 20 {
         return Err(CmdError::Failed("image is larger than 200 MB".into()));
@@ -265,7 +267,7 @@ fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str)
     let props = s.typing_props();
     let at = delete_selection(s)?;
     let end = s.doc.insert_object(&at, obj, &props)?;
-    s.sel = Selection { anchor: at, focus: end };
+    s.sel = Selection::caret(end);
     Ok(json!({"media": key, "width": w, "height": h}))
 }
 
@@ -345,7 +347,7 @@ fn text_box(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::str(v, "text").unwrap_or("").to_string();
     let w = p::f32(v, "width").unwrap_or(144.0).clamp(18.0, 2000.0);
     let h = p::f32(v, "height").unwrap_or(72.0).clamp(18.0, 2000.0);
-    let id = s.doc.add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, CharProps::default()))]);
+    let id = s.doc.try_add_part(PartKind::TextBox, vec![para_block(Paragraph::with_text(&text, CharProps::default()))])?;
     let obj = InlineObject::Shape {
         kind: ShapeKind::TextBox,
         w,

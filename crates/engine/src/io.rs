@@ -188,7 +188,11 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
         }
         // Plain text goes through the formats importer: BOMs, unmarked UTF-16, Windows-1252.
         "txt" | "text" => wordcraft_formats::txt::import_on(bytes, page),
-        "json" => serde_json::from_slice::<Document>(bytes).map_err(|e| format!("{name}: {e}"))?,
+        "json" => {
+            let mut d = serde_json::from_slice::<Document>(bytes).map_err(|e| format!("{name}: {e}"))?;
+            d.normalize_runs();
+            d
+        }
         other => match crate::io_ext::open(other, bytes, page) {
             Some(r) => r?,
             None => return open_by_content(name, other, bytes, password, page),
@@ -535,7 +539,8 @@ pub fn read_file_head(path: &str, max: u64) -> Result<Vec<u8>, String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn write_file(path: &str, bytes: &[u8]) -> Result<(), String> {
     crate::file_access::check_write(path)?;
-    std::fs::write(path, bytes).map_err(|e| format!("{path}: {e}"))
+    // Like a document save: the old file is replaced only once the new bytes are fully written.
+    safe_save::write(std::path::Path::new(path), bytes).map_err(|e| format!("{path}: {e}"))
 }
 
 #[cfg(target_arch = "wasm32")]
