@@ -94,6 +94,14 @@ impl FlagSet {
     fn contains_all(self, o: FlagSet) -> bool {
         self.0.iter().zip(o.0).all(|(a, b)| a & b == b)
     }
+
+    fn without(self, o: FlagSet) -> FlagSet {
+        let mut out = self;
+        for (a, b) in out.0.iter_mut().zip(o.0) {
+            *a &= !b;
+        }
+        out
+    }
 }
 
 /// How an `.aff`/`.dic` pair writes flags (`FLAG` directive).
@@ -563,12 +571,20 @@ impl AffixDict {
         while i < stems.len() {
             let Some((word, _)) = stems.get(i) else { break };
             let mut mask = FlagSet::default();
+            let mut every_no_suggest = true;
             let mut j = i;
             while let Some((w, f)) = stems.get(j)
                 && w == word
             {
-                mask = mask.union(set_of(f));
+                let entry = set_of(f);
+                every_no_suggest &= entry.intersects(no_suggest);
+                mask = mask.union(entry);
                 j += 1;
+            }
+            // `bar` the unit is NOSUGGEST, `bar` the noun isn't: the word stays suggestible unless
+            // every entry spelled like it is marked.
+            if !every_no_suggest {
+                mask = mask.without(no_suggest);
             }
             let next_id = u16::try_from(d.sets.len()).map_err(|_| "too many distinct flag sets".to_string())?;
             let id = *set_ids.entry(mask).or_insert(next_id);
@@ -1424,6 +1440,17 @@ mod tests {
         assert!(d.suggestible("chat") && d.suggestible("chats"));
         let back = AffixDict::from_bytes(&d.to_bytes()).unwrap();
         assert!(back.contains("chf") && !back.suggestible("chf"), "NOSUGGEST survives a round trip");
+    }
+
+    #[test]
+    fn no_suggest_on_one_homonym_keeps_the_word_suggestible() {
+        // `bar` the unit is NOSUGGEST and KEEPCASE, `bar` the noun is an ordinary word.
+        let aff = "SET UTF-8\nFLAG long\nNOSUGGEST --\nKEEPCASE ||\nSFX S. Y 1\nSFX S. 0 s .\n";
+        let d = AffixDict::from_hunspell(aff, "3\nbar/S.\nbar/||--\ncgr/||--\n", &[]).unwrap();
+        assert!(d.suggestible("bar") && d.suggestible("bars"), "the noun stays suggestible");
+        assert!(!d.suggestible("cgr") && d.contains("cgr"), "a symbol with one entry doesn't");
+        let back = AffixDict::from_bytes(&d.to_bytes()).unwrap();
+        assert!(back.suggestible("bars") && !back.suggestible("cgr"), "both survive a round trip");
     }
 
     /// `.aff` text built from random pieces with the features the French dictionary uses.

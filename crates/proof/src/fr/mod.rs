@@ -334,10 +334,13 @@ mod tests {
         eprintln!("fr_FR: {} suggestion calls in {ms:.0} ms ({:.0} ms each)", words.len(), ms / words.len() as f64);
         assert!(ms < 30_000.0, "{ms} ms");
         // NOSUGGEST entries of the real dictionary (unit symbols) are correct but stay out.
-        for (typo, unit) in [("dastt", "dast"), ("ergg", "erg"), ("cgrr", "cgr")] {
+        for (typo, unit) in [("dastt", "dast"), ("cgrr", "cgr")] {
             assert!(is_correct_with(&d, unit), "{unit}");
             let s = suggest::suggest_in(&d, typo, 8);
             assert!(!s.iter().any(|x| x == unit), "{typo} → {s:?}");
         }
+        // `bar` is also an ordinary noun (only its unit entry is NOSUGGEST): still suggested.
+        let s = suggest::suggest_in(&d, "barr", 8);
+        assert!(s.iter().any(|x| x == "bar"), "barr → {s:?}");
     }
 }
