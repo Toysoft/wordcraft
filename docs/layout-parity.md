@@ -1,6 +1,6 @@
 # Layout and pagination parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (STYLEREF running headers per page, #775; previously trivial: PAGEREF in headers and footers shows its bookmark's page, #1477; previously trivial: a paragraph continued into the next column or page wraps around that column's shapes, #1374; previously trivial: PAGE fields in a paragraph split across pages show the page they are on, #1352; previously trivial: symbol-font text drawn as Unicode symbols, #776; previously trivial: large-table scrolling measured and fixed, #811; previously trivial: text boxes use their own margins; Resize shape to fit text never cuts text, #743; previously trivial: complex-script shaping and Myanmar line breaking, #604; previously trivial: body page totals, table-cell footnotes and bookmark link pages fixed, #450 #451 #455; previously major: first version; line breaking, pagination and object placement checked against Word's behaviour from the layout source on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (quarter-turned text boxes turn their text; upright text round-trips; previously trivial: STYLEREF running headers per page, #775; previously trivial: PAGEREF in headers and footers shows its bookmark's page, #1477; previously trivial: a paragraph continued into the next column or page wraps around that column's shapes, #1374; previously trivial: PAGE fields in a paragraph split across pages show the page they are on, #1352; previously trivial: symbol-font text drawn as Unicode symbols, #776; previously trivial: large-table scrolling measured and fixed, #811; previously trivial: text boxes use their own margins; Resize shape to fit text never cuts text, #743; previously trivial: complex-script shaping and Myanmar line breaking, #604; previously trivial: body page totals, table-cell footnotes and bookmark link pages fixed, #450 #451 #455; previously major: first version; line breaking, pagination and object placement checked against Word's behaviour from the layout source on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 A document only "opens correctly" if its pages break where Word breaks them: the same lines, the
 same page count, footnotes and pictures on the same pages. This checklist covers line breaking,
@@ -158,6 +158,7 @@ No overall parity estimate changes from these probes.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | trivial | Quarter-turned text boxes turn their text; upright text round-trips. Arbitrary angles and combined text direction remain outside this fix |
 | 2026-10-13 | trivial | PAGEREF in headers and footers shows its bookmark's page (#1477) |
 | 2026-10-13 | trivial | A shape or picture dragged into another column anchors there, so the text in that column wraps around it (#884) |
 | 2026-10-13 | trivial | On a page with footnotes, a paragraph that ends there keeps its space after above the footnote separator; if it doesn't fit, its last line (and, with widow control, one more) goes to the next page with the note. Pages without notes are unchanged (#1116) |
@@ -219,3 +220,5 @@ and balloon layout while supplying explicit cell identity at every box call. The
 probes above are historical; this rebase has no new native or other-platform measurement.
 
 Repeated table-cell control, 12 October 2026: four same-style contextual paragraphs with 6 pt before/after and exactly 24 pt lines retain zero extra gap at every boundary. The body control uses the same fixture. This is an original specification-based regression; no new native Word table comparison was run.
+
+Quarter-turned text boxes use turned-line layout and caret geometry, including boxes inside groups. Their own 90° or 270° rotation turns the text unless `bodyPr/@upright` is true. Synthetic grouped labels match Adobe. Arbitrary angles and combined text direction remain open.
