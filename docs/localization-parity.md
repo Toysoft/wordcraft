@@ -1,11 +1,11 @@
 # Localization parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (French row: only a missing space is flagged, Quebec French (`fr-CA`) follows Quebec typography; previously minor: French proofing: spelling from the installed Hunspell fr_FR or a regional dictionary, accent-first suggestions, French typography and grammar rules with French messages, TeX French hyphenation; a French interface writes French documents in the system's region; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Interface languages, script support and proofing per language. How translation works (catalog
 format, adding a language, clean-room rule): `crates/ui-egui/src/i18n/mod.rs`.
 
-**Dimension: ~29% (estimated; 28% before Italian proofing, 27% before Portuguese proofing, 25% before Polish and per-run proofing languages), 70–115 h to full
+**Dimension: ~30% (estimated; 29% before French proofing, 28% before Italian proofing, 27% before Portuguese proofing, 25% before Polish and per-run proofing languages), 70–115 h to full
 for the twelve key languages** plus ~45 h for the other ~17 languages Word ships, plus
 native-speaker review (human).
 
@@ -29,10 +29,9 @@ native-speaker review (human).
   Read Aloud, Backstage greetings) aren't wrapped in `tl!` yet, so they show in English in every
   language: the true share of visible strings is **~93–95%** (estimated).
 - Pending PRs: Norwegian Bokmål (#208) and Nynorsk (#210), Hebrew with RTL (#20).
-- **Proofing: English, Polish, Portuguese and Italian**, chosen per run from its language (`w:lang`, resolved through
+- **Proofing: English, Polish, Portuguese, Italian, Croatian and French**, chosen per run from its language (`w:lang`, resolved through
   the styles; Review › Language and the status bar set it: a short list, plus Set Proofing
   Language… for any of 29 languages and Set As Default for the document). Languages without proofing tools get
-  the styles; Review › Language and the status bar set it). Languages without proofing tools get
   no spelling or grammar marks (as in Word without the language's tools) instead of being flagged
   as English. Detail in [Proofing per language](#proofing-per-language).
 - Document scripts: shaping via HarfRust (HarfBuzz port) for every script; bidi (UAX #9) and Arabic
@@ -51,7 +50,7 @@ shared items below.
 | Spanish | es | ~930; 98% / ~95% | most | Latin ✅ | no | partial | 1–2 |
 | Hindi | hi | 0 | ❌ | Devanagari shaping via HarfRust, untested; no hyphenation | no | none | 4–6 |
 | Arabic | ar | 0 | ❌ | shaping, joining, lam-alef, bidi ✅ (#207); no kashida; **no mirrored UI** | no | none | 6–8 |
-| French | fr | 2,033 entries | most; newer dialogs partly English | Latin ✅ | no | partial | 1–2 |
+| French | fr | 2,033 entries; proofing (spelling, typography and grammar, hyphenation) | most; newer dialogs partly English | Latin ✅ | no | partial | 1–2 |
 | Portuguese | pt-br (pt-PT none) | ~930; 98% / ~95% (pt-BR) | most | Latin ✅ | no | partial | 2–4 (pt-BR finish + pt-PT) |
 | Indonesian | id | 0 | ❌ | Latin ✅ | no | none | 3–4 |
 | Japanese | ja | ~930; 98% / ~95% | most | CJK ✅, IME ✅; no vertical text, ruby or document grid | no | partial | 3–5 |
@@ -76,8 +75,8 @@ Hungarian follows `hu-HU` system locales and `{"value":"hu"}`, with a complete c
 the Russian catalog, built-in style names shown translated, plus the citation style names. Hungarian proofing is not included; terminology and conventions:
 [`localization-hu.md`](localization-hu.md).
 
-Polish is the only one besides English with proofing tools, and a Polish interface writes new
-documents in Polish (`pl-PL`).
+Polish, Italian and French have proofing tools, and their interfaces write new documents in their
+language (`pl-PL`, `it-IT`, `fr-FR`).
 
 **Interface audit (runs in CI).** `untranslated_interface_text` lays the app out in a pseudo-language
 (every tab, File page, dialog, pane, the right-click menu, and a hover and a click on every ribbon
@@ -96,6 +95,7 @@ other than envelopes (Letter, Legal, A4, B5 (JIS)) stay as they are (#1128).
 | Polish (`pl`) | The Hunspell `pl_PL` dictionary installed on the system (OS package, Homebrew, LibreOffice, or the `WORDCRAFT_DICTIONARIES` folder; not bundled, so no Polish spelling marks without it), read at runtime by a Hunspell-style affix engine (`crates/proof/src/affix.rs`); names capitalized, compounds part by part, `Kennedy'ego` | missing diacritics first (`zolw` → `żółw`), the dictionary's confusion table (`żeka` → `rzeka`, `chuśtawka` → `huśtawka`), missing space (`napewno` → `na pewno`), one typo, then a stem scan within two typos | Polish messages: repeated word, space before punctuation, double space, sentence capital (knows `np.`, `r.`, initials, ordinals, dialogue dashes), missing comma before `że`/`który`/`ponieważ`/`gdyż`/`aby`/`żeby`/`jeśli`/`jeżeli`/`gdyby`/`lecz` (not after `mimo`, `chyba`, `tak`, prepositions…), `we`/`ze` (`we wtorek`, `ze szkoły`), doubled punctuation | TeX Polish patterns (Kołodziejska, Jackowski, Ryćko; MIT option) with their 20 exception words; a Polish syllable heuristic for letters outside the alphabet |
 | Portuguese (`pt`, any region) | The Hunspell `pt_BR` dictionary installed on the system — VERO and its derivatives (same places as Polish; not bundled, LGPL/MPL), read at runtime by the same affix engine, which reads its `FLAG UTF-8`, 106 flags, continuation classes and `FORBIDDENWORD` spellings; names capitalized, compounds part by part (`guarda-roupa`, `ex-marido`) | missing accents first (`coraçao` → `coração`, `saude` → `saúde`), the dictionary's confusion table (`seje` → `seja`, `excessão` → `exceção`), missing space (`nãoé` → `não é`), one typo, then an accent-folding stem scan | Portuguese messages: repeated word (the emphatic doubles are allowed), space before punctuation, double space, sentence capital (knows `etc.`, `pág.`, `Dr.`, initials, ordinals, dialogue dashes), doubled punctuation; no comma rule — `que` opens a clause only sometimes | TeX Portuguese patterns (Rezende, Almeida, Araujo, Benevides; BSD 3-clause) with their 2 exception words |
 | Italian (`it`, any region) | The Hunspell `it_IT` dictionary installed on the system (same places as Polish and Portuguese; not bundled — the upstream file is GPL-licensed), read at runtime by the same affix engine; elided forms check the word after the apostrophe (`l'amico`, `un'idea`, `c'è`), hyphenated compounds part by part | missing accents first (`caffe` → `caffè`, `perche` → `perché`), the dictionary's confusion table, missing space (`perme` → `per me`), one typo, then an accent-folding stem scan | Italian messages: repeated word (emphatic doubles like `piano piano` are allowed), space before punctuation, double space, sentence capital (knows `ecc.`, `dott.`, `prof.`, initials, ordinals), doubled punctuation; no comma rule | TeX Italian patterns (Beccari; MIT option), no exception words |
+| French (`fr`, any region) | The Hunspell French dictionary installed on the system — `fr_FR`, else `fr`, `fr_BE`, `fr_CA`, `fr_CH`, `fr_LU` or `fr_MC` (Dicollecte/Grammalecte as Linux packages ship it, Homebrew, LibreOffice, or the `WORDCRAFT_DICTIONARIES` folder; not bundled — the upstream files are MPL 2.0), read at runtime by the same affix engine, which reads its `FLAG long` flags (~180), `NEEDAFFIX`, `KEEPCASE`, `FULLSTRIP` and `ICONV`; elisions come from the dictionary (`l'arbre`, `qu'elle`, `jusqu'à`; `’` and `'` alike), compounds it doesn't list part by part (`va-t-il`) | missing accents first (`ecole` → `école`), the dictionary's confusion table (`soeur` → `sœur`), missing space (`pourmoi` → `pour moi`), one typo, then an accent-folding stem scan; elided words corrected whole, the writer's apostrophe kept | French messages: a missing space before `;` `!` `?` (suggests narrow U+202F) and `:` (U+00A0) and inside `« »` — an ordinary space is accepted until a French AutoFormat types the non-breaking one; Quebec French (`fr-CA`) wants none before `;` `!` `?` — straight quotes → `« »`, repeated word (`nous nous`, `vous vous` allowed), sentence capital (knows `etc.`, `M.`, `p.`, `cf.`, dialogue and inversions), missing elision (`de avoir` → `d’avoir`; mute-`h` words only, never aspirated ones); no agreement or conjugation rules | TeX French patterns (Flipo, Gaulle, Reutenauer; MIT), 1,145 patterns, no exception words |
 | Any other | — (no marks) | — | — | the English patterns, as before |
 
 Measured with the SJP.PL dictionary: every one of the ~4.5 million forms an independent expansion of its affix file
@@ -170,6 +170,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | French proofing: spelling from the installed Hunspell `fr_FR` (or a regional dictionary; never bundled), the affix engine extended for its long flags, `NEEDAFFIX`, `KEEPCASE`, `FULLSTRIP` and `ICONV`; accent-first suggestions; French typography and grammar with French messages; TeX French hyphenation patterns (MIT); Review › Language offers French; an `fr` interface writes fr-FR documents; dimension ~29% → ~30% |
 | 2026-10-12 | minor | Italian proofing: it-IT spelling from the installed Hunspell dictionary (system `it_IT`, never bundled — upstream is GPL), accent-first suggestions, conservative grammar with Italian messages, TeX Italian hyphenation patterns (MIT option); Review › Language already offered Italian; an `it` interface writes it-IT documents |
 | 2026-10-13 | minor | Interface audit back in CI (#1128): Envelopes, Labels and Layout › Size labels go through translated patterns with the region's decimal separator (the old fixed-format paper rows, dead since #838, removed); 20 strings added to all 18 catalogs (status-bar messages, Reading Mode toolbar, Go To, Search's Suggested); citation style names and `bad parameters:` errors exempt; the Read Aloud player no longer draws a speech error before the frame has polled it, the audit's rare failure under load |
 | 2026-10-11 | minor | Turkish interface catalog completed (2,325 entries, the same keys as Russian): equation gallery, built-in style names, watermarks, paper sizes and preview tiles; the interface audit checks Turkish too (#774) |

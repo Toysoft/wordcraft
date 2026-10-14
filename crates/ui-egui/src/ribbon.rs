@@ -435,13 +435,14 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 6] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 7] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("pl-PL", "Polish"),
     ("pt-BR", "Portuguese (Brazil)"),
     ("it-IT", "Italian"),
     ("hr-HR", "Croatian"),
+    ("fr-FR", "French (France)"),
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
@@ -478,6 +479,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
             wordcraft_engine::proof::ProofLang::Hr => "Croatian".into(),
             wordcraft_engine::proof::ProofLang::Pt => "Portuguese (Brazil)".into(),
             wordcraft_engine::proof::ProofLang::It => "Italian".into(),
+            wordcraft_engine::proof::ProofLang::Fr | wordcraft_engine::proof::ProofLang::FrCa => "French (France)".into(),
             wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
             _ => tag.to_string(),
         },
@@ -585,6 +587,7 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
             || (tag == "pl-PL" && current.eq_ignore_ascii_case("pl"))
             || (tag == "pt-BR" && current.eq_ignore_ascii_case("pt"))
             || (tag == "it-IT" && current.eq_ignore_ascii_case("it"))
+            || (tag == "fr-FR" && current.eq_ignore_ascii_case("fr"))
             || (tag == "en-US" && current.eq_ignore_ascii_case("en"))
     };
     let checks = language_checks(&current, listed);
@@ -2771,7 +2774,8 @@ mod tests {
         let mut h =
             egui_kittest::Harness::builder().with_size(vec2(400.0, 400.0)).build_ui_state(|ui, app: &mut WordApp| language_menu(ui, app), app);
         h.run();
-        assert!(h.query(item("French (France)")).is_none(), "the short list only, on an English document");
+        assert!(h.query(item("German (Germany)")).is_none(), "the short list only, on an English document");
+        assert!(h.query(item("French (France)")).is_some(), "French is in the short list (WordCraft proofs it)");
         assert!(!h.get(item("Set Proofing Language…")).accesskit_node().is_disabled(), "never greyed out on a fresh document");
         assert!(!h.get(item("English (United States)")).accesskit_node().is_disabled());
         h.get(item("Set Proofing Language…")).click();
@@ -2782,7 +2786,9 @@ mod tests {
         h.state_mut().run("review.language", json!({"lang": "fr-FR", "default": true})).unwrap();
         h.run();
         assert_eq!(caret_language(h.state()), "French (France)");
-        assert!(h.query(item("French (France)")).is_some(), "the current language is listed (only while it is the current one)");
+        assert!(h.query(item("French (France)")).is_some(), "the current language is listed and checked");
+        assert_eq!(language_name(Some("fr-CA")), "French (Canada)");
+        assert_eq!(language_name(Some("fr")), "French (France)");
         h.get(item("Language Preferences…")).click();
         h.run();
         assert!(h.state().ui.backstage, "File › Options opened");

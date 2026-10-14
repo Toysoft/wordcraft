@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** trivial (progress log: All Caps text in PDFs, #1473; previously trivial: progress log: Ink to Shape arrows; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** trivial (progress log: French proofing, #1325; proofed languages listed; previously trivial: progress log: All Caps text in PDFs, #1473; previously trivial: progress log: Ink to Shape arrows; previously trivial: progress log: ODT sections, #1379; previously trivial: progress log: table deletes, Change Case and Unlink Fields respect Track Changes and locked content controls, #1329; previously trivial: progress log: full screen, #980; previously trivial: progress log: PAGE fields on the pages a paragraph runs onto, #1352; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -113,10 +113,10 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Vietnamese | vi | partial (#1434) | ~95% |
 
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
-system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish, Italian and Czech proofing are not included. Hungarian (`hu`) has a
+system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish and Czech proofing are not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
 2,448-entry catalog, also without proofing.
-Proofing: English, Polish and Portuguese (spelling, grammar, hyphenation), chosen per run from its language. Word ships
+Proofing: English, Polish, Portuguese, Italian, Croatian and French (spelling, grammar; hyphenation for all but Croatian), chosen per run from its language. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
 ## Upcoming
@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-14 | French proofing (#1325, #895): spelling from the Hunspell French dictionary installed on the system (fr_FR or a regional one; never bundled), accent-first suggestions, French typography (a missing non-breaking space before `; : ! ?` and inside `« »`, straight quotes) and grammar (repeated word, sentence capital, missing elision), and TeX French hyphenation. Quebec French (fr-CA) follows Quebec typography; a French interface writes new documents in the system's French region. The affix engine now reads long flags, NEEDAFFIX, KEEPCASE, FULLSTRIP, ICONV and NOSUGGEST |
 | 2026-10-13 | Rounded rectangles (#1476): a `roundRect` keeps the corner radius its file gives it (`adj`), on screen, in PDF and when saved; all were drawn with a 16% corner |
 | 2026-10-13 | PAGEREF in headers and footers (#1477): "Page X of Y" with Y a page reference to a bookmark at each letter's end shows each letter's own total instead of the result stored in the file |
 | 2026-10-13 | Replace All respects locked content controls with Track Changes on or off; it refuses the entire batch before editing when any match would change locked content or remove a control locked against deletion |
