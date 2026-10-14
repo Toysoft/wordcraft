@@ -602,13 +602,19 @@ pub fn suggest_in(word: &str, max: usize, lang: ProofLang) -> Vec<String> {
 /// ([`pl::grammar`]), the Portuguese ones ([`pt::grammar`]), the Italian ones ([`it::grammar`]),
 /// the Turkish ones ([`tr::grammar`]), or none for a language WordCraft doesn't proof.
 pub fn check_grammar_in(text: &str, lang: ProofLang) -> Vec<Issue> {
+    grammar_in(text, lang, true)
+}
+
+/// [`check_grammar_in`] where `capital_first` says whether the first word must be capitalized
+/// (false for a list item).
+fn grammar_in(text: &str, lang: ProofLang, capital_first: bool) -> Vec<Issue> {
     match lang {
-        ProofLang::En => check_grammar(text),
-        ProofLang::Pl => pl::grammar::check(text),
-        ProofLang::Hr => hr::grammar::check(text),
-        ProofLang::Pt => pt::grammar::check(text),
-        ProofLang::It => it::grammar::check(text),
-        ProofLang::Tr => tr::grammar::check(text),
+        ProofLang::En => grammar_en(text, capital_first),
+        ProofLang::Pl => pl::grammar::check_with(text, capital_first),
+        ProofLang::Hr => hr::grammar::check_with(text, capital_first),
+        ProofLang::Pt => pt::grammar::check_with(text, capital_first),
+        ProofLang::It => it::grammar::check_with(text, capital_first),
+        ProofLang::Tr => tr::grammar::check_with(text, capital_first),
         ProofLang::Bg | ProofLang::Other => Vec::new(),
     }
 }
@@ -662,7 +668,7 @@ pub fn check_text_with(text: &str, spans: &[(Range<usize>, ProofLang)], opts: &O
     langs.sort();
     langs.dedup();
     for lang in langs {
-        let found = if lang == ProofLang::En { grammar_en(text, !list_item) } else { check_grammar_in(text, lang) };
+        let found = grammar_in(text, lang, !list_item);
         v.extend(found.into_iter().filter(|i| lang_at(i.start) == lang));
     }
     v.sort_by_key(|i| (i.start, i.end));
@@ -789,18 +795,6 @@ mod tests {
     /// dictionaries the other tests install, so tests running meanwhile see the same words; it
     /// stays set for the rest of the run for that reason.
     #[test]
-    fn list_item_first_word_needs_no_capital() {
-        let msg = "Capitalize the first word of a sentence";
-        let capitals =
-            |t: &str, list: bool| -> usize { check_text_with(t, &[], &Options::default(), true, list).iter().filter(|i| i.message == msg).count() };
-        assert_eq!(capitals("item one", true), 0);
-        assert_eq!(capitals("item one", false), 1);
-        assert_eq!(capitals("hello world.", false), 1);
-        // Later sentences in a list item are still checked.
-        assert_eq!(capitals("item one. then two", true), 1);
-    }
-
-    #[test]
     fn dictionaries_folder_is_searched_first() {
         let dir = std::env::temp_dir().join(format!("wc-proof-dictionaries-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -829,6 +823,35 @@ mod tests {
             ]
         );
         assert!(is_correct_in("chrząszcz", ProofLang::Pl) && !is_correct_in("chrzonszcz", ProofLang::Pl));
+    }
+
+    /// #1741: a list item may be a fragment, so its first word needs no capital in any language
+    /// with the rule; a plain paragraph's does, and later sentences in the item are still checked.
+    #[test]
+    fn list_item_first_word_needs_no_capital() {
+        let grammar = |t: &str, lang: ProofLang, list: bool| -> Vec<String> {
+            check_text_with(t, &[(0..t.len(), lang)], &Options::default(), true, list)
+                .into_iter()
+                .filter(|i| i.kind == IssueKind::Grammar)
+                .filter_map(|i| t.get(i.start..i.end).map(str::to_string))
+                .collect()
+        };
+        for (lang, text) in [
+            (ProofLang::En, "item one"),
+            (ProofLang::Pl, "jabłka i gruszki"),
+            (ProofLang::Hr, "jabuke i kruške"),
+            (ProofLang::It, "mele e pere"),
+            (ProofLang::Tr, "elma ve armut"),
+            (ProofLang::Pt, "maçãs e peras"),
+        ] {
+            let first = text.split(' ').next().unwrap();
+            assert!(grammar(text, lang, true).is_empty(), "{lang:?} list item: {:?}", grammar(text, lang, true));
+            assert_eq!(grammar(text, lang, false), [first], "{lang:?} plain paragraph");
+        }
+        assert_eq!(grammar("hello world.", ProofLang::En, false), ["hello"]);
+        // Later sentences in a list item are still checked.
+        assert_eq!(grammar("item one. then two", ProofLang::En, true), ["then"]);
+        assert_eq!(grammar("elma ve armut. sonra kiraz", ProofLang::Tr, true), ["sonra"]);
     }
 
     #[test]
