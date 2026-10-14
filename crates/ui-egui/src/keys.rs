@@ -110,9 +110,12 @@ pub fn combo(m: Modifiers, key: &str, with_shift: bool) -> String {
 fn ui_shortcut(key: Key, m: Modifiers) -> Option<(&'static str, Value)> {
     let alt_only = m.alt && !m.command && !m.ctrl && !m.mac_cmd && !m.shift;
     let mac_cmd_alt = cfg!(target_os = "macos") && m.mac_cmd && m.alt && !m.ctrl && !m.shift;
+    let ctrl_only = m.ctrl && !m.command && !m.mac_cmd && !m.alt && !m.shift;
     match key {
         Key::Q if alt_only && !cfg!(target_os = "macos") => Some(("ui.dialog", json!({"name": "commands"}))),
         Key::R if mac_cmd_alt => Some(("ui.collapseRibbon", json!({}))),
+        // On macOS Mod is Cmd, so Ctrl+W (Windows/Linux habit) would do nothing: it closes too.
+        Key::W if ctrl_only && cfg!(target_os = "macos") => Some(("file.close", json!({}))),
         _ => None,
     }
 }
@@ -563,7 +566,7 @@ fn alt_code_echoed(app: &mut WordApp, echo: &AltCodeEcho, text: &str) -> bool {
 /// Whether a key runs its shortcut with the canvas unfocused (after a ribbon click, say): Mod and
 /// Alt shortcuts (Alt+Q reaches Search from anywhere, as in Word, #819) and the function keys.
 fn is_global_shortcut(key: Key, m: Modifiers) -> bool {
-    m.command || m.alt || is_function_key(key)
+    m.command || m.alt || (m.ctrl && key == Key::W) || is_function_key(key)
 }
 
 /// Command shortcuts when the canvas isn't focused but no text field is either.
@@ -619,6 +622,14 @@ mod tests {
         assert_eq!(ui_shortcut(Key::R, m(true, false, false)), None, "Mod+R aligns right");
         assert_eq!(ui_shortcut(Key::R, m(false, true, false)), None, "Option+R types a character");
         assert_eq!(ui_shortcut(Key::R, m(true, true, true)), None, "Mod+Alt+Shift+R");
+    }
+
+    #[test]
+    fn ctrl_w_closes_on_macos() {
+        let ctrl = egui::Modifiers { ctrl: true, ..Default::default() };
+        let both = egui::Modifiers { ctrl: true, shift: true, ..Default::default() };
+        assert_eq!(ui_shortcut(Key::W, ctrl).is_some(), cfg!(target_os = "macos"));
+        assert_eq!(ui_shortcut(Key::W, both), None);
     }
 
     #[test]
