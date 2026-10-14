@@ -25,6 +25,11 @@ pub fn import(text: &str) -> Document {
     model::to_doc(&parse(text))
 }
 
+/// [`import`] onto `page`: Markdown gives no page size (#1381).
+pub fn import_on(text: &str, page: &wordcraft_doc::SectionProps) -> Document {
+    model::to_doc_in(&parse(text), page.clone())
+}
+
 /// Parse Markdown text into the flow model.
 pub fn parse(text: &str) -> model::Flow {
     let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
@@ -1298,7 +1303,13 @@ fn write_blocks(blocks: &[FBlock], out: &mut Vec<String>) {
                         let pad = " ".repeat(4 * lv);
                         let cont = " ".repeat(4 * lv + marker.len() + 1);
                         let body = body.replace("\\\n", &format!("\\\n{cont}"));
-                        let body = if p.kind == Kind::Code { code_span(&p.text()) } else { body };
+                        let body = if p.kind == Kind::Code {
+                            code_span(&p.text())
+                        } else {
+                            let body = escape_line_start(body);
+                            // The bullet marker can turn a short run of hyphens into a rule.
+                            if thematic_break(&format!("{marker} {body}")) { format!("\\{body}") } else { body }
+                        };
                         out.push(format!("{pad}{marker} {body}").trim_end().to_string());
                         prev_list = true;
                         let next_is_list = matches!(blocks.get(i + 1), Some(FBlock::Para(q)) if q.list.is_some());
