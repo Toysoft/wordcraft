@@ -7,7 +7,7 @@ use wordcraft_doc::control::{ContentControl, ControlKind, ControlWrap};
 use wordcraft_doc::effects::{Glow, Shadow, ShapeEffects};
 use wordcraft_doc::graphic::{Embedded, Graphic, GraphicItem, GraphicKind};
 use wordcraft_doc::para::{AltText, Anchor, Float, FloatAlign, NoteKind, ShapeKind, Wrap, WrapText, cap_alt};
-use wordcraft_doc::props::{CharProps, NumChange, PropChange, Rgb};
+use wordcraft_doc::props::{CharProps, NumChange, PropChange, Rgb, TextColor};
 use wordcraft_doc::table::{Cell, MAX_COLS, MAX_ROWS, Row, Table};
 use wordcraft_doc::{Block, Blocks, InlineObject, Paragraph, PartKind, RevisionKind, Run, para_block};
 
@@ -21,6 +21,8 @@ use wordcraft_doc::wordart::TextWarp;
 
 const INK_URI: &str = "http://schemas.microsoft.com/office/word/2010/wordprocessingInk";
 const INK_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml";
+/// The `a:graphicData` URI of an Office 2016 chart (`cx:chart`).
+const CHARTEX_URI: &str = "http://schemas.microsoft.com/office/drawing/2014/chartex";
 
 /// Deepest table nesting we build (deeper tables become plain paragraphs).
 const MAX_TABLE_DEPTH: usize = 24;
@@ -440,7 +442,7 @@ impl Reader<'_> {
             "w:r" => self.read_run(sc, pb, k, rels, ctx, depth),
             "w:hyperlink" => {
                 let mut c = ctx.clone();
-                let url = k.attr("r:id").and_then(|id| rels.by_id(id)).map(|r| r.target.clone());
+                let url = k.attr("r:id").and_then(|id| rels.by_id(id)).map(|r| r.target.trim().to_string()).filter(|u| !u.is_empty());
                 let anchor = k.attr("w:anchor").filter(|a| !a.is_empty());
                 c.link = match (url, anchor) {
                     (Some(u), Some(a)) => Some(format!("{u}#{a}")),
@@ -497,8 +499,11 @@ impl Reader<'_> {
             }
             "w:smartTag" | "w:customXml" | "w:dir" | "w:bdo" => self.read_inline_children(sc, pb, k, rels, ctx, depth + 1),
             "m:oMath" => {
-                let props = self.run_props_none(ctx);
-                let math = super::math::read_omath(k, Default::default());
+                let mut props = self.run_props_none(ctx);
+                let mut math = super::math::read_omath(k, Default::default());
+                if let Some(c) = super::math::lift_color(&mut math) {
+                    props.color = Some(TextColor::Rgb(c));
+                }
                 let linear = wordcraft_doc::math::to_linear(&math.nodes);
                 self.emit_obj(sc, pb, InlineObject::Equation { linear, display: false, math }, &props);
             }
@@ -506,13 +511,17 @@ impl Reader<'_> {
                 let props = self.run_props_none(ctx);
                 let jc = super::math::para_jc(k);
                 for m in k.children("m:oMath") {
-                    let math = super::math::read_omath(m, jc);
+                    let mut math = super::math::read_omath(m, jc);
+                    let mut props = props.clone();
+                    if let Some(c) = super::math::lift_color(&mut math) {
+                        props.color = Some(TextColor::Rgb(c));
+                    }
                     let linear = wordcraft_doc::math::to_linear(&math.nodes);
                     self.emit_obj(sc, pb, InlineObject::Equation { linear, display: true, math }, &props);
                 }
             }
             "mc:AlternateContent" => {
-                if let Some(o) = self.read_ink_alternate(sc, k, rels) {
+                if let Some(o) = self.read_ink_alternate(sc, k, rels).or_else(|| self.read_chartex_alternate(sc, k, rels)) {
                     let props = self.run_props_none(ctx);
                     self.emit_obj(sc, pb, o, &props);
                 } else if let Some(c) = children_of_choice(k) {
@@ -681,11 +690,7 @@ impl Reader<'_> {
             }
             "w:ruby" => self.read_ruby(sc, pb, k, props),
             "mc:AlternateContent" => {
-                if let Some(o) = self.read_ink_alternate(sc, k, rels) {
-                    self.emit_obj(sc, pb, o, props);
-                } else if let Some(o) = self.read_opaque_alternate(sc, k, rels) {
-                    self.emit_obj(sc, pb, o, props);
-                } else if let Some(o) = self.read_shape_alternate(sc, k, rels) {
+                if let Some(o) = self.read_ink_alternate(sc, k, rels).or_else(|| self.read_chartex_alternate(sc, k, rels)) {
                     self.emit_obj(sc, pb, o, props);
                 } else if let Some(c) = children_of_choice(k) {
                     for x in c.els() {
@@ -834,7 +839,11 @@ impl Reader<'_> {
         // A cached result holding a picture, chart or shape (`INCLUDEPICTURE`'s embedded
         // picture) can't be a text result: keep the field as a range around it so the picture
         // stays in the document and is saved again. The linked source is never read.
-        if !nested_in_instr && f.buf.iter().any(|(it, _)| matches!(it, Item::Obj(o) if o.frame().is_some())) {
+        // A tracked insertion or deletion inside the result (one the field itself isn't wrapped
+        // in) keeps the field a range too: a cached text result has one revision at most, so
+        // each piece stays an ordinary run with its own `w:ins` / `w:del` (#1037).
+        let tracked_inside = f.buf.iter().any(|(_, p)| (p.ins, p.del) != (f.props.ins, f.props.del));
+        if !nested_in_instr && (tracked_inside || f.buf.iter().any(|(it, _)| matches!(it, Item::Obj(o) if o.frame().is_some()))) {
             self.emit_obj(sc, pb, InlineObject::FieldStart { instr: f.instr.trim().to_string(), locked: f.locked, dirty: f.dirty }, &f.props);
             for (it, p) in f.buf {
                 match it {
@@ -1042,59 +1051,28 @@ impl Reader<'_> {
         Some(object)
     }
 
-    /// An AlternateContent whose Choice is a drawing WordCraft doesn't model (extended charts
-    /// like `cx:chart`, #997): the fallback picture shows, and the whole Choice rides along for
-    /// the next save, chart data and workbook included. `None` when the Choice is understood
-    /// (the normal path takes it) or has no drawing, or the fallback has no picture.
-    fn read_opaque_alternate(&mut self, sc: &mut StoryCtx, ac: &El, rels: &Rels) -> Option<InlineObject> {
-        // Keep in sync with `children_of_choice`: understood requirements take the normal path.
-        const KNOWN: &[&str] = &["wps", "wpg", "wpc", "wpi", "w14", "w15", "wp14", "a14", "w16se", "w16cid", "w16", "w16cex", "w16sdtdh", "v"];
-        let choice = ac.child("mc:Choice")?;
-        if choice.attr("Requires").unwrap_or("").split_whitespace().all(|r| KNOWN.contains(&r)) {
+    /// An Office 2016 chart (`cx:chart`: waterfall, sunburst, box & whisker…) drawn from its
+    /// fallback picture, keeping both branches so saving writes the chart back rather than only
+    /// the picture. `None` (read the fallback alone) when it can't be kept whole.
+    fn read_chartex_alternate(&mut self, sc: &mut StoryCtx, ac: &El, rels: &Rels) -> Option<InlineObject> {
+        let choice = ac
+            .children("mc:Choice")
+            .find(|c| c.child("w:drawing").and_then(|d| d.find("a:graphicData")).and_then(|g| g.attr("uri")) == Some(CHARTEX_URI))?;
+        // A requirement in a namespace we can't name couldn't be written back.
+        let requires = choice.attr("Requires").unwrap_or("");
+        if requires.split_whitespace().next().is_none() || requires.split_whitespace().any(|p| p == "?") {
             return None;
         }
-        choice.child("w:drawing")?;
         let fallback = ac.child("mc:Fallback")?;
-        let fb_drawing = fallback.child("w:drawing")?;
-        let InlineObject::Image { media, w, h, alt, float, .. } = self.read_drawing(sc, fb_drawing, rels)? else { return None };
         let kept = El { name: "mc:AlternateContent".into(), attrs: Vec::new(), kids: vec![Node::El(choice.clone()), Node::El(fallback.clone())] };
         let source = self.keep_embedded(&kept, rels, &[])?;
-        let graphic = Arc::new(Graphic {
-            kind: GraphicKind::Chart,
-            items: vec![GraphicItem::Image { rect: [0.0, 0.0, w, h], media }],
-            w,
-            h,
-            source: Some(source),
-            ..Default::default()
-        });
+        let Some(InlineObject::Image { media, w, h, alt, float, .. }) = self.read_drawing(sc, fallback.child("w:drawing")?, rels) else {
+            return None;
+        };
+        let items = vec![GraphicItem::Image { rect: [0.0, 0.0, w, h], media }];
+        let graphic = Arc::new(Graphic { kind: GraphicKind::Chart, items, w, h, source: Some(source), ..Default::default() });
         Some(InlineObject::Graphic { w, h, alt, float, graphic })
     }
-
-    /// A shape (or shape group) whose native markup is a `wps:wsp`/`wpg:wgp` drawing, with a
-    /// VML fallback: the model keeps what it can draw, and the whole AlternateContent rides
-    /// along so a save writes the shapes back for other apps (#886). `None` when the Choice
-    /// holds no drawing WordCraft reads, or the fallback has none.
-    fn read_shape_alternate(&mut self, sc: &mut StoryCtx, ac: &El, rels: &Rels) -> Option<InlineObject> {
-        let choice = children_of_choice(ac)?;
-        let drawing = choice.child("w:drawing")?;
-        // The fallback keeps the shape for apps without the new namespaces; the model needs no
-        // VML, so only its presence is recorded (through `keep`).
-        let fallback = ac.child("mc:Fallback");
-        if fallback.is_some_and(|f| f.child("w:drawing").is_some_and(|d| d.find("v:shape").is_some())) && !self.has_vml_shape_keep() {
-            self.set_vml_shape_keep(true);
-        }
-        let mut object = self.read_drawing(sc, drawing, rels)?;
-        let kept = El { name: "mc:AlternateContent".into(), attrs: Vec::new(), kids: vec![Node::El(choice.clone()), Node::El(fallback?.clone())] };
-        let source = self.keep_embedded(&kept, rels, &[]);
-        // Only drawing objects carry source markup; anything else keeps reading as before.
-        if let Some(src) = source
-            && let Some(set) = object.source_slot_mut()
-        {
-            *set = Some(src);
-        }
-        Some(object)
-    }
-
     fn read_ink_content_part(&mut self, content: &El, rels: &Rels) -> Option<InlineObject> {
         let part = super::part_of(rels, content.attr("r:id")?, INK_REL)?;
         let pkg = self.pkg;
@@ -1342,6 +1320,14 @@ impl Reader<'_> {
             part.body.auto_fit = bp.child("a:spAutoFit").is_some();
         }
         let mut extra = ShapeExtra::default();
+        // A rounded rectangle's own corner (`adj`, ECMA-376 §20.1.10.56); other presets drawn as
+        // rounded rectangles keep the default.
+        if prst == "roundRect" {
+            extra.corner = sppr
+                .and_then(|s| s.child("a:prstGeom"))
+                .and_then(|g| preset_adj(g, "adj"))
+                .and_then(|v| u32::try_from(v.clamp(0, i64::from(wordcraft_doc::connector::MAX_CORNER))).ok());
+        }
         // Arrowheads: any end type but `none` (ECMA-376 §20.1.10.33) is drawn as a triangle.
         let arrow = |tag: &str| ln.and_then(|l| l.child(tag)).and_then(|e| e.attr("type")).is_some_and(|t| t != "none");
         extra.arrow_start = arrow("a:headEnd");
@@ -1631,7 +1617,13 @@ fn nv_alt(p: Option<&El>) -> (String, AltText) {
 fn anchor_float(c: &El) -> Float {
     let mut f = Float { wrap: Wrap::Square, ..Float::default() };
     let behind = on_off_attr(c, "behindDoc");
-    for k in c.els() {
+    // Word wraps a position relative to the page's size (`wp14:pctPosVOffset`) in
+    // `mc:AlternateContent`; its Fallback gives the same position as an offset (#743).
+    let kids = c.els().flat_map(|k| match k.name.as_str() {
+        "mc:AlternateContent" => k.child("mc:Fallback").map(|f| f.els().collect()).unwrap_or_default(),
+        _ => vec![k],
+    });
+    for k in kids {
         match k.name.as_str() {
             "wp:wrapSquare" => {
                 f.wrap = Wrap::Square;
@@ -1819,6 +1811,12 @@ fn text_warp(e: &El) -> Option<TextWarp> {
         }
     }
     Some(w)
+}
+
+/// A preset geometry's adjust value `name` (`a:avLst/a:gd` with `fmla="val N"`).
+fn preset_adj(geom: &El, name: &str) -> Option<i64> {
+    let gd = geom.child("a:avLst")?.children("a:gd").find(|g| g.attr("name") == Some(name))?;
+    gd.attr("fmla")?.trim().strip_prefix("val")?.trim().parse::<i64>().ok()
 }
 
 fn effect_list(l: &El) -> ShapeEffects {

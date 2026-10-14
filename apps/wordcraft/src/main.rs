@@ -1,6 +1,6 @@
 //! WordCraft desktop app.
 //!
-//! Usage: `wordcraft [--control <port>] [--sample] [files…]`
+//! Usage: `wordcraft [--control <port>] [--sample] [files…]`; `--help` prints `USAGE`.
 //!
 //! `--control <port>` (or `WORDCRAFT_CONTROL_PORT`) starts a localhost JSON-lines control server:
 //! `{"id":1,"key":"…","method":"engine.execute","params":{"command":"text.insert","params":{"text":"Hi"}}}`.
@@ -21,6 +21,8 @@ mod graphics;
 mod logging;
 mod print;
 mod region;
+#[cfg(target_os = "macos")]
+mod traffic_lights;
 
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{
@@ -230,6 +232,20 @@ fn app_icon() -> Option<egui::IconData> {
     eframe::icon_data::from_png_bytes(png).map_err(|e| log::warn!("app icon: {e}")).ok()
 }
 
+const USAGE: &str = "\
+wordcraft — the WordCraft desktop app
+
+USAGE:
+  wordcraft [--sample] [--control PORT] [FILE…]
+
+OPTIONS:
+  --sample            open the sample document
+  --control PORT      start the localhost control server on PORT, for agents and scripts
+                      (or set WORDCRAFT_CONTROL_PORT); see docs/control-protocol.md
+  --version           print the version
+  -h, --help          print this help
+";
+
 /// The commit the build came from (short), or `dev`.
 fn build_sha() -> &'static str {
     option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or("dev")
@@ -247,14 +263,13 @@ fn main() -> eframe::Result {
         match a.as_str() {
             "--control" => control_port = args.next().and_then(|p| p.parse().ok()),
             "--sample" => sample = true,
-            "--help" | "-h" => {
-                println!(
-                    "wordcraft — WordCraft word processor\n\nUSAGE:\n  wordcraft [OPTIONS] [FILE...]\n\nOPTIONS:\n  --sample         open with the sample document\n  --control PORT   expose the control channel on 127.0.0.1:PORT (see docs/control-protocol.md)\n  --version          print the version and exit\n  --help, -h         print this help and exit"
-                );
-                return Ok(());
-            }
             "--version" => {
                 println!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
+                return Ok(());
+            }
+            // Before the window opens (#968). Unlike `print!`, a closed stdout can't panic.
+            "--help" | "-h" => {
+                let _ = std::io::Write::write_all(&mut std::io::stdout(), USAGE.as_bytes());
                 return Ok(());
             }
             _ => files.push(a),
@@ -338,6 +353,11 @@ fn main() -> eframe::Result {
             app.watch_desktop_theme(&cc.egui_ctx);
             app.ui.window = restored;
             app.integrated_titlebar = cfg!(target_os = "macos");
+            #[cfg(target_os = "macos")]
+            if let Some(bar) = traffic_lights::title_bar() {
+                log::info!("title bar: {bar:?}");
+                app.mac_titlebar = bar;
+            }
             let mut key_file = None;
             if let Some(port) = control_port
                 && let Some((rx, file)) = control_server::start(port, cc.egui_ctx.clone(), wordcraft_control_key::settings_dir().as_deref())

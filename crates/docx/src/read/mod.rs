@@ -5,7 +5,7 @@ pub(crate) mod diagram;
 mod drawing_color;
 mod embed;
 mod freeform;
-mod math;
+pub(crate) mod math;
 mod props;
 mod sdt;
 mod shape_style;
@@ -22,7 +22,9 @@ use wordcraft_doc::para::OBJ;
 use wordcraft_doc::props::Rgb;
 use wordcraft_doc::section::NumFormat;
 use wordcraft_doc::styles::{Style, StyleKind, StyleSheet, TableStyleParts};
-use wordcraft_doc::{Block, Blocks, Comment, Document, InlineObject, Paragraph, PartKind, Revision, RevisionKind, para_block};
+use wordcraft_doc::{
+    Block, Blocks, Comment, Document, InlineObject, PagePicture, Paragraph, PartKind, Revision, RevisionKind, Zoom, ZoomFit, para_block,
+};
 
 use crate::DocxError;
 use crate::package::{ContentTypes, EMBEDDED_PARTS, EmbeddedManifest, MAX_VBA_RELATED, Package, Rels, VBA_PROJECT_PART, VBA_RELATED, rel_is, rt};
@@ -85,8 +87,6 @@ pub(crate) struct Reader<'p> {
     /// was kept while reading (those not glued to are dropped at the end).
     pub glued: HashSet<u32>,
     pub shape_ids: bool,
-    /// Whether we've seen a VML shape fallback and need to keep its AlternateContent on save.
-    vml_shape_keep: bool,
     /// The main document part's name.
     main: String,
     /// The package's content types, read when first needed.
@@ -154,7 +154,6 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
         graphic_budget: MAX_GRAPHIC_WORK,
         glued: HashSet::new(),
         shape_ids: false,
-        vml_shape_keep: false,
         main: main.clone(),
         content_types: None,
         embedded: EmbeddedManifest::default(),
@@ -162,7 +161,6 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     };
     r.pc.major_font = r.doc.settings.major_font.clone();
     r.pc.minor_font = r.doc.settings.minor_font.clone();
-
     let part = |t: &str| rels.by_type(t).filter(|x| !x.external).map(|x| x.target.clone());
 
     // The font table and the fonts embedded through it ride along as opaque parts.
@@ -201,7 +199,9 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     }
     if let Some(p) = part(rt::COMMENTS) {
         let ex = part(rt::COMMENTS_EX);
-        lenient("comments", r.read_comments(&p, ex.as_deref()));
+        let ids = part(rt::COMMENTS_IDS);
+        let cex = part(rt::COMMENTS_EXTENSIBLE);
+        lenient("comments", r.read_comments(&p, ex.as_deref(), ids.as_deref(), cex.as_deref()));
     }
     // Bibliography sources live in a custom XML data store (`b:Sources`), related from the
     // package root or the main part; Word's own files sometimes leave the relationship out, so
@@ -232,15 +232,16 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     if let Some(bg) = root.child("w:background").and_then(|b| b.attr("w:color")).and_then(Rgb::parse) {
         r.doc.settings.page_color = Some(bg);
     }
-    // A picture/texture background fill rides along as document media (#999); drawing it is
-    // still to come, like the shapes in #611/#743.
-    if let Some(el) = root.child("w:background").and_then(|b| b.find("v:fill"))
-        && let Some(id) = el.attr("r:id")
-        && let Some(key) = r.media_for(&rels, id)
-    {
-        let fill = el.attr("type").filter(|t| !t.is_empty() && t.len() <= 32).unwrap_or("tile").to_string();
-        let title = el.attr("o:title").filter(|t| t.chars().count() <= 128).unwrap_or("").to_string();
-        r.doc.settings.page_background = Some(wordcraft_doc::PageBackground { media: key, fill, title });
+    // A picture or texture fill: `w:background/v:background/v:fill` with a relationship id.
+    if let Some(fill) = root.child("w:background").and_then(|b| b.child("v:background")).and_then(|b| b.child("v:fill")) {
+        let rid = fill.attr("r:id").or_else(|| fill.attr("r:embed")).or_else(|| fill.attr("o:relid"));
+        if let Some(media) = rid.and_then(|id| r.media_for(&rels, id)) {
+            r.doc.settings.page_picture = Some(PagePicture {
+                media,
+                fill_type: fill.attr("type").unwrap_or("").chars().take(32).collect(),
+                title: fill.attr("o:title").unwrap_or("").chars().take(255).collect(),
+            });
+        }
     }
     if let Some(body) = root.child("w:body") {
         let mut sc = StoryCtx::default();
@@ -257,6 +258,9 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
 
     let core = root_rels.by_type(rt::CORE).map(|x| x.target.clone()).unwrap_or_else(|| "docProps/core.xml".into());
     r.read_core(&core);
+    if let Some(app) = root_rels.by_type(rt::APP).map(|x| x.target.clone()) {
+        r.read_app(&app);
+    }
     if let Some(c) = root_rels.by_type(rt::CUSTOM)
         && let Ok(Some(x)) = r.xml(&c.target)
     {
@@ -272,6 +276,7 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
         r.read_vba_related(&v);
     }
     r.keep_custom_xml(&root_rels, &rels);
+    r.keep_unmodelled(&root_rels, &rels);
     if !r.embedded.parts.is_empty() {
         let manifest = r.embedded.to_bytes();
         r.doc.passthrough.insert(EMBEDDED_PARTS.into(), Arc::new(manifest));
@@ -304,14 +309,6 @@ pub(crate) struct MoveCtx {
 }
 
 impl Reader<'_> {
-    pub fn has_vml_shape_keep(&self) -> bool {
-        self.vml_shape_keep
-    }
-
-    pub fn set_vml_shape_keep(&mut self, v: bool) {
-        self.vml_shape_keep = v;
-    }
-
     /// A `w:moveFromRangeStart/End` or `w:moveToRangeStart/End`.
     pub fn move_range(&mut self, e: &El) {
         let (side, start) = match e.name.as_str() {
@@ -750,6 +747,8 @@ impl Reader<'_> {
     }
 
     fn read_styles(&mut self, path: &str) -> Result<(), DocxError> {
+        /// Largest `w:latentStyles` kept (Word's has ~380 exceptions, ~40 KB).
+        const MAX_LATENT_STYLES_XML: usize = 1 << 20;
         let Some(root) = self.xml(path)? else { return Ok(()) };
         // The default paragraph style must be called `Normal` in our model.
         let has_normal = root.children("w:style").any(|s| s.attr("w:styleId") == Some("Normal"));
@@ -774,6 +773,8 @@ impl Reader<'_> {
         if sheet.default_chr.size.is_none() {
             sheet.default_chr.size = Some(10.0);
         }
+        // Built-in styles' behaviour (gallery, priority, visibility), written back as is.
+        sheet.latent_styles = root.child("w:latentStyles").map(|l| l.to_xml()).filter(|x| x.len() <= MAX_LATENT_STYLES_XML);
         for s in root.children("w:style").take(10_000) {
             let Some(raw_id) = s.attr("w:styleId").filter(|i| !i.is_empty()) else { continue };
             let id = self.pc.style_id(raw_id);
@@ -800,6 +801,15 @@ impl Reader<'_> {
                 hidden: flag(s, "w:semiHidden").unwrap_or(false) || flag(s, "w:hidden").unwrap_or(false),
                 builtin: !s.attr("w:customStyle").is_some_and(|v| v == "1" || v == "true"),
                 locked: flag(s, "w:locked").unwrap_or(false),
+                // Only where the writer couldn't tell from the id (it flags the English ids).
+                default: s.attr("w:default").is_some_and(|v| v == "1" || v == "true")
+                    && !matches!(
+                        (kind, id.as_str()),
+                        (StyleKind::Paragraph, "Normal")
+                            | (StyleKind::Character, "DefaultParagraphFont")
+                            | (StyleKind::Table, "TableNormal")
+                            | (StyleKind::Numbering, "NoList")
+                    ),
                 ..Default::default()
             };
             if let Some(p) = s.child("w:pPr") {
@@ -921,7 +931,19 @@ impl Reader<'_> {
             if let Some(link) = a.child_val("w:numStyleLink") {
                 links.push((id, link.to_string()));
             }
-            abstracts.push(AbstractNum { id, name: a.child_val("w:name").map(str::to_string), levels });
+            let hex = |v: &str| v.len() == 8 && v.bytes().all(|b| b.is_ascii_hexdigit());
+            abstracts.push(AbstractNum {
+                id,
+                name: a.child_val("w:name").map(str::to_string),
+                levels,
+                nsid: a.child_val("w:nsid").filter(|v| hex(v)).map(str::to_ascii_uppercase),
+                tmpl: a.child_val("w:tmpl").filter(|v| hex(v)).map(str::to_ascii_uppercase),
+                multi_level_type: a
+                    .child_val("w:multiLevelType")
+                    // `multilevel` is what the writer derives for the nine levels read here.
+                    .filter(|v| matches!(*v, "singleLevel" | "hybridMultilevel"))
+                    .map(str::to_string),
+            });
         }
         let mut nums = Vec::new();
         for n in root.children("w:num").take(10_000) {
@@ -1001,37 +1023,11 @@ impl Reader<'_> {
         lv
     }
 
-    /// Most raw bytes of unrecognized settings.xml elements kept for the next save (#1034).
-    const MAX_EXTRA_XML: usize = 65536;
-
-    /// Keep an unrecognized settings element verbatim when it only uses the settings
-    /// namespaces (`w:`, `m:`); anything exotic is left out rather than rewritten broken.
-    fn keep_setting(s: &mut wordcraft_doc::Settings, k: &El) {
-        fn prefixed(name: &str) -> Option<&str> {
-            let (p, _) = name.split_once(':')?;
-            Some(p)
-        }
-        // Check the serialized form, children included.
-        let xml = k.to_xml();
-        let exotic = xml
-            .split('<')
-            .skip(1)
-            .filter_map(|t| t.split([' ', '>', '/', '?']).next())
-            .any(|t| !t.is_empty() && !t.starts_with('?') && !t.starts_with('!') && prefixed(t).is_none_or(|p| p != "w" && p != "m"));
-        if exotic {
-            log::warn!("docx: settings <{}> uses namespaces WordCraft does not carry; left out", k.name);
-            return;
-        }
-        let used: usize = s.extra_xml.iter().map(|x| x.len()).sum();
-        if used + xml.len() <= Self::MAX_EXTRA_XML {
-            s.extra_xml.push(xml);
-        } else {
-            log::warn!("docx: too many unrecognized settings; the rest are left out");
-        }
-    }
-
     fn read_settings(&mut self, path: &str) -> Result<(), DocxError> {
         let Some(root) = self.xml(path)? else { return Ok(()) };
+        if let Some(b) = self.pkg.get(path).filter(|b| crate::write::settings_has_unowned(b)) {
+            self.doc.passthrough.insert(crate::package::SETTINGS_ORIG.into(), Arc::new(b.to_vec()));
+        }
         let rels = self.pkg.rels(path);
         let s = &mut self.doc.settings;
         for k in root.els() {
@@ -1059,12 +1055,6 @@ impl Reader<'_> {
                     if let Some(m) = mode.and_then(u32_of) {
                         s.compat_mode = m.clamp(11, 99);
                     }
-                    // Every other compatibility setting rides along verbatim (#1034).
-                    for c in k.children("w:compatSetting") {
-                        if c.attr("w:name") != Some("compatibilityMode") {
-                            Self::keep_setting(s, c);
-                        }
-                    }
                 }
                 "w:trackRevisions" => s.track_changes = on_off(k),
                 "w:defaultTabStop" => {
@@ -1073,20 +1063,6 @@ impl Reader<'_> {
                     }
                 }
                 "w:evenAndOddHeaders" => s.even_odd_headers = on_off(k),
-                // #995: the view the file was saved in (one of none/print/outline/masterViews/normal/web).
-                "w:view" => {
-                    s.view = k
-                        .attr("w:val")
-                        .filter(|v| !v.is_empty() && v.len() <= 32 && v.chars().all(|c| c.is_ascii_alphanumeric()))
-                        .map(str::to_string);
-                }
-                "w:zoom" => {
-                    s.zoom = k.attr("w:percent").and_then(|v| v.parse::<u32>().ok()).map(|z| z.clamp(10, 500));
-                }
-                "w:displayBackgroundShape" => {
-                    // Page background (color or image) is present; page_color is set by the color attribute
-                    // We don't track the background image here; it's kept in extra_xml for round-trip.
-                }
                 "w:drawingGridHorizontalSpacing" | "w:drawingGridVerticalSpacing" => {
                     if let Some(v) = tw(k, "w:val").filter(|v| *v > 0.0) {
                         let v = v.clamp(0.5, 1584.0);
@@ -1120,7 +1096,17 @@ impl Reader<'_> {
                     s.endnote_pr = props::note_pr(k, false);
                 }
                 "w:documentProtection" => read_protection(k, s),
-                _ => Self::keep_setting(s, k),
+                "w:zoom" => {
+                    let percent = k.attr("w:percent").and_then(|v| u32_of(v.trim_end_matches('%'))).unwrap_or(100).clamp(10, 500);
+                    let fit = match k.attr("w:val") {
+                        Some("fullPage") => Some(ZoomFit::OnePage),
+                        Some("bestFit") => Some(ZoomFit::PageWidth),
+                        Some("textFit") => Some(ZoomFit::TextWidth),
+                        _ => None,
+                    };
+                    s.zoom = Some(Zoom { percent, fit }).filter(|z| z.percent != 100 || z.fit.is_some());
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -1196,7 +1182,23 @@ impl Reader<'_> {
         *slot = Some(blocks);
     }
 
-    fn read_comments(&mut self, path: &str, ext: Option<&str>) -> Result<(), DocxError> {
+    /// The extended properties a save carries over ([`crate::package::APP_KEPT_PROPS`]).
+    fn read_app(&mut self, path: &str) {
+        let Ok(Some(root)) = self.xml(path) else { return };
+        let mut kept = String::new();
+        for e in root.els() {
+            let name = e.local();
+            let value = e.text();
+            if crate::package::APP_KEPT_PROPS.contains(&name) && value.len() <= 2048 && !value.contains(['\t', '\n']) {
+                kept.push_str(&format!("{name}\t{value}\n"));
+            }
+        }
+        if !kept.is_empty() {
+            self.doc.passthrough.insert(crate::package::APP_KEPT.into(), Arc::new(kept.into_bytes()));
+        }
+    }
+
+    fn read_comments(&mut self, path: &str, ext: Option<&str>, ids: Option<&str>, cex: Option<&str>) -> Result<(), DocxError> {
         let Some(root) = self.xml(path)? else { return Ok(()) };
         let rels = self.pkg.rels(path);
         let mut by_para: HashMap<String, u32> = HashMap::new();
@@ -1236,6 +1238,7 @@ impl Reader<'_> {
                     parent: None,
                     resolved: false,
                     part,
+                    ..Default::default()
                 },
             );
             self.comment_map.insert(file_id, id);
@@ -1250,6 +1253,36 @@ impl Reader<'_> {
                 if let Some(c) = entries.get_mut(&cid) {
                     c.parent = parent;
                     c.resolved = done;
+                }
+            }
+        }
+        // Durable ids (by paragraph id) and UTC dates (by durable id), which the writer
+        // carries over (`write_comment_ids`). Their namespaces (w16cid, w16cex) have no canonical
+        // prefix here, so attributes are found by local name.
+        let local = |e: &crate::xml::El, name: &str| -> Option<String> {
+            e.attrs.iter().find(|(k, _)| k.rsplit(':').next() == Some(name)).map(|(_, v)| v.clone())
+        };
+        let mut by_durable: HashMap<String, u32> = HashMap::new();
+        if let Some(ids) = ids
+            && let Ok(Some(x)) = self.xml(ids)
+        {
+            for e in x.els().filter(|e| e.local() == "commentId") {
+                let Some(cid) = local(e, "paraId").and_then(|p| by_para.get(&p).copied()) else { continue };
+                let Some(durable) = local(e, "durableId").filter(|d| crate::write::durable_id_ok(d)) else { continue };
+                if let Some(c) = entries.get_mut(&cid) {
+                    c.durable_id = Some(durable.to_ascii_uppercase());
+                    by_durable.insert(durable.to_ascii_uppercase(), cid);
+                }
+            }
+        }
+        if let Some(cex) = cex
+            && let Ok(Some(x)) = self.xml(cex)
+        {
+            for e in x.els().filter(|e| e.local() == "commentExtensible") {
+                let Some(cid) = local(e, "durableId").and_then(|d| by_durable.get(&d.to_ascii_uppercase()).copied()) else { continue };
+                let date = local(e, "dateUtc").filter(|d| d.len() <= 40 && d.chars().all(|c| c.is_ascii_alphanumeric() || ":-.+".contains(c)));
+                if let (Some(c), Some(date)) = (entries.get_mut(&cid), date) {
+                    c.date_utc = Some(date);
                 }
             }
         }

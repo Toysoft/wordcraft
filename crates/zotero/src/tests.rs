@@ -568,3 +568,21 @@ fn citation_at_document_end_stays_closed() {
     let back = wordcraft_engine::io::open_bytes("probe.docx", &bytes).unwrap();
     assert_eq!(back.field_ranges(StoryRef::Body).len(), 1);
 }
+
+/// #898: a click just after a citation puts the caret before its hidden field end. Zotero must
+/// see that caret outside the citation (as in Word), and a citation added there goes after the
+/// first one, not inside its result.
+#[test]
+fn a_citation_added_just_after_another_is_not_nested_in_it() {
+    let mut z = Z::new("Cats purr ", 10);
+    z.begin();
+    z.cite(0, "(Doe 2020)");
+    let first = z.s.doc.field_ranges(StoryRef::Body)[0].end.clone();
+    z.s.sel = Selection::caret(first);
+    assert_eq!(z.ok("Document_cursorInField", json!([1, "ReferenceMark"])), Value::Null);
+    z.cite(0, "(Roe 2019)");
+    z.ok("Document_complete", json!([1]));
+    assert_eq!(z.text(), "Cats purr (Doe 2020)(Roe 2019)");
+    let r = z.s.doc.field_ranges(StoryRef::Body);
+    assert_eq!(r.iter().map(|f| f.depth).collect::<Vec<_>>(), [0, 0]);
+}
