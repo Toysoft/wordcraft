@@ -3469,7 +3469,7 @@ mod tests {
             h.step();
         }
         h.step();
-        assert!(h.query_by_label_contains("Paste").is_some(), "the context menu is open");
+        assert!(h.query_all_by_label_contains("Paste").next().is_some(), "the context menu is open");
         h.get_by_label_contains("Update Field").click();
         for _ in 0..3 {
             h.step();
