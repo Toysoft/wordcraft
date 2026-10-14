@@ -107,8 +107,6 @@ pub struct CanvasState {
     scroll_max: egui::Vec2,
     /// Explicit page turn to apply on the next frame (reading navigation buttons/keys).
     scroll_request: Option<egui::Vec2>,
-    /// Middle-click autoscrolling (#1065): the origin press, in screen pixels.
-    pub(crate) autoscroll: Option<Pos2>,
     /// Paste Options after a paste (#820): where the widget sits, in screen pixels.
     pub(crate) paste_options: Option<Pos2>,
     /// The viewport (the content's visible rect on screen) at the end of last frame; the
@@ -202,7 +200,6 @@ impl Default for CanvasState {
             scroll_offset: egui::Vec2::ZERO,
             scroll_max: egui::Vec2::ZERO,
             scroll_request: None,
-            autoscroll: None,
             paste_options: None,
             viewport: None,
             cols: 1,
@@ -875,17 +872,6 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         && let Some(p) = pointer
     {
         vec2(edge_scroll(p.x, vp.min.x, vp.max.x, dt), edge_scroll(p.y, vp.min.y, vp.max.y, dt))
-    } else if !app.session.view.read_mode
-        && let Some(origin) = app.canvas.autoscroll
-        && let Some(p) = pointer
-    {
-        // Middle-click autoscrolling (#1065): still past a dead zone, faster further out.
-        let d = p - origin;
-        let step = |v: f32| {
-            let a = v.abs();
-            if a < 8.0 { 0.0 } else { v.signum() * ((a - 8.0) * 6.0 + 60.0).min(1200.0) * dt }
-        };
-        vec2(step(d.x), step(d.y))
     } else {
         egui::Vec2::ZERO
     };
@@ -2772,39 +2758,6 @@ mod tests {
         h.state_mut().run("text.insert", serde_json::json!({"text": "!"})).unwrap();
         h.step();
         assert!(h.state().canvas.paste_options.is_none(), "typing dismisses it");
-    }
-
-    #[test]
-    fn middle_click_toggles_autoscroll() {
-        // #1065: a middle press starts autoscrolling, another (or primary, or Escape) stops it.
-        use egui::{Event, PointerButton};
-        let mods = egui::Modifiers::default();
-        let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("one\ntwo\nthree")), crate::Services::default());
-        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
-            |ui, app: &mut WordApp| {
-                let ctx = ui.ctx().clone();
-                app.logic(&ctx);
-                app.ui(ui);
-            },
-            a,
-        );
-        for _ in 0..4 {
-            h.step();
-        }
-        let at = egui::pos2(700.0, 450.0);
-        assert_eq!(h.state().canvas.autoscroll, None);
-        h.event(Event::PointerButton { pos: at, button: PointerButton::Middle, pressed: true, modifiers: mods });
-        h.step();
-        assert_eq!(h.state().canvas.autoscroll, Some(at));
-        h.event(Event::PointerButton { pos: at, button: PointerButton::Middle, pressed: true, modifiers: mods });
-        h.step();
-        assert_eq!(h.state().canvas.autoscroll, None, "a second middle press stops");
-        h.event(Event::PointerButton { pos: at, button: PointerButton::Middle, pressed: true, modifiers: mods });
-        h.step();
-        assert!(h.state().canvas.autoscroll.is_some());
-        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: mods });
-        h.step();
-        assert_eq!(h.state().canvas.autoscroll, None, "a primary press stops");
     }
 
     #[test]

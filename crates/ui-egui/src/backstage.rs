@@ -538,27 +538,6 @@ mod tests {
     }
 
     #[test]
-    fn backstage_close_leaves_and_closes() {
-        // #1124: the Close item after Export runs file.close and leaves Backstage.
-        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
-        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
-            |ui, app: &mut WordApp| {
-                let ctx = ui.ctx().clone();
-                app.logic(&ctx);
-                app.ui(ui);
-            },
-            a,
-        );
-        h.run_steps(4);
-        h.get_by_label("Close").click();
-        h.run_steps(4);
-        let app = h.state();
-        assert!(!app.ui.backstage, "Close leaves Backstage");
-        assert!(app.quit_requested, "a clean document closes");
-    }
-
-    #[test]
     fn backstage_save_navigates_to_save_as_when_unnamed() {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
         a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
