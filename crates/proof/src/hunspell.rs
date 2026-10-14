@@ -33,7 +33,25 @@ fn search() -> craft_proof::hunspell::Search {
 /// Directories that may hold Hunspell dictionaries, most specific first. `lo_exts`, when a
 /// language is being searched for, adds LibreOffice's extension folders for it (`dict-pt-BR`).
 pub fn search_dirs(lo_exts: Option<&[String]>) -> Vec<PathBuf> {
-    search().dirs(lo_exts)
+    let mut dirs = search().dirs(lo_exts);
+    // LibreOffice installed on another drive (e.g. `D:\Program Files\LibreOffice`): check C..Z.
+    if cfg!(windows)
+        && let Some(exts) = lo_exts
+    {
+        for drive in b'C'..=b'Z' {
+            for pf in ["Program Files", "Program Files (x86)"] {
+                let base = PathBuf::from(format!(r"{}:\{pf}\LibreOffice\share\extensions", drive as char));
+                if base.is_dir() {
+                    for d in exts.iter().map(|e| base.join(e)) {
+                        if !dirs.contains(&d) {
+                            dirs.push(d);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    dirs
 }
 
 /// The first `<name>.aff`/`<name>.dic` pair found for any of `names` (`pl_PL`, `pl`).

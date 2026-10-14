@@ -5106,7 +5106,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "arboard",
  "clipboard-win",
@@ -5138,9 +5138,10 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-cli"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "serde_json",
+ "sys-locale",
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-mcp",
@@ -5150,11 +5151,11 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-control-key"
-version = "0.6.1"
+version = "0.7.0"
 
 [[package]]
 name = "wordcraft-doc"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "proptest",
  "serde",
@@ -5166,7 +5167,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-docbin"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "cfb",
  "image",
@@ -5181,7 +5182,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-docx"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "aes",
  "base64",
@@ -5203,7 +5204,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-engine"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "image",
  "js-sys",
@@ -5229,7 +5230,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-fonts"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "harfrust 0.13.3",
  "kurbo",
@@ -5242,9 +5243,10 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-formats"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "image",
+ "js-sys",
  "log",
  "proptest",
  "quick-xml",
@@ -5255,14 +5257,14 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-geom"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "wordcraft-layout"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "image",
  "js-sys",
@@ -5281,7 +5283,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-mcp"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "log",
  "serde_json",
@@ -5293,7 +5295,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-metafile"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "kurbo",
  "thiserror 2.0.21",
@@ -5301,7 +5303,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-pdf"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "hayro-cmap",
  "hayro-interpret",
@@ -5321,7 +5323,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-proof"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "craft-proof",
  "log",
@@ -5331,7 +5333,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-render"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "image",
  "log",
@@ -5345,7 +5347,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-ui-egui"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "craft-ui",
  "egui",
@@ -5370,7 +5372,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-web"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "eframe",
  "egui",
@@ -5389,7 +5391,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-zotero"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "log",
  "proptest",
@@ -5502,7 +5504,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 
 [[package]]
 name = "xtask"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "serde_json",
 ]
