@@ -4804,6 +4804,32 @@ fn polish_proofing_through_the_review_commands() {
     assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
 }
 
+/// Review › Language and proofing commands work in Turkish end to end.
+#[test]
+fn turkish_proofing_through_the_review_commands() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Bana bazen gelenler oldu ise de. Sana olacaklardan sonra sorna"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "tr-TR", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("tr-TR"));
+
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    // "sorna" must be flagged as spelling issue
+    let sorna_issue = arr.iter().find(|i| i["text"] == "sorna" && i["kind"] == "spelling");
+    assert!(sorna_issue.is_some(), "sorna must be flagged: {issues}");
+
+    // Check suggestions for sorna
+    let sugs: Vec<String> = sorna_issue.unwrap()["suggestions"].as_array().unwrap().iter().filter_map(|x| x.as_str().map(str::to_string)).collect();
+    assert!(sugs.contains(&"sonra".to_string()), "sorna must suggest sonra: {sugs:?}");
+
+    // Add to Dictionary: adding "sorna" should remove its issue
+    run(&mut s, "review.addToDictionary", json!({"word": "sorna"}));
+    let issues_after = run(&mut s, "review.issues", json!({}));
+    let arr_after = issues_after.as_array().unwrap();
+    assert!(!arr_after.iter().any(|i| i["text"] == "sorna"), "sorna should no longer be flagged after adding to dictionary: {issues_after}");
+}
+
 /// `review.language`: tags are validated and normalized, `noProof` alone keeps the language,
 /// no parameters keep the old meaning (US English), and `default` needs a language.
 #[test]
@@ -5902,4 +5928,90 @@ fn exported_page_images_draw_headers_at_full_strength() {
     let darkest = (0..top).flat_map(|y| (0..img.width()).map(move |x| (x, y))).map(|(x, y)| img.get_pixel(x, y)[0]).min().unwrap();
     assert!(darkest < 60, "header drawn dimmed: darkest pixel {darkest}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Gap 19, review: text inserted by one author and deleted by another keeps both marks through
+/// an ODT save, so Reject All (undo the deletion, then the insertion) and Accept All both remove it.
+#[test]
+fn odt_inserted_then_deleted_text_round_trips() {
+    use std::io::Write;
+    let ns = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/""#;
+    let info = |who: &str| format!("<office:change-info><dc:creator>{who}</dc:creator><dc:date>2024-03-01T10:00:00</dc:date></office:change-info>");
+    let content = format!(
+        r#"<office:document-content {ns}><office:body><office:text><text:tracked-changes><text:changed-region text:id="i1"><text:insertion>{}</text:insertion></text:changed-region><text:changed-region text:id="d1"><text:deletion>{}<text:p><text:change-start text:change-id="i1"/>gone<text:change-end text:change-id="i1"/></text:p></text:deletion></text:changed-region></text:tracked-changes><text:p>Keep <text:change text:change-id="d1"/>this.</text:p></office:text></office:body></office:document-content>"#,
+        info("Alice"),
+        info("Bob")
+    );
+    let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for (name, data) in [("mimetype", "application/vnd.oasis.opendocument.text"), ("content.xml", content.as_str())] {
+        z.start_file(name, o).unwrap();
+        z.write_all(data.as_bytes()).unwrap();
+    }
+    let doc = crate::io::open_bytes("t.odt", &z.finish().unwrap().into_inner()).unwrap();
+    let doc = crate::io::open_bytes("t.odt", &wordcraft_formats::odt::export(&doc).unwrap()).unwrap();
+    for cmd in ["review.rejectAll", "review.acceptAll"] {
+        let mut s = Session::new(doc.clone());
+        run(&mut s, cmd, json!({}));
+        assert_eq!(text(&s), "Keep this.", "{cmd}");
+    }
+}
+
+/// Gap 19: an ODT's tracked insertion and multi-paragraph deletion come in as revisions that
+/// Reject All turns back into the original and Accept All into the edited text.
+#[test]
+fn odt_tracked_changes_accept_and_reject_all() {
+    use std::io::Write;
+    let ns = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/""#;
+    let info = |who: &str| format!("<office:change-info><dc:creator>{who}</dc:creator><dc:date>2024-03-01T10:00:00</dc:date></office:change-info>");
+    let content = format!(
+        r#"<office:document-content {ns}><office:body><office:text><text:tracked-changes><text:changed-region text:id="i1"><text:insertion>{}</text:insertion></text:changed-region><text:changed-region text:id="d1"><text:deletion>{}<text:p>tail</text:p><text:p>head<text:s/></text:p></text:deletion></text:changed-region></text:tracked-changes><text:p>First <text:change text:change-id="d1"/>rest <text:change-start text:change-id="i1"/>added<text:change-end text:change-id="i1"/>.</text:p><text:p>End.</text:p></office:text></office:body></office:document-content>"#,
+        info("Alice"),
+        info("Bob")
+    );
+    let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for (name, data) in [("mimetype", "application/vnd.oasis.opendocument.text"), ("content.xml", content.as_str())] {
+        z.start_file(name, o).unwrap();
+        z.write_all(data.as_bytes()).unwrap();
+    }
+    let bytes = z.finish().unwrap().into_inner();
+    let doc = crate::io::open_bytes("t.odt", &bytes).unwrap();
+
+    let mut sr = Session::new(doc.clone());
+    run(&mut sr, "review.rejectAll", json!({}));
+    assert_eq!(text(&sr), "First tail\nhead rest .\nEnd.");
+    assert!(sr.doc.revisions.is_empty() || run(&mut sr, "review.changes", json!({})).as_array().unwrap().is_empty());
+
+    let mut sa = Session::new(doc);
+    run(&mut sa, "review.acceptAll", json!({}));
+    assert_eq!(text(&sa), "First rest added.\nEnd.");
+    assert!(run(&mut sa, "review.changes", json!({})).as_array().unwrap().is_empty());
+}
+
+/// Gap 19, review 2: a paragraph break deleted inside an insertion range is not itself
+/// inserted, so Reject All keeps the two paragraphs (after an ODT save, too).
+#[test]
+fn odt_deleted_mark_inside_an_insertion_survives_reject_all() {
+    use std::io::Write;
+    let ns = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/""#;
+    let info = |who: &str| format!("<office:change-info><dc:creator>{who}</dc:creator><dc:date>2024-03-01T10:00:00</dc:date></office:change-info>");
+    let content = format!(
+        r#"<office:document-content {ns}><office:body><office:text><text:tracked-changes><text:changed-region text:id="i1"><text:insertion>{}</text:insertion></text:changed-region><text:changed-region text:id="d1"><text:deletion>{}<text:p/><text:p/></text:deletion></text:changed-region></text:tracked-changes><text:p>One <text:change-start text:change-id="i1"/>A<text:change text:change-id="d1"/>C<text:change-end text:change-id="i1"/> two</text:p></office:text></office:body></office:document-content>"#,
+        info("Alice"),
+        info("Bob")
+    );
+    let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for (name, data) in [("mimetype", "application/vnd.oasis.opendocument.text"), ("content.xml", content.as_str())] {
+        z.start_file(name, o).unwrap();
+        z.write_all(data.as_bytes()).unwrap();
+    }
+    let doc = crate::io::open_bytes("t.odt", &z.finish().unwrap().into_inner()).unwrap();
+    let saved = crate::io::open_bytes("t.odt", &wordcraft_formats::odt::export(&doc).unwrap()).unwrap();
+    for d in [doc, saved] {
+        let mut s = Session::new(d);
+        run(&mut s, "review.rejectAll", json!({}));
+        assert_eq!(text(&s), "One \n two");
+    }
 }

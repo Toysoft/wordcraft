@@ -435,6 +435,8 @@ pub struct WordApp {
     pub(crate) dialog_pick: Option<String>,
     /// macOS: the window has no title bar; leave room for the traffic lights.
     pub integrated_titlebar: bool,
+    /// macOS: the title bar's height and where its content starts, around the traffic lights.
+    pub mac_titlebar: chrome::MacTitleBar,
     control_rx: Option<std::sync::mpsc::Receiver<ControlRequest>>,
     shot_token: u64,
     queued_shots: Vec<(u64, f64, u32)>,
@@ -563,6 +565,7 @@ impl WordApp {
             status_msg: None,
             previews: previews::Previews::default(),
             integrated_titlebar: false,
+            mac_titlebar: chrome::MacTitleBar::default(),
             control_rx: None,
             shot_token: 0,
             queued_shots: Vec::new(),
@@ -3856,6 +3859,7 @@ mod tests {
 
     /// Types `text` after a click on `what` and checks it reached the document (#1093).
     fn type_after_click(h: &mut egui_kittest::Harness<'_, WordApp>, what: &str, text: &str) {
+        h.step();
         h.step();
         h.event(egui::Event::Text(text.into()));
         h.step();
