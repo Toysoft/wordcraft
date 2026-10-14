@@ -3655,10 +3655,15 @@ mod tests {
     #[test]
     fn cut_and_copy_reach_the_system_clipboard() {
         let copied = |ctx: &egui::Context| -> Vec<String> {
-            ctx.output(|o| o.commands.iter().filter_map(|c| match c {
-                egui::OutputCommand::CopyText(t) => Some(t.clone()),
-                _ => None,
-            }).collect())
+            ctx.output(|o| {
+                o.commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
         };
         let ctx = egui::Context::default();
         let mut a = typed();
@@ -3682,10 +3687,15 @@ mod tests {
     #[test]
     fn every_cut_entry_point_publishes_to_the_clipboard() {
         let copied = |ctx: &egui::Context| -> Vec<String> {
-            ctx.output(|o| o.commands.iter().filter_map(|c| match c {
-                egui::OutputCommand::CopyText(t) => Some(t.clone()),
-                _ => None,
-            }).collect())
+            ctx.output(|o| {
+                o.commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
         };
 
         // The ribbon's Cut button goes through `run_from_ribbon`, like every ribbon control.
@@ -3715,10 +3725,16 @@ mod tests {
         h.step();
         h.event(egui::Event::Cut);
         h.step();
-        let via_key: Vec<String> = h.output().platform_output.commands.iter().filter_map(|c| match c {
-            egui::OutputCommand::CopyText(t) => Some(t.clone()),
-            _ => None,
-        }).collect();
+        let via_key: Vec<String> = h
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
         assert!(via_key.iter().any(|t| t.contains("My unsaved novel")), "key event Cut: {via_key:?} body={:?}", body_text(h.state()));
     }
 
