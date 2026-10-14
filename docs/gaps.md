@@ -100,6 +100,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 | 2026-10-14 | trivial | #19 narrowed: ODT import keeps sections (master-page changes, columned `text:section`s, page-numbering restarts) (#1379) |
 | 2026-10-14 | trivial | #16: PDF export writes right-to-left glyphs in visual order, so Hebrew and Arabic extract, copy and search as whole words (#1383) |
 | 2026-10-14 | trivial | RTF import keeps sections (#1378): gap 19 narrowed to RTF section export and ODT sections |
+| 2026-10-12 | trivial | Forms protection filling landed (#1077): under Restrict Editing with `w:edit="forms"` the fillable content controls take entries and typing, everything else rolls back; Find Next Region covers form fields (pane button shows for forms documents); residual gap: legacy `w:ffData` form fields still ❌ (row in [file-format-parity.md](file-format-parity.md)) |
 | 2026-10-11 | trivial | Table column and row markers on the rulers landed (#700): the ruler's column markers are off the UI/UX gaps |
 | 2026-10-11 | trivial | UI/UX gaps: the table context menu landed, its items following the selection as in Word (Delete Cells, Rows, Columns or Table, Merge and Split Cells, Distribute, AutoFit, Text Direction, Insert Caption…, Table Properties…); objects' menus and Border Styles remain |
 | 2026-10-14 | trivial | #12 narrowed: Ink to Shape recognises single-stroke arrows |
