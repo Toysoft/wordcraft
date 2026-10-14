@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (progress log: Word's text watermark read from and written to DOCX, #1290; previously trivial: progress log: full screen, #980; previously trivial: progress log: table row margins and splitting; previously trivial: progress log: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (progress log: Word's text watermark read from and written to DOCX, #1290; previously trivial: progress log: full screen, #980; previously trivial: progress log: PAGE fields on the pages a paragraph runs onto, #1352; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -110,11 +110,12 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Japanese | ja | partial | ~95% |
 | German | de | partial (#574) | ~95% |
 | Korean | ko | none | 0% |
-| Vietnamese | vi | none | 0% |
+| Vietnamese | vi | partial (#1434) | ~95% |
 
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
 system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish, Italian and Czech proofing are not included. Hungarian (`hu`) has a
-complete 2,419-entry catalog, also without proofing.
+complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
+2,448-entry catalog, also without proofing.
 Proofing: English, Polish and Portuguese (spelling, grammar, hyphenation), chosen per run from its language. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
@@ -157,6 +158,11 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | A list label moves with its text when the paragraph is centred or aligned to the end (it stayed at the margin), in left-to-right and right-to-left paragraphs (#1159) |
 | 2026-10-13 | A paragraph that ends with a page break keeps its space after on the page before, as in Word: the next page no longer starts up to a line too low, and a page break before right after it no longer leaves a blank page |
 | 2026-10-13 | Tables break across pages like Word's: a cell without its own margins lines up with its neighbours, exact row heights include the bottom margin, and a row whose margin doesn't fit at a page bottom is split with widow control instead of moving to the next page whole |
+| 2026-10-13 | Equation parsers are hardened (#1456): deeply chained input (`x^1^1…`, `a/a/…`, `\sum\sum…`) no longer builds a tree thousands of levels deep that overflows small stacks, `\text{…}` is escaped in LaTeX output so it reads back unchanged, and runs merge inside every structure. |
+| 2026-10-13 | Closing with unsaved changes → Save that can't write the file (no permission, locked by another app, folder gone) now says so plainly instead of looking like Cancel: the prompt comes back with the reason in it ("Couldn't save … so it is still open and nothing was lost") for Save again, Don't Save or Cancel, the status bar says it too, and `ui.saveChanges` returns that error; the same for a Save As from the prompt; the document stays open with its edits (#1445) |
+| 2026-10-13 | A WMF with a million object records opens in milliseconds instead of a second, and a large polygon or a small crop of a large bitmap no longer builds a second full-size copy while it is read (#1463) |
+| 2026-10-13 | PDF export (#1474): a horizontal or vertical line inside a group (a divider in a grouped box) is drawn, as on screen; it was left out because it has no height |
+| 2026-10-13 | A PAGE field in the body shows the number of the page it is actually on (#1352): after a page break inside its paragraph, or when the paragraph runs over onto the next page, it no longer repeats the first page's number; the rest of the paragraph is broken again for the wider number (page 9 to 10). Only paragraphs with PAGE fields are laid out again |
 | 2026-10-12 | RTF import now uses the RTF spec's defaults where a file names none (#902): no space before or after paragraphs, single line spacing, and the `\deff` default font, instead of WordCraft's Normal style; RTF files that relied on the old defaults open tighter, like in Word |
 | 2026-10-11 | Right-clicking a table cell offers the table's commands, and as in Word they follow the selection: with the caret in a cell Insert, Delete Cells, Split Cells, Text Direction and Table Properties…; with several cells Merge Cells instead of Split; with whole columns or rows Delete Columns or Rows, Merge Cells and Distribute Rows and Columns; with the whole table Delete Table, Distribute, AutoFit and Insert Caption…. A right-click beside selected cells moves the caret there instead of keeping them |
 | 2026-10-11 | Drags, Shift+arrows and Shift+click over table cells select whole cells, as in Word: from one cell into another the rectangle between them (bold, alignment and Delete leave the other cells alone), into or out of a table whole rows; extending again goes on from where the selection started |
@@ -313,6 +319,9 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | trivial | Progress log: list label follows paragraph alignment (#1159) |
 | 2026-10-13 | trivial | Progress log: space after a page break |
 | 2026-10-13 | trivial | Progress log: table row margins and splitting |
+| 2026-10-13 | trivial | Progress log: a failed save from the close prompt says so (#1445) |
+| 2026-10-13 | trivial | Progress log: lines inside groups in PDF export (#1474) |
+| 2026-10-13 | trivial | Progress log: PAGE fields on the pages a paragraph runs onto (#1352) |
 | 2026-10-12 | trivial | Progress log: Accept All and Reject All keep the right paragraph marks (#864) |
 | 2026-10-13 | trivial | Progress log: equation pictures keep the theme colours on Windows (#1002) |
 | 2026-10-11 | trivial | Progress log: Ctrl, Alt, left-edge and selected-cells table border drags (#711) |
