@@ -1769,7 +1769,8 @@ fn split_row_cells_each_continue_at_the_top() {
 }
 
 /// Word never splits a row of an exact height: one the page bottom cuts through, its text
-/// included, moves to the next page whole (an "at least" row of that height splits).
+/// included, moves to the next page whole. An at-least row also moves when the remaining
+/// room is less than its minimum height.
 #[test]
 fn exact_rows_move_on_whole() {
     let text = "Dotted leader lines to fill in by hand later on. ".repeat(14);
@@ -1802,7 +1803,8 @@ fn exact_rows_move_on_whole() {
     assert_eq!(exact.len(), 2);
     assert_eq!(exact[0], 0, "the exact row moves on whole: {exact:?}");
     let at_least = lay_row(wordcraft_doc::props::HeightRule::AtLeast);
-    assert!(at_least[0] > 0 && at_least.get(1).is_some_and(|n| *n > 0), "an at-least row splits: {at_least:?}");
+    assert_eq!(at_least[0], 0, "less than the minimum height remains: {at_least:?}");
+    assert!(at_least.get(1).is_some_and(|n| *n > 0), "the at-least row moves: {at_least:?}");
 }
 
 /// A nested table's cell the page bottom cuts through goes on at the top of the next page with

@@ -3291,7 +3291,8 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
             let room = pb.bottom - pb.y;
             let short_of_min = rest.is_none()
                 && t.rows.get(ri).is_some_and(|r| {
-                    r.props.height_rule == wordcraft_doc::props::HeightRule::AtLeast && r.props.height.is_some_and(|h| h > room + 0.01)
+                    r.props.height_rule == wordcraft_doc::props::HeightRule::AtLeast
+                        && r.props.height.is_some_and(|h| h > room + 0.01 && h <= pb.bottom - body_top + 0.01)
                 });
             let split = if splittable && !short_of_min { table::split_row(cur, room) } else { None };
             match split {
