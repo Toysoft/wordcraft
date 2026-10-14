@@ -27,6 +27,10 @@ pub struct FieldCtx {
     pub bookmark_pages: Arc<BookmarkPages>,
     /// A key for caches standing for `bookmark_pages` (0 when it's empty).
     pub bookmarks_key: u64,
+    /// Where a paragraph runs onto later pages: from text offset `.0` on, its fields are on page
+    /// `.1` (ascending offsets). Empty except during the layout of a body paragraph split across
+    /// pages, for its later pages (#1352); nothing else laid out meanwhile sees it.
+    pub page_from: Vec<(usize, u32)>,
 }
 
 /// Bookmark name → the number and number format of the page it starts on.
@@ -50,6 +54,10 @@ impl FieldCtx {
             Some(n) => n.fmt.format(n.n),
             None => fmt.format(1),
         }
+    }
+    /// The page a field at text offset `off` of the paragraph being laid out is on.
+    pub fn page_at(&self, off: usize) -> u32 {
+        self.page_from.iter().rev().find(|(from, _)| *from <= off).map_or(self.page, |(_, page)| *page)
     }
     /// A key for caches: the parts of the context a page-dependent paragraph depends on.
     pub fn page_key(&self) -> (u32, u32, u32, u32, u64) {
@@ -98,10 +106,15 @@ pub fn field_code_text(instr: &str) -> String {
 
 /// Display text for a field and whether it depends on the page it lands on.
 pub fn field_text(instr: &str, result: &str, ctx: &FieldCtx) -> (String, bool) {
+    field_text_on(instr, result, ctx, ctx.page)
+}
+
+/// Display text for a field on page `page` (see [`field_text`]).
+pub fn field_text_on(instr: &str, result: &str, ctx: &FieldCtx, page: u32) -> (String, bool) {
     let name = field_name(instr);
     let fmt = format_switch(instr);
     match name.as_str() {
-        "PAGE" => (fmt.unwrap_or(ctx.page_format).format(ctx.page), true),
+        "PAGE" => (fmt.unwrap_or(ctx.page_format).format(page), true),
         "NUMPAGES" => (fmt.unwrap_or(NumFormat::Decimal).format(ctx.pages), true),
         "SECTIONPAGES" => (fmt.unwrap_or(NumFormat::Decimal).format(ctx.section_pages), true),
         "SECTION" => (fmt.unwrap_or(NumFormat::Decimal).format(ctx.section), true),
