@@ -1831,6 +1831,35 @@ fn reject_one_paragraph_break_and_rejecting_a_typed_paragraph() {
 }
 
 #[test]
+fn reject_all_of_an_inserted_paragraph_keeps_the_next_paragraphs_style() {
+    // A whole paragraph inserted before a heading, in another style: rejecting it removes the
+    // paragraph, and the heading keeps its own style (it used to take the rejected one's).
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Intro"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "Heading"}));
+    run(&mut s, "para.style", json!({"style": "Heading1"}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "text.insert", json!({"text": "Inserted"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "review.trackChanges", json!({"value": false}));
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "para.style", json!({"style": "Normal"}));
+    assert_eq!(body_texts(&s), ["Intro", "Inserted", "Heading"]);
+    let style = |s: &Session, i: usize| s.doc.para_at(&Pos::body(i, 0)).unwrap().props.style.clone();
+    assert_eq!(style(&s, 2).as_deref(), Some("Heading1"));
+    run(&mut s, "review.rejectAll", json!({}));
+    assert_eq!(body_texts(&s), ["Intro", "Heading"]);
+    assert_eq!(style(&s, 1).as_deref(), Some("Heading1"));
+    // Accepting instead keeps all three, each with its style.
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(body_texts(&s), ["Intro", "Inserted", "Heading"]);
+    assert_eq!(style(&s, 2).as_deref(), Some("Heading1"));
+}
+
+#[test]
 fn tracked_backspace_and_delete_mark_a_paragraph_break_deleted() {
     let two = || {
         let mut s = s();
@@ -5539,6 +5568,68 @@ fn insert_picture_takes_a_windows_metafile() {
     let err = s.run("insert.picture", &json!({"path": path.to_string_lossy()})).unwrap_err();
     assert!(err.to_string().contains("WMF, EMF"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn rename_document_preserves_saved_contents_and_rejects_collisions() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-rename-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("original.docm");
+    let renamed = dir.join("Notes.docm");
+    let existing = dir.join("existing.docm");
+    std::fs::write(&original, b"original bytes").unwrap();
+    std::fs::write(&existing, b"keep these bytes").unwrap();
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.path = Some(original.clone());
+    s.dirty = true;
+    assert!(s.run("file.rename", &json!({"name": "existing"})).is_err());
+    assert_eq!(s.path.as_ref(), Some(&original));
+    assert_eq!(std::fs::read(&existing).unwrap(), b"keep these bytes");
+    let roots = crate::file_access::AutomationRoots::new(Some(&dir), None).unwrap();
+    assert!(crate::file_access::confine(roots.as_ref(), || s.run("file.rename", &json!({"name": "Notes"}))).is_err());
+    assert!(original.exists());
+    assert!(!renamed.exists());
+    s.run("file.rename", &json!({"name": " Notes "})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&renamed));
+    assert!(s.dirty);
+    assert!(!original.exists());
+    assert_eq!(std::fs::read(&renamed).unwrap(), b"original bytes");
+    s.run("file.rename", &json!({"name": "Notes"})).unwrap();
+    s.run("file.rename", &json!({"name": "notes"})).unwrap();
+    let lower = dir.join("notes.docm");
+    assert_eq!(s.path.as_ref(), Some(&lower));
+    let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert!(names.contains(&"notes.docm".into()) && !names.contains(&"Notes.docm".into()), "{names:?}");
+    assert_eq!(std::fs::read(&lower).unwrap(), b"original bytes");
+    assert!(s.run("file.rename", &json!({"name": "existing"})).is_err());
+    assert_eq!(s.path.as_ref(), Some(&lower));
+    assert_eq!(std::fs::read(&existing).unwrap(), b"keep these bytes");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rename_unsaved_document_names_the_file_not_the_document() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.doc.core.title = "Quarterly report".into();
+    for name in ["", "  ", "../report", "a/b", "a\\b", "a\nb", "name."] {
+        assert!(s.run("file.rename", &json!({"name": name})).is_err(), "{name:?}");
+        assert!(s.file_name.is_none());
+    }
+    s.run("file.rename", &json!({"name": " Résumé notes "})).unwrap();
+    assert_eq!(s.file_name.as_deref(), Some("Résumé notes"));
+    assert_eq!(s.doc.core.title, "Quarterly report");
+    assert!(s.path.is_none());
+    assert!(!s.dirty);
+    assert!(!s.can_undo());
+    s.run("file.new", &json!({})).unwrap();
+    assert!(s.file_name.is_none());
+    s.run("file.rename", &json!({"name": "Draft"})).unwrap();
+    s.run("file.open", &json!({"path": "other.txt", "data": "aGk="})).unwrap();
+    assert!(s.file_name.is_none());
+    s.run("file.new", &json!({})).unwrap();
+    s.run("file.rename", &json!({"name": "Draft"})).unwrap();
+    s.run("review.compare", &json!({"text": "changed", "showIn": "new"})).unwrap();
+    assert!(s.file_name.is_none() && s.path.is_none());
 }
 
 /// #1344: File › Info › Inspect Document finds hidden text by its effective formatting (direct,
