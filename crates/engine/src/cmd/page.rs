@@ -407,7 +407,10 @@ fn validate_section(x: &mut SectionProps) -> Result<(), CmdError> {
     x.header = x.header.clamp(0.0, x.page_h);
     x.footer = x.footer.clamp(0.0, x.page_h);
     x.gutter = x.gutter.clamp(0.0, MAX_PAGE_SIDE);
-    if x.margin_left + x.margin_right + x.gutter > x.page_w - MIN_TEXT_ROOM || x.margin_top + x.margin_bottom > x.page_h - MIN_TEXT_ROOM {
+    // A page narrower than the usual text room (the smallest is 0.1") needs only margins that
+    // leave the whole of it: zero margins, gutter included.
+    let room = |side: f32| MIN_TEXT_ROOM.min(side);
+    if x.margin_left + x.margin_right + x.gutter > x.page_w - room(x.page_w) || x.margin_top + x.margin_bottom > x.page_h - room(x.page_h) {
         return Err(CmdError::Params("margins leave no room for text".into()));
     }
     x.columns.space = x.columns.space.clamp(0.0, 300.0);
@@ -796,6 +799,29 @@ mod tests {
         .unwrap();
         let x = sect(&s);
         assert_eq!((x.page_w, x.page_h, x.margin_left, x.columns.count), (595.0, 842.0, 50.0, 2));
+    }
+
+    /// A page smaller than the usual 36 pt of text room is fine with no margins; any margin or
+    /// gutter on it is refused.
+    #[test]
+    fn page_setup_section_allows_a_tiny_page_without_margins() {
+        let tiny = |m: f32, g: f32| {
+            with_section(|v| {
+                v["pageW"] = json!(7.2);
+                v["pageH"] = json!(20.0);
+                for k in ["marginTop", "marginBottom", "marginLeft", "marginRight"] {
+                    v[k] = json!(m);
+                }
+                v["gutter"] = json!(g);
+            })
+        };
+        let mut s = doc();
+        let before = sect(&s);
+        assert!(s.run("layout.pageSetup", &tiny(1.0, 0.0)).is_err(), "a margin on a tiny page");
+        assert!(s.run("layout.pageSetup", &tiny(0.0, 1.0)).is_err(), "a gutter on a tiny page");
+        assert_eq!(sect(&s), before);
+        s.run("layout.pageSetup", &tiny(0.0, 0.0)).unwrap();
+        assert_eq!((sect(&s).page_w, sect(&s).page_h), (7.2, 20.0));
     }
 
     /// Layout › Text Direction turns the section, or the table cell the caret is in; one undo step.
