@@ -264,6 +264,9 @@ fn proofing(app: &mut WordApp, ui: &mut Ui) {
     flag(app, ui, "Check spelling as you type", "checkSpelling", spelling);
     ui.add_enabled_ui(app.session.view.proofing, |ui| flag(app, ui, "Mark grammar errors as you type", "markGrammar", pr.mark_grammar));
     ui.add_space(8.0);
+    section(ui, "Dictionaries");
+    dictionaries(app, ui);
+    ui.add_space(8.0);
     section(ui, "Custom dictionary");
     custom_dictionary(app, ui);
     ui.add_space(8.0);
@@ -336,6 +339,71 @@ fn language_name(lang: wordcraft_engine::proof::ProofLang) -> &'static str {
         // English uses its bundled word list; Bulgarian has no dictionary yet.
         ProofLang::En | ProofLang::Bg | ProofLang::Other => "",
     }
+}
+
+/// Hunspell dictionaries folder, searched first (#100, #1063), with help getting
+/// dictionaries (#1225) and a hint for document languages that have none (#1167).
+fn dictionaries(app: &mut WordApp, ui: &mut Ui) {
+    let mut dir = app.ui.dictionaries_dir.clone();
+    ui.horizontal(|ui| {
+        ui.label(tl!("Dictionaries folder:"));
+        let r = ui.add(egui::TextEdit::singleline(&mut dir).hint_text(tl!("Empty uses the default locations")));
+        if r.changed() {
+            let clean = dir.trim().to_string();
+            app.ui.dictionaries_dir = clean.clone();
+            wordcraft_engine::proof::hunspell::set_dictionary_dir(if clean.is_empty() { None } else { Some(clean.into()) });
+        }
+    });
+    note(
+        ui,
+        "Hunspell .aff/.dic pairs are searched here first, then in WORDCRAFT_DICTIONARIES, then in the system locations (LibreOffice dictionaries work).",
+    );
+    ui.horizontal(|ui| {
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if ui.button(tl!("Open dictionaries folder")).clicked() {
+            let target = if app.ui.dictionaries_dir.trim().is_empty() { String::new() } else { app.ui.dictionaries_dir.clone() };
+            if target.is_empty() {
+                app.status(tl!("Set a dictionaries folder first."));
+            } else if std::process::Command::new("xdg-open").arg(&target).spawn().is_err() {
+                app.status(tl!("Could not open the folder."));
+            }
+        }
+    });
+    // Languages used by the open document that have no dictionary installed (#1167).
+    let rev = app.session.rev();
+    let key = egui::Id::new("options_missing_dicts");
+    let cached: Option<(u64, Vec<String>)> = ui.data(|d| d.get_temp(key));
+    let missing = match cached {
+        Some((r, langs)) if r == rev => langs,
+        _ => {
+            let langs = missing_dict_languages(&app.session.doc);
+            ui.data_mut(|d| d.insert_temp(key, (rev, langs.clone())));
+            langs
+        }
+    };
+    for lang in missing.iter().take(4) {
+        let msg = crate::i18n::fmt(tl!("No dictionary for {lang}: those runs won't be spell-checked."), &[("lang", lang)]);
+        ui.label(egui::RichText::new(msg).small());
+    }
+}
+
+/// BCP 47 tags used anywhere in the body with no proofing dictionary installed, first-seen
+/// order (#1167). Bounded: distinct tags only.
+fn missing_dict_languages(doc: &wordcraft_doc::Document) -> Vec<String> {
+    use std::collections::BTreeSet;
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    let story = wordcraft_doc::StoryRef::Body;
+    for path in doc.para_paths(story) {
+        let Some(p) = doc.para(story, &path) else { continue };
+        for (_, props) in p.run_ranges() {
+            let Some(tag) = props.lang.as_deref().map(str::trim).filter(|t| !t.is_empty()) else { continue };
+            if seen.insert(tag.to_ascii_lowercase()) && !wordcraft_engine::proof::has_dictionary(Some(tag)) && out.len() < 8 {
+                out.push(tag.to_string());
+            }
+        }
+    }
+    out
 }
 
 /// The custom dictionary: the words Add to Dictionary kept, each with a Remove button, and a
@@ -723,6 +791,19 @@ mod tests {
         WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default())
     }
 
+    #[test]
+    fn missing_dictionaries_are_listed_by_language() {
+        // #1167: runs tagged with a language WordCraft cannot proof are reported.
+        use wordcraft_doc::{Paragraph, para_block};
+        let mut d = wordcraft_doc::Document::new();
+        let mut p = Paragraph::with_text("Hello", wordcraft_doc::CharProps::default());
+        let n = p.len();
+        p.insert_text(n, " bonjour", &wordcraft_doc::CharProps { lang: Some("fr".into()), ..Default::default() }).unwrap();
+        d.body = vec![para_block(p)];
+        assert_eq!(super::missing_dict_languages(&d), vec!["fr".to_string()]);
+        let plain = wordcraft_doc::Document::from_text("Hello");
+        assert!(super::missing_dict_languages(&plain).is_empty());
+    }
     /// File › Options settings come back after a restart, and a `ui.json` with a wrong value in
     /// one setting keeps every other setting (#485).
     #[test]
