@@ -90,6 +90,9 @@ pub struct CanvasState {
     pub context_menu_at: Option<Pos2>,
     /// Screen rect of the selection's first line, for the floating mini toolbar.
     pub mini_anchor: Option<Rect>,
+    /// The selection the mini toolbar was put away for by a click outside the document (the
+    /// ribbon, a pane, the status bar); it comes back when the selection changes.
+    pub mini_dismissed: Option<wordcraft_engine::Selection>,
     /// A picture, shape or text box being dragged by its frame.
     pub(crate) obj_drag: Option<crate::objects::ObjectDrag>,
     /// An ink stroke being drawn with a pen (Draw tab).
@@ -196,6 +199,7 @@ impl Default for CanvasState {
             context_menu_from_keys: false,
             context_menu_at: None,
             mini_anchor: None,
+            mini_dismissed: None,
             pasted: false,
             swallow_text: false,
             alt_code: String::new(),
@@ -1248,10 +1252,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // the scroll area is built, so it reads last frame's viewport.
     app.canvas.viewport = Some(out.inner_rect);
     let (resp, rects) = out.inner;
-    // A click on the page leaves the selected comment balloon; a click inside a balloon (its
-    // Delete or Resolve button, say) does not (#1085).
-    let in_balloon = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p)));
-    if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() && !in_balloon {
+    // A click on the page leaves the selected comment balloon.
+    if app.canvas.balloon.is_some()
+        && ui.input(|i| i.pointer.any_pressed())
+        && resp.contains_pointer()
+        && !ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| over_balloon(app, p))
+    {
         deselect_balloon(app, ui.ctx());
     }
     // Space and Enter also set `Response::clicked` on a focused click-sensing widget
@@ -1391,6 +1397,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if let (Some(h), Some(v)) = (hruler, vruler) {
         rulers(app, ui, h, v, &rects, &layout, geo.scale);
     }
+    crate::mini_toolbar::track_dismissal(app, ui.ctx(), area);
     if let Some(sel) = app.canvas.mini_anchor
         && app.ui.mini_toolbar
     {
@@ -1710,6 +1717,11 @@ pub fn select_balloon(app: &mut WordApp, ctx: &egui::Context, id: u32) {
     app.canvas.balloon_h = 0.0;
 }
 
+/// A press over a balloon card belongs to the card, though the canvas under it also contains the pointer (#1013).
+fn over_balloon(app: &WordApp, p: Pos2) -> bool {
+    app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p))
+}
+
 /// Leave the selected balloon, writing back what was typed in it (its fields may not be drawn
 /// again to notice they lost focus).
 pub fn deselect_balloon(app: &mut WordApp, ctx: &egui::Context) {
@@ -1888,7 +1900,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         let _ = app.run("select.paragraph", json!({}));
         return;
     }
-    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer();
+    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);
     if pressed {
         let now = ui.input(|i| i.time);
         let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
