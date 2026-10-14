@@ -598,17 +598,7 @@ fn tab(s: &mut Session, _: &Value) -> CmdResult {
             let t = s.doc.table_mut(story, &tpath)?;
             t.insert_row(nr, r);
         }
-        let mut path = tpath.0.clone();
-        path.extend([nr as u32, nc as u32, 0]);
-        let start = Pos { story, path: wordcraft_doc::Path(path), off: 0 };
-        // Select the cell's content like Word.
-        let end_path = s.doc.para_paths(story).into_iter().rfind(|q| q.0.starts_with(&start.path.0[..start.path.0.len() - 1]));
-        let end = end_path.map(|q| {
-            let off = s.doc.para(story, &q).map(|x| x.len()).unwrap_or(0);
-            Pos { story, path: q, off }
-        });
-        s.sel = Selection { anchor: start.clone(), focus: end.unwrap_or(start) };
-        return sel_result(s);
+        return select_cell(s, story, &tpath, nr, nc);
     }
     let f = s.sel.focus.clone();
     if s.sel.is_collapsed()
@@ -638,10 +628,7 @@ fn back_tab(s: &mut Session, _: &Value) -> CmdResult {
         } else {
             return sel_result(s);
         };
-        let mut path = tpath.0.clone();
-        path.extend([nr as u32, nc as u32, 0]);
-        s.sel = Selection::caret(Pos { story, path: wordcraft_doc::Path(path), off: 0 });
-        return sel_result(s);
+        return select_cell(s, story, &tpath, nr, nc);
     }
     let f = s.sel.focus.clone();
     if let Some(n) = s.doc.para_at(&f).and_then(|x| x.props.numbering).filter(|n| n.num != 0) {
@@ -651,6 +638,21 @@ fn back_tab(s: &mut Session, _: &Value) -> CmdResult {
         return sel_result(s);
     }
     super::para::outdent(s, &Value::Null)
+}
+
+/// Tab and Shift+Tab land in a cell with its content selected, like Word.
+fn select_cell(s: &mut Session, story: StoryRef, table: &Path, r: usize, c: usize) -> CmdResult {
+    let mut cell = table.0.clone();
+    cell.extend([r as u32, c as u32]);
+    let mut first = cell.clone();
+    first.push(0);
+    let start = Pos { story, path: Path(first), off: 0 };
+    let end = s.doc.para_paths(story).into_iter().rfind(|q| q.0.starts_with(&cell)).map(|q| {
+        let off = s.doc.para(story, &q).map(|x| x.len()).unwrap_or(0);
+        Pos { story, path: q, off }
+    });
+    s.sel = Selection { anchor: start.clone(), focus: end.unwrap_or(start) };
+    sel_result(s)
 }
 
 fn backspace(s: &mut Session, v: &Value) -> CmdResult {
