@@ -90,6 +90,10 @@ fn keytip_badge(ui: &Ui, rect: Rect, id: &str, name: &str) {
 
 /// Whether a command exists and is enabled.
 pub fn enabled(app: &WordApp, id: &str) -> bool {
+    // No document open (#1129): only what opens one, Help and the settings.
+    if !app.has_document() && !crate::works_without_document(id) {
+        return false;
+    }
     match app.session.registry.get(id) {
         Some(s) => (s.enabled)(&app.session).is_none(),
         // Zotero: one command at a time, and only in the desktop app.
@@ -294,6 +298,7 @@ pub fn menu_button(
         resp
     };
     let resp = resp.on_hover_text(tip);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
     if !on {
         return;
     }
@@ -822,6 +827,7 @@ fn icon_text_button_with(ui: &mut Ui, icon: &str, text: &str, font: egui::FontId
     let marker_w = if marker { DROPDOWN + 4.0 } else { 0.0 };
     let size = vec2(pad.x + icon_w + 4.0 + galley.size().x + marker_w + pad.x, galley.size().y.max(icon_w) + 2.0 * pad.y);
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), text));
     let st = drawn_state(ui, &resp, true);
     let r = r.expand(st.expansion);
     ui.painter().rect(r, ui.visuals().widgets.inactive.corner_radius, st.fill, st.stroke, egui::StrokeKind::Inside);
