@@ -2187,6 +2187,7 @@
 	Hyphenation Options…	Elválasztási beállítások…
 	Hyphenation zone:	Elválasztási zóna:
 	Italian	Olasz
+	Croatian	Horvát
 	Japanese	Japán
 	Korean	Koreai
 	Limit consecutive hyphens to:	Egymást követő elválasztások legfeljebb:
@@ -2463,11 +2464,10 @@
 	Select Table Cells by Clicking	Táblázatcellák kijelölése kattintással
 	Insert Row or Column by Clicking	Sor vagy oszlop beszúrása kattintással
 	Move Table by Dragging	Táblázat áthelyezése húzással
-	AutoFit Column by Double-Clicking	Oszlop automatikus igazítása dupla kattintással
+	AutoFit Column by Double-Clicking	Oszlop automatikus méretezése dupla kattintással
 	Insert Caption…	Felirat beszúrása…
 	Table Properties…	Táblázat tulajdonságai…
 	Search	Keresés
-	Title Bar	Címsor
 	Privacy Options	Adatvédelmi beállítások
 	Trust Center	Adatvédelmi központ
 	Privacy for this document	A dokumentum adatvédelme
@@ -2475,6 +2475,9 @@
 	Leave out the date and time of comments and tracked changes when saving	Mentéskor a megjegyzések és a követett módosítások dátumának és idejének elhagyása
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	A szerkesztett dokumentum megtartja a neveket és a dátumokat; csak a mentett fájlból maradnak ki.
 	Privacy Settings	Jelenlegi adatvédelmi beállítások
+	Full Screen	Teljes képernyő
+	Full\nScreen	Teljes\nképernyő
+	Use the browser's full screen (F11)	Használja a böngésző teljes képernyős módját (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} hüvelyk
@@ -2511,3 +2514,4 @@
 	This folder is no longer there.	Ez a mappa már nem létezik.
 	It may have been moved or deleted.	Lehet, hogy áthelyezték vagy törölték.
 	This folder can't be read.	Ez a mappa nem olvasható.
+	Title Bar	Címsáv

@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use wordcraft_doc::numbering::{Counters, Level};
 use wordcraft_doc::para::{Anchor, Float, FloatAlign, InlineObject, Wrap, WrapText};
-use wordcraft_doc::props::{Border, CharProps, Rgb, TableFloat, TextDirection};
+use wordcraft_doc::props::{Border, CharProps, HeightRule, Rgb, TableFloat, TextDirection};
 use wordcraft_doc::section::{HeaderSet, SectionProps, SectionStart};
 use wordcraft_doc::{Block, Blocks, Document, Paragraph, Path, StoryRef};
 use wordcraft_geom::{Point, Rect, Spin};
@@ -3029,8 +3029,11 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             _ => {}
         }
     }
-    pb.y += pl.rp.space_after;
-    pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, pl.rp.space_after, pl.rp.after_auto, label.is_some()));
+    // A mark that stayed with its page break keeps its space after on that page too: the next page
+    // starts with the next paragraph (Word, compatibility modes 12 to 15).
+    let space_after = if pb.after_break_mark { 0.0 } else { pl.rp.space_after };
+    pb.y += space_after;
+    pb.prev = Some((pl.rp.style.clone(), pl.rp.contextual_spacing, space_after, pl.rp.after_auto, label.is_some()));
 }
 
 /// The outline of the body for an Outline view pass.
@@ -3193,7 +3196,12 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
         pb.content_bottom = pb.content_bottom.max(pb.y);
     };
     for (ri, row) in tl.rows.iter().enumerate() {
-        let splittable = !header_rows.contains(&ri) && !t.rows.get(ri).is_some_and(|r| r.props.cant_split);
+        // Word never splits a row of an exact height: it moves on whole.
+        let splittable = !header_rows.contains(&ri)
+            && !t
+                .rows
+                .get(ri)
+                .is_some_and(|r| r.props.cant_split || (r.props.height_rule == HeightRule::Exact && r.props.height.is_some_and(|h| h > 0.0)));
         let mut rest: Option<table::RowLayout> = None;
         // On a new page holding only the repeated header rows.
         let mut fresh = false;
