@@ -910,6 +910,13 @@ impl WordApp {
         if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") && !id.starts_with("draw.") {
             self.canvas.scroll_to_caret = true;
         }
+        // #820: the Paste Options widget lives until another engine command runs.
+        if matches!(id, "edit.paste" | "edit.pasteMerge" | "edit.pasteText") {
+            self.canvas.paste_options =
+                if self.session.view.read_mode { None } else { crate::canvas::caret_screen(self).map(|(p, h)| p + egui::vec2(0.0, h + 4.0)) };
+        } else if !id.starts_with("ui.") {
+            self.canvas.paste_options = None;
+        }
         for req in std::mem::take(&mut self.session.ui_requests) {
             self.handle_request(&req);
         }
