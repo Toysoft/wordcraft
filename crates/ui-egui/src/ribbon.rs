@@ -738,7 +738,10 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
             mi(ui, app, "Paste Special…", "edit.pasteSpecial", json!({}));
         });
         stack(ui, |ui| {
-            small(ui, app, "cut", Some("Cut"), "Cut", "edit.cut", json!({}), false);
+            let r = small(ui, app, "cut", Some("Cut"), "Cut", "edit.cut", json!({}), false);
+            if r.clicked() {
+                crate::system_clipboard::put(app, ui.ctx(), &app.session.clipboard_text, &app.session.clipboard_html);
+            }
             let r = small(ui, app, "copy", Some("Copy"), "Copy", "edit.copy", json!({}), false);
             if r.clicked() {
                 crate::system_clipboard::put(app, ui.ctx(), &app.session.clipboard_text, &app.session.clipboard_html);
@@ -2643,6 +2646,7 @@ fn table_layout(app: &mut WordApp, ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui_kittest::kittest::Queryable;
     use wordcraft_engine::Session;
 
     fn png_data() -> String {
@@ -2905,6 +2909,42 @@ mod tests {
         assert!(h.state().ui.backstage, "File › Options opened");
         assert_eq!(h.state().ui.options_pane, "language");
         assert_eq!(language_name(Some("de-DE")), "German (Germany)");
+    }
+
+    /// #1710: the ribbon's Cut publishes what it copied to the system clipboard, not only the
+    /// keyboard's Cut event; before this, a paste brought back the previous clipboard content.
+    #[test]
+    fn ribbon_cut_publishes_to_the_system_clipboard() {
+        let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, String)>::new()));
+        let sink = got.clone();
+        let mut a = WordApp::new(
+            Session::new(wordcraft_doc::Document::new()),
+            crate::Services {
+                set_clipboard_html: Some(Box::new(move |h, t| {
+                    sink.borrow_mut().push((h.to_string(), t.to_string()));
+                    true
+                })),
+                ..Default::default()
+            },
+        );
+        a.run("document.setText", json!({"text": "Speed "})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        a.run("insert.equation", json!({"linear": "y=2x_s", "edit": false})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_label("Cut").click();
+        h.run_steps(2);
+        let captured = got.borrow().clone();
+        assert_eq!(captured.len(), 1, "the cut reached the system clipboard: {captured:?}");
+        assert!(captured[0].0.contains("<math") && captured[0].1.contains("y=2x_s"), "{captured:?}");
     }
 
     #[test]
