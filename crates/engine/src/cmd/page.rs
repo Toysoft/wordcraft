@@ -373,12 +373,6 @@ pub fn columns_preset_at(s: &Session) -> Option<&'static str> {
     }
 }
 
-/// Page sides, in points: 0.1" to 22" (the range Size uses).
-pub const MIN_PAGE_SIDE: f32 = 7.2;
-pub const MAX_PAGE_SIDE: f32 = 1584.0;
-/// The room the text keeps between the margins, in points.
-pub const MIN_TEXT_ROOM: f32 = 36.0;
-
 /// Checks a whole section handed to `layout.pageSetup` by the rules of Size, Margins, Columns,
 /// Line Numbers, Footnotes and Page Borders: a non-finite number or margins that leave no room
 /// for text is an error; the rest is clamped to the ranges those commands use.
