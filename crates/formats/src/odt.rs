@@ -97,6 +97,8 @@ struct Writer {
     section_styles: Vec<String>,
     /// The page a section starts, for the next top-level block.
     pending_start: Option<SecStart>,
+    /// The next top-level list continues the one that ended the previous section.
+    continue_list: bool,
     /// The page the block being written starts.
     master: Option<SecStart>,
     /// Cell styles by shading.
@@ -516,7 +518,13 @@ impl Writer {
                                 *top = true;
                             }
                             if stack.is_empty() {
-                                out.push_str(&format!("<text:list text:style-name=\"{lname}\">"));
+                                // A list cut by a section boundary goes on numbering (ODF 1.3 §19.743).
+                                let cont = if depth == 0 && start == 0 && std::mem::take(&mut self.continue_list) {
+                                    " text:continue-numbering=\"true\""
+                                } else {
+                                    ""
+                                };
+                                out.push_str(&format!("<text:list text:style-name=\"{lname}\"{cont}>"));
                             } else {
                                 out.push_str("<text:list>");
                             }
@@ -898,19 +906,30 @@ pub fn export(doc: &Document) -> Result<Vec<u8>, String> {
     let sections = flow_sections(&flow.blocks, &doc.last_section);
     // One master page per section that starts a page; the first one is "Standard".
     let mut pages: Vec<(String, SectionProps)> = Vec::new();
+    // The columns of the page in force: a continuous section with others is a `text:section`.
+    let mut page_cols = Columns::default();
     for (k, (sec, range)) in sections.iter().enumerate() {
         let new_page = k == 0 || sec.start != SectionStart::Continuous;
         if new_page {
             let name = if k == 0 { "Standard".to_string() } else { format!("Page{}", pages.len() + 1) };
             pages.push((name.clone(), sec.clone()));
+            page_cols = sec.columns.clone();
             // The first section needs its paragraph to name the page only to restart numbering.
             if k > 0 || sec.page_num_start.is_some() {
                 w.pending_start = Some((name, sec.page_num_start));
             }
         }
-        // A continuous section with columns is a `text:section` (§5.4) with them.
-        let wrapped = k > 0 && sec.start == SectionStart::Continuous && sec.columns.count > 1;
+        // A continuous section whose columns differ from the page's is a `text:section` (§5.4)
+        // with them (one column included). A restart of page numbering isn't written for it: ODF
+        // applies `style:page-number` only together with a master page.
+        let wrapped = k > 0
+            && sec.start == SectionStart::Continuous
+            && (sec.columns.count != page_cols.count || (sec.columns.count > 1 && sec.columns != page_cols));
+        // A list cut at the boundary goes on numbering in the new section.
+        let list_at = |b: Option<&FBlock>| matches!(b, Some(FBlock::Para(p)) if p.list.is_some());
+        w.continue_list = k > 0 && list_at(flow.blocks.get(range.start)) && list_at(range.start.checked_sub(1).and_then(|i| flow.blocks.get(i)));
         if wrapped {
+            w.close_ins(&mut body);
             let n = w.section_styles.len() + 1;
             w.section_styles.push(format!(
                 "<style:style style:name=\"Sect{n}\" style:family=\"section\"><style:section-properties>{}</style:section-properties></style:style>",
@@ -920,6 +939,7 @@ pub fn export(doc: &Document) -> Result<Vec<u8>, String> {
         }
         w.blocks(flow.blocks.get(range.clone()).unwrap_or(&[]), &mut body, 0);
         w.pending_start = None;
+        w.continue_list = false;
         if wrapped {
             w.close_ins(&mut body);
             body.push_str("</text:section>\n");
@@ -1860,7 +1880,11 @@ impl Body<'_> {
                 self.end_para();
                 if self.cols_at.is_none()
                     && self.in_body()
-                    && let Some(columns) = get(a, "text:style-name").and_then(|s| self.styles.columns(s)).filter(|c| c.count > 1)
+                    && let Some(columns) = get(a, "text:style-name")
+                        .and_then(|s| self.styles.columns(s))
+                        // A section whose columns match the open section's (a plain one-column
+                        // section in a one-column page) is no new section.
+                        .filter(|c| c.count != self.sec.columns.count || (c.count > 1 && *c != self.sec.columns))
                 {
                     let next = SectionProps { start: SectionStart::Continuous, page_num_start: None, columns, ..self.page.clone() };
                     self.break_section(next);
@@ -2719,9 +2743,9 @@ mod tests {
         assert_eq!(text(secs[3].0), "Last line");
     }
 
-    /// (start, landscape, width, height, columns, restart, margin left) of each section, and the
+    /// (start, landscape, width, height, columns, restart, margins) of each section, and the
     /// text of the paragraph ending it.
-    fn section_summary(doc: &Document) -> Vec<(wordcraft_doc::section::SectionStart, bool, f32, f32, u32, bool, Option<u32>, f32, String)> {
+    fn section_summary(doc: &Document) -> Vec<(wordcraft_doc::section::SectionStart, bool, f32, f32, u32, bool, Option<u32>, [f32; 4], String)> {
         doc.sections()
             .iter()
             .map(|(end, s)| {
@@ -2737,7 +2761,7 @@ mod tests {
                     s.columns.count,
                     s.columns.separator,
                     s.page_num_start,
-                    s.margin_left.round(),
+                    [s.margin_top, s.margin_bottom, s.margin_left, s.margin_right].map(f32::round),
                     text,
                 )
             })
@@ -2776,6 +2800,77 @@ mod tests {
         let back = import(&export(&doc).unwrap()).unwrap();
         assert_eq!(section_summary(&back), before);
         assert_eq!(back.sections()[1].1.page_num_start, Some(5));
+    }
+
+    /// Master pages `Standard` (portrait) and `Cols` (landscape, two columns with a line) for the
+    /// round-trip tests below.
+    fn cols_styles() -> String {
+        format!(
+            r#"<office:document-styles {NS_T}><office:automatic-styles><style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="2cm" fo:margin-bottom="2.2cm" fo:margin-left="2.5cm" fo:margin-right="2.6cm"/></style:page-layout><style:page-layout style:name="pC"><style:page-layout-properties fo:page-width="29.7cm" fo:page-height="21cm" style:print-orientation="landscape" fo:margin-top="1cm" fo:margin-bottom="1.1cm" fo:margin-left="1.2cm" fo:margin-right="1.3cm"><style:columns fo:column-count="2" fo:column-gap="1cm"><style:column-sep style:width="0.02cm" style:style="solid"/></style:columns></style:page-layout-properties></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pU"/><style:master-page style:name="Cols" style:page-layout-name="pC"/></office:master-styles></office:document-styles>"#
+        )
+    }
+
+    /// Import `body` (with automatic `styles`) over [`cols_styles`], export, import: both summaries.
+    fn round_trip(styles: &str, body: &str) -> (Vec<String>, Vec<String>) {
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles>{styles}</office:automatic-styles><office:body><office:text>{body}</office:text></office:body></office:document-content>"#
+        );
+        let doc = import(&package(&content, Some(&cols_styles()))).unwrap();
+        let back = import(&export(&doc).unwrap()).unwrap();
+        let show = |d: &Document| section_summary(d).iter().map(|s| format!("{s:?}")).collect::<Vec<_>>();
+        (show(&doc), show(&back))
+    }
+
+    #[test]
+    fn export_keeps_a_columned_page_and_the_one_column_part_after_it() {
+        let styles = r#"<style:style style:name="PC" style:family="paragraph" style:master-page-name="Cols"/><style:style style:name="One" style:family="section"><style:section-properties><style:columns fo:column-count="1" fo:column-gap="0cm"/></style:section-properties></style:style>"#;
+        let body = r#"<text:p>Intro</text:p><text:p text:style-name="PC">Two columns</text:p><text:section text:name="S" text:style-name="One"><text:p>One column</text:p></text:section>"#;
+        let (before, after) = round_trip(styles, body);
+        assert_eq!(before.len(), 3, "{before:?}");
+        assert!(before[1].contains(", 2, true,") && before[2].contains("Continuous") && before[2].contains(", 1, false,"), "{before:?}");
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn plain_one_column_text_sections_do_not_make_sections() {
+        let styles = r#"<style:style style:name="One" style:family="section"><style:section-properties><style:columns fo:column-count="1" fo:column-gap="0cm"/></style:section-properties></style:style>"#;
+        let body = r#"<text:p>A</text:p><text:section text:name="S" text:style-name="One"><text:p>B</text:p></text:section><text:section text:name="T"><text:p>C</text:p></text:section>"#;
+        let (before, after) = round_trip(styles, body);
+        assert_eq!(before.len(), 1, "{before:?}");
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn export_keeps_a_section_that_starts_on_a_list_item() {
+        let styles = r#"<style:style style:name="PC" style:family="paragraph" style:master-page-name="Cols"/>"#;
+        let body = r#"<text:p>Intro</text:p><text:list><text:list-item><text:p text:style-name="PC">First</text:p></text:list-item><text:list-item><text:p>Second</text:p></text:list-item></text:list><text:p>After</text:p>"#;
+        let (before, after) = round_trip(styles, body);
+        assert_eq!(before.len(), 2, "{before:?}");
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn a_list_cut_at_a_section_boundary_goes_on_numbering() {
+        let styles = r#"<style:style style:name="PC" style:family="paragraph" style:master-page-name="Cols"/>"#;
+        let body = r#"<text:list><text:list-item><text:p>One</text:p></text:list-item><text:list-item><text:p text:style-name="PC">Two</text:p></text:list-item></text:list>"#;
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles>{styles}</office:automatic-styles><office:body><office:text>{body}</office:text></office:body></office:document-content>"#
+        );
+        let doc = import(&package(&content, Some(&cols_styles()))).unwrap();
+        let bytes = export(&doc).unwrap();
+        let xml = String::from_utf8(read_entry(&mut archive(&bytes), "content.xml").unwrap()).unwrap();
+        assert_eq!(xml.matches("text:continue-numbering=\"true\"").count(), 1, "{xml}");
+        assert_eq!(section_summary(&import(&bytes).unwrap()), section_summary(&doc));
+    }
+
+    #[test]
+    fn export_keeps_a_page_number_restart_on_the_first_section() {
+        let styles = r#"<style:style style:name="PS" style:family="paragraph" style:master-page-name="Standard"><style:paragraph-properties style:page-number="7"/></style:style>"#;
+        let body = r#"<text:p text:style-name="PS">First</text:p><text:p>Second</text:p>"#;
+        let (before, after) = round_trip(styles, body);
+        assert_eq!(before.len(), 1, "{before:?}");
+        assert!(before[0].contains("Some(7)"), "{before:?}");
+        assert_eq!(after, before);
     }
 
     #[test]
