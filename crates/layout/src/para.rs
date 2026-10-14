@@ -108,7 +108,7 @@ pub struct Cluster {
     pub adv: f32,
     pub kind: ClKind,
     /// Index into `ParaLayout::styles`.
-    pub style: u16,
+    pub style: u32,
     /// Glyph range in `ParaLayout::glyphs`.
     pub g0: u32,
     pub g1: u32,
@@ -155,7 +155,7 @@ pub struct Line {
     pub left: f32,
     pub right: f32,
     /// The line ends at a hyphenation point: (style, glyph, advance) of the hyphen drawn there.
-    pub hyphen: Option<(u16, u32, f32)>,
+    pub hyphen: Option<(u32, u32, f32)>,
     /// The text continues the previous line's row on the far side of a floating object (same top
     /// and height): one row, two lines. Row counts (line numbers, keeping rows on one page) skip it.
     pub beside: bool,
@@ -277,7 +277,7 @@ pub struct Label {
     /// Maximum line ascent of every shaped font in the label, including its leading.
     pub ascent: f32,
     /// Style of the label's last run (the suffix space and the bidi tests measure with it).
-    pub style: u16,
+    pub style: u32,
     pub glyphs: Vec<Glyph>,
     /// Font runs over `glyphs`, in drawing order: font fallback can split a label ("1、" takes
     /// the digit from the Latin face and the comma from a CJK one), and each glyph id only means
@@ -294,7 +294,7 @@ pub struct RubyLayout {
     pub cluster: usize,
     /// Glyphs with their style (index into `ParaLayout::styles`); `dx` is from the cluster's left
     /// edge.
-    pub glyphs: Vec<(u16, Glyph)>,
+    pub glyphs: Vec<(u32, Glyph)>,
     /// The ruby text and each glyph's byte range in it.
     pub text: String,
     pub ranges: Vec<std::ops::Range<usize>>,
@@ -306,7 +306,7 @@ pub struct RubyLayout {
 #[derive(Clone, Debug)]
 pub struct LabelRun {
     /// Index into `ParaLayout::styles`.
-    pub style: u16,
+    pub style: u32,
     /// Glyph range in `Label::glyphs`.
     pub glyphs: std::ops::Range<usize>,
     /// The run's characters (for the PDF text layer).
@@ -501,7 +501,7 @@ struct Builder<'a> {
     env: &'a ParaEnv<'a>,
     styles: Vec<StyleRun>,
     /// Hash of a style's format → (index in `styles`, small caps), see `style`.
-    style_index: std::collections::HashMap<u64, Vec<(u16, bool)>>,
+    style_index: std::collections::HashMap<u64, Vec<(u32, bool)>>,
     glyphs: Vec<Glyph>,
     clusters: Vec<Cluster>,
     /// Bidi level per byte of the paragraph text (empty: all left to right).
@@ -664,7 +664,7 @@ impl<'a> Builder<'a> {
     }
 
     /// Style index for a resolved char in `face` (caps-scaled `size` override for small caps).
-    fn style(&mut self, rc: &Arc<ResolvedChar>, face_override: Option<FaceRef>, small: bool) -> u16 {
+    fn style(&mut self, rc: &Arc<ResolvedChar>, face_override: Option<FaceRef>, small: bool) -> u32 {
         let r = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic);
         let face = face_override.unwrap_or(r.face);
         // The display list reads every run's format (link target, strike kind, underline colour,
@@ -709,7 +709,9 @@ impl<'a> Builder<'a> {
             descent: (d * k) as f32,
             shift: rc.baseline_shift(),
         };
-        let i = self.styles.len().min(u16::MAX as usize) as u16;
+        // A `u32` index (like the glyph ranges) counts more distinct formats than a paragraph can
+        // hold in memory, so every format keeps its own style.
+        let i = u32::try_from(self.styles.len()).unwrap_or(u32::MAX);
         self.styles.push(st);
         self.style_index.entry(key).or_default().push((i, small));
         i
@@ -1564,7 +1566,7 @@ fn next_tab(x: f32, tabs: &[TabStop], default_tab: f32, hanging_at: Option<f32>)
     })
 }
 
-fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Option<&Level>) {
+fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Option<&Level>) {
     let suffix = level.map(|l| l.suffix);
     let rp = pl.rp.clone();
     let width = env.width.max(12.0);
@@ -1610,7 +1612,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
         env.exclusions
     };
     let mut first_x0: Option<f32> = None;
-    let mut hcache: Vec<(u16, u32, f32)> = Vec::new();
+    let mut hcache: Vec<(u32, u32, f32)> = Vec::new();
     let mut lines: Vec<Line> = Vec::new();
     let mut i = 0usize;
     let mut top = 0.0f32;
@@ -1624,8 +1626,14 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
     // The rest of the current row: spans on the far side of floating objects, left to right.
     let mut row_rest: VecDeque<(f32, f32)> = VecDeque::new();
     let mut row_first = 0usize;
+    // Spans skipped in a row because the next word didn't fit (see `skip`).
+    let mut skipped = 0;
     loop {
-        let beside = !row_rest.is_empty();
+        // A line already sits on this row (a span before this one may have been skipped).
+        let beside = !row_rest.is_empty() && lines.len() > row_first;
+        // The span is narrowed by a floating object.
+        let mut narrowed = !row_rest.is_empty();
+        let row_lo = if first { first_left } else { rp.indent_left };
         let (left, right_edge) = if let Some(span) = row_rest.pop_front() {
             span
         } else {
@@ -1640,6 +1648,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
                 }
                 match row_spans(exclusions, top, est_h, lo, base_right).map(|mut spans| (spans.pop_front(), spans)) {
                     Ok((Some((a, b)), rest)) => {
+                        narrowed = !rest.is_empty() || a > lo || b < base_right;
                         row_rest = rest;
                         row_first = lines.len();
                         break (a, b.max(a + 12.0));
@@ -1680,6 +1689,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
         }
         let line_start_x = x;
         let c0 = i;
+        // The first word doesn't fit a span narrowed by a floating object: it moves on whole.
+        let mut skip = false;
         let mut xs: Vec<f32> = Vec::new();
         let mut leaders = Vec::new();
         let mut last_break: Option<usize> = None; // cluster index after which we may break
@@ -1781,7 +1792,21 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
                     // Recompute x for the kept clusters.
                     x = xs.last().copied().unwrap_or(line_start_x) + pl.clusters.get(bk).map(|c| c.adv).unwrap_or(0.0);
                 } else {
-                    // No opportunity: break here (a long word).
+                    // No opportunity: break here (a long word), unless the span is beside a
+                    // floating object and the word fits the full line; then it tries the row's
+                    // next span, or the next row. The word runs to the next break that isn't a
+                    // hyphenation point.
+                    let word: f32 = (c0..n)
+                        .filter_map(|k| pl.clusters.get(k).map(|c| (k, c)))
+                        .scan(false, |done, (k, c)| {
+                            let end = c.break_after && pl.hyph_after.binary_search(&(k as u32)).is_err();
+                            (!std::mem::replace(done, end)).then_some(c)
+                        })
+                        .filter(|c| c.kind != ClKind::Space)
+                        .map(|c| c.adv)
+                        .sum();
+                    let full = base_right - row_lo;
+                    skip = narrowed && skipped < 50 && word <= full + 0.01;
                 }
                 break;
             }
@@ -1850,6 +1875,23 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
                 }
             }
             j += 1;
+        }
+        if skip {
+            skipped += 1;
+            if row_rest.is_empty() {
+                top = if lines.len() > row_first {
+                    top + even_row(lines.get_mut(row_first..).unwrap_or_default())
+                } else {
+                    // Nothing on this row: go below the first object that ends, as when no span is wide enough.
+                    exclusions
+                        .iter()
+                        .filter(|e| e.bottom > top && e.top < top + est_h && e.right > row_lo && e.left < base_right)
+                        .map(|e| e.bottom)
+                        .reduce(f32::min)
+                        .unwrap_or(top + est_h)
+                };
+            }
+            continue;
         }
         if end == LineEnd::Para || end == LineEnd::Wrap {
             let xc = x;
@@ -2058,20 +2100,14 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
         }
         lines.push(line);
         first = false;
+        skipped = 0;
         i = j;
         // Text that wrapped continues on the row's far side; anything else ends the row.
         if end != LineEnd::Wrap || i >= n {
             row_rest.clear();
         }
         if row_rest.is_empty() {
-            // The row is as tall as its tallest line.
-            let row = lines.get_mut(row_first..).unwrap_or_default();
-            let h = row.iter().map(|l| l.height).fold(0.0f32, f32::max);
-            for l in row {
-                l.baseline += h - l.height;
-                l.height = h;
-            }
-            top += h;
+            top += even_row(lines.get_mut(row_first..).unwrap_or_default());
         }
         if i >= n {
             // A paragraph ending with a line break gets an empty last line.
@@ -2137,6 +2173,16 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
     }
     pl.height = top;
     pl.lines = lines;
+}
+
+/// Make a row's lines as tall as its tallest, and return that height.
+fn even_row(row: &mut [Line]) -> f32 {
+    let h = row.iter().map(|l| l.height).fold(0.0f32, f32::max);
+    for l in row {
+        l.baseline += h - l.height;
+        l.height = h;
+    }
+    h
 }
 
 /// Finish a broken line of a bidirectional paragraph: resolve each cluster's level for the line
@@ -2306,7 +2352,7 @@ fn shrink_line_spaces(pl: &ParaLayout, xs: &mut [f32], c0: usize, c1: usize, con
 }
 
 /// The hyphen glyph and advance in a style (cached per paragraph).
-fn hyphen_glyph(pl: &ParaLayout, style: u16, cache: &mut Vec<(u16, u32, f32)>) -> (u16, u32, f32) {
+fn hyphen_glyph(pl: &ParaLayout, style: u32, cache: &mut Vec<(u32, u32, f32)>) -> (u32, u32, f32) {
     if let Some(h) = cache.iter().find(|h| h.0 == style) {
         return *h;
     }

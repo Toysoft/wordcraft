@@ -2570,3 +2570,11 @@ preview	Title	Ukázka
 
 # Backstage › Recover (#586)
 	Recover	Obnovit
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Zrcadlové okraje
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Existující soubor nebo webová stránka
+	Link to:	Odkaz na:
+	Place in This Document	Místo v tomto dokumentu
