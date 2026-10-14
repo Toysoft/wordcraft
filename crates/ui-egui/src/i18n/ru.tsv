@@ -189,6 +189,8 @@
 	Delete Style	Удалить стиль
 	Delete Table	Удалить таблицу
 	Design	Дизайн
+	In the margin	На полях
+	Only for the selected text	Только для выделенного текста
 	No document is open. Create a document or open one first.	Нет открытого документа. Сначала создайте или откройте документ.
 	Search	Поиск
 	Title Bar	Строка заголовка
@@ -2527,3 +2529,11 @@ preview	Title	Пример
 	Heading text	Текст заголовка
 	Insert reference to:	Вставить ссылку на:
 	Reference type:	Тип ссылки:
+
+# Dictionaries folder (#1063)
+	Dictionaries	Словари
+	Dictionaries folder:	Папка словарей:
+	Not set: the system's usual places	Не задана: стандартные расположения в системе
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Файлы Hunspell .aff и .dic из этой папки (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) используются раньше системных.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: словарь не найден

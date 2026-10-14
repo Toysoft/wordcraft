@@ -106,6 +106,7 @@
 	Ignore web and file addresses	忽略网址和文件路径
 	Ignore words in capitals	忽略全部大写的单词
 	Ignore words with numbers	忽略包含数字的单词
+	In the margin	在页边
 	Inches	英寸
 	Formatting exceptions	格式例外
 	Include level number from:	包含的级别编号来自：
@@ -139,6 +140,7 @@
 	Number alignment:	编号对齐方式：
 	Number format	编号格式
 	Number style for this level:	此级别的编号样式：
+	Only for the selected text	仅针对所选文字
 	Outside border	外侧框线
 	Make WordCraft the default for Word documents…	将 WordCraft 设为 Word 文档的默认应用…
 	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	今后用 WordCraft 打开 .docx、.doc、.rtf、.odt 文件和 Word 模板。
@@ -2142,3 +2144,11 @@
 	Suggested	建议
 	Set Proofing Language…	设置校对语言…
 	Language Preferences…	语言首选项…
+
+# Dictionaries folder (#1063)
+	Dictionaries	词典
+	Dictionaries folder:	词典文件夹：
+	Not set: the system's usual places	未设置：系统的常用位置
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	此文件夹中的 Hunspell .aff 和 .dic 文件 (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) 优先于系统中的文件。
+	{language}: {file}	{language}：{file}
+	{language}: no dictionary found	{language}：未找到词典

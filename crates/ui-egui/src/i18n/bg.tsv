@@ -87,6 +87,7 @@
 	Enter formatting for number:	Въведете форматиране за номера:
 	Follow number with:	След номера:
 	Formatting	Форматиране
+	In the margin	На полето
 	Include level number from:	Включване на номер на ниво от:
 	Ink	Мастило
 	Insertions and Deletions	Вмъквания и изтривания
@@ -100,6 +101,7 @@
 	Number alignment:	Подравняване на номера:
 	Number format	Формат на номера
 	Number style for this level:	Стил на номериране за това ниво:
+	Only for the selected text	Само за избрания текст
 	Outside border	Външна граница
 	Restart list after:	Рестартиране на списъка след:
 	Right border	Дясна граница
@@ -2517,3 +2519,11 @@
 	Heading text	Текст на заглавието
 	Insert reference to:	Вмъкване на препратка към:
 	Reference type:	Тип препратка:
+
+# Dictionaries folder (#1063)
+	Dictionaries	Речници
+	Dictionaries folder:	Папка с речници:
+	Not set: the system's usual places	Не е зададена: обичайните места в системата
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Файловете .aff и .dic на Hunspell от тази папка (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) се използват преди системните.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: не е намерен речник
