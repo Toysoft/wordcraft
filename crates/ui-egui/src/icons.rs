@@ -1932,6 +1932,11 @@ fn draw(pen: &Pen, name: &str, c: Color32, a: Color32, green: Color32, red: Colo
             pen.rows(3.75, 8.25, &[6.5, 9.5]);
             pen.span(13.5, 2.0, 13.5, 14.0, a);
         }
+        "crop" => {
+            // Two right angles overlapping: the crop marks.
+            pen.line(&[(4.75, 1.5), (4.75, 11.25), (14.5, 11.25)]);
+            pen.acc(&[(1.5, 4.75), (11.25, 4.75), (11.25, 14.5)]);
+        }
         // Two boxes, the text running from the first into the second (broken: cut).
         "textBoxLink" | "textBoxUnlink" => {
             pen.panel(1.5, 1.5, 7.0, 7.0, 1.0);
@@ -2487,6 +2492,7 @@ pub const NAMES: &[&str] = &[
     "replayForward",
     "altText",
     "alignText",
+    "crop",
     "textBoxLink",
     "textBoxUnlink",
     "ccRichText",

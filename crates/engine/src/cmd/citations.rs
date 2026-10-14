@@ -328,7 +328,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 return Err(CmdError::Params("select a citation or give `entry`".into()));
             }
             let (_, b) = s.sel.ordered();
-            s.doc.insert_object(&b, InlineObject::Field { instr: format!("TA \\l \"{}\"", entry.replace('"', "")), result: String::new(), locked: false, code: false }, &CharProps { hidden: Some(true), ..Default::default() })?;
+            s.doc.insert_object(&b, InlineObject::Field { instr: format!("TA \\l \"{}\"", entry.replace('"', "")), result: String::new(), locked: false, code: false, form: String::new() }, &CharProps { hidden: Some(true), ..Default::default() })?;
             Ok(json!({"entry": entry}))
         })
         .params(r#"{"entry"?: string}"#)
@@ -342,7 +342,7 @@ pub fn specs() -> Vec<CommandSpec> {
             sel_result(s)
         }),
         CommandSpec::new("insert.crossReference", "Cross-reference", "Insert › Links", cross_ref)
-            .params(r#"{"to": "heading|bookmark|figure|table", "target": string (text / name / number), "show"?: "text|page|number|aboveBelow"} or {} to list targets"#),
+            .params(r#"{"to": "heading|bookmark|figure|table|equation", "target": string (text / name / number), "show"?: "text|page|number|aboveBelow"} or {} to list targets"#),
         CommandSpec::new("references.noteOptions", "Footnote and Endnote", "References › Footnotes", super::references::note_options).params(
             r#"{"kind"?: "footnote|endnote", "pos"?: "pageBottom|beneathText" (footnotes) | "sectEnd|docEnd" (endnotes), "numFmt"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter|…", "numStart"?: 1-32767, "numRestart"?: "continuous|eachSect|eachPage" (each page: footnotes only), "scope"?: "document|section", "footnoteFormat"?: …, "endnoteFormat"?: …} — no settings: the options in effect at the caret"#,
         ),
@@ -568,7 +568,11 @@ fn citation(s: &mut Session, v: &Value) -> CmdResult {
     let props = s.typing_props();
     let at = delete_selection(s)?;
     let instr = if pages.is_empty() { format!("CITATION {tag}") } else { format!("CITATION {tag} \\p {pages}") };
-    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result: cite(&src, st.name, n, &pages), locked: false, code: false }, &props)?;
+    let end = s.doc.insert_object(
+        &at,
+        InlineObject::Field { instr, result: cite(&src, st.name, n, &pages), locked: false, code: false, form: String::new() },
+        &props,
+    )?;
     s.sel = Selection::caret(end);
     // A new citation can renumber the others (numbered styles count in order of first citation).
     if st.numbered() {
@@ -689,7 +693,7 @@ pub(crate) fn generated_list(s: &mut Session, instr: &str, title: &str) -> Resul
     let end = head.len();
     head.insert_object(
         end,
-        InlineObject::Field { instr: instr.to_string(), result: String::new(), locked: false, code: false },
+        InlineObject::Field { instr: instr.to_string(), result: String::new(), locked: false, code: false, form: String::new() },
         &CharProps::default(),
     )?;
     let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) { at.path.last() } else { s.doc.split_paragraph(&at)?.path.last() };
@@ -893,13 +897,14 @@ fn cross_ref(s: &mut Session, v: &Value) -> CmdResult {
         ref_bookmark(s, &pos, show == "number", at)?
     };
     let instr = format!("{} {name} \\h", if show == "page" { "PAGEREF" } else { "REF" });
-    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result: result.clone(), locked: false, code: false }, &props)?;
+    let end =
+        s.doc.insert_object(&at, InlineObject::Field { instr, result: result.clone(), locked: false, code: false, form: String::new() }, &props)?;
     s.sel = Selection::caret(end);
     Ok(json!({"inserted": result}))
 }
 
 /// Cross-reference targets of a kind: (shown text or bookmark name, position).
-fn ref_targets(s: &Session, to: &str) -> Vec<(String, Pos)> {
+pub fn ref_targets(s: &Session, to: &str) -> Vec<(String, Pos)> {
     let mut targets: Vec<(String, Pos)> = Vec::new();
     match to {
         "bookmark" => targets = s.doc.bookmarks(),
