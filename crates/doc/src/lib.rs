@@ -489,6 +489,9 @@ pub struct Settings {
     /// comments and tracked changes are saved without `w:date`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub remove_date_time: bool,
+    /// Space between paragraphs is the previous paragraph's space after plus this one's space
+    /// before (`w:doNotUseHTMLParagraphAutoSpacing`). Off, Word's default: the larger of the two.
+    pub add_paragraph_spacing: bool,
 }
 
 /// Word's compatibility mode for documents that don't state one.
@@ -568,6 +571,7 @@ impl Default for Settings {
             link_styles: false,
             remove_personal_info: false,
             remove_date_time: false,
+            add_paragraph_spacing: false,
         }
     }
 }
