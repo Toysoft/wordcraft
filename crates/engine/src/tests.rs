@@ -1625,6 +1625,15 @@ fn page_setup_and_breaks() {
     assert_eq!(s.doc.sections().len(), 2);
     assert_eq!(s.layout().pages.len(), 2);
     assert!(s.run("layout.margins", &json!({"left": 1000.0})).is_err());
+    // Mirrored margins: from the preset or `mirror` (#1181); plain numbers keep the setting.
+    run(&mut s, "layout.margins", json!({"preset": "mirrored"}));
+    assert!(s.doc.settings.mirror_margins);
+    run(&mut s, "layout.margins", json!({"left": 80.0}));
+    assert!(s.doc.settings.mirror_margins);
+    run(&mut s, "layout.margins", json!({"left": 80.0, "mirror": false}));
+    assert!(!s.doc.settings.mirror_margins && s.doc.last_section.margin_left == 80.0);
+    run(&mut s, "layout.margins", json!({"mirror": true}));
+    assert!(s.doc.settings.mirror_margins);
 }
 
 /// #1433: a custom page size (More Paper Sizes…) sets the section in its orientation, and
@@ -2064,6 +2073,40 @@ fn track_changes_and_set_author_list_their_params() {
     let mut s = s();
     for _ in 0..2 {
         assert_eq!(run(&mut s, "review.trackChanges", json!({"value": true}))["value"], true);
+    }
+}
+
+#[test]
+fn line_and_page_break_toggles_take_an_explicit_value() {
+    // #967: a script sets keep with next on a heading and clears it on the paragraph after,
+    // which inherits it through Enter, without tracking the toggle state.
+    let reg = cmd::registry();
+    type Field = fn(&wordcraft_doc::ParaProps) -> Option<bool>;
+    let cases: [(&str, Field); 4] = [
+        ("para.keepNext", |p| p.keep_next),
+        ("para.keepLines", |p| p.keep_lines),
+        ("para.pageBreakBefore", |p| p.page_break_before),
+        ("para.widowControl", |p| p.widow_control),
+    ];
+    for (id, field) in cases {
+        assert!(reg.get(id).unwrap().params.contains(r#""value"?: bool"#), "{id} lists its param");
+        let mut s = s();
+        run(&mut s, "text.insert", json!({"text": "Heading"}));
+        let at = |s: &Session, block| s.doc.para_at(&Pos::body(block, 0)).and_then(|p| field(&p.props));
+        for value in [true, true, false, false, true] {
+            run(&mut s, id, json!({"value": value}));
+            assert_eq!(at(&s, 0), Some(value), "{id} value {value} sets, never toggles");
+        }
+        run(&mut s, "text.newParagraph", json!({}));
+        assert_eq!(at(&s, 1), Some(true), "{id} carries over to the new paragraph");
+        run(&mut s, id, json!({"value": false}));
+        assert_eq!((at(&s, 0), at(&s, 1)), (Some(true), Some(false)), "{id} clears only the new paragraph");
+        run(&mut s, id, json!({}));
+        assert_eq!(at(&s, 1), Some(true), "{id} without value toggles");
+        run(&mut s, id, json!({}));
+        assert_eq!(at(&s, 1), Some(false), "{id} without value toggles back");
+        run(&mut s, id, json!({"value": "yes"}));
+        assert_eq!(at(&s, 1), Some(true), "{id} ignores a value that isn't a bool and toggles, as format.bold does");
     }
 }
 
@@ -4490,6 +4533,41 @@ fn unknown_text_extensions_open_as_text() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// #1384: File Explorer's New › Microsoft Word Document makes an empty, zero-byte .docx. It opens
+/// as a new blank document on the Normal template, and Save writes it back to that file instead
+/// of asking for a name.
+#[test]
+fn an_empty_file_opens_as_a_blank_document_saved_back_to_it() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-1384-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("New Microsoft Word Document.docx");
+    std::fs::write(&path, b"").unwrap();
+    let mut s = s();
+    run(&mut s, "file.options", json!({"region": "it-IT"}));
+    s.set_editing_language(Some("it-IT"));
+    run(&mut s, "text.insert", json!({"text": "An untitled draft"}));
+    let r = run(&mut s, "file.open", json!({"path": path.to_string_lossy()}));
+    assert_eq!((r["paragraphs"].as_u64(), r["words"].as_u64()), (Some(1), Some(0)), "{r}");
+    assert_eq!(text(&s), "");
+    assert_eq!(s.path.as_deref(), Some(path.as_path()));
+    assert!(!s.dirty);
+    let sp = &s.doc.last_section;
+    assert_eq!((sp.page_w, sp.page_h), (595.28, 841.89), "the region's paper, as File › New gives");
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("it-IT"), "in the editing language");
+
+    run(&mut s, "text.insert", json!({"text": "Ciao"}));
+    let r = run(&mut s, "file.save", json!({}));
+    assert_eq!(r["saved"], true, "{r}");
+    assert!(!s.ui_requests.iter().any(|q| q["open"] == "saveAs"), "no Save As");
+    let saved = crate::io::open_path(&path).unwrap();
+    assert_eq!(saved.plain_text(StoryRef::Body), "Ciao");
+
+    // The same from the browser's picker (the web), which hands over the bytes.
+    run(&mut s, "file.open", json!({"path": "Vuoto.docx", "data": ""}));
+    assert_eq!((text(&s), s.doc.last_section.page_w), (String::new(), 595.28));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// #549: after a double-click, dragging extends the selection by whole words; after a
 /// triple-click by whole paragraphs; after Ctrl/⌘+click by whole sentences. Forward drags keep
 /// the first unit's start as the anchor, backward drags its end.
@@ -4700,6 +4778,34 @@ fn table_from(text: &str) -> Session {
 fn table_texts(s: &Session) -> Vec<Vec<String>> {
     let t = s.doc.body.iter().find_map(|b| b.as_table()).expect("a table");
     t.rows.iter().map(|r| r.cells.iter().map(|c| c.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.text.clone()).collect()).collect()).collect()
+}
+
+#[test]
+fn convert_text_to_table_refuses_to_drop_content() {
+    // Issue #1318: a 64th field and a table between the selected paragraphs were silently lost.
+    {
+        let wide = (0..64).map(|i| i.to_string()).collect::<Vec<_>>().join("\t");
+        let mut s = s();
+        run(&mut s, "document.setText", json!({"text": wide}));
+        run(&mut s, "select.all", json!({}));
+        let depth = s.undo_depth();
+        assert!(s.run("table.fromText", &json!({})).is_err());
+        assert_eq!(s.doc.body.len(), 1);
+        assert!(s.doc.body.iter().all(|b| b.as_table().is_none()));
+        assert_eq!(s.undo_depth(), depth);
+    }
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x\ny\nz"}));
+    let at = |i: u32| json!({"story": "body", "path": [i], "off": 0});
+    run(&mut s, "select.range", json!({"anchor": at(1), "focus": at(1)}));
+    run(&mut s, "table.fromText", json!({}));
+    assert!(s.doc.body.get(1).and_then(|b| b.as_table()).is_some());
+    run(&mut s, "select.range", json!({"anchor": at(0), "focus": at(2)}));
+    let depth = s.undo_depth();
+    assert!(s.run("table.fromText", &json!({})).is_err());
+    assert_eq!(s.doc.body.len(), 3);
+    assert!(s.doc.body.get(1).and_then(|b| b.as_table()).is_some());
+    assert_eq!(s.undo_depth(), depth);
 }
 
 #[test]
@@ -5699,6 +5805,85 @@ fn insert_picture_takes_a_windows_metafile() {
     let err = s.run("insert.picture", &json!({"path": path.to_string_lossy()})).unwrap_err();
     assert!(err.to_string().contains("WMF, EMF"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn outline_aliases_add_one_undo_step() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "one"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "two"}));
+    for id in ["outline.promote", "outline.demote", "outline.moveUp", "outline.moveDown"] {
+        let (doc, sel, depth) = (s.doc.clone(), s.sel.clone(), s.undo_depth());
+        run(&mut s, id, json!({}));
+        assert_ne!(s.doc, doc, "{id} changed nothing");
+        assert_eq!(s.undo_depth(), depth + 1, "{id}");
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(s.doc, doc, "{id}: one undo restores the document");
+        assert_eq!(s.sel, sel, "{id}: one undo restores the selection");
+        run(&mut s, "edit.redo", json!({}));
+    }
+}
+
+/// Insert › Link › Place in This Document (#1234): a link to a bookmark, a heading or the top of
+/// the document, the list of those places, and following the link.
+#[test]
+fn links_to_places_in_this_document() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Intro"}));
+    run(&mut s, "para.style", json!({"style": "Heading1"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "para.style", json!({"style": "Normal"}));
+    run(&mut s, "text.insert", json!({"text": "Body text here"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "Details"}));
+    run(&mut s, "para.style", json!({"style": "Heading2"}));
+    run(&mut s, "select.text", json!({"text": "Body"}));
+    run(&mut s, "insert.bookmark", json!({"name": "Mark1"}));
+    let links = |s: &Session| -> Vec<(String, String)> {
+        s.doc
+            .body
+            .iter()
+            .filter_map(|b| b.as_para())
+            .flat_map(|p| p.run_ranges().filter_map(|(r, c)| Some((c.link.clone()?, p.text.get(r)?.to_string()))).collect::<Vec<_>>())
+            .collect()
+    };
+    // The places: the top, both headings with their levels, and the one visible bookmark.
+    let t = run(&mut s, "link.targets", json!({}));
+    assert_eq!(t["top"], true);
+    let heads: Vec<(u64, String)> =
+        t["headings"].as_array().unwrap().iter().map(|h| (h["level"].as_u64().unwrap(), h["text"].as_str().unwrap().to_string())).collect();
+    assert_eq!(heads, vec![(1, "Intro".to_string()), (2, "Details".to_string())]);
+    assert_eq!(t["bookmarks"], json!(["Mark1"]));
+    // A bookmark link on the selection.
+    run(&mut s, "select.text", json!({"text": "here"}));
+    run(&mut s, "insert.link", json!({"bookmark": "Mark1"}));
+    assert_eq!(links(&s), vec![("#Mark1".to_string(), "here".to_string())]);
+    // A heading link at a caret inserts the heading's text; it reuses the heading's hidden bookmark.
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "insert.link", json!({"heading": t["headings"][1]["block"]}));
+    let l = links(&s);
+    assert_eq!(l.len(), 2, "{l:?}");
+    let (hidden, shown) = l.iter().find(|(a, _)| a.starts_with("#_Toc")).cloned().unwrap();
+    assert_eq!(shown, "Details", "{l:?}");
+    let t2 = run(&mut s, "link.targets", json!({}));
+    assert_eq!(t2["bookmarks"], json!(["Mark1"]), "the hidden bookmark is not listed");
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "insert.link", json!({"heading": t["headings"][1]["block"], "text": "again"}));
+    assert!(links(&s).iter().all(|(a, _)| a == "#Mark1" || *a == hidden), "one bookmark for the heading: {:?}", links(&s));
+    // The top of the document, and following the links.
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "insert.link", json!({"top": true}));
+    assert!(links(&s).iter().any(|(a, t)| a == "#_top" && t == "Top of the Document"), "{:?}", links(&s));
+    run(&mut s, "edit.goto", json!({"bookmark": "Mark1"}));
+    assert_ne!(s.sel.focus, Pos::body(0, 0));
+    run(&mut s, "edit.goto", json!({"bookmark": "_top"}));
+    assert_eq!(s.sel.focus, Pos::body(0, 0));
+    // Refusals change nothing.
+    let rev = s.rev();
+    assert!(s.run("insert.link", &json!({"bookmark": "Nope"})).is_err());
+    assert!(s.run("insert.link", &json!({"heading": 1})).is_err(), "a body paragraph is not a heading");
+    assert_eq!(s.rev(), rev);
 }
 
 /// A DOCX built in code: a tracked deletion inside a field result, as Word writes when a

@@ -204,13 +204,33 @@ fn save_prefs(app: &WordApp) {
         return;
     }
     if let Some(p) = prefs_path() {
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
+        if let Some(dir) = p.parent()
+            && let Err(e) = std::fs::create_dir_all(dir)
+        {
+            log::warn!("preferences: cannot create {}: {e}", dir.display());
+            return;
         }
-        if let Ok(bytes) = serde_json::to_vec_pretty(&app.prefs()) {
-            let _ = std::fs::write(&p, bytes);
+        match serde_json::to_vec_pretty(&app.prefs()) {
+            Ok(bytes) => {
+                if let Err(e) = write_prefs(&p, &bytes) {
+                    log::warn!("preferences: cannot save {}: {e}", p.display());
+                }
+            }
+            Err(e) => log::warn!("preferences: cannot serialize: {e}"),
         }
     }
+}
+
+/// Writes `bytes` to a sibling temporary file and renames it over `path`, so a failed or
+/// interrupted write leaves the previous preferences in place.
+fn write_prefs(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "ui.json".into());
+    let tmp = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    let written = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 /// Native file dialogs, shown without blocking the window (`file_dialogs`, #94), File › Print
@@ -269,10 +289,18 @@ fn main() -> eframe::Result {
     let mut control_port: Option<u16> = std::env::var("WORDCRAFT_CONTROL_PORT").ok().and_then(|p| p.parse().ok());
     let mut files = Vec::new();
     let mut sample = false;
-    let mut args = std::env::args().skip(1);
+    let mut bad_control: Option<Option<String>> = None;
+    let mut args = std::env::args().skip(1).peekable();
     while let Some(a) = args.next() {
         match a.as_str() {
-            "--control" => control_port = args.next().and_then(|p| p.parse().ok()),
+            // A flag after `--control` stays a flag; a bad or missing port is an error (#1426).
+            "--control" => {
+                let port = args.next_if(|p| p.strip_prefix('-').is_none_or(|n| n.starts_with(|c: char| c.is_ascii_digit())));
+                match port.as_deref().and_then(|p| p.parse::<std::num::NonZeroU16>().ok()) {
+                    Some(p) => control_port = Some(p.get()),
+                    None => bad_control = Some(port),
+                }
+            }
             "--sample" => sample = true,
             "--version" => {
                 println!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
@@ -285,6 +313,12 @@ fn main() -> eframe::Result {
             }
             _ => files.push(a),
         }
+    }
+    // After the loop, so `--version` later on the line still wins. Unlike `eprintln!`, never panics.
+    if let Some(port) = bad_control {
+        let got = port.map(|p| format!(", got {p:?}")).unwrap_or_default();
+        let _ = std::io::Write::write_fmt(&mut std::io::stderr(), format_args!("wordcraft: --control needs a port number from 1 to 65535{got}\n"));
+        std::process::exit(2);
     }
     // The log file lives in the settings directory, next to the preferences; opened after the
     // arguments, so `--version` leaves no file behind. Records logged until now are written to it
@@ -406,4 +440,24 @@ fn main() -> eframe::Result {
             )))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_prefs;
+
+    #[test]
+    fn failed_preferences_write_keeps_the_old_file_and_reports_the_error() {
+        let dir = std::env::temp_dir().join(format!("wordcraft-prefs-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ui.json");
+        std::fs::write(&path, b"old").unwrap();
+        write_prefs(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        // A directory squatting on the temporary name makes the preparation step fail.
+        std::fs::create_dir(dir.join(format!(".ui.json.{}.tmp", std::process::id()))).unwrap();
+        assert!(write_prefs(&path, b"newer").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
