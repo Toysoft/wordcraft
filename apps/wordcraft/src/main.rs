@@ -1,6 +1,6 @@
 //! WordCraft desktop app.
 //!
-//! Usage: `wordcraft [--control <port>] [--sample] [files…]`
+//! Usage: `wordcraft [--control <port>] [--sample] [files…]`; `--help` prints `USAGE`.
 //!
 //! `--control <port>` (or `WORDCRAFT_CONTROL_PORT`) starts a localhost JSON-lines control server:
 //! `{"id":1,"key":"…","method":"engine.execute","params":{"command":"text.insert","params":{"text":"Hi"}}}`.
@@ -21,6 +21,8 @@ mod graphics;
 mod logging;
 mod print;
 mod region;
+#[cfg(target_os = "macos")]
+mod traffic_lights;
 
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{
@@ -54,7 +56,7 @@ impl eframe::App for App {
         let closing = ctx.input(|i| i.viewport().close_requested());
         if closing && !self.0.close_requested() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        } else if closing || self.0.quit_requested {
+        } else if (closing || self.0.quit_requested) && !self.0.printing.busy() {
             // On macOS, letting eframe drop the window inside `-[NSApplication run]` aborts in
             // `-[_NSTouchBarFinderObservation invalidate]`. Command-Q calls `terminate:`. Once
             // the close is allowed, take that path instead of dropping the window on this turn.
@@ -78,6 +80,7 @@ impl eframe::App for App {
         self.3.show(frame);
     }
     fn on_exit(&mut self) {
+        print::finish_pending_jobs();
         save_prefs(&self.0);
         if let Some(key_file) = &self.2 {
             key_file.remove();
@@ -95,11 +98,16 @@ impl eframe::App for App {
 #[cfg(target_os = "macos")]
 fn schedule_macos_terminate(app: &WordApp, key_file: Option<&control_server::KeyFile>) {
     use std::sync::atomic::{AtomicBool, Ordering};
+    if app.printing.busy() {
+        return;
+    }
     static QUIT: AtomicBool = AtomicBool::new(false);
     if QUIT.swap(true, Ordering::Relaxed) {
         return;
     }
     log::info!("window close: quitting");
+    // This path can bypass on_exit. Join the owned workers before termination and cleanup.
+    print::finish_pending_jobs();
     save_prefs(app);
     if let Some(key_file) = key_file {
         key_file.remove();
@@ -193,18 +201,20 @@ fn save_prefs(app: &WordApp) {
 }
 
 /// Native file dialogs, shown without blocking the window (`file_dialogs`, #94), File › Print
-/// through the system's PDF viewer (`print`, #15), the system clipboard's text, formatted copies,
+/// through the system spooler (`print`), the system clipboard's text, formatted copies,
 /// pictures and format names (`clipboard`, #45, #584, #687, #833), the system's animation setting
 /// (`animations`), and making WordCraft the default app for Word documents (`default_apps`, #295).
 fn services(file_dialog: file_dialogs::Hook, ctx: &egui::Context) -> Services {
     Services {
         file_dialog: Some(file_dialog),
-        print: Some(print::hook()),
+        printers: Some(print::discover()),
+        print_native: Some(print::submit()),
         clipboard_picture: Some(Box::new(clipboard::picture)),
         make_default_app: default_apps::hook(),
         animations_enabled: Some(animations::hook(ctx)),
         clipboard_text: Some(Box::new(clipboard::text)),
         clipboard_html: Some(Box::new(clipboard::html)),
+        set_clipboard_html: Some(Box::new(clipboard::set_html)),
         clipboard_rtf: Some(Box::new(clipboard::rtf)),
         clipboard_formats: Some(Box::new(clipboard::formats)),
         ..Default::default()
@@ -219,6 +229,20 @@ fn app_icon() -> Option<egui::IconData> {
     let png: &[u8] = include_bytes!("../../../assets/app-icon/hicolor/256x256/apps/ai.storyteller.wordcraft.png");
     eframe::icon_data::from_png_bytes(png).map_err(|e| log::warn!("app icon: {e}")).ok()
 }
+
+const USAGE: &str = "\
+wordcraft — the WordCraft desktop app
+
+USAGE:
+  wordcraft [--sample] [--control PORT] [FILE…]
+
+OPTIONS:
+  --sample            open the sample document
+  --control PORT      start the localhost control server on PORT, for agents and scripts
+                      (or set WORDCRAFT_CONTROL_PORT); see docs/control-protocol.md
+  --version           print the version
+  -h, --help          print this help
+";
 
 /// The commit the build came from (short), or `dev`.
 fn build_sha() -> &'static str {
@@ -239,6 +263,11 @@ fn main() -> eframe::Result {
             "--sample" => sample = true,
             "--version" => {
                 println!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
+                return Ok(());
+            }
+            // Before the window opens (#968). Unlike `print!`, a closed stdout can't panic.
+            "--help" | "-h" => {
+                let _ = std::io::Write::write_all(&mut std::io::stdout(), USAGE.as_bytes());
                 return Ok(());
             }
             _ => files.push(a),
@@ -322,6 +351,11 @@ fn main() -> eframe::Result {
             app.watch_desktop_theme(&cc.egui_ctx);
             app.ui.window = restored;
             app.integrated_titlebar = cfg!(target_os = "macos");
+            #[cfg(target_os = "macos")]
+            if let Some(bar) = traffic_lights::title_bar() {
+                log::info!("title bar: {bar:?}");
+                app.mac_titlebar = bar;
+            }
             let mut key_file = None;
             if let Some(port) = control_port
                 && let Some((rx, file)) = control_server::start(port, cc.egui_ctx.clone(), wordcraft_control_key::settings_dir().as_deref())
