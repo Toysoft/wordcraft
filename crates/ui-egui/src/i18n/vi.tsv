@@ -2532,3 +2532,9 @@
 # Alignment guides (#1519)
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Đối tượng được di chuyển sẽ bắt vào mép và tâm trang, lề và các đối tượng khác. Giữ Alt để di chuyển tự do.
 	Show alignment guides when moving pictures and shapes	Hiện đường căn chỉnh khi di chuyển ảnh và hình
+
+# Rename Document (#1016)
+	Account	Tài khoản
+	Document name	Tên tài liệu
+	Rename	Đổi tên
+	Rename Document	Đổi tên tài liệu
