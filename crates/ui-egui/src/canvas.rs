@@ -2729,7 +2729,7 @@ fn link_under(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32, po
     let at = wordcraft_geom::Point::new(x, y);
     // The caret falls between characters: the one under the point is on either side of it.
     [(pos.off, para.next_boundary(pos.off)), (para.prev_boundary(pos.off), pos.off)].into_iter().filter(|(a, b)| a < b).find_map(|(a, b)| {
-        let link = para.props_of_char(a).link.clone()?;
+        let link = para.props_of_char(a).link.clone().filter(|l| !l.is_empty())?;
         let (from, to) = (Pos { off: a, ..pos.clone() }, Pos { off: b, ..pos.clone() });
         layout.selection_rects(doc, &from, &to, page).into_iter().any(|(pi, r)| pi == page && r.contains(at)).then_some(link)
     })
@@ -3306,6 +3306,54 @@ mod tests {
         }
         let o = wordcraft_engine::cmd::objects::selected(&h.state().session).unwrap().1;
         assert_eq!(o.frame().unwrap().2.wrap, wordcraft_doc::para::Wrap::Square);
+    }
+
+    /// #996: on macOS a Control-click is the right-click (the trackpad's and the one-button
+    /// mouse's way to it), so it opens the same menu and leaves the caret where the menu needs it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn control_click_on_macos_opens_the_context_menu() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "The quick brwn fox"})).unwrap();
+        a.session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 12));
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let (p, ht) = caret_screen(h.state_mut()).unwrap();
+        let at = p + egui::vec2(0.0, ht / 2.0);
+        h.state_mut().session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 0));
+        h.step();
+        let ctrl = egui::Modifiers { ctrl: true, ..Default::default() };
+        // The events winit delivers for a Control-click, through the app's input hook as eframe runs it.
+        let send = |h: &mut egui_kittest::Harness<'_, WordApp>, events: Vec<egui::Event>| {
+            let mut raw = egui::RawInput { events, ..Default::default() };
+            h.state_mut().raw_input_hook(&mut raw);
+            for e in raw.events {
+                h.event(e);
+            }
+            h.step();
+        };
+        send(&mut h, vec![egui::Event::ModifiersChanged(ctrl), egui::Event::PointerMoved(at)]);
+        for pressed in [true, false] {
+            send(&mut h, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: ctrl }]);
+        }
+        h.event(egui::Event::ModifiersChanged(Default::default()));
+        h.step();
+        assert!(h.state().canvas.context_menu_open, "the Control-click opened the menu");
+        h.get_by_label("brown").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "The quick brown fox");
     }
 
     #[test]
