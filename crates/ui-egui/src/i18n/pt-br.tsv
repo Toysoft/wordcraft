@@ -127,6 +127,8 @@
 	Outside border	Borda externa
 	Overtype	Sobrescrever
 	Overtype (typing replaces the characters after the caret)	Sobrescrever (o que você digita substitui os caracteres após o cursor)
+	Show alignment guides when moving pictures and shapes	Mostrar guias de alinhamento ao mover imagens e formas
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Os objetos movidos se encaixam nas bordas e no centro da página, nas margens e em outros objetos. Segure Alt para mover livremente.
 	Page display	Exibição da página
 	Paragraph marks	Marcas de parágrafo
 	Personalize	Personalizar
@@ -2099,6 +2101,8 @@
 	Leave out the date and time of comments and tracked changes when saving	Omitir a data e a hora dos comentários e das alterações controladas ao salvar
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	O documento que você está editando mantém os nomes e as datas; só o arquivo salvo os omite.
 	Privacy Settings	Configurações de privacidade atuais
+	Waiting for the save to finish…	Aguardando o término do salvamento…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	O salvamento de {name} foi cancelado; ele continua aberto e nada foi perdido.
 	Paper	Papel
 	Paper size:	Tamanho do papel:
 	Custom size	Tamanho personalizado
