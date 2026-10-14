@@ -185,6 +185,10 @@ pub struct ViewState {
     /// Developer › Design Mode: every content control shows its frame and title.
     #[serde(default)]
     pub design_mode: bool,
+    /// View › Window › Full Screen (F11): the window fills the screen (#980). The front end
+    /// carries it to the window.
+    #[serde(default)]
+    pub full_screen: bool,
 }
 
 fn on() -> bool {
@@ -242,6 +246,7 @@ impl Default for ViewState {
             hide_white_space: false,
             outline: Default::default(),
             design_mode: false,
+            full_screen: false,
         }
     }
 }
@@ -332,6 +337,9 @@ pub struct Session {
     /// Formatting picked with a collapsed caret, applied to the next typed text.
     pub pending: Option<CharProps>,
     pub path: Option<std::path::PathBuf>,
+    /// Name given to a document not saved yet (File › Info › Rename): what Save suggests. A file
+    /// name, not document metadata, so it is not part of the document or its undo history.
+    pub file_name: Option<String>,
     pub dirty: bool,
     /// Where the custom dictionary is kept on disk, if the host wired one up. Only the desktop
     /// app does: headless sessions (MCP, `wordcraft-cli run`), tests and the web build leave
@@ -581,6 +589,7 @@ impl Session {
             view: ViewState::default(),
             pending: None,
             path: None,
+            file_name: None,
             user_dict_path: None,
             dirty: false,
             clipboard: None,
@@ -684,6 +693,12 @@ impl Session {
     /// those).
     pub fn sel_ends(&self) -> &Selection {
         self.widened.as_ref().filter(|w| w.sel == self.sel).map_or(&self.sel, |w| &w.ends)
+    }
+
+    pub fn selects_whole_story(&self) -> bool {
+        let st = self.sel.focus.story;
+        let (a, b) = self.sel.ordered();
+        a == self.doc.start_of(st) && b == self.doc.end_of(st)
     }
 
     /// Document revision (bumped by every change).
@@ -974,6 +989,7 @@ impl Session {
         self.doc = doc;
         self.doc.ensure_nonempty();
         self.password = None;
+        self.file_name = None;
         self.sel = Selection::caret(self.doc.start_of(StoryRef::Body));
         self.pending = None;
         self.also_selected.clear();
@@ -1013,6 +1029,7 @@ impl Session {
             view: _,
             pending: _,
             path: _,
+            file_name: _,
             // The custom dictionary file, like the file path: host wiring, not an edit.
             user_dict_path: _,
             dirty,

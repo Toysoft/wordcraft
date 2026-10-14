@@ -799,7 +799,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let caret = layout.caret_on(&app.session.sel_ends().focus, app.session.page_hint);
     // Editing a header/footer (or a note) dims the body; once per frame, for every page.
     let dim_body = dims_body(app, &layout);
-    if let Some(c) = caret {
+    if let Some(c) = caret
+        && !app.session.selects_whole_story()
+    {
         app.session.page_hint = c.page;
     }
     let mut scroll_target: Option<Rect> = None;
@@ -1078,33 +1080,37 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         }
         // Selection (a selected object shows its frame instead): whole table cells shade the
-        // cells (an empty one too), a column selection each row's piece.
+        // cells (an empty one too), a column selection each row's piece, text running into or
+        // across a table the whole cells of the rows it takes.
         let selected: Vec<_> = if crate::objects::selected(app).is_some() {
             Vec::new()
         } else if let Some(range) = app.session.cell_range() {
             wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range)
         } else if !app.session.sel.is_collapsed() {
-            let pieces: Vec<(Pos, Pos)> = match app.session.column_segments() {
-                Some(segs) => segs.to_vec(),
-                None => vec![app.session.sel.ordered()],
-            };
-            pieces.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect()
+            match app.session.column_segments() {
+                Some(segs) => segs.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect(),
+                None => {
+                    let (a, b) = app.session.sel.ordered();
+                    wordcraft_engine::cmd::table_mouse::selection_rects(&layout, &app.session.doc, &a, &b, app.session.page_hint)
+                }
+            }
         } else {
             Vec::new()
         };
-        let mut first: Option<Rect> = None;
+        let visible_clip = ui.clip_rect();
+        let mut screen_rects: Vec<Rect> = Vec::with_capacity(selected.len());
         for (pi, r) in selected {
             if let Some(pr) = rects.get(pi) {
                 let scale = layout.pages.get(pi).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
                 let sr = Rect::from_min_size(pos2(pr.min.x + r.x * scale, pr.min.y + r.y * scale), vec2(r.w * scale, r.h * scale));
                 painter.rect_filled(sr, 0.0, t.selection);
-                // Track the topmost rect: the mini toolbar anchors on the selection's first line.
-                if first.is_none_or(|f| sr.min.y < f.min.y) {
-                    first = Some(sr);
-                }
+                screen_rects.push(sr);
             }
         }
-        app.canvas.mini_anchor = first;
+        // Anchor only to visible selection geometry. A selection can span pages, and its
+        // document-first line may be scrolled offscreen; using it would pin the toolbar to an
+        // old screen position unrelated to the visible selection.
+        app.canvas.mini_anchor = crate::mini_toolbar::visible_anchor(screen_rects, visible_clip);
         // Content controls: the frame of the one the caret is in (all of them in Design Mode).
         crate::content_controls::paint(app, &painter, &t, &layout, &rects, geo.scale);
         // Read Aloud: the sentence being spoken.
@@ -1241,9 +1247,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() && !in_balloon {
         deselect_balloon(app, ui.ctx());
     }
-    // Focus: the canvas takes keyboard focus on click and keeps Tab/arrows.
-    if resp.clicked() || resp.drag_started() || app.canvas.want_focus {
+    // Space and Enter also set `Response::clicked` on a focused click-sensing widget
+    // (egui's fake primary click). `request_focus` always interrupts IME; on X11 that
+    // destroys the XIM context and fcitx then drops every later key (#1169). A pointer
+    // click, an accessibility click, or a drag still takes focus, including a click on
+    // a canvas that already has it, so a composition commits. `want_focus` focuses only
+    // while the canvas does not, and does not interrupt an editor that already has it.
+    let keyboard_click = ui.memory(|m| m.has_focus(resp.id)) && ui.input(|i| i.key_pressed(egui::Key::Space) || i.key_pressed(egui::Key::Enter));
+    let pointer_click = resp.clicked_by(egui::PointerButton::Primary);
+    let accesskit_click = resp.clicked() && !pointer_click && !keyboard_click;
+    let focus_click = pointer_click || accesskit_click || resp.drag_started();
+    if focus_click || (app.canvas.want_focus && !resp.has_focus()) {
         resp.request_focus();
+    }
+    if focus_click || app.canvas.want_focus {
         app.canvas.want_focus = false;
     }
     if resp.has_focus() {
@@ -1370,7 +1387,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if let Some(sel) = app.canvas.mini_anchor
         && app.ui.mini_toolbar
     {
-        crate::mini_toolbar::show(app, ui.ctx(), sel, area);
+        crate::mini_toolbar::show(app, ui.ctx(), sel, out.inner_rect);
     }
     if app.session.view.read_mode {
         // Fixed navigation chrome, independent of the horizontally moving columns.
@@ -1930,7 +1947,8 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
                     "paragraph" => "select.paragraph",
                     _ => "select.line",
                 };
-                let _ = app.run(id, json!({}));
+                let params = if id == "select.all" { json!({"whole": true}) } else { json!({}) };
+                let _ = app.run(id, params);
                 let (start, end) = app.session.sel.ordered();
                 (unit, start, end)
             };
@@ -2711,7 +2729,7 @@ fn link_under(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32, po
     let at = wordcraft_geom::Point::new(x, y);
     // The caret falls between characters: the one under the point is on either side of it.
     [(pos.off, para.next_boundary(pos.off)), (para.prev_boundary(pos.off), pos.off)].into_iter().filter(|(a, b)| a < b).find_map(|(a, b)| {
-        let link = para.props_of_char(a).link.clone()?;
+        let link = para.props_of_char(a).link.clone().filter(|l| !l.is_empty())?;
         let (from, to) = (Pos { off: a, ..pos.clone() }, Pos { off: b, ..pos.clone() });
         layout.selection_rects(doc, &from, &to, page).into_iter().any(|(pi, r)| pi == page && r.contains(at)).then_some(link)
     })
@@ -3290,6 +3308,54 @@ mod tests {
         assert_eq!(o.frame().unwrap().2.wrap, wordcraft_doc::para::Wrap::Square);
     }
 
+    /// #996: on macOS a Control-click is the right-click (the trackpad's and the one-button
+    /// mouse's way to it), so it opens the same menu and leaves the caret where the menu needs it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn control_click_on_macos_opens_the_context_menu() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "The quick brwn fox"})).unwrap();
+        a.session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 12));
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let (p, ht) = caret_screen(h.state_mut()).unwrap();
+        let at = p + egui::vec2(0.0, ht / 2.0);
+        h.state_mut().session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 0));
+        h.step();
+        let ctrl = egui::Modifiers { ctrl: true, ..Default::default() };
+        // The events winit delivers for a Control-click, through the app's input hook as eframe runs it.
+        let send = |h: &mut egui_kittest::Harness<'_, WordApp>, events: Vec<egui::Event>| {
+            let mut raw = egui::RawInput { events, ..Default::default() };
+            h.state_mut().raw_input_hook(&mut raw);
+            for e in raw.events {
+                h.event(e);
+            }
+            h.step();
+        };
+        send(&mut h, vec![egui::Event::ModifiersChanged(ctrl), egui::Event::PointerMoved(at)]);
+        for pressed in [true, false] {
+            send(&mut h, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: ctrl }]);
+        }
+        h.event(egui::Event::ModifiersChanged(Default::default()));
+        h.step();
+        assert!(h.state().canvas.context_menu_open, "the Control-click opened the menu");
+        h.get_by_label("brown").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "The quick brown fox");
+    }
+
     #[test]
     fn only_web_and_email_links_are_followed() {
         for ok in ["https://example.com/a?b#c", "http://example.com", "HTTPS://EXAMPLE.COM", "mailto:someone@example.com"] {
@@ -3766,6 +3832,52 @@ mod tests {
         // Hostile numbers never panic.
         let _ = collapse_white_space(&rects, &[(f32::NAN, f32::INFINITY), (-1e9, 1e9)], f32::NAN, f32::NAN);
         let _ = collapse_white_space(&[], &[], 1.0, 1.0);
+    }
+
+    /// #1169: Space and Enter count as `Response::clicked` on the focused canvas, and
+    /// `request_focus` always interrupts IME. On X11 that recreates the XIM context and
+    /// fcitx drops every later key. Those keys still type, and they must not set
+    /// `should_interrupt_composition`. A real pointer click still does, so a composition
+    /// commits when the caret moves.
+    #[test]
+    fn space_and_enter_on_the_canvas_do_not_interrupt_ime() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("document.setText", json!({"text": "The"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the canvas takes focus when the window opens");
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let ime_interrupted =
+            |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|ime| ime.should_interrupt_composition);
+        h.event(key(egui::Key::Space));
+        h.event(egui::Event::Text(" ".into()));
+        h.step();
+        assert_eq!(ime_interrupted(&h), Some(false), "space must not recreate the XIM context");
+        let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(text.contains("The") && text.contains(' '), "the space is still inserted: {text:?}");
+        assert!(h.state().canvas.focused, "the canvas keeps the keyboard");
+        h.event(key(egui::Key::Enter));
+        h.step();
+        assert_eq!(ime_interrupted(&h), Some(false), "enter must not recreate the XIM context");
+        assert!(h.state().canvas.focused, "enter leaves the canvas focused");
+
+        let at = h.state().canvas.page_rects.first().map(|r| r.center()).expect("a page");
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.step();
+        }
+        assert_eq!(ime_interrupted(&h), Some(true), "a click still interrupts composition");
     }
 
     fn page_at_index(rects: &[Rect], p: Pos2) -> Option<usize> {

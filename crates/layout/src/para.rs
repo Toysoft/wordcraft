@@ -13,7 +13,7 @@ use wordcraft_doc::{Document, Paragraph};
 use wordcraft_fonts::FaceRef;
 
 use crate::NumeralMode;
-use crate::fields::{FIELD_SHADING, FieldCtx, field_code_text, field_text};
+use crate::fields::{FIELD_SHADING, FieldCtx, field_code_text, field_text_on};
 
 /// How a run set in one of Word's symbol fonts (Symbol, Wingdings, Wingdings 2/3, Webdings)
 /// shows its characters. Those fonts are proprietary and usually missing: a substitute has other
@@ -514,6 +514,18 @@ impl SegKey {
     }
 }
 
+/// The capital All Caps and Small Caps draw for `c`: one character in, one out (ß draws as S).
+fn upper_char(c: char) -> char {
+    c.to_uppercase().next().unwrap_or(c)
+}
+
+/// The character drawn for `c` in a run formatted `rc`: All Caps capitalises every letter,
+/// Small Caps the lowercase ones (as the shaper draws them). The PDF text layer uses it so
+/// the text read back is the text shown (#1473).
+pub(crate) fn caps_char(rc: &ResolvedChar, c: char) -> char {
+    if rc.caps || (rc.small_caps && c.is_lowercase()) { upper_char(c) } else { c }
+}
+
 /// Combining marks and joiners (bidi classes NSM, BN: harakat, ZWNJ, ZWJ) belong to the
 /// character before them: same font, same shaping run, so Arabic joining isn't broken.
 fn is_mark(c: char) -> bool {
@@ -817,7 +829,7 @@ impl<'a> Builder<'a> {
                 if d != c {
                     d
                 } else if upper {
-                    c.to_uppercase().next().unwrap_or(c)
+                    upper_char(c)
                 } else {
                     c
                 }
@@ -1317,7 +1329,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                                 match wordcraft_doc::eq::parse_overstrike(instr) {
                                     Some(o) => overstrike(&mut b, &o, instr, start, end, &rc, &mut enclosures),
                                     None => {
-                                        let (t, page_dep) = field_text(instr, result, env.fields);
+                                        let (t, page_dep) = field_text_on(instr, result, env.fields, env.fields.page_at(start));
                                         has_page_fields |= page_dep;
                                         b.shape_atomic(&t, start, end, &rc);
                                     }
@@ -1467,7 +1479,8 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             for g in b.glyphs.get(c.g0 as usize..c.g1 as usize).into_iter().flatten() {
                 glyphs.push(Glyph { dx: g.dx + x, ..*g });
             }
-            let chars = shown(text.get(c.start..c.end).unwrap_or(""));
+            // A label in an All Caps paragraph reads as the capitals drawn (#1473).
+            let chars: String = shown(text.get(c.start..c.end).unwrap_or("")).chars().map(|ch| caps_char(&rc, ch)).collect();
             match runs.last_mut() {
                 Some(r) if r.style == c.style => {
                     r.glyphs.end = glyphs.len();
