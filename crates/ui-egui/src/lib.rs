@@ -634,6 +634,15 @@ impl WordApp {
     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        // #1680: toolbar and shortcut commands have no destination yet. Desktop user actions
+        // ask for one; explicit paths, script calls (`execute`) and web downloads keep theirs.
+        if id == "file.exportPdf" && params.get("path").is_none_or(Value::is_null) && self.services.download.is_none() && widgets::enabled(self, id) {
+            return match self.export_pdf_dialog(params) {
+                file_dialogs::Asked::Done(r) => r,
+                file_dialogs::Asked::Pending => Ok(json!({"pending": "exportPdf"})),
+                file_dialogs::Asked::Busy => Ok(json!({"done": false})),
+            };
+        }
         // A button whose command needs input the user hasn't given yet opens its dialog (#240).
         if let Some(name) = input_dialog(id, &params)
             && widgets::enabled(self, id)
