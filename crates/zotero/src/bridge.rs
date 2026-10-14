@@ -62,7 +62,7 @@ impl Host for Headless {
 }
 
 /// The document side of Zotero's protocol.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Bridge {
     doc_id: i64,
     ids: Vec<u64>,
@@ -180,16 +180,49 @@ impl Bridge {
         s.clamp_selection();
     }
 
-    /// Answer one call. Errors become `ERR:` replies; Zotero shows them and cancels.
+    pub(crate) fn begin(&mut self, s: &Session) {
+        self.checkpointed = false;
+        self.caret_after = None;
+        self.completed = false;
+        self.start_sel = Some(s.sel.clone());
+        self.selected = false;
+    }
+
+    /// Fix the original field IDs before staged insertions/removals change their order.
+    pub(crate) fn prepare_fields(&mut self, s: &Session) {
+        self.fields(s);
+    }
+
+    pub(crate) fn field_selection(&mut self, s: &Session, c: &Call) -> Result<Selection, String> {
+        let (_, f) = self.field(s, arg_id(c, 1)?)?;
+        Ok(Selection { anchor: f.start.clone(), focus: f.after() })
+    }
+
+    /// Answer one call atomically. Errors become `ERR:` replies without retaining partial
+    /// edits or field-id/checkpoint bookkeeping. Use Transaction for the entire socket exchange.
     pub fn handle(&mut self, s: &mut Session, host: &mut dyn Host, c: &Call) -> R {
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.dispatch(s, host, c)));
-        match r {
+        let before = s.edit_snapshot();
+        let bridge = self.clone();
+        // The two nested note commands also change editing context beyond EditSnapshot.
+        let context = (
+            s.pending.clone(),
+            s.column.clone(),
+            s.also_selected.clone(),
+            s.math.clone(),
+            s.last_command.clone(),
+            s.pending_move.clone(),
+            s.recording.clone(),
+        );
+        let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.dispatch(s, host, c))) {
             Ok(r) => r,
-            Err(_) => {
-                s.clamp_selection();
-                Err(format!("{}: internal error", c.method))
-            }
+            Err(_) => Err(format!("{}: internal error", c.method)),
+        };
+        if r.is_err() {
+            s.restore(before);
+            (s.pending, s.column, s.also_selected, s.math, s.last_command, s.pending_move, s.recording) = context;
+            *self = bridge;
         }
+        r
     }
 
     fn dispatch(&mut self, s: &mut Session, host: &mut dyn Host, c: &Call) -> R {
@@ -197,11 +230,7 @@ impl Bridge {
             "Application_getActiveDocument" => {
                 let theirs = c.args.first().and_then(Value::as_i64).unwrap_or(PROTOCOL_VERSION);
                 self.doc_id = self.doc_id.wrapping_add(1);
-                self.checkpointed = false;
-                self.caret_after = None;
-                self.completed = false;
-                self.start_sel = Some(s.sel.clone());
-                self.selected = false;
+                self.begin(s);
                 Ok(json!([theirs.clamp(1, PROTOCOL_VERSION), self.doc_id]))
             }
             "Document_displayAlert" => {
@@ -322,8 +351,7 @@ impl Bridge {
                 Ok(Value::Null)
             }
             "Field_select" => {
-                let (_, f) = self.field(s, arg_id(c, 1)?)?;
-                s.sel = Selection { anchor: f.start.clone(), focus: f.after() };
+                s.sel = self.field_selection(s, c)?;
                 s.clamp_selection();
                 self.selected = true;
                 Ok(Value::Null)

@@ -3,7 +3,7 @@
 //! [`run_command`] connects, sends the command, then answers each of Zotero's calls through a
 //! callback until `Document_complete` (or until Zotero closes the connection, which it does when
 //! the user cancels). The callback form lets the app answer on its UI thread;
-//! [`run_on_session`] answers directly against a session (CLI, tests).
+//! [`run_on_session`] stages edits and commits them atomically (CLI, tests).
 
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
@@ -12,7 +12,7 @@ use serde_json::Value;
 use wordcraft_engine::Session;
 
 use crate::wire::{self, Call};
-use crate::{Bridge, Host, ZoteroError};
+use crate::{Bridge, Host, Transaction, ZoteroError};
 
 /// Zotero's integration commands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,14 +79,29 @@ impl Default for Options {
 pub struct Outcome {
     /// Calls Zotero made.
     pub calls: usize,
-    /// Zotero finished with `Document_complete` (false: it closed the connection, e.g. the
-    /// user cancelled its dialog).
+    /// Zotero sent `Document_complete` and its callback succeeded. This does not imply that
+    /// earlier calls succeeded: use `ensure_success` before committing edits or saving.
     pub completed: bool,
     /// Calls we answered with an error.
     pub errors: Vec<String>,
 }
 
+impl Outcome {
+    /// Transport success alone is not enough to publish document edits or save a file.
+    pub fn ensure_success(&self) -> Result<(), ZoteroError> {
+        if let Some(error) = self.errors.first() {
+            return Err(ZoteroError::Failed(error.clone()));
+        }
+        if !self.completed {
+            return Err(ZoteroError::Incomplete);
+        }
+        Ok(())
+    }
+}
+
 /// Run `command`, answering every call with `answer`.
+/// This is the transport API: it reports incomplete/error outcomes without rolling back the
+/// callback's side effects. Use Transaction (or run_on_session) when editing a document.
 pub fn run_command(opts: &Options, command: Command, answer: &mut dyn FnMut(&Call) -> Result<Value, String>) -> Result<Outcome, ZoteroError> {
     let mut stream = TcpStream::connect_timeout(&opts.addr, opts.connect_timeout).map_err(|e| ZoteroError::NotRunning(e.to_string()))?;
     let _ = stream.set_nodelay(true);
@@ -121,14 +136,15 @@ pub fn serve<S: std::io::Read + std::io::Write>(
         }
         wire::write_frame(stream, frame.txid, &wire::encode_reply(&reply))?;
         if done {
-            out.completed = true;
+            out.completed = reply.is_ok();
             break;
         }
     }
     Ok(out)
 }
 
-/// Run `command` against `session` directly.
+/// Run `command` atomically against `session`. Incomplete/error outcomes discard all edits
+/// and return an error; only a successful command is committed as one undo step.
 pub fn run_on_session(
     opts: &Options,
     command: Command,
@@ -136,5 +152,8 @@ pub fn run_on_session(
     session: &mut Session,
     host: &mut dyn Host,
 ) -> Result<Outcome, ZoteroError> {
-    run_command(opts, command, &mut |call| bridge.handle(session, host, call))
+    let mut transaction = Transaction::new(session, bridge);
+    let out = run_command(opts, command, &mut |call| transaction.handle(host, call))?;
+    transaction.commit(session, bridge, &out)?;
+    Ok(out)
 }

@@ -354,7 +354,6 @@ fn whole_session_over_a_socket() {
         json!(["Document_insertField", [1, "ReferenceMark", 0]]),
         json!(["Field_setCode", [1, 1, CITE]]),
         json!(["Field_setText", [1, 1, r"{\rtf (Doe, {\i 2020})}", true]]),
-        json!(["Not_a_method", []]),
         json!(["Document_complete", [1]]),
     ];
     let (addr, server) = fake_zotero("addEditCitation", calls);
@@ -364,15 +363,17 @@ fn whole_session_over_a_socket() {
     let out = client::run_on_session(&opts, Command::AddEditCitation, &mut Bridge::new(), &mut session, &mut Headless::default()).unwrap();
     let replies = server.join().unwrap();
     assert!(out.completed);
-    assert_eq!(out.calls, 9);
-    assert_eq!(out.errors.len(), 1);
+    assert_eq!(out.calls, 8);
+    assert!(out.errors.is_empty());
     assert_eq!(replies[0], "[3,1]");
     assert_eq!(replies[1], r#""""#);
     assert_eq!(replies[3], "null");
     assert_eq!(replies[4], r#"[1,"",0]"#);
-    assert!(replies[7].starts_with("ERR:"));
-    assert_eq!(replies[8], "null");
+    assert_eq!(replies[7], "null");
     assert_eq!(session.doc.plain_text(StoryRef::Body), "Cite here(Doe, 2020).");
+    assert_eq!(session.undo_labels(), ["Zotero"]);
+    session.undo();
+    assert_eq!(session.doc.plain_text(StoryRef::Body), "Cite here.");
 }
 
 #[test]
@@ -381,16 +382,175 @@ fn cancelled_session_and_no_zotero() {
     let (addr, server) = fake_zotero("refresh", vec![json!(["Application_getActiveDocument", [3]])]);
     let mut session = Session::new(Document::from_text("x"));
     let opts = Options { addr, ..Options::default() };
-    let out = client::run_on_session(&opts, Command::Refresh, &mut Bridge::new(), &mut session, &mut Headless::default()).unwrap();
+    let out = client::run_on_session(&opts, Command::Refresh, &mut Bridge::new(), &mut session, &mut Headless::default());
     server.join().unwrap();
-    assert!(!out.completed);
-    assert_eq!(out.calls, 1);
+    assert!(matches!(out, Err(ZoteroError::Incomplete)));
 
     // Nothing listening.
     let free = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
     let opts = Options { addr: free, ..Options::default() };
     let r = client::run_command(&opts, Command::Refresh, &mut |_| Ok(Value::Null));
     assert!(matches!(r, Err(ZoteroError::NotRunning(_))));
+}
+
+#[test]
+fn a_failed_batch_conversion_restores_the_document_and_bridge() {
+    let mut z = Z::new("Cite: ", 6);
+    z.begin();
+    let id = z.cite(0, "(Doe, 2020)");
+    z.ok("Document_complete", json!([1]));
+    z.begin();
+    let before = serde_json::to_value(&z.s.doc).unwrap();
+    let sel = z.s.sel.clone();
+    let undo = z.s.undo_labels();
+    let dirty = z.s.dirty;
+    assert!(z.call("Document_convert", json!([1, [id, 999_999], [], [1, 1], 2])).is_err());
+    assert_eq!(serde_json::to_value(&z.s.doc).unwrap(), before);
+    assert_eq!(z.s.sel, sel);
+    assert_eq!(z.s.undo_labels(), undo);
+    assert_eq!(z.s.dirty, dirty);
+    assert_eq!(z.ok("Document_getFields", json!([1, "ReferenceMark"]))[0], json!([id]));
+    // Restoring checkpointed/ids matters when this bridge is used again after a failed call.
+    z.ok("Field_convert", json!([1, id, "ReferenceMark", 1]));
+    assert_eq!(z.s.undo_depth(), undo.len() + 1);
+    z.s.undo();
+    assert_eq!(serde_json::to_value(&z.s.doc).unwrap(), before);
+}
+
+#[test]
+fn a_failed_completion_callback_is_not_completed() {
+    let (addr, server) = fake_zotero("refresh", vec![json!(["Document_complete", [1]])]);
+    let out = client::run_command(&Options { addr, ..Options::default() }, Command::Refresh, &mut |_| Err("completion failed".into())).unwrap();
+    server.join().unwrap();
+    assert!(!out.completed);
+    assert_eq!(out.errors, ["completion failed"]);
+}
+
+#[test]
+fn unsuccessful_sessions_leave_no_edits_or_history() {
+    for ending in ["cancel", "callback-error", "parse-error"] {
+        let mut calls = vec![json!(["Application_getActiveDocument", [3]]), json!(["Document_insertText", [1, "partial"]])];
+        if ending != "cancel" {
+            calls.push(if ending == "parse-error" { json!({"invalid": "call"}) } else { json!(["Not_a_method", []]) });
+            calls.push(json!(["Document_complete", [1]]));
+        }
+        let (addr, server) = fake_zotero("refresh", calls);
+        let mut s = Session::new(Document::from_text("original"));
+        s.run("text.insert", &json!({"text": "undo me"})).unwrap();
+        s.undo();
+        s.dirty = false;
+        let before = serde_json::to_value(&s.doc).unwrap();
+        let sel = s.sel.clone();
+        let mut bridge = Bridge::new();
+        let r = client::run_on_session(&Options { addr, ..Options::default() }, Command::Refresh, &mut bridge, &mut s, &mut Headless::default());
+        server.join().unwrap();
+        assert!(r.is_err(), "incomplete/error results must fail");
+        assert_eq!(serde_json::to_value(&s.doc).unwrap(), before);
+        assert_eq!(s.sel, sel);
+        assert!(!s.dirty);
+        assert!(!s.can_undo());
+        assert!(s.can_redo());
+        assert!(!bridge.completed);
+        s.redo();
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "undo meoriginal");
+    }
+}
+
+#[test]
+fn a_transport_failure_after_edits_discards_the_transaction() {
+    use std::io::{Cursor, Read, Write};
+    // Deterministic failed completion reply, without TCP reset timing or unbounded waits.
+    struct BrokenReply(Cursor<Vec<u8>>, usize);
+    impl Read for BrokenReply {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.read(buf)
+        }
+    }
+    impl Write for BrokenReply {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.1 += 1;
+            if self.1 == 3 {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut input = Vec::new();
+    for (i, c) in [json!(["Application_getActiveDocument", [3]]), json!(["Document_insertText", [1, "partial"]]), json!(["Document_complete", [1]])]
+        .into_iter()
+        .enumerate()
+    {
+        wire::write_frame(&mut input, i as u32 + 1, &serde_json::to_vec(&c).unwrap()).unwrap();
+    }
+    let s = Session::new(Document::from_text("original"));
+    let mut transaction = crate::Transaction::new(&s, &Bridge::new());
+    let result = client::serve(&mut BrokenReply(Cursor::new(input), 0), &mut |c| transaction.handle(&mut Headless::default(), c));
+    assert!(matches!(result, Err(ZoteroError::Io(_))));
+    drop(transaction);
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "original");
+    assert!(!s.can_undo());
+    assert!(!s.dirty);
+}
+
+#[test]
+fn commit_rechecks_edits_after_the_completion_callback() {
+    let mut s = Session::new(Document::from_text("original"));
+    let mut bridge = Bridge::new();
+    let mut transaction = crate::Transaction::new(&s, &bridge);
+    transaction.handle(&mut Headless::default(), &Call::new("Document_insertText", vec![json!(1), json!("partial")])).unwrap();
+    transaction.handle(&mut Headless::default(), &Call::new("Document_complete", vec![json!(1)])).unwrap();
+    s.run("text.insert", &json!({"text": "my work"})).unwrap();
+    let before = serde_json::to_value(&s.doc).unwrap();
+    let sel = s.sel.clone();
+    let undo = s.undo_labels();
+    assert!(transaction.commit(&mut s, &mut bridge, &crate::Outcome { completed: true, ..Default::default() }).is_err());
+    assert_eq!(serde_json::to_value(&s.doc).unwrap(), before);
+    assert_eq!(s.sel, sel);
+    assert_eq!(s.undo_labels(), undo);
+    assert!(!bridge.completed);
+}
+
+#[test]
+fn a_read_only_transaction_preserves_redo_and_a_moved_caret() {
+    let mut s = Session::new(Document::from_text("original"));
+    s.run("text.insert", &json!({"text": "redo me"})).unwrap();
+    s.undo();
+    s.dirty = false;
+    let mut bridge = Bridge::new();
+    let mut transaction = crate::Transaction::new(&s, &bridge);
+    transaction.handle(&mut Headless::default(), &Call::new("Application_getActiveDocument", vec![json!(3)])).unwrap();
+    transaction.handle(&mut Headless::default(), &Call::new("Document_complete", vec![json!(1)])).unwrap();
+    s.sel = Selection::caret(Pos::body(0, 3));
+    transaction.commit(&mut s, &mut bridge, &crate::Outcome { completed: true, ..Default::default() }).unwrap();
+    assert_eq!(s.sel.focus, Pos::body(0, 3));
+    assert!(s.can_redo());
+    assert!(!s.can_undo());
+    assert!(!s.dirty);
+}
+
+#[test]
+fn failed_call_preserves_a_full_undo_stack_and_redo() {
+    for with_redo in [false, true] {
+        let mut z = Z::new("Cite: ", 6);
+        z.begin();
+        let id = z.cite(0, "(Doe, 2020)");
+        z.ok("Document_complete", json!([1]));
+        for i in 0..505 {
+            z.s.checkpoint(&format!("existing {i}"));
+        }
+        if with_redo {
+            z.s.undo();
+        }
+        let undo = z.s.undo_labels();
+        let redo = z.s.redo_label().map(str::to_string);
+        z.begin();
+        assert!(z.call("Document_convert", json!([1, [id, 999_999], [], [1, 1], 2])).is_err());
+        assert_eq!(z.s.undo_labels(), undo);
+        assert_eq!(z.s.redo_label(), redo.as_deref());
+    }
 }
 
 #[test]
