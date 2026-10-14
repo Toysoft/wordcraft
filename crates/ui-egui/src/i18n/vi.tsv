@@ -2557,6 +2557,10 @@
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: không tìm thấy từ điển
 
+# Show only the selected text's comment (#1066)
+	In the margin	Trong lề
+	Only for the selected text	Chỉ cho văn bản được chọn
+
 # STYLEREF field (#882)
 	Insert paragraph number	Chèn số đoạn văn
 	Insert paragraph number in full context	Chèn số đoạn văn trong ngữ cảnh đầy đủ
