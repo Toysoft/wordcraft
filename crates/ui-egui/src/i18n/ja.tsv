@@ -185,6 +185,9 @@
 	Bold	太字
 	Bookmark	ブックマーク
 	Bookmark name:	ブックマーク名:
+	Delete Bookmark	ブックマークの削除
+	Hidden bookmarks	隠しブックマーク
+	Sort by:	並べ替え:
 	Border Painter	罫線の書式設定
 	Border\nPainter	罫線の書式設定
 	Borders	罫線
@@ -510,6 +513,8 @@
 	Labels	ラベル
 	Landscape	横
 	Language	言語
+	{language} (no dictionary)	{language}（辞書なし）
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	{language}のスペルチェック辞書がインストールされていないため、チェックされません。WordCraft は Hunspell 辞書 {name} を WORDCRAFT_DICTIONARIES フォルダーと通常のシステムの場所から探します。
 	Lasso	なげなわ
 	Last Column	最後の列
 	Last commit	最後のコミット
@@ -2083,12 +2088,6 @@
 	Automatic ({region})	自動 ({region})
 	Text of the nearest paragraph with a given style (running headers)	指定したスタイルを持つ最も近い段落の文字列 (柱)
 	Style name:	スタイル名:
-	Search from bottom of page to top	ページの下から上へ検索する
-	Insert paragraph number	段落番号を挿入する
-	Insert paragraph number in relative context	段落番号を相対的な形式で挿入する
-	Insert paragraph number in full context	段落番号を完全な形式で挿入する
-	Suppress all non-delimiter characters	区切り文字以外の文字をすべて非表示にする
-	Insert position (above or below)	位置 (上または下) を挿入する
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	宛先のフィルター
 	Sort Recipients	宛先の並べ替え
@@ -2114,6 +2113,12 @@
 	Contains	含む
 	Does not contain	含まない
 	{count} of {total} recipients will be merged.	差し込む宛先: {total} 件中 {count} 件
+	Take the last match on the page	ページ内で最後に一致したものを使う
+	Show its list number	リスト番号を表示
+	Show its number relative to this field	このフィールドを基準にした番号を表示
+	Show its number with all higher levels	上位のすべてのレベルを含めた番号を表示
+	Number only, without the label's words	ラベルの語を除いて番号のみ
+	Add whether it is above or below	上にあるか下にあるかを付け加える
 	Start-up	起動
 	Show the Start screen when WordCraft starts	WordCraft の起動時にスタート画面を表示する
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	オン: WordCraft は [ファイル] › [ホーム] で開き、白紙の文書、テンプレート、最近使った文書を表示します。オフ: 白紙の文書を開きます。
@@ -2173,3 +2178,14 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	このフォルダーの Hunspell .aff と .dic ファイル (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) は、システムのものより優先して使われます。
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: 辞書が見つかりません
+
+# Backstage › Recover (#586)
+	Recover	回復
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	見開きページ
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	既存のファイル/Web ページ
+	Link to:	リンク先:
+	Place in This Document	このドキュメント内

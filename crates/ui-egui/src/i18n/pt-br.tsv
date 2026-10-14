@@ -164,6 +164,9 @@
 	Bold	Negrito
 	Bookmark	Indicador
 	Bookmark name:	Nome do indicador:
+	Delete Bookmark	Excluir indicador
+	Hidden bookmarks	Indicadores ocultos
+	Sort by:	Classificar por:
 	Border Painter	Pincel de bordas
 	Border\nPainter	Pincel\nde bordas
 	Borders	Bordas
@@ -511,6 +514,8 @@
 	Labels	Etiquetas
 	Landscape	Paisagem
 	Language	Idioma
+	{language} (no dictionary)	{language} (sem dicionário)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Não há dicionário ortográfico instalado para {language}, então o texto não é verificado. O WordCraft procura o dicionário Hunspell {name} na pasta WORDCRAFT_DICTIONARIES e nos locais habituais do sistema.
 	Lasso	Laço
 	Last Column	Última coluna
 	Last commit	Último commit
@@ -2095,12 +2100,6 @@
 	Automatic ({region})	Automático ({region})
 	Text of the nearest paragraph with a given style (running headers)	Texto do parágrafo mais próximo com um determinado estilo (cabeçalhos dinâmicos)
 	Style name:	Nome do estilo:
-	Search from bottom of page to top	Pesquisar de baixo para cima na página
-	Insert paragraph number	Inserir número do parágrafo
-	Insert paragraph number in relative context	Inserir número do parágrafo em contexto relativo
-	Insert paragraph number in full context	Inserir número do parágrafo em contexto completo
-	Suppress all non-delimiter characters	Suprimir todos os caracteres que não sejam delimitadores
-	Insert position (above or below)	Inserir posição (acima ou abaixo)
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Filtrar destinatários
 	Sort Recipients	Classificar destinatários
@@ -2126,6 +2125,12 @@
 	Contains	Contém
 	Does not contain	Não contém
 	{count} of {total} recipients will be merged.	{count} de {total} destinatários serão mesclados.
+	Take the last match on the page	Usar a última ocorrência da página
+	Show its list number	Mostrar seu número na lista
+	Show its number relative to this field	Mostrar seu número em relação a este campo
+	Show its number with all higher levels	Mostrar seu número com todos os níveis acima
+	Number only, without the label's words	Só o número, sem as palavras do rótulo
+	Add whether it is above or below	Acrescentar se está acima ou abaixo
 	Start-up	Inicialização
 	Show the Start screen when WordCraft starts	Mostrar a tela inicial ao abrir o WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Ativado: o WordCraft abre em Arquivo › Início, com um documento em branco, os modelos e seus documentos recentes. Desativado: abre um documento em branco.
@@ -2185,3 +2190,14 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Os arquivos .aff e .dic do Hunspell nesta pasta (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) são usados antes dos do sistema.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: nenhum dicionário encontrado
+
+# Backstage › Recover (#586)
+	Recover	Recuperar
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Margens espelho
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Página da Web ou arquivo existente
+	Link to:	Vincular a:
+	Place in This Document	Colocar neste documento
