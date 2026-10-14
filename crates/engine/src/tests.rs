@@ -912,6 +912,61 @@ fn paste_special_lists_formats_and_pastes_text_without_formatting() {
 }
 
 #[test]
+fn pasted_rtf_tracked_changes_point_at_their_own_revisions() {
+    // Gap 19: RTF tracked changes come with revisions of their own; pasted into a document that
+    // already has revisions, they must not point at the document's (index 0 here is "Zed").
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    s.doc.revisions.push(wordcraft_doc::Revision::new(wordcraft_doc::RevisionKind::Delete, "Zed", ""));
+    run(&mut s, "caret.docEnd", json!({}));
+    let rtf = r"{\rtf1{\*\revtbl {Unknown;}{Alice;}}{\revised\revauth1 added}\par}";
+    run(&mut s, "edit.pasteSpecial", json!({"as": "rtf", "rtf": rtf}));
+    let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 2 };
+    let ins = s.doc.para_at(&pos).and_then(|p| p.props_of_char(2).ins);
+    let rev = ins.and_then(|i| s.doc.revisions.get(i as usize));
+    assert_eq!(rev.map(|r| (r.kind, r.author.as_str())), Some((wordcraft_doc::RevisionKind::Insert, "Alice")), "{:?}", s.doc.revisions);
+}
+
+/// Insertion and deletion revision kinds at body paragraph 0, offset `off`.
+fn rev_kinds_at(s: &Session, off: usize) -> (Option<wordcraft_doc::RevisionKind>, Option<wordcraft_doc::RevisionKind>) {
+    let pos = Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off };
+    let cp = s.doc.para_at(&pos).map(|p| p.props_of_char(off).clone()).unwrap_or_default();
+    let kind = |i: Option<u32>| i.and_then(|i| s.doc.revisions.get(i as usize)).map(|r| r.kind);
+    (kind(cp.ins), kind(cp.del))
+}
+
+const RTF_WITH_DELETION: &str = r"{\rtf1{\*\revtbl {Unknown;}{Bob;}}kept{\deleted\revauthdel1 gone}\par}";
+
+#[test]
+fn pasted_rtf_deletions_stay_deleted_under_track_changes() {
+    // Gap 19: with Track Changes on the paste is an insertion, and text deleted in the source is
+    // inserted-then-deleted (struck), never live text.
+    use wordcraft_doc::RevisionKind::{Delete, Insert};
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "edit.pasteSpecial", json!({"as": "rtf", "rtf": RTF_WITH_DELETION}));
+    assert_eq!(rev_kinds_at(&s, 1), (Some(Insert), None), "kept");
+    assert_eq!(rev_kinds_at(&s, 5), (Some(Insert), Some(Delete)), "gone");
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(text(&s), "xkept");
+}
+
+#[test]
+fn paste_merge_formatting_keeps_rtf_deletions() {
+    use wordcraft_doc::RevisionKind::Delete;
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "edit.pasteMerge", json!({"rtf": RTF_WITH_DELETION}));
+    assert_eq!(rev_kinds_at(&s, 1), (None, None), "kept");
+    assert_eq!(rev_kinds_at(&s, 5), (None, Some(Delete)), "gone");
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(text(&s), "xkept");
+}
+
+#[test]
 fn pasted_rtf_sections_link_their_headers_to_the_previous() {
     // #1378: the RTF's own header part ids mean nothing in this document; a pasted section
     // break keeps its page but links its headers and footers to the previous section.
@@ -5453,6 +5508,273 @@ fn insert_picture_takes_a_windows_metafile() {
     let err = s.run("insert.picture", &json!({"path": path.to_string_lossy()})).unwrap_err();
     assert!(err.to_string().contains("WMF, EMF"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #1344: File › Info › Inspect Document finds hidden text by its effective formatting (direct,
+/// character style, paragraph style) in every story — body, header, footer, footnote, comment,
+/// text box — and Remove All deletes exactly that text, in one undo step, through a DOCX save.
+#[test]
+fn inspect_document_hidden_text_in_every_story_and_from_styles() {
+    use wordcraft_doc::props::{CharProps, ParaProps};
+    use wordcraft_doc::styles::{Style, StyleKind};
+    use wordcraft_doc::{Paragraph, PartKind, para_block};
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Body words"}));
+    run(&mut s, "review.newComment", json!({"text": "c"}));
+    s.sel = crate::Selection::caret(Pos::body(0, 0));
+    run(&mut s, "insert.textBox", json!({"text": "t"}));
+    s.sel = crate::Selection::caret(Pos::body(0, 0));
+    run(&mut s, "references.footnote", json!({"text": "n"}));
+    s.sel = crate::Selection::caret(Pos::body(0, 0));
+    run(&mut s, "references.endnote", json!({"text": "e"}));
+    s.sel = crate::Selection::caret(Pos::body(0, 0));
+    run(&mut s, "insert.header", json!({"text": "h"}));
+    s.sel = crate::Selection::caret(Pos::body(0, 0));
+    run(&mut s, "insert.footer", json!({"text": "f"}));
+    s.sel = crate::Selection::caret(Pos::body(0, 0));
+    let hidden = CharProps { hidden: Some(true), ..Default::default() };
+    s.doc.styles.upsert(Style { id: "HideC".into(), name: "Hide C".into(), kind: StyleKind::Character, chr: hidden.clone(), ..Default::default() });
+    s.doc.styles.upsert(Style {
+        id: "HideP".into(),
+        name: "Hide P".into(),
+        kind: StyleKind::Paragraph,
+        based_on: Some("Normal".into()),
+        chr: hidden.clone(),
+        ..Default::default()
+    });
+    let plain = CharProps::default();
+    let blocks = |tag: &str| {
+        let mut a = Paragraph::with_text(&format!("keep-{tag}-1 "), plain.clone());
+        for (t, c) in [
+            (format!("hide-{tag}-direct"), hidden.clone()),
+            (format!(" keep-{tag}-2 "), plain.clone()),
+            (format!("hide-{tag}-cstyle"), CharProps { style: Some("HideC".into()), ..Default::default() }),
+            (format!(" keep-{tag}-3"), plain.clone()),
+        ] {
+            let at = a.len();
+            a.insert_text(at, &t, &c).unwrap();
+        }
+        let mut b = Paragraph::with_text(&format!("hide-{tag}-pstyle"), plain.clone());
+        b.props = ParaProps { style: Some("HideP".into()), ..Default::default() };
+        // Shown again by direct formatting over the hidden paragraph style: it stays.
+        let mut c = Paragraph::with_text(&format!("keep-{tag}-4"), CharProps { hidden: Some(false), ..Default::default() });
+        c.props = ParaProps { style: Some("HideP".into()), ..Default::default() };
+        vec![para_block(a), para_block(b), para_block(c)]
+    };
+    let tag = |k: PartKind| match k {
+        PartKind::Header => "header",
+        PartKind::Footer => "footer",
+        PartKind::Footnote => "footnote",
+        PartKind::Endnote => "endnote",
+        PartKind::Comment => "comment",
+        PartKind::TextBox => "textBox",
+    };
+    s.doc.body.extend(blocks("body"));
+    // A table cell in the body, with the same pieces.
+    let mut table = wordcraft_doc::table::Table::new(1, 2, 200.0);
+    table.rows[0].cells[0].blocks = blocks("cell");
+    s.doc.body.push(std::sync::Arc::new(wordcraft_doc::Block::Table(table)));
+    s.doc.body.push(para_block(Paragraph::new()));
+    let mut tags = vec![("body", "body"), ("cell", "body")];
+    for part in s.doc.parts.values_mut() {
+        part.blocks.extend(blocks(tag(part.kind)));
+        tags.push((tag(part.kind), tag(part.kind)));
+    }
+    tags.sort();
+    assert_eq!(tags.iter().map(|t| t.0).collect::<Vec<_>>(), ["body", "cell", "comment", "endnote", "footer", "footnote", "header", "textBox"]);
+    let stories = |d: &wordcraft_doc::Document| std::iter::once(StoryRef::Body).chain(d.parts.keys().map(|k| StoryRef::Part(*k))).collect::<Vec<_>>();
+    let para_counts = |d: &wordcraft_doc::Document| stories(d).into_iter().map(|st| (st, d.para_paths(st).len())).collect::<Vec<_>>();
+    let counts_before = para_counts(&s.doc);
+    let all_text = |d: &wordcraft_doc::Document| -> String {
+        std::iter::once(StoryRef::Body).chain(d.parts.keys().map(|k| StoryRef::Part(*k))).map(|st| d.plain_text(st)).collect::<Vec<_>>().join("\n")
+    };
+
+    // Inspect reports every hidden piece, in its story.
+    let found = run(&mut s, "file.inspect", json!({}))["found"].clone();
+    assert_eq!(found["hiddenText"], true);
+    let items = found["hidden"].as_array().cloned().unwrap_or_default();
+    for (t, story) in &tags {
+        for how in ["direct", "cstyle", "pstyle"] {
+            let want = format!("hide-{t}-{how}");
+            assert!(
+                items.iter().any(|i| i["story"] == *story && i["text"].as_str().is_some_and(|x| x.contains(&want))),
+                "{want} not reported: {items:?}"
+            );
+        }
+    }
+    assert!(!items.iter().any(|i| i["text"].as_str().is_some_and(|x| x.contains("keep-"))), "visible text reported: {items:?}");
+
+    // Remove All: every hidden piece goes, every visible one stays, in one undo step.
+    let before = all_text(&s.doc);
+    let undo_len = s.undo_labels().len();
+    let out = run(&mut s, "file.inspect", json!({"remove": ["hidden"]}));
+    assert_eq!(out["residual"], json!([]), "{out}");
+    let after = all_text(&s.doc);
+    for (t, _) in &tags {
+        for n in 1..=4 {
+            assert!(after.contains(&format!("keep-{t}-{n}")), "keep-{t}-{n} lost:\n{after}");
+        }
+    }
+    assert!(!after.contains("hide-"), "hidden text left:\n{after}");
+    // The paragraphs hidden through their style went, marks and all (the body lost two: its own
+    // and the table cell's); the paragraph shown again by direct formatting stayed.
+    let expected: Vec<_> = counts_before.iter().map(|(st, n)| (*st, n - if *st == StoryRef::Body { 2 } else { 1 })).collect();
+    assert_eq!(para_counts(&s.doc), expected);
+    assert_eq!(s.undo_labels().len(), undo_len + 1);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(all_text(&s.doc), before, "one undo brings it all back");
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(all_text(&s.doc), after);
+    assert_eq!(run(&mut s, "file.inspect", json!({}))["found"]["hiddenText"], false);
+
+    // Save and reopen: none of the hidden strings is in the file.
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    let reopened = all_text(&back);
+    assert!(!reopened.contains("hide-"), "hidden text in the saved file:\n{reopened}");
+    assert!(reopened.contains("keep-header-4") && reopened.contains("keep-comment-3"), "{reopened}");
+    assert!(reopened.contains("keep-endnote-2") && reopened.contains("keep-cell-4"), "{reopened}");
+}
+
+fn hidden_props() -> wordcraft_doc::props::CharProps {
+    wordcraft_doc::props::CharProps { hidden: Some(true), ..Default::default() }
+}
+
+/// #1344: document defaults that hide text hide it everywhere they aren't overridden.
+#[test]
+fn inspect_document_removes_text_hidden_by_document_defaults() {
+    use wordcraft_doc::props::CharProps;
+    use wordcraft_doc::{Paragraph, para_block};
+    let mut s = s();
+    s.doc.styles.default_chr.hidden = Some(true);
+    s.doc.body = vec![
+        para_block(Paragraph::with_text("hide-default", CharProps::default())),
+        para_block(Paragraph::with_text("keep-default", CharProps { hidden: Some(false), ..Default::default() })),
+    ];
+    let found = run(&mut s, "file.inspect", json!({}))["found"].clone();
+    assert!(found["hidden"].as_array().unwrap().iter().any(|i| i["text"] == "hide-default"), "{found}");
+    let out = run(&mut s, "file.inspect", json!({"remove": ["hidden"]}));
+    assert_eq!(out["residual"], json!([]), "{out}");
+    assert_eq!(text(&s), "keep-default");
+    assert_eq!(s.doc.para_paths(StoryRef::Body).len(), 1);
+}
+
+/// #1344: a hidden piece holding a content control's end keeps the marker (its start is outside).
+#[test]
+fn inspect_document_keeps_content_control_markers() {
+    use wordcraft_doc::para::InlineObject;
+    use wordcraft_doc::props::CharProps;
+    use wordcraft_doc::{Paragraph, para_block};
+    let mut s = s();
+    let mut p = Paragraph::with_text("keep-a ", CharProps::default());
+    let plain = CharProps::default();
+    p.insert_object(p.len(), InlineObject::ControlStart { control: Box::default() }, &plain).unwrap();
+    p.insert_text(p.len(), "keep-cc ", &plain).unwrap();
+    p.insert_text(p.len(), "hide-cc", &hidden_props()).unwrap();
+    p.insert_object(p.len(), InlineObject::ControlEnd, &hidden_props()).unwrap();
+    p.insert_text(p.len(), "hide-after", &hidden_props()).unwrap();
+    p.insert_text(p.len(), " keep-b", &plain).unwrap();
+    s.doc.body = vec![para_block(p)];
+    let out = run(&mut s, "file.inspect", json!({"remove": ["hidden"]}));
+    assert_eq!(out["residual"], json!([]), "{out}");
+    let p = s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap();
+    assert_eq!(p.text.replace('\u{FFFC}', ""), "keep-a keep-cc  keep-b");
+    let objs: Vec<_> = p.object_offsets().into_iter().filter_map(|o| p.object_at(o)).collect();
+    assert!(matches!(objs.as_slice(), [InlineObject::ControlStart { .. }, InlineObject::ControlEnd]), "{objs:?}");
+}
+
+/// #1344: text hidden by a table style isn't resolved by the inspector, so it says so: the table
+/// is listed as unsupported and the removal's residual isn't empty.
+#[test]
+fn inspect_document_lists_tables_whose_style_hides_text() {
+    use wordcraft_doc::styles::{Style, StyleKind, TableStyleParts};
+    let mut s = s();
+    s.doc.styles.upsert(Style {
+        id: "HideHeader".into(),
+        name: "Hide Header".into(),
+        kind: StyleKind::Table,
+        table: Some(TableStyleParts { header_chr: hidden_props(), ..Default::default() }),
+        ..Default::default()
+    });
+    let mut table = wordcraft_doc::table::Table::new(2, 2, 200.0);
+    table.props.style = Some("HideHeader".into());
+    s.doc.body.insert(0, std::sync::Arc::new(wordcraft_doc::Block::Table(table)));
+    let found = run(&mut s, "file.inspect", json!({}))["found"].clone();
+    let unsupported = found["unsupported"].as_array().cloned().unwrap_or_default();
+    assert!(unsupported.iter().any(|u| u["object"] == "table" && u["story"] == "body" && u["style"] == "HideHeader"), "{found}");
+    let out = run(&mut s, "file.inspect", json!({"remove": ["hidden"]}));
+    assert!(out["residual"].as_array().is_some_and(|r| r.iter().any(|u| u["object"] == "table")), "{out}");
+}
+
+/// #1344: removing a hidden footnote reference removes its note too, as deleting a reference does,
+/// and reports the note's text.
+#[test]
+fn inspect_document_removes_the_note_of_a_hidden_reference() {
+    use wordcraft_doc::PartKind;
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Body"}));
+    let id = run(&mut s, "references.footnote", json!({"text": "note-visible"}))["id"].as_u64().unwrap() as u32;
+    let path = wordcraft_doc::Path::top(0);
+    let p = s.doc.para_mut(StoryRef::Body, &path).unwrap();
+    let off = p.object_offsets()[0];
+    p.format(off, off + '\u{FFFC}'.len_utf8(), &|c| c.hidden = Some(true)).unwrap();
+    let out = run(&mut s, "file.inspect", json!({"remove": ["hidden"]}));
+    assert_eq!(out["residual"], json!([]), "{out}");
+    assert!(!s.doc.parts.contains_key(&id), "orphan note part left");
+    let notes = out["removedNotes"].as_array().cloned().unwrap_or_default();
+    assert!(notes.iter().any(|n| n["kind"] == "footnote" && n["text"].as_str().is_some_and(|t| t.contains("note-visible"))), "{out}");
+    assert_eq!(text(&s), "Body");
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    assert!(!back.parts.values().any(|p| p.kind == PartKind::Footnote), "note in the saved file");
+    assert_eq!(back.plain_text(StoryRef::Body), "Body");
+}
+
+/// #1344: many hidden pieces (index entries are hidden text) are removed quickly, and the
+/// found list is capped.
+#[test]
+fn inspect_document_removes_thousands_of_hidden_pieces() {
+    use wordcraft_doc::props::CharProps;
+    use wordcraft_doc::{Paragraph, para_block};
+    let mut s = s();
+    s.doc.body = (0..2000)
+        .map(|i| {
+            let mut p = Paragraph::with_text(&format!("word{i} "), CharProps::default());
+            p.insert_text(p.len(), &format!("XE \"entry{i}\""), &hidden_props()).unwrap();
+            p.insert_text(p.len(), " more", &CharProps::default()).unwrap();
+            para_block(p)
+        })
+        .collect();
+    let t = std::time::Instant::now();
+    let found = run(&mut s, "file.inspect", json!({}))["found"].clone();
+    assert_eq!(found["hiddenCount"], 2000);
+    assert_eq!(found["hidden"].as_array().map(Vec::len), Some(1000));
+    assert_eq!(found["truncated"], true);
+    let out = run(&mut s, "file.inspect", json!({"remove": ["hidden"]}));
+    assert_eq!(out["residual"], json!([]));
+    assert!(!text(&s).contains("XE"));
+    assert!(text(&s).contains("word1999  more"));
+    assert!(t.elapsed() < std::time::Duration::from_secs(20), "{:?}", t.elapsed());
+}
+
+/// #1344: a hidden paragraph between two tables stays (emptied, its mark still hidden), or the
+/// tables would join into one when the file is reopened.
+#[test]
+fn inspect_document_keeps_a_hidden_paragraph_between_tables() {
+    use wordcraft_doc::{Block, Paragraph, para_block};
+    let mut s = s();
+    let table = || std::sync::Arc::new(Block::Table(wordcraft_doc::table::Table::new(1, 1, 100.0)));
+    let mut p = Paragraph::with_text("hide-between", hidden_props());
+    p.mark.hidden = Some(true);
+    s.doc.body = vec![table(), para_block(p), table(), para_block(Paragraph::with_text("keep-end", Default::default()))];
+    let out = run(&mut s, "file.inspect", json!({"remove": ["hidden"]}));
+    assert_eq!(out["residual"], json!([]), "{out}");
+    let kinds = |d: &wordcraft_doc::Document| d.body.iter().map(|b| matches!(**b, Block::Table(_))).collect::<Vec<_>>();
+    assert_eq!(kinds(&s.doc), [true, false, true, false]);
+    let kept = s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(1)).unwrap();
+    assert!(kept.is_empty() && kept.mark.hidden == Some(true), "emptied, mark still hidden: {kept:?}");
+    assert!(!s.doc.plain_text(StoryRef::Body).contains("hide-"));
+    assert_eq!(run(&mut s, "file.inspect", json!({}))["found"]["hiddenText"], false);
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    assert_eq!(kinds(&back).iter().filter(|t| **t).count(), 2, "the tables stay apart");
 }
 
 /// #1381: the reporter's sample HTML (synthetic, 1.7 KB).
