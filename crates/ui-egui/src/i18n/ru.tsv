@@ -1829,6 +1829,8 @@ preview	Title	Пример
 	Warnings ({n})	Предупреждения ({n})
 	Tips ({n})	Советы ({n})
 	No accessibility issues found.	Проблем со специальными возможностями не найдено.
+	No comments in this document.	В этом документе нет комментариев.
+	Select text in the document to add the first comment.	Выделите текст в документе, чтобы добавить первый комментарий.
 	Describe what this object shows, for people who can't see it.	Опишите, что показывает этот объект, для людей, которые его не видят.
 	Decorative objects only add visual interest: screen readers skip them.	Декоративные объекты лишь украшают документ: программы чтения с экрана их пропускают.
 	Describe what this table shows, for people who can't see it.	Опишите, что показывает эта таблица, для людей, которые её не видят.

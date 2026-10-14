@@ -1964,6 +1964,8 @@
 	Warnings ({n})	Figyelmeztetések ({n})
 	Tips ({n})	Tippek ({n})
 	No accessibility issues found.	Nincs akadálymentességi probléma.
+	No comments in this document.	Nincsenek megjegyzések ebben a dokumentumban.
+	Select text in the document to add the first comment.	Jelöljön ki szöveget a dokumentumban az első megjegyzés hozzáadásához.
 	Describe what this object shows, for people who can't see it.	Írd le, mit ábrázol ez az objektum, azok számára, akik nem látják.
 	Decorative objects only add visual interest: screen readers skip them.	A díszítőelemek csak a látványt szolgálják, a képernyőolvasók kihagyják őket.
 	Describe what this table shows, for people who can't see it.	Írd le, mit mutat ez a táblázat, azok számára, akik nem látják.

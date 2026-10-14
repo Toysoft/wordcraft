@@ -1591,6 +1591,8 @@
 	Warnings ({n})	警告 ({n})
 	Tips ({n})	提示 ({n})
 	No accessibility issues found.	未发现辅助功能问题。
+	No comments in this document.	本文档中没有批注。
+	Select text in the document to add the first comment.	在文档中选择文本以添加第一条批注。
 	Describe what this object shows, for people who can't see it.	请为看不见的人描述此对象显示的内容。
 	Decorative objects only add visual interest: screen readers skip them.	装饰性对象仅增添视觉效果：屏幕阅读器会跳过它们。
 	Describe what this table shows, for people who can't see it.	请为看不见的人描述此表格显示的内容。

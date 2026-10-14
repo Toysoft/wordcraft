@@ -1580,6 +1580,8 @@
 	Warnings ({n})	警告 ({n})
 	Tips ({n})	提示 ({n})
 	No accessibility issues found.	找不到協助工具問題。
+	No comments in this document.	這份文件中沒有註解。
+	Select text in the document to add the first comment.	在文件中選取文字以新增第一則註解。
 	Describe what this object shows, for people who can't see it.	請為看不見的人描述此物件顯示的內容。
 	Decorative objects only add visual interest: screen readers skip them.	裝飾用物件只增添視覺效果：螢幕助讀程式會略過它們。
 	Describe what this table shows, for people who can't see it.	請為看不見的人描述此表格顯示的內容。

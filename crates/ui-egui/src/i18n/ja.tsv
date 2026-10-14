@@ -1579,6 +1579,8 @@
 	Warnings ({n})	警告 ({n})
 	Tips ({n})	ヒント ({n})
 	No accessibility issues found.	アクセシビリティの問題は見つかりませんでした。
+	No comments in this document.	このドキュメントにはコメントがありません。
+	Select text in the document to add the first comment.	最初のコメントを追加するには、ドキュメント内のテキストを選択してください。
 	Describe what this object shows, for people who can't see it.	このオブジェクトが示す内容を、見ることができない人のために説明してください。
 	Decorative objects only add visual interest: screen readers skip them.	装飾用のオブジェクトは見た目を整えるだけなので、スクリーン リーダーは読み上げません。
 	Describe what this table shows, for people who can't see it.	この表が示す内容を、見ることができない人のために説明してください。

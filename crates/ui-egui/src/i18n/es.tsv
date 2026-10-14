@@ -1619,6 +1619,8 @@
 	Warnings ({n})	Advertencias ({n})
 	Tips ({n})	Sugerencias ({n})
 	No accessibility issues found.	No se encontraron problemas de accesibilidad.
+	No comments in this document.	No hay comentarios en este documento.
+	Select text in the document to add the first comment.	Seleccione texto en el documento para agregar el primer comentario.
 	Describe what this object shows, for people who can't see it.	Describa lo que muestra este objeto para quienes no pueden verlo.
 	Decorative objects only add visual interest: screen readers skip them.	Los objetos decorativos solo aportan interés visual: los lectores de pantalla los omiten.
 	Describe what this table shows, for people who can't see it.	Describa lo que muestra esta tabla para quienes no pueden verla.

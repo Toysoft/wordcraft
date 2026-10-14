@@ -1591,6 +1591,8 @@
 	Warnings ({n})	Попередження ({n})
 	Tips ({n})	Поради ({n})
 	No accessibility issues found.	Проблем із доступністю не знайдено.
+	No comments in this document.	У цьому документі немає коментарів.
+	Select text in the document to add the first comment.	Виділіть текст у документі, щоб додати перший коментар.
 	Describe what this object shows, for people who can't see it.	Опишіть, що показує цей об’єкт, для тих, хто не може його бачити.
 	Decorative objects only add visual interest: screen readers skip them.	Декоративні об’єкти лише прикрашають документ: засоби читання з екрана їх пропускають.
 	Describe what this table shows, for people who can't see it.	Опишіть, що показує ця таблиця, для тих, хто не може її бачити.

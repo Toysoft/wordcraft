@@ -1831,6 +1831,8 @@ preview	Title	Örnek
 	Warnings ({n})	Uyarılar ({n})
 	Tips ({n})	İpuçları ({n})
 	No accessibility issues found.	Erişilebilirlik sorunu bulunamadı.
+	No comments in this document.	Bu belgede yorum yok.
+	Select text in the document to add the first comment.	İlk yorumu eklemek için belgede metin seçin.
 	Describe what this object shows, for people who can't see it.	Bu nesnenin neyi gösterdiğini, göremeyenler için açıklayın.
 	Decorative objects only add visual interest: screen readers skip them.	Dekoratif nesneler yalnızca görsel çekicilik katar: ekran okuyucular bunları atlar.
 	Describe what this table shows, for people who can't see it.	Bu tablonun neyi gösterdiğini, göremeyenler için açıklayın.

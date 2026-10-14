@@ -1781,6 +1781,8 @@
 	Warnings ({n})	Upozornění ({n})
 	Tips ({n})	Tipy ({n})
 	No accessibility issues found.	Nebyly nalezeny žádné problémy s přístupností.
+	No comments in this document.	V tomto dokumentu nejsou žádné komentáře.
+	Select text in the document to add the first comment.	Vyberte text v dokumentu a přidejte první komentář.
 	Describe what this object shows, for people who can't see it.	Popište, co tento objekt zobrazuje, pro lidi, kteří jej nevidí.
 	Decorative objects only add visual interest: screen readers skip them.	Dekorativní objekty slouží pouze jako vizuální doplněk: čtečky obrazovky je přeskakují.
 	Describe what this table shows, for people who can't see it.	Popište, co tato tabulka zobrazuje, pro lidi, kteří ji nevidí.

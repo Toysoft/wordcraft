@@ -354,9 +354,19 @@ fn comments(app: &mut WordApp, ui: &mut Ui) {
     }
     ui.separator();
     let list = app.session.run("review.comments", &json!({})).unwrap_or_default();
+    let items: Vec<Value> = list.as_array().cloned().unwrap_or_default();
+    if items.is_empty() {
+        ui.add_space(16.0);
+        ui.vertical_centered(|ui| {
+            ui.label(egui::RichText::new(tl!("No comments in this document.")).weak());
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(tl!("Select text in the document to add the first comment.")).small().weak());
+        });
+        return;
+    }
     let t = Tokens::get(ui.ctx());
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for c in list.as_array().cloned().unwrap_or_default() {
+        for c in items {
             let id = c.get("id").and_then(Value::as_u64).unwrap_or(0);
             let reply = c.get("parent").is_some_and(|p| !p.is_null());
             egui::Frame::NONE.fill(t.input).stroke(Stroke::new(1.0, t.border)).corner_radius(6).inner_margin(8).show(ui, |ui| {
@@ -772,5 +782,36 @@ mod navigation_tests {
             );
             output.drop_without_applying_deltas();
         }
+    }
+
+    /// An empty Comments pane says so and points at the first comment; once a comment
+    /// exists the cards are back and the empty state is gone.
+    #[test]
+    fn comments_pane_shows_an_empty_state() {
+        fn drawn_texts(ctx: &egui::Context, app: &mut crate::WordApp) -> Vec<String> {
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(300.0, 600.0));
+            let output = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                super::comments(app, ui);
+            });
+            let mut texts = Vec::new();
+            for s in &output.shapes {
+                if let egui::Shape::Text(t) = &s.shape {
+                    texts.push(t.galley.text().to_string());
+                }
+            }
+            output.drop_without_applying_deltas();
+            texts
+        }
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let texts = drawn_texts(&ctx, &mut app);
+        assert!(texts.iter().any(|t| t.contains("No comments in this document.")), "empty state missing: {texts:?}");
+
+        app.run("review.newComment", serde_json::json!({"text": "First!"})).expect("new comment on a blank document");
+        let texts = drawn_texts(&ctx, &mut app);
+        assert!(texts.iter().any(|t| t.contains("First!")), "comment card missing: {texts:?}");
+        assert!(texts.iter().all(|t| !t.contains("No comments in this document.")), "empty state lingered: {texts:?}");
     }
 }

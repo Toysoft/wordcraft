@@ -1702,6 +1702,8 @@
 	Warnings ({n})	Hoiatused ({n})
 	Tips ({n})	Näpunäited ({n})
 	No accessibility issues found.	Ligipääsetavuse probleeme ei leitud.
+	No comments in this document.	Selles dokumendis pole kommentaare.
+	Select text in the document to add the first comment.	Esimese kommentaari lisamiseks valige dokumendis tekst.
 	Describe what this object shows, for people who can't see it.	Kirjeldage, mida see objekt näitab, neile, kes seda ei näe.
 	Decorative objects only add visual interest: screen readers skip them.	Dekoratiivsed objektid lisavad ainult visuaalset huvi: ekraanilugerid jätavad need vahele.
 	Describe what this table shows, for people who can't see it.	Kirjeldage, mida see tabel näitab, neile, kes seda ei näe.

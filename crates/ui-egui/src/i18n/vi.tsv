@@ -1415,6 +1415,8 @@
 	Warnings ({n})	Cảnh báo ({n})
 	Tips ({n})	Mẹo ({n})
 	No accessibility issues found.	Không tìm thấy vấn đề về khả năng tiếp cận nào.
+	No comments in this document.	Không có nhận xét nào trong tài liệu này.
+	Select text in the document to add the first comment.	Chọn văn bản trong tài liệu để thêm nhận xét đầu tiên.
 	Describe what this object shows, for people who can't see it.	Mô tả những gì đối tượng này cho thấy, cho người không nhìn thấy được.
 	Decorative objects only add visual interest: screen readers skip them.	Các đối tượng trang trí chỉ để tăng phần nhìn: trình đọc màn hình sẽ bỏ qua chúng.
 	Describe what this table shows, for people who can't see it.	Mô tả những gì bảng này cho thấy, cho người không nhìn thấy được.

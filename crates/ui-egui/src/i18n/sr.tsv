@@ -1593,6 +1593,8 @@
 	Warnings ({n})	Упозорења ({n})
 	Tips ({n})	Савети ({n})
 	No accessibility issues found.	Није пронађен ниједан проблем приступачности.
+	No comments in this document.	У овом документу нема коментара.
+	Select text in the document to add the first comment.	Изаберите текст у документу да бисте додали први коментар.
 	Describe what this object shows, for people who can't see it.	Опишите шта овај објекат приказује, за оне који не могу да га виде.
 	Decorative objects only add visual interest: screen readers skip them.	Декоративни објекти само доприносе изгледу: читачи екрана их прескачу.
 	Describe what this table shows, for people who can't see it.	Опишите шта ова табела приказује, за оне који не могу да је виде.
