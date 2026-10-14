@@ -123,6 +123,8 @@ pub struct Para {
     pub spacing: Spacing,
     /// Borders the source puts on the paragraph itself (RTF `\brdrb`…).
     pub borders: Option<wordcraft_doc::props::Borders>,
+    /// The section this paragraph ends (RTF `\sect`), as the document's last paragraph of it.
+    pub section: Option<Box<wordcraft_doc::SectionProps>>,
 }
 
 impl Para {
@@ -463,6 +465,7 @@ impl<'a> Builder<'a> {
         if p.page_break {
             out.props.page_break_before = Some(true);
         }
+        out.section.clone_from(&p.section);
         // Inlines are appended in order, so build the runs directly: inserting each one through
         // `Paragraph::insert_text` rescans every earlier run and is quadratic in their number.
         for i in &p.inlines {
@@ -803,6 +806,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
         inlines: Vec::new(),
         spacing: Spacing::default(),
         borders: None,
+        section: None,
     };
     let in_code = kind == Kind::Code;
     let mut k = 0usize;
@@ -828,6 +832,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         inlines: Vec::new(),
                         spacing: Spacing::default(),
                         borders: None,
+                        section: None,
                     };
                     let prev = std::mem::replace(&mut out, next);
                     if prev.inlines.is_empty() {
