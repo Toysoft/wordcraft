@@ -78,6 +78,7 @@
 	By author	Par auteur
 	Changed lines:	Lignes modifiées :
 	Click level to modify:	Cliquez sur le niveau à modifier :
+	cm	cm
 	Color only	Couleur uniquement
 	Define New Multilevel List	Définir une nouvelle liste à plusieurs niveaux
 	Define New Multilevel List…	Définir une nouvelle liste à plusieurs niveaux…
@@ -97,6 +98,7 @@
 	Link level to style:	Lier le niveau au style :
 	List Definition	Définition de liste
 	Mirror indents	Retraits en miroir
+	mm	mm
 	No document is open. Create a document or open one first.	Aucun document n’est ouvert. Créez ou ouvrez d’abord un document.
 	Nothing	Rien
 	Number alignment:	Alignement des numéros :
@@ -106,6 +108,7 @@
 	Outside border	Bordure extérieure
 	Overtype	Refrappe
 	Outside:	Extérieur :
+	pi	pi
 	Restart list after:	Redémarrer la liste après :
 	Right border	Bordure droite
 	Save the document to turn on AutoSave	Enregistrez le document pour activer l’enregistrement automatique

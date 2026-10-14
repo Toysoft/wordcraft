@@ -226,6 +226,7 @@
 	Close	Zavřít
 	Close Equation	Zavřít rovnici
 	Close Header and Footer	Zavřít záhlaví a zápatí
+	cm	cm
 	Col #:	Sloupec č.:
 	Collapse Selection	Sbalit výběr
 	Color	Barva
@@ -314,6 +315,7 @@
 	Deletions:	Odstranění:
 	Description:	Popis:
 	Design	Návrh
+	mm	mm
 	No document is open. Create a document or open one first.	Není otevřen žádný dokument. Nejprve dokument vytvořte nebo otevřete.
 	development build	vývojové sestavení
 	Diagonal	Diagonální
@@ -486,6 +488,7 @@
 	Current - Linear	Aktuální – lineární
 	Current - Professional	Aktuální – profesionální
 	Centered as Group	Na střed jako skupina
+	pi	pi
 	✓ None	✓ Žádné
 	Function	Funkce
 	General	Obecné

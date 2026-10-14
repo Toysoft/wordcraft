@@ -75,6 +75,7 @@
 	Changed lines:	変更された行:
 	Click level to modify:	変更するレベルをクリック:
 	Click to switch back to inserting	クリックすると挿入モードに戻ります
+	cm	cm
 	Color only	色のみ
 	Compress punctuation at the start of a line	行頭の約物を詰める
 	Couldn't make WordCraft the default: {error}	WordCraft を既定のアプリにできませんでした: {error}
@@ -118,6 +119,7 @@
 	Measurement units:	単位:
 	Millimeters	ミリメートル
 	Mirror indents	左右対称のインデント
+	mm	mm
 	More templates →	その他のテンプレート →
 	New comments and tracked changes are recorded under this name and these initials.	新しいコメントと変更履歴は、この名前とイニシャルで記録されます。
 	New word	新しい単語
@@ -135,6 +137,7 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	設定 › 既定のアプリ を開きます。そこで .docx などの文書の種類ごとに WordCraft を選びます。
 	Overtype	上書き
 	Overtype (typing replaces the characters after the caret)	上書き (入力した文字がカーソルの後ろの文字を置き換えます)
+	pi	pi
 	Show alignment guides when moving pictures and shapes	画像や図形を移動するときに配置ガイドを表示する
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	移動したオブジェクトは、ページの端と中央、余白、ほかのオブジェクトに吸着します。Alt キーを押しながら移動すると自由に動かせます。
 	Page display	ページの表示

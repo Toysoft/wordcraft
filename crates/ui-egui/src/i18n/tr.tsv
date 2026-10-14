@@ -133,6 +133,7 @@
 	Clipboard	Pano
 	Close	Kapat
 	Close Header and Footer	Üstbilgi ve Altbilgiyi Kapat
+	cm	cm
 	Collapse Selection	Seçimi Daralt
 	Color	Renk
 	Color:	Renk:
@@ -192,6 +193,7 @@
 	Delete Style	Stili Sil
 	Delete Table	Tabloyu Sil
 	Design	Tasarım
+	mm	mm
 	No document is open. Create a document or open one first.	Açık belge yok. Önce bir belge oluşturun veya açın.
 	development build	geliştirme derlemesi
 	Diagonal	Çapraz
@@ -534,6 +536,7 @@
 	PDF document (*.pdf)	PDF belgesi (*.pdf)
 	Pen	Kalem
 	Pencil	Kurşun Kalem
+	pi	pi
 	Picture Border	Resim Kenarlığı
 	Picture Format	Resim Biçimi
 	Picture Styles	Resim Stilleri

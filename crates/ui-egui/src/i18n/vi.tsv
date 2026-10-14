@@ -80,6 +80,7 @@
 	By author	Theo tác giả
 	Changed lines:	Đường thay đổi:
 	Click level to modify:	Bấm vào cấp độ để chỉnh sửa:
+	cm	cm
 	Color only	Chỉ màu
 	Define New Multilevel List	Tạo danh sách đa cấp mới
 	Define New Multilevel List…	Tạo danh sách đa cấp mới…
@@ -95,11 +96,13 @@
 	Legal style numbering	Đánh số kiểu pháp lý
 	Link level to style:	Liên kết cấp độ với kiểu:
 	List Definition	Định nghĩa danh sách
+	mm	mm
 	Nothing	Không có
 	Number alignment:	Căn lề số:
 	Number format	Định dạng số
 	Number style for this level:	Kiểu số cho cấp độ này:
 	Outside border	Viền ngoài
+	pi	pi
 	Restart list after:	Đánh số lại sau:
 	Right border	Viền phải
 	Save the document to turn on AutoSave	Lưu tài liệu để bật Tự động lưu
