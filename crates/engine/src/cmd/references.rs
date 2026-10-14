@@ -783,18 +783,22 @@ pub fn update_seq(s: &mut Session) -> Result<(), CmdError> {
     Ok(())
 }
 
-/// Update fields: dates, REF/PAGEREF, TITLE, AUTHOR and NUMWORDS in every story (body, headers,
-/// footers, notes, text boxes); SEQ numbering and TOC in the body.
+/// Update fields of the story being edited, as Word's F9 does: dates, REF/PAGEREF, TITLE, AUTHOR
+/// and NUMWORDS in the body, or in the header, footer, note or text box the caret is in (the body's
+/// fields stay as they are then). SEQ numbering, citations and TOC are body-only, so they run only
+/// when the caret is in the body.
 pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
-    update_seq(s)?;
+    let story = s.sel.focus.story;
+    if story == StoryRef::Body {
+        update_seq(s)?;
+    }
     let mut pages: std::collections::HashMap<String, u32> = Default::default();
     for (name, pos) in s.doc.bookmarks() {
         let l = s.layout();
         let page = l.caret(&pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1);
         pages.entry(name).or_insert(page);
     }
-    let stories: Vec<StoryRef> = std::iter::once(StoryRef::Body).chain(s.doc.parts.keys().map(|k| StoryRef::Part(*k))).collect();
-    for (story, path) in stories.into_iter().flat_map(|st| s.doc.para_paths(st).into_iter().map(move |p| (st, p))).collect::<Vec<_>>() {
+    for path in s.doc.para_paths(story) {
         let Some(p) = s.doc.para(story, &path) else { continue };
         if !p.objects.iter().any(|o| matches!(o, InlineObject::Field { .. })) {
             continue;
@@ -831,6 +835,9 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
             }
         }
         para.touch();
+    }
+    if story != StoryRef::Body {
+        return Ok(());
     }
     super::citations::update_citations(s)?;
     update_toc(s)
@@ -1028,37 +1035,60 @@ mod tests {
         assert_eq!(s.doc.body.last().unwrap().as_para().unwrap().plain_text(), "I");
     }
 
-    /// #1706: Update Field refreshes fields in headers and other parts, not just the body.
-    #[test]
-    fn update_fields_reaches_header_parts() {
+    /// A document with a body AUTHOR field and a header holding AUTHOR, NUMWORDS and a locked TITLE,
+    /// all stale; the author is "Ada".
+    fn doc_with_header_fields() -> (wordcraft_doc::Document, u32) {
         use wordcraft_doc::{CharProps, Paragraph, PartKind};
-        let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: "stale".into(), locked: false, code: false };
+        let field = |instr: &str, locked: bool| InlineObject::Field { instr: instr.into(), result: "stale".into(), locked, code: false };
         let mut doc = wordcraft_doc::Document::from_text("one two three");
         doc.core.creator = "Ada".into();
         let mut p = Paragraph::new();
-        p.insert_object(0, field("AUTHOR"), &CharProps::default()).unwrap();
-        let off = p.len();
-        p.insert_object(off, field("NUMWORDS"), &CharProps::default()).unwrap();
-        let off = p.len();
-        let locked = InlineObject::Field { instr: "TITLE".into(), result: "stale".into(), locked: true, code: false };
-        p.insert_object(off, locked, &CharProps::default()).unwrap();
+        for (instr, locked) in [("AUTHOR", false), ("NUMWORDS", false), ("TITLE", true)] {
+            let off = p.len();
+            p.insert_object(off, field(instr, locked), &CharProps::default()).unwrap();
+        }
         let body_path = doc.para_paths(StoryRef::Body).remove(0);
-        doc.para_mut(StoryRef::Body, &body_path).unwrap().insert_object(0, field("AUTHOR"), &CharProps::default()).unwrap();
+        doc.para_mut(StoryRef::Body, &body_path).unwrap().insert_object(0, field("AUTHOR", false), &CharProps::default()).unwrap();
         let hdr = doc.add_part(PartKind::Header, vec![std::sync::Arc::new(wordcraft_doc::Block::Para(p))]);
-        let mut s = Session::new(doc);
-        s.run("references.updateFields", &json!({})).unwrap();
-        let mut got = Vec::new();
-        for path in s.doc.para_paths(StoryRef::Part(hdr)) {
-            for o in &s.doc.para(StoryRef::Part(hdr), &path).unwrap().objects {
+        (doc, hdr)
+    }
+
+    fn story_fields(s: &Session, story: StoryRef) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for path in s.doc.para_paths(story) {
+            for o in &s.doc.para(story, &path).unwrap().objects {
                 if let InlineObject::Field { instr, result, .. } = o {
-                    got.push((instr.clone(), result.clone()));
+                    out.push((instr.clone(), result.clone()));
                 }
             }
         }
+        out
+    }
+
+    /// #1706 (Word check): Update Field with the caret in the body leaves a header's fields alone.
+    #[test]
+    fn update_fields_in_the_body_leaves_headers_alone() {
+        let (doc, hdr) = doc_with_header_fields();
+        let mut s = Session::new(doc);
+        s.run("references.updateFields", &json!({})).unwrap();
+        assert_eq!(story_fields(&s, StoryRef::Body)[0], ("AUTHOR".to_string(), "Ada".to_string()));
+        assert!(story_fields(&s, StoryRef::Part(hdr)).iter().all(|(_, r)| r == "stale"), "{:?}", story_fields(&s, StoryRef::Part(hdr)));
+    }
+
+    /// #1706: with the caret in a header (or other part), Update Field refreshes that part's
+    /// fields, but not locked ones and not the body's.
+    #[test]
+    fn update_fields_in_a_header_updates_that_header() {
+        let (doc, hdr) = doc_with_header_fields();
+        let mut s = Session::new(doc);
+        let path = s.doc.para_paths(StoryRef::Part(hdr)).remove(0);
+        s.sel = crate::session::Selection::caret(Pos::new(StoryRef::Part(hdr), path, 0));
+        s.run("references.updateFields", &json!({})).unwrap();
+        let got = story_fields(&s, StoryRef::Part(hdr));
         assert_eq!(got.len(), 3, "{got:?}");
         assert_eq!(got[0].1, "Ada");
         assert_eq!(got[1].1, s.doc.word_count().to_string());
         assert_eq!(got[2].1, "stale", "a locked field stays as it was");
-        assert_eq!(fields(&s)[0], ("AUTHOR".to_string(), "Ada".to_string()), "the body field still updates");
+        assert!(story_fields(&s, StoryRef::Body).iter().all(|(_, r)| r == "stale"), "the body is not touched");
     }
 }
