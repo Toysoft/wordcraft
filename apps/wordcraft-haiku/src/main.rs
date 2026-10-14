@@ -46,16 +46,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let control_stdio = args.iter().any(|arg| arg == "--control-stdio");
     let sample = args.iter().any(|arg| arg == "--sample");
     let files: Vec<_> = args.into_iter().filter(|arg| arg != "--sample" && arg != "--control-stdio").collect();
-    let mut configuration = SoftwareBackendAppConfiguration::default();
-    #[cfg(target_os = "haiku")]
-    {
-        configuration.haiku_exit_process_on_close = true;
-    }
-    configuration.viewport_builder = egui::ViewportBuilder::default()
-        .with_title("WordCraft")
-        .with_app_id("ai.storyteller.wordcraft")
-        .with_inner_size([1024.0, 720.0])
-        .with_min_inner_size([760.0, 480.0]);
+    let configuration = SoftwareBackendAppConfiguration {
+        #[cfg(target_os = "haiku")]
+        haiku_exit_process_on_close: true,
+        viewport_builder: egui::ViewportBuilder::default()
+            .with_title("WordCraft")
+            .with_app_id("ai.storyteller.wordcraft")
+            .with_inner_size([1024.0, 720.0])
+            .with_min_inner_size([760.0, 480.0]),
+        ..Default::default()
+    };
     run_app_with_software_backend(configuration, move |ctx| {
         let doc =
             if sample { wordcraft_engine::sample::sample_document() } else { wordcraft_engine::blank_document(&wordcraft_geom::Region::default()) };
