@@ -749,8 +749,9 @@ mod tests {
         for language in ["en", "ru"] {
             for percent in [100, 125, 150] {
                 let mut h = nav_harness(language, percent);
-                assert_eq!(h.ctx.zoom_factor(), f32::from(percent) / 100.0);
-                assert_eq!(h.ctx.pixels_per_point(), 2.0 * f32::from(percent) / 100.0);
+                // An interface size is absolute (#822): `percent` points per 100 screen pixels,
+                // whatever the display's own scale (2.0 here).
+                assert_eq!(h.ctx.pixels_per_point(), f32::from(percent) / 100.0);
                 for selected in ["general", "accessibility"] {
                     h.state_mut().run("file.options", json!({"pane": selected})).unwrap();
                     h.run_steps(4);
