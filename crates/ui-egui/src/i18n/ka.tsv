@@ -2479,22 +2479,13 @@ preview	Title	სათაური
 	The spelling and grammar check is complete.	მართლწერისა და გრამატიკის შემოწმება დასრულდა.
 	Column width	სვეტის სიგანე
 	Edit Document	დოკუმენტის რედაქტირება
-	Envelope #10   4.12" × 9.5"	კონვერტი #10   4,12" × 9,5"
-	Executive   7.25" × 10.5"	Executive   7,25" × 10,5"
 	Go to what:	რაზე გადავიდეს:
-	Legal   8.5" × 14"	Legal   8,5" × 14"
-	Letter   8.5" × 11"	Letter   8,5" × 11"
 	Reading Mode	კითხვის რეჟიმი
 	Researcher needs an online service; WordCraft keeps your documents offline.	მკვლევარს ონლაინ სერვისი სჭირდება; WordCraft თქვენს დოკუმენტებს ოფლაინ ინახავს.
-	Statement   5.5" × 8.5"	Statement   5,5" × 8,5"
 	Suggested	შემოთავაზებული
-	Tabloid   11" × 17"	Tabloid   11" × 17"
 	Text size	ტექსტის ზომა
 	These settings will be used for new documents.	ეს პარამეტრები ახალი დოკუმენტებისთვის გამოიყენება.
 	Type +2 or -1 to move from the page you are on.	მიმდინარე გვერდიდან გადასაადგილებლად აკრიფეთ +2 ან -1.
-	bad parameters: `path` (string) is required	არასწორი პარამეტრები: `path` (ტექსტური) აუცილებელია
-	bad parameters: no comment here	არასწორი პარამეტრები: აქ კომენტარი არ არის
-	bad parameters: select a citation or give `entry`	არასწორი პარამეტრები: მონიშნეთ ციტატა ან მიუთითეთ `entry`
 	can't split at the first row	პირველ სტრიქონზე დაყოფა შეუძლებელია
 	select two or more cells to merge	შესაერთებლად მონიშნეთ ორი ან მეტი უჯრა
 	there is no ink to replay	დასაკრავი მელანი არ არის
@@ -2508,3 +2499,25 @@ preview	Title	სათაური
 	Leave out the date and time of comments and tracked changes when saving	შენახვისას კომენტარებისა და ჩაწერილი ცვლილებების თარიღისა და დროის გამოტოვება
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	რედაქტირებად დოკუმენტში სახელები და თარიღები რჩება; მათ მხოლოდ შენახული ფაილი არ შეიცავს.
 	Privacy Settings	კონფიდენციალურობის მიმდინარე პარამეტრები
+	Croatian	ხორვატული
+	Envelope #10	კონვერტი #10
+	Envelope DL	კონვერტი DL
+	Full\nScreen	მთელ\nეკრანზე
+	Full Screen	მთელ ეკრანზე
+	Language Preferences…	ენის პარამეტრები…
+	Set Proofing Language…	კორექტურის ენის არჩევა…
+	Type Character Code	სიმბოლოს კოდის აკრეფა
+	Use the browser's full screen (F11)	გამოიყენეთ ბრაუზერის სრულეკრანიანი რეჟიმი (F11)
+	{kind}, {columns} × {rows}, {size} ({paper})	{kind}, {columns} × {rows}, {size} ({paper})
+	{name}   {height} × {width} in	{name}   {height} × {width} დუიმი
+	{name}   {height} × {width} mm	{name}   {height} × {width} მმ
+	{width} × {height} mm	{width} × {height} მმ
+	Custom size	მორგებული ზომა
+	More Paper Sizes…	ფურცლის სხვა ზომები…
+	Paper	ქაღალდი
+	Paper size:	ფურცლის ზომა:
+	The margins don't fit on a page this size; make the margins smaller first.	ველები ამ ზომის გვერდზე არ ეტევა; ჯერ ველები შეამცირეთ.
+	Saving {name} was cancelled, so it is still open and nothing was lost.	შენახვა გაუქმდა ({name}): დოკუმენტი ისევ ღიაა და არაფერი დაკარგულა.
+	Waiting for the save to finish…	შენახვის დასრულების მოლოდინი…
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	გადაადგილებული ობიექტები ებმის გვერდის კიდეებს, ცენტრს, ველებს და სხვა ობიექტებს. თავისუფლად გადასაადგილებლად დააჭირეთ Alt-ს.
+	Show alignment guides when moving pictures and shapes	გასწორების დამხმარე ხაზების ჩვენება სურათებისა და ფიგურების გადაადგილებისას
