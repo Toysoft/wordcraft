@@ -1313,22 +1313,26 @@ impl WordApp {
         }
     }
 
-    /// The window caption is painted with the semibold interface face (Inter). A file name in a
-    /// script those faces lack would otherwise be drawn as `?`. Borrow the document fonts'
-    /// fallback faces, as IME composition does (#565). A CJK name uses the CJK UI font instead:
-    /// those collections are too large to add here.
+    /// File names and Recent paths use the interface faces (Inter). Scripts those faces lack
+    /// would be drawn as `?` or boxes, even before a document is opened. Borrow the document
+    /// fonts' fallback faces, as IME composition does (#565). CJK uses the CJK UI font instead.
     fn ensure_caption_fonts(&mut self) {
-        let stem = self.title_stem();
-        if stem.chars().any(wordcraft_fonts::is_cjk) {
-            self.want_system_cjk = true;
+        let mut names = vec![self.title_stem()];
+        if self.ui.backstage && matches!(self.ui.backstage_page.as_str(), "home" | "open") {
+            names.extend(self.ui.recent.iter().take(self.ui.recent_shown()).cloned());
         }
-        let new = theme::faces_for_preedit(&stem, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
-            wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
-        });
-        if !new.is_empty() {
-            self.canvas.ime_faces.extend(new);
-            // Fonts are already installed for this frame's language; load the new faces too.
-            self.styled = false;
+        for name in names {
+            if name.chars().any(wordcraft_fonts::is_cjk) {
+                self.want_system_cjk = true;
+            }
+            let new = theme::faces_for_preedit(&name, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
+                wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
+            });
+            if !new.is_empty() {
+                self.canvas.ime_faces.extend(new);
+                // Fonts are already installed for this frame's language; load the new faces too.
+                self.styled = false;
+            }
         }
     }
 
@@ -2027,6 +2031,53 @@ mod tests {
         frame(&mut cjk);
         assert!(cjk.want_system_cjk, "a CJK file name loads the CJK UI font");
         assert!(cjk.canvas.ime_faces.is_empty(), "CJK collections are not copied into the fallback list");
+    }
+
+    #[test]
+    fn recent_thai_paths_load_interface_fonts_without_opening_a_document() {
+        let Some(face) = wordcraft_fonts::FontDb::global().fallback_for('ก', u32::MAX) else {
+            eprintln!("skipped: no installed Thai font");
+            return;
+        };
+        assert!(face.data().len() <= 16 << 20, "the Thai fallback fits the interface font limit");
+        let paths = vec!["D:/เอกสาร/รายงานภาษาไทย Krones.docx".to_string(), "D:/เอกสารไทย/report.docx".to_string()];
+        for page in ["home", "open"] {
+            let ctx = egui::Context::default();
+            let mut a = app();
+            a.ui.backstage = true;
+            a.ui.backstage_page = page.into();
+            a.ui.recent = paths.clone();
+            for _ in 0..6 {
+                ctx.run_ui(Default::default(), |ui| {
+                    a.logic(ui.ctx());
+                    a.ui(ui);
+                })
+                .drop_without_applying_deltas();
+            }
+            assert!(a.session.path.is_none(), "no document was opened");
+            for font in [theme::medium(13.0), theme::regular(11.0)] {
+                // Inspect rendered glyphs: egui 0.36's has_glyph can report a false negative
+                // when the Thai fallback also owns the replacement-square glyph.
+                let galley = ctx.fonts_mut(|f| f.layout_no_wrap("กข".into(), font.clone(), egui::Color32::BLACK));
+                let glyphs: Vec<_> = galley.rows.iter().flat_map(|r| &r.glyphs).map(|g| g.uv_rect).collect();
+                assert_eq!(glyphs.len(), 2);
+                assert!(glyphs.iter().all(|g| !g.is_nothing()), "Recent {page} renders visible Thai glyphs in {font:?}");
+                assert_ne!(glyphs[0], glyphs[1], "Thai letters must not both render as the replacement glyph");
+                assert!(
+                    "เอกสารรายงานภาษาไทย".chars().all(|c| a.canvas.ime_faces.iter().any(|f| f.covers(c))),
+                    "fallback faces cover the full Thai path"
+                );
+            }
+            let count = a.canvas.ime_faces.len();
+            assert!(count > 0, "Recent borrows an installed Thai face");
+            ctx.run_ui(Default::default(), |ui| a.logic(ui.ctx())).drop_without_applying_deltas();
+            assert_eq!(a.canvas.ime_faces.len(), count, "fallback faces are not added every frame");
+            assert_eq!(a.ui.recent, paths, "font loading preserves the stored paths");
+        }
+        let mut hidden = app();
+        hidden.ui.recent = paths;
+        hidden.ensure_caption_fonts();
+        assert!(hidden.canvas.ime_faces.is_empty(), "hidden Recent entries need no fonts");
     }
 
     fn app() -> WordApp {

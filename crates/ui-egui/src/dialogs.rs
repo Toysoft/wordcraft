@@ -1588,7 +1588,14 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         ui.radio_value(rtl, true, tl!("Right-to-left"));
                         ui.radio_value(rtl, false, tl!("Left-to-right"));
                     });
-                    const ALIGNS: [(&str, &str); 4] = [("left", "Left"), ("center", "Center"), ("right", "Right"), ("justify", "Justify")];
+                    const ALIGNS: [(&str, &str); 6] = [
+                        ("left", "Left"),
+                        ("center", "Center"),
+                        ("right", "Right"),
+                        ("justify", "Justify"),
+                        ("distribute", "Distributed"),
+                        ("thaiDistribute", "Thai Distributed"),
+                    ];
                     ui.horizontal(|ui| {
                         ui.label(tl!("Alignment:"));
                         let shown = ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l));

@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** trivial (VML text boxes keep their internal margins, fit to their text and vertical alignment; hidden drawings not shown; previously trivial: equations as MathML in HTML export, copy and paste, #816; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (Thai Distributed DOCX identity and same-environment A4 reopen/layout checks; HTML/RTF/ODT fallback documented; previously VML text boxes and hidden drawings) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -16,6 +16,14 @@ occasional.
 
 Weights are the share of a Word user's file traffic (estimate). Read/write: ✅ yes, 🟡 partial,
 ❌ no, — Word doesn't either.
+
+DOCX paragraph alignment retains `w:jc` `distribute` versus `thaiDistribute` through direct
+properties, style inheritance and paragraph overrides. The issue #1548 A4 fixture is saved,
+reopened and saved again; under the same local fonts/settings it keeps source text, font, alignment,
+page setup, line breaks and glyph x positions, and its XML contains `w:val="thaiDistribute"`.
+HTML, RTF and ODT export Thai Distributed as ordinary Justify; those formats do not preserve the
+Thai-specific mode. Local PDF parsing and text/position checks establish WordCraft PDF/layout
+consistency, not cross-engine parity with Microsoft Word.
 
 | Format | Weight | Word | WordCraft read | WordCraft write | Fidelity | Hours | How it's tested | Notes |
 |---|---|---|---|---|---|---|---|---|
@@ -163,6 +171,8 @@ raise readiness estimates. No Word-derived files are fixtures.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | DOCX reader/writer distinguish `distribute` and `thaiDistribute`; direct/style/override round trips and repeated reopen coverage; HTML/RTF/ODT use Justify fallback |
+| 2026-10-14 | minor | Task 3 A4 issue #1548 DOCX two-round reopen check, `thaiDistribute` XML inspection, font and same-environment line/glyph-position parity; Angsana New and Tahoma installed, Sarabun skipped. |
 | 2026-10-12 | trivial | VML text boxes keep their internal margins (`inset`), fit to their text (`mso-fit-shape-to-text`) and vertical alignment (`v-text-anchor`); hidden drawings (`visibility:hidden`, `wp:docPr/@hidden`) are kept but not shown |
 | 2026-10-13 | trivial | Remove personal information / Remove date and time settings kept and honoured on save: anonymous annotation authors, no creator or last-modified-by, no annotation dates (#1062) |
 | 2026-10-12 | trivial | Direct run-level `w:contentPart` InkML keeps its relationship, content type and bytes through DOCX edits and repeated saves; nested group/canvas ink and native rendering remain missing |
