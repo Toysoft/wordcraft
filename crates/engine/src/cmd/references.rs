@@ -1049,7 +1049,8 @@ mod tests {
     /// all stale; the author is "Ada".
     fn doc_with_header_fields() -> (wordcraft_doc::Document, u32) {
         use wordcraft_doc::{CharProps, Paragraph, PartKind};
-        let field = |instr: &str, locked: bool| InlineObject::Field { instr: instr.into(), result: "stale".into(), locked, code: false };
+        let field =
+            |instr: &str, locked: bool| InlineObject::Field { instr: instr.into(), result: "stale".into(), locked, code: false, form: String::new() };
         let mut doc = wordcraft_doc::Document::from_text("one two three");
         doc.core.creator = "Ada".into();
         let mut p = Paragraph::new();
