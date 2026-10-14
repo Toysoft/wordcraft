@@ -151,6 +151,13 @@ pub struct CanvasState {
 }
 
 impl CanvasState {
+    /// Stop a text-selection drag when the pointer gesture becomes an object drag.
+    pub(crate) fn cancel_text_drag(&mut self) {
+        self.dragging = false;
+        self.column_drag = None;
+        self.unit_drag = None;
+    }
+
     /// How many pages have a cached rendering.
     #[cfg(test)]
     pub(crate) fn texture_count(&self) -> usize {
@@ -887,7 +894,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // momentum, wheel notches eased in (or all at once with animation effects off). Applied
     // before drawing, so it shows this frame. In reading mode, wheel and touchpad events turn
     // whole columns instead.
-    let hovered = ui.rect_contains_pointer(area) && ui.ctx().dragged_id().is_none();
+    let hovered = wheel_hovered(ui.rect_contains_pointer(area), ui.ctx().dragged_id().is_some(), app.canvas.drag_selecting());
     let notch = crate::scroll::notch_px(app.canvas.scale / PX_PER_PT);
     let wheel_delta = if app.session.view.read_mode {
         let turns = ui.input(|i| read_wheel_turns(&i.events, hovered, &mut app.canvas.read_wheel_accum));
@@ -1828,6 +1835,12 @@ pub fn nearest_page(rects: &[Rect], p: Pos2) -> Option<usize> {
         }
     }
     best.map(|(i, _)| i)
+}
+
+/// Whether wheel input counts as being over the canvas. Another widget's drag (a scrollbar, say)
+/// owns the wheel, but a drag-select on the canvas itself keeps scrolling so a long passage can be selected.
+fn wheel_hovered(over_canvas: bool, any_drag: bool, drag_selecting: bool) -> bool {
+    over_canvas && (!any_drag || drag_selecting)
 }
 
 /// The drag auto-scroll along one axis for a pointer at `p` inside the viewport band `lo..hi`, in
@@ -2833,6 +2846,14 @@ mod tests {
     use crate::table_resize::tests::{H, cell, screen, steps, table_window};
 
     #[test]
+    fn wheel_scrolls_while_drag_selecting() {
+        assert!(wheel_hovered(true, false, false));
+        assert!(wheel_hovered(true, true, true), "wheel keeps scrolling during a drag-select");
+        assert!(!wheel_hovered(true, true, false), "another widget's drag still owns the wheel");
+        assert!(!wheel_hovered(false, true, true));
+    }
+
+    #[test]
     fn reading_animation_eases_then_lands_exactly_on_column_start() {
         let goal = 330.0;
         let one = reading_animation_step(0.0, goal, 1.0 / 60.0);
@@ -3543,6 +3564,102 @@ mod tests {
             h.step();
         }
         assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "The quick brown fox");
+    }
+
+    #[test]
+    fn floating_picture_can_be_dragged_in_front_of_or_behind_text() {
+        for wrap in ["inFrontOfText", "behindText"] {
+            drag_floating_picture(wrap, false, true);
+        }
+    }
+
+    #[test]
+    fn floating_header_picture_can_be_dragged_in_front_of_or_behind_text() {
+        for wrap in ["inFrontOfText", "behindText"] {
+            drag_floating_picture(wrap, true, true);
+        }
+    }
+
+    /// A Behind Text picture pressed over the text it sits behind, with no object selected: the
+    /// press becomes a drag (moving it), while a plain click still edits that text.
+    #[test]
+    fn behind_picture_dragged_over_text_without_being_selected_first() {
+        drag_floating_picture("behindText", false, false);
+        drag_floating_picture("behindText", true, false);
+    }
+
+    fn drag_floating_picture(wrap: &str, header: bool, preselect: bool) {
+        use egui::{Event, PointerButton};
+        {
+            let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+            if header {
+                a.run("insert.editHeader", json!({})).unwrap();
+            }
+            a.run("text.insert", json!({"text": "The picture overlaps this line of text."})).unwrap();
+            let mut png = Vec::new();
+            let img = image::RgbaImage::from_pixel(40, 20, image::Rgba([200, 30, 30, 255]));
+            image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+            a.run("insert.picture", json!({"data": wordcraft_engine::cmd::insert::base64_encode(&png), "width": 160})).unwrap();
+            let pos = wordcraft_engine::cmd::objects::selected(&a.session).unwrap().0;
+            a.run("arrange.bounds", json!({"x": 120, "y": 80})).unwrap();
+            a.run("arrange.wrap", json!({"wrap": wrap})).unwrap();
+            let before = a.session.layout().object(&pos, 0).unwrap().rect;
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            for _ in 0..6 {
+                h.step();
+            }
+            let page = h.state().canvas.page_rects[0];
+            let scale = h.state().canvas.scale;
+            let frame = crate::frame::to_screen(page, scale, before);
+            // The top edge crosses the document's first text line, so Behind Text must still be
+            // draggable where its pixels overlap body text. Stay away from resize handles.
+            let from = pos2(frame.left() + frame.width() * 0.25, frame.top() + 5.0 * scale);
+            let to = from + vec2(50.0, 40.0);
+            let button = |at, pressed| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+            if wrap == "behindText" {
+                // A click without drag threshold still reaches the text above the picture.
+                h.event(Event::PointerMoved(from));
+                h.event(button(from, true));
+                h.step();
+                h.event(button(from, false));
+                for _ in 0..3 {
+                    h.step();
+                }
+                assert!(wordcraft_engine::cmd::objects::object_selection(&h.state().session).is_none(), "a click still selects text");
+                if preselect {
+                    let end = Pos { off: pos.off + wordcraft_doc::para::OBJ.len_utf8(), ..pos.clone() };
+                    h.state_mut().run("select.range", json!({"anchor": pos, "focus": end})).unwrap();
+                }
+                for _ in 0..40 {
+                    h.step();
+                }
+            }
+            h.event(Event::PointerMoved(from));
+            h.event(button(from, true));
+            h.step();
+            assert!(h.state().canvas.obj_drag.is_some(), "{wrap}: pressing the image starts a frame drag");
+            for k in 1..=4 {
+                h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 4.0)));
+                h.step();
+            }
+            h.event(button(to, false));
+            for _ in 0..3 {
+                h.step();
+            }
+            let picked = wordcraft_engine::cmd::objects::object_selection(&h.state().session).map(|(p, _)| p);
+            let moved = picked.and_then(|p| h.state_mut().session.layout().object(&p, 0)).map(|o| o.rect);
+            assert!(
+                moved.is_some_and(|after| (after.x - before.x).abs() > 1.0 || (after.y - before.y).abs() > 1.0),
+                "{wrap}: {before:?} -> {moved:?}"
+            );
+        }
     }
 
     #[test]

@@ -2213,3 +2213,11 @@
 
 # Backstage › Recover (#586)
 	Recover	Taasta
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Peegelveerised
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Olemasolev fail või veebileht
+	Link to:	Link:
+	Place in This Document	Koht selles dokumendis

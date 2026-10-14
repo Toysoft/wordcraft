@@ -30,6 +30,11 @@ pub const OPEN_EXTS: &[&str] = &[
 /// Formats WordCraft saves (Save As).
 pub const SAVE_EXTS: &[&str] = &["docx", "docm", "dotx", "dotm", "pdf", "txt", "md", "html", "rtf", "odt", "tex", "png", "json", "xml"];
 
+/// Magic number for ZIP package signatures (used by .docx/.docm/.dotx/.dotm).
+const ZIP_SIG: &[u8] = b"PK\x03\x04";
+/// Magic number for OLE compound document signatures (used by .doc/.dot).
+const OLE_SIG: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+
 /// The extension of a file name or path, lower-case; empty when the file name has none (a dot
 /// in a folder name doesn't count).
 fn ext_of(name: &str) -> String {
@@ -90,6 +95,20 @@ pub fn needs_password(err: &str) -> bool {
 /// Does this open error mean the password given was wrong?
 pub fn wrong_password(err: &str) -> bool {
     err.contains(wordcraft_docx::WRONG_PASSWORD)
+}
+
+/// Is the file at `path` empty, zero bytes long? File Explorer's New › Microsoft Word Document
+/// makes one, and `file.open` opens it as a new blank document (#1384). False for a file that
+/// can't be read: opening it says why.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn is_empty_file(path: &std::path::Path) -> bool {
+    crate::file_access::check_read(&path.to_string_lossy()).is_ok() && std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == 0)
+}
+
+/// [`is_empty_file`]: on the web files come through the browser, never by path.
+#[cfg(target_arch = "wasm32")]
+pub fn is_empty_file(_path: &std::path::Path) -> bool {
+    false
 }
 
 /// Can files with this extension be saved with a password (Word's packages)?
@@ -221,11 +240,9 @@ pub(crate) fn fit_pictures(doc: &mut Document) {
 /// documents), a `.docx` package renamed `.doc` or a Word 97-2003 file renamed `.docx`: Word opens
 /// each by what it holds, so they go through [`open_by_content`] instead of failing.
 fn signature_contradicts(ext: &str, bytes: &[u8]) -> bool {
-    const ZIP: &[u8] = b"PK\x03\x04";
-    const OLE: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-    let held = if bytes.starts_with(ZIP) {
+    let held = if bytes.starts_with(ZIP_SIG) {
         "zip"
-    } else if bytes.starts_with(OLE) {
+    } else if bytes.starts_with(OLE_SIG) {
         "ole"
     } else if bytes.starts_with(b"{\\rtf") {
         "rtf"
@@ -252,13 +269,11 @@ fn open_by_content(
     password: Option<&str>,
     page: &wordcraft_doc::SectionProps,
 ) -> Result<(Document, bool), String> {
-    const ZIP: &[u8] = b"PK\x03\x04";
-    const OLE: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-    let (mut doc, encrypted) = if bytes.starts_with(OLE) && wordcraft_docx::is_encrypted(bytes) {
+    let (mut doc, encrypted) = if bytes.starts_with(OLE_SIG) && wordcraft_docx::is_encrypted(bytes) {
         (wordcraft_docx::read_with_password(bytes, password).map_err(|e| e.to_string())?, true)
-    } else if bytes.starts_with(ZIP) {
+    } else if bytes.starts_with(ZIP_SIG) {
         (wordcraft_docx::read(bytes).map_err(|e| format!("{name}: not a document WordCraft can open ({e})"))?, false)
-    } else if bytes.starts_with(OLE) {
+    } else if bytes.starts_with(OLE_SIG) {
         open_binary_doc(bytes, password)
             .map_err(|e| if needs_password(&e) || wrong_password(&e) { e } else { format!("{name}: not a document WordCraft can open ({e})") })?
     } else if bytes.starts_with(b"{\\rtf") {
@@ -520,7 +535,8 @@ pub fn read_file_head(path: &str, max: u64) -> Result<Vec<u8>, String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn write_file(path: &str, bytes: &[u8]) -> Result<(), String> {
     crate::file_access::check_write(path)?;
-    std::fs::write(path, bytes).map_err(|e| format!("{path}: {e}"))
+    // Like a document save: the old file is replaced only once the new bytes are fully written.
+    safe_save::write(std::path::Path::new(path), bytes).map_err(|e| format!("{path}: {e}"))
 }
 
 #[cfg(target_arch = "wasm32")]
