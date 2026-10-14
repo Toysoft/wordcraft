@@ -1,6 +1,8 @@
 //! [`Document`] → DOCX.
 
 mod embed;
+mod settings_merge;
+pub(crate) use settings_merge::has_unowned as settings_has_unowned;
 mod math;
 mod props;
 mod sdt;
@@ -189,8 +191,28 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
     let ns = xml::body_ns();
     let ns_refs: Vec<(&str, &str)> = ns.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     w.open("w:document", &ns_refs);
-    if let Some(c) = doc.settings.page_color {
-        w.empty("w:background", &[("w:color", &c.hex())]);
+    let pic = doc.settings.page_picture.as_ref().filter(|p| wr.media_files.contains_key(&p.media) && doc.media.contains_key(&p.media));
+    if pic.is_some() || doc.settings.page_color.is_some() {
+        let color = doc.settings.page_color.map(|c| c.hex());
+        let attrs: Vec<(&str, &str)> = color.iter().map(|c| ("w:color", c.as_str())).collect();
+        w.open("w:background", &attrs);
+        if let Some(p) = pic
+            && let Some(file) = wr.media_files.get(&p.media)
+        {
+            let rid = rels.add(rt::IMAGE, &format!("media/{file}"), false);
+            wr.used_media.insert(p.media.clone());
+            w.open("v:background", &[("id", "_x0000_s1025"), ("o:bwmode", "white")]);
+            let mut fa: Vec<(&str, &str)> = vec![("r:id", &rid)];
+            if !p.fill_type.is_empty() {
+                fa.push(("type", &p.fill_type));
+            }
+            if !p.title.is_empty() {
+                fa.push(("o:title", &p.title));
+            }
+            w.empty("v:fill", &fa);
+            w.close("v:background");
+        }
+        w.close("w:background");
     }
     w.open("w:body", &[]);
     wr.blocks(&mut w, &doc.body, &mut rels, true, 0);
@@ -293,12 +315,14 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         w.open("w:comments", &ns_refs);
         for (cid, c) in &doc.comments {
             let id = cid.to_string();
-            let author = if c.author.is_empty() { "Unknown" } else { c.author.as_str() };
+            let author = annotation_author(doc, &c.author);
             let mut a = vec![("w:id", id.as_str()), ("w:author", author)];
-            if !c.date.is_empty() {
+            if !c.date.is_empty() && !doc.settings.remove_date_time {
                 a.push(("w:date", c.date.as_str()));
             }
-            if !c.initials.is_empty() {
+            if doc.settings.remove_personal_info {
+                a.push(("w:initials", ANONYMOUS_INITIALS));
+            } else if !c.initials.is_empty() {
                 a.push(("w:initials", c.initials.as_str()));
             }
             w.open("w:comment", &a);
@@ -354,7 +378,13 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         &mut entries,
         &mut overrides,
         "word/settings.xml",
-        settings_xml(doc, notes_part(doc, &wr, true), notes_part(doc, &wr, false), template_rel.as_deref()),
+        {
+            let generated = settings_xml(doc, notes_part(doc, &wr, true), notes_part(doc, &wr, false), template_rel.as_deref());
+            match doc.passthrough.get(crate::package::SETTINGS_ORIG) {
+                Some(orig) => settings_merge::merge(orig, &generated).unwrap_or(generated),
+                None => generated,
+            }
+        },
         &format!("{CT_WML}settings+xml"),
         settings_rels,
     );
@@ -890,8 +920,27 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     let ns = xml::body_ns();
     let ns_refs: Vec<(&str, &str)> = ns.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     w.open("w:settings", &ns_refs);
-    w.empty("w:zoom", &[("w:percent", "100")]);
-    if s.page_color.is_some() {
+    let zoom = s.zoom.unwrap_or(wordcraft_doc::Zoom { percent: 100, fit: None });
+    let percent = zoom.percent.clamp(10, 500).to_string();
+    match zoom.fit {
+        Some(fit) => {
+            let val = match fit {
+                wordcraft_doc::ZoomFit::OnePage => "fullPage",
+                wordcraft_doc::ZoomFit::PageWidth => "bestFit",
+                wordcraft_doc::ZoomFit::TextWidth => "textFit",
+            };
+            w.empty("w:zoom", &[("w:val", val), ("w:percent", &percent)]);
+        }
+        None => w.empty("w:zoom", &[("w:percent", &percent)]),
+    }
+    // §17.15.1.70 / §17.15.1.69, right after `w:zoom` in CT_Settings.
+    if s.remove_personal_info {
+        w.empty("w:removePersonalInformation", &[]);
+    }
+    if s.remove_date_time {
+        w.empty("w:removeDateAndTime", &[]);
+    }
+    if s.page_color.is_some() || s.page_picture.is_some() {
         w.empty("w:displayBackgroundShape", &[]);
     }
     if s.mirror_margins {
@@ -1029,8 +1078,28 @@ fn theme_xml(doc: &Document) -> Vec<u8> {
     w.into_bytes()
 }
 
+/// The author the saved file gives a comment or tracked change when the document removes personal
+/// information on save (`w:removePersonalInformation`), as Word does.
+pub(crate) const ANONYMOUS_AUTHOR: &str = "Author";
+const ANONYMOUS_INITIALS: &str = "A";
+
+/// The `w:author` written for an annotation by `author`: "Author" when the document removes
+/// personal information on save, "Unknown" when it has none.
+pub(crate) fn annotation_author<'a>(doc: &Document, author: &'a str) -> &'a str {
+    if doc.settings.remove_personal_info {
+        ANONYMOUS_AUTHOR
+    } else if author.is_empty() {
+        "Unknown"
+    } else {
+        author
+    }
+}
+
 fn core_xml(doc: &Document) -> Vec<u8> {
     let c = &doc.core;
+    // Remove personal information (§17.15.1.70): no creator or last-modified-by in the file.
+    let personal = |v: &String| if doc.settings.remove_personal_info { String::new() } else { v.clone() };
+    let (creator, last_modified_by) = (personal(&c.creator), personal(&c.last_modified_by));
     let mut w = W::new();
     w.open(
         "cp:coreProperties",
@@ -1045,10 +1114,10 @@ fn core_xml(doc: &Document) -> Vec<u8> {
     for (tag, v) in [
         ("dc:title", &c.title),
         ("dc:subject", &c.subject),
-        ("dc:creator", &c.creator),
+        ("dc:creator", &creator),
         ("cp:keywords", &c.keywords),
         ("dc:description", &c.description),
-        ("cp:lastModifiedBy", &c.last_modified_by),
+        ("cp:lastModifiedBy", &last_modified_by),
         ("cp:category", &c.category),
     ] {
         if !v.is_empty() {
