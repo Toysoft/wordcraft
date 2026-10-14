@@ -96,6 +96,10 @@ pub struct CanvasState {
     pub mini_dismissed: Option<wordcraft_engine::Selection>,
     /// A picture, shape or text box being dragged by its frame.
     pub(crate) obj_drag: Option<crate::objects::ObjectDrag>,
+    /// Crop mode (Picture Format › Crop) is on for the picture here (`crop`).
+    pub(crate) crop: Option<wordcraft_doc::Pos>,
+    /// A crop handle being dragged.
+    pub(crate) crop_drag: Option<crate::crop::CropDrag>,
     /// An ink stroke being drawn with a pen (Draw tab).
     pub(crate) ink: Option<crate::ink::InkDrag>,
     /// The eraser is down: whether it has erased anything in this drag yet.
@@ -200,6 +204,8 @@ impl Default for CanvasState {
             context_issue: None,
             context_synonyms: None,
             obj_drag: None,
+            crop: None,
+            crop_drag: None,
             ink: None,
             erasing: None,
             ink_ui: Default::default(),
@@ -675,6 +681,13 @@ fn to_screen(origin: Pos2, page_rect: Rect, scale: f32, x: f32, y: f32) -> Pos2 
     pos2(origin.x + page_rect.min.x + x * scale, origin.y + page_rect.min.y + y * scale)
 }
 
+/// A page raster as an egui image. Both hold premultiplied RGBA8, so the pixels go across as they
+/// are: un-premultiplying them for egui to premultiply again gave the same image for two more
+/// passes over every pixel of the page, on each keystroke.
+fn page_image(img: &wordcraft_render::Rendered) -> egui::ColorImage {
+    egui::ColorImage::from_rgba_premultiplied([img.width as usize, img.height as usize], &img.pixels)
+}
+
 /// Place a raster at a physical-pixel-aligned origin and its exact device-pixel size.
 fn texel_aligned_rect(layout: Rect, texture_px: egui::Vec2, ppp: f32) -> Rect {
     let snap = |v: f32| (v * ppp).round() / ppp;
@@ -1009,8 +1022,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             if visible && !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
                 let opts = page_render_options(app, dim_body);
                 let img = wordcraft_render::render_page(&app.session.doc, page, scale_px, &opts);
-                let px = img.to_straight();
-                let ci = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &px);
+                let ci = page_image(&img);
                 match app.canvas.textures.get_mut(&i) {
                     Some((k, tex)) => {
                         tex.set(ci, egui::TextureOptions::LINEAR);
@@ -1875,8 +1887,9 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         return;
     }
     let pointer = resp.interact_pointer_pos().or_else(|| resp.hover_pos());
-    // An object drag follows the pointer anywhere until it's released.
-    let object_pointer = pointer.or_else(|| app.canvas.obj_drag.as_ref().and_then(|_| ui.input(|i| i.pointer.latest_pos())));
+    // An object (or crop handle) drag follows the pointer anywhere until it's released.
+    let dragging = app.canvas.obj_drag.is_some() || app.canvas.crop_drag.is_some();
+    let object_pointer = pointer.or_else(|| dragging.then(|| ui.input(|i| i.pointer.latest_pos())).flatten());
     if let Some(at) = object_pointer
         && crate::objects::pointer(app, ui, resp, rects, layout, scale, at)
     {
@@ -2844,6 +2857,34 @@ fn is_followable_link(url: &str) -> bool {
 mod tests {
     use super::*;
     use crate::table_resize::tests::{H, cell, screen, steps, table_window};
+
+    /// What `page_image` replaced: the raster un-premultiplied, for egui to premultiply again.
+    fn by_straight_alpha(img: &wordcraft_render::Rendered) -> egui::ColorImage {
+        egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.to_straight())
+    }
+
+    #[test]
+    fn page_image_keeps_every_pixel_the_straight_alpha_round_trip_gave() {
+        // Every premultiplied pixel there is: a channel from 0 up to its alpha, for each alpha.
+        let mut pixels = Vec::new();
+        for a in 0..=255u8 {
+            for c in 0..=a {
+                pixels.extend([c, a, a - c, a]);
+            }
+        }
+        let every = wordcraft_render::Rendered { width: (pixels.len() / 4) as u32, height: 1, pixels };
+        assert!(page_image(&every).pixels == by_straight_alpha(&every).pixels, "a premultiplied pixel changed");
+        // And real pages as the canvas draws them: text, a table, a picture.
+        let mut s = wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document());
+        let layout = s.layout();
+        assert!(!layout.pages.is_empty());
+        for page in &layout.pages {
+            let img = wordcraft_render::render_page(&s.doc, page, 2.0, &screen_render_options());
+            let ours = page_image(&img);
+            assert_eq!(ours.size, [img.width as usize, img.height as usize]);
+            assert!(ours.pixels == by_straight_alpha(&img).pixels, "a page pixel changed");
+        }
+    }
 
     #[test]
     fn wheel_scrolls_while_drag_selecting() {
