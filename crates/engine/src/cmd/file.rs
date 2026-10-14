@@ -244,6 +244,19 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
         }
     }
     s.stamp_save();
+    // #995: remember the view in the file, so reopening restores it (Draft and Read have no
+    // OOXML view value and keep whatever the file had).
+    if !matches!(s.view.mode, wordcraft_layout::ViewMode::Draft | wordcraft_layout::ViewMode::Read) {
+        s.doc.settings.view = Some(
+            match s.view.mode {
+                wordcraft_layout::ViewMode::Web => "web",
+                wordcraft_layout::ViewMode::Outline => "outline",
+                _ => "print",
+            }
+            .to_string(),
+        );
+    }
+    s.doc.settings.zoom = Some((s.view.zoom * 100.0).round().clamp(10.0, 500.0) as u32);
     let password = s.password.as_ref().map(crate::io::Password::as_str);
     crate::io::save_path_with(&path, &s.doc, password, &opts).map_err(CmdError::Failed)?;
     let encrypted = password.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
@@ -257,17 +270,9 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
 /// Does `path` hold a Word 2003 XML Document already (so a plain save keeps that format)?
 #[cfg(not(target_arch = "wasm32"))]
 fn is_word_2003_file(path: &std::path::Path) -> bool {
-    use std::io::Read;
-    if crate::file_access::check_read(&path.to_string_lossy()).is_err() {
-        return false;
-    }
-    let Ok(f) = std::fs::File::open(path) else { return false };
-    let mut head = Vec::new();
-    // The root element and its namespaces come first.
-    if f.take(64 * 1024).read_to_end(&mut head).is_err() {
-        return false;
-    }
-    wordcraft_docx::sniff_xml(&head) == wordcraft_docx::XmlKind::WordMl2003
+    let Ok(bytes) = crate::io::read_file(&path.to_string_lossy()) else { return false };
+    let head = &bytes[..bytes.len().min(64 * 1024)];
+    wordcraft_docx::sniff_xml(head) == wordcraft_docx::XmlKind::WordMl2003
 }
 
 #[cfg(target_arch = "wasm32")]

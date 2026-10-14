@@ -900,6 +900,12 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
     if s.remove_date_time {
         w.empty("w:removeDateAndTime", &[]);
     }
+    if let Some(v) = s.view.as_deref().filter(|v| !v.is_empty()) {
+        w.empty("w:view", &[("w:val", v)]);
+    }
+    if let Some(z) = s.zoom {
+        w.empty("w:zoom", &[("w:percent", &z.to_string())]);
+    }
     if s.page_color.is_some() {
         w.empty("w:displayBackgroundShape", &[]);
     }
