@@ -1,0 +1,170 @@
+name: WordCraft Linux Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write # required by skip-duplicate-actions to query/cancel prior runs
+
+concurrency:
+  group: linux-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Incremental compilation helps when the same crate is rebuilt after a small
+  # source edit within a debug profile (test/check). Left unset (cargo default)
+  # for the release build below, where it mostly adds cache weight.
+  CARGO_INCREMENTAL: 1
+
+jobs:
+  # Skips the build entirely when none of the files that can affect it have
+  # changed since the last run, AND skips it when they *have* "changed" but
+  # the resulting content is identical to a tree that already built
+  # successfully before (e.g. a revert, a rebase, or a re-push of the same
+  # commit under a new SHA). This is a content-hash comparison, not just a
+  # diff against the immediately preceding commit, so it correctly catches
+  # "we already ran these exact files" rather than only "nothing changed
+  # since last time".
+  pre_job:
+    name: Check for duplicate content
+    runs-on: ubuntu-latest
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        uses: fkirc/skip-duplicate-actions@v5
+        with:
+          cancel_others: true
+          skip_after_successful_duplicate: true
+          concurrent_skipping: same_content
+          paths: '["**/*.rs", "**/Cargo.toml", "Cargo.lock", ".github/workflows/linux-build.yml"]'
+
+  build:
+    name: Test and build WordCraft
+    needs: pre_job
+    if: needs.pre_job.outputs.should_skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libgtk-3-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxinerama-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      # Persistent, incremental-aware cache for the registry, downloaded
+      # sources, and compiled artifacts (both dependency crates and workspace
+      # crates). The key is derived automatically from: job name, runner OS,
+      # rustc version/toolchain, and a hash of Cargo.lock, so a toolchain
+      # bump, a dependency change, or a different target platform all
+      # naturally produce a new cache rather than reusing incompatible
+      # artifacts. `env-vars` widens that key to also track any build-flag
+      # env vars that affect codegen (features/flags are otherwise invisible
+      # to the key). `cache-on-failure` ensures a failed run still saves
+      # whatever it managed to compile, so the next run resumes from there
+      # instead of starting cold.
+      - name: Cache Cargo build
+        id: cargo-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
+          shared-key: wordcraft-linux
+          env-vars: "RUSTFLAGS CARGO_BUILD_TARGET CARGO_PROFILE_RELEASE_LTO CARGO_INCREMENTAL"
+
+      - name: Record cache status
+        run: |
+          echo "Cache hit: ${{ steps.cargo-cache.outputs.cache-hit }}"
+          echo "BUILD_START=$(date +%s)" >> "$GITHUB_ENV"
+          echo "CACHE_HIT=${{ steps.cargo-cache.outputs.cache-hit }}" >> "$GITHUB_ENV"
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      # `cargo fetch` first so the "download deps" network step is cleanly
+      # separated from compilation in the logs/timing below; it's a no-op
+      # when the registry cache already has everything.
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+
+      # These three steps run in the same job and therefore share the same
+      # target/ directory and dependency fingerprints. Cargo itself (not the
+      # workflow) is what avoids recompiling unaffected crates: as long as a
+      # later step's profile/features match an earlier step's, cargo reuses
+      # the already-built .rlib/.rmeta outputs and only compiles what changed
+      # (the edited crate plus crates that depend on it). cargo test and
+      # cargo check both use the default debug profile, so they share
+      # compiled dependency artifacts; the release build below uses a
+      # separate profile directory but still reuses the cached registry and
+      # downloaded sources.
+      - name: Run mini-toolbar tests
+        run: cargo test --locked -p wordcraft-ui-egui mini_toolbar
+
+      - name: Test Save Changes backdrop
+        run: cargo test --locked -p wordcraft-ui-egui save_prompt_buttons_are_above_the_backdrop
+
+      - name: Check desktop application
+        run: cargo check --locked -p wordcraft
+
+      - name: Build desktop application
+        run: cargo build --locked --release -p wordcraft
+
+      - name: Package Linux executable
+        run: |
+          test -x target/release/wordcraft
+          mkdir -p dist
+          cp target/release/wordcraft dist/
+          tar -czf WordCraft-linux-x86_64.tar.gz -C dist wordcraft
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordCraft-linux-x86_64
+          path: WordCraft-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      # Writes a simple cold-vs-warm timing record to the job summary so
+      # build-time improvements from the cache are visible run-over-run
+      # without needing an external dashboard.
+      - name: Record build duration
+        if: always()
+        run: |
+          END=$(date +%s)
+          DURATION=$((END - BUILD_START))
+          {
+            echo "### Build timing"
+            echo "- Cache hit (restored existing artifacts): \`${CACHE_HIT}\`"
+            echo "- Total elapsed time (post-checkout): \`${DURATION}s\`"
+          } >> "$GITHUB_STEP_SUMMARY"
