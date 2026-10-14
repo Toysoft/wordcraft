@@ -3418,6 +3418,37 @@ fn zoom_after_one_page_keeps_single_column() {
     assert!(!s.view.single_column);
 }
 
+/// Issue #995: One Page is saved with the document (`w:zoom`, like Word) and restored when it is
+/// reopened; changing the zoom alone doesn't make the document unsaved.
+#[test]
+fn one_page_is_restored_when_the_document_is_reopened() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-engine-zoom-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("one-page.docx");
+    let path = path.to_string_lossy();
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "file.save", json!({"path": path}));
+    run(&mut s, "view.onePage", json!({}));
+    assert!(!s.dirty, "a zoom isn't an edit");
+    run(&mut s, "file.save", json!({}));
+
+    let mut other = Session::new(wordcraft_doc::Document::new());
+    run(&mut other, "file.open", json!({"path": path}));
+    assert_eq!(other.view.fit, "onePage");
+    assert!(other.view.single_column && !other.view.multi_page);
+    assert!(!other.dirty);
+
+    // A percentage is restored as a percentage, the fit mode dropped.
+    run(&mut other, "view.zoom", json!({"value": 80}));
+    run(&mut other, "file.save", json!({}));
+    run(&mut s, "file.open", json!({"path": path}));
+    assert!(s.view.fit.is_empty() && !s.view.single_column);
+    assert!((s.view.zoom - 0.8).abs() < 1e-6);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn navigation_pane_opens_without_changing_view_mode() {
     // Reading Mode's heading navigation is the Navigation pane; Outline is an editing view (#493).
@@ -5568,6 +5599,75 @@ fn insert_picture_takes_a_windows_metafile() {
     let err = s.run("insert.picture", &json!({"path": path.to_string_lossy()})).unwrap_err();
     assert!(err.to_string().contains("WMF, EMF"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A DOCX built in code: a tracked deletion inside a field result, as Word writes when a
+/// formula field's result is edited (#1037). The first field's result is split across the field
+/// end; the second has its whole result deleted.
+fn tracked_field_result_docx() -> Vec<u8> {
+    use std::io::Write;
+    const WHO: &str = r#"w:author="Tester" w:date="2026-10-12T00:00:00Z""#;
+    let field = |instr: &str, inside: &str, after: &str| {
+        format!(
+            r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> {instr} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{inside}<w:r><w:fldChar w:fldCharType="end"/></w:r>{after}"#
+        )
+    };
+    let del = |id: u32, t: &str| format!(r#"<w:del w:id="{id}" {WHO}><w:r><w:delText>{t}</w:delText></w:r></w:del>"#);
+    let ins = |id: u32, t: &str| format!(r#"<w:ins w:id="{id}" {WHO}><w:r><w:t>{t}</w:t></w:r></w:ins>"#);
+    let p1 = field("=SUM(ABOVE)", &del(1, "$"), &(del(2, "150.00") + &ins(3, "$140.00")));
+    let p2 = field("=2+3", &del(4, "5"), &ins(5, "five"));
+    let xml = format!(
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>{p1}</w:p><w:p>{p2}</w:p></w:body></w:document>"#
+    );
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, value) in [
+        ("word/document.xml", xml.as_str()),
+        (
+            "_rels/.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(value.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+#[test]
+fn tracked_deletion_inside_a_field_result_is_a_revision_and_is_saved() {
+    let doc = wordcraft_docx::read(&tracked_field_result_docx()).unwrap();
+    // Revisions with one author and date are shared: one deletion, one insertion.
+    let kinds: Vec<_> = doc.revisions.iter().map(|r| r.kind).collect();
+    assert_eq!(kinds, [wordcraft_doc::RevisionKind::Delete, wordcraft_doc::RevisionKind::Insert]);
+    // The deleted `$` is still in the text, marked deleted (not ordinary result text).
+    let p = doc.body[0].as_para().unwrap();
+    assert_eq!(p.text.replace(wordcraft_doc::para::OBJ, ""), "$150.00$140.00");
+    // Saving keeps the deletion inside the result, with its text as delText.
+    let bytes = wordcraft_docx::write(&doc).unwrap();
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(&mut z.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
+    let sep = xml.find(r#"w:fldCharType="separate""#).unwrap();
+    let end = xml.find(r#"w:fldCharType="end""#).unwrap();
+    let inside = &xml[sep..end];
+    assert!(inside.contains("<w:del ") && inside.contains("<w:delText") && inside.contains('$'), "{inside}");
+}
+
+/// Paragraph texts without the field markers' placeholder characters.
+fn visible_texts(s: &Session) -> Vec<String> {
+    body_texts(s).iter().map(|t| t.replace(wordcraft_doc::para::OBJ, "")).collect()
+}
+
+#[test]
+fn accept_and_reject_all_handle_a_tracked_deletion_inside_a_field_result() {
+    let open = || Session::new(wordcraft_docx::read(&tracked_field_result_docx()).unwrap());
+    let mut s = open();
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(visible_texts(&s), ["$140.00", "five"]);
+    assert!(s.doc.revisions.is_empty());
+    let mut s = open();
+    run(&mut s, "review.rejectAll", json!({}));
+    assert_eq!(visible_texts(&s), ["$150.00", "5"]);
 }
 
 #[test]
