@@ -460,7 +460,6 @@ fn def_table_edges(operand: &[u8]) -> Vec<f32> {
     edges
 }
 
-
 /// A gap between two union edges, ordered by [`f32::total_cmp`] so it can key a binary
 /// heap (`f32` itself is neither `Ord` nor `Eq`).
 #[derive(Clone, Copy)]
