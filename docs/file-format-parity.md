@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-14 · **Change:** trivial (DOCX save keeps unmodelled parts and settings, #1034; previously trivial: recipient lists: .xls and legacy-encoding text, #778; previously trivial: All Caps and Small Caps text extracts from PDFs as the capitals shown, #1473; previously trivial: password-protected DOCX row corrected, #55 #281; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-14 · **Change:** trivial (quarter-turned text boxes turn their text; upright text round-trips; previously trivial: DOCX save keeps unmodelled parts and settings, #1034; previously trivial: recipient lists: .xls and legacy-encoding text, #778; previously trivial: All Caps and Small Caps text extracts from PDFs as the capitals shown, #1473; previously trivial: password-protected DOCX row corrected, #55 #281; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -194,6 +194,7 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | trivial | Quarter-turned text boxes turn their text; upright text round-trips. Arbitrary angles and combined text direction remain outside this fix |
 | 2026-10-13 | trivial | Rounded rectangles keep their own corner radius: `roundRect` `adj` read, written back and drawn (#1476) |
 | 2026-10-13 | trivial | Replace All checks content-control locks before editing; a refused batch leaves the document and undo history unchanged; existing deletion-lock rules reused, with tracked/untracked regression coverage |
 | 2026-10-12 | trivial | VML text boxes keep their internal margins (`inset`), fit to their text (`mso-fit-shape-to-text`) and vertical alignment (`v-text-anchor`); hidden drawings (`visibility:hidden`, `wp:docPr/@hidden`) are kept but not shown |
@@ -277,3 +278,5 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 | 2026-10-10 | trivial | Freeform shapes and ink as DrawingML custom geometry, read and written (#307) |
 | 2026-10-12 | trivial | Charts of types WordCraft doesn't draw (radar, stock…) show a placeholder with their title and type (#998) |
 | 2026-10-12 | trivial | Recipient lists: legacy .xls workbooks and GBK/Big5/Shift_JIS/UTF-16 CSV/TXT (#778); plain-text import detects legacy encodings too |
+
+`wps:bodyPr/@upright` is read and written. Missing values default to false; `upright_text_box_roundtrips` covers it.
