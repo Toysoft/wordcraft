@@ -214,6 +214,7 @@ fn services(file_dialog: file_dialogs::Hook, ctx: &egui::Context) -> Services {
         clipboard_write: Some(Box::new(clipboard::set)),
         clipboard_write_image: Some(Box::new(clipboard::set_image)),
         clipboard_html: Some(Box::new(clipboard::html)),
+        set_clipboard_html: Some(Box::new(clipboard::set_html)),
         clipboard_rtf: Some(Box::new(clipboard::rtf)),
         clipboard_formats: Some(Box::new(clipboard::formats)),
         ..Default::default()

@@ -14,8 +14,10 @@ const USAGE: &str = "\
 wordcraft-cli — WordCraft from the command line
 
 USAGE:
-  wordcraft-cli convert <in> <out> [--markup]
-                                              convert between formats (docx, doc [read], pdf, odt, rtf, html, md, tex, txt, json, png);
+  wordcraft-cli convert <in> <out> [--markup] [--format wordml2003|flatopc]
+                                              convert between formats (docx, doc [read], pdf, odt, rtf, html, md, tex, txt, json, png,
+                                              xml); an .xml file is a Word XML Document (Flat OPC), or with
+                                              --format wordml2003 a Word 2003 XML Document;
                                               --markup (Print Markup): comments beside each page and
                                               tracked changes in pdf/png, a comment list in html/md/txt
   wordcraft-cli info <file>                   pages, words, paragraphs, properties (JSON)
@@ -48,6 +50,12 @@ fn open(path: &str) -> Result<Session, String> {
     let mut s = Session::new(doc);
     s.path = Some(path.into());
     Ok(s)
+}
+
+/// The body text for `text`: the plain-text export, so list items keep their bullet or number label.
+fn listed_text(doc: &wordcraft_doc::Document) -> Result<String, String> {
+    let bytes = wordcraft_engine::io::save_bytes("out.txt", doc)?;
+    Ok(String::from_utf8_lossy(&bytes).replace("\r\n", "\n"))
 }
 
 /// `--author NAME`: the author recorded on tracked changes and comments (`file.setAuthor`).
@@ -149,7 +157,7 @@ fn automation_roots(
 }
 
 const NO_OPTIONS: &[OptionSpec] = &[];
-const CONVERT_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--markup", takes_value: false }];
+const CONVERT_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--markup", takes_value: false }, OptionSpec { name: "--format", takes_value: true }];
 const RENDER_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--page", takes_value: true }, OptionSpec { name: "--scale", takes_value: true }];
 const RUN_OPTIONS: &[OptionSpec] = &[
     OptionSpec { name: "--file", takes_value: true },
@@ -228,13 +236,26 @@ fn run(args: &[String]) -> Result<(), Failure> {
     match cmd {
         "convert" => {
             validate_options("convert", &rest, CONVERT_OPTIONS)?;
-            let (i, o) = (pos(0)?, pos(1)?);
+            // `--format wordml2003` (or `flatopc`) picks the kind of `.xml` file; its value isn't a path.
+            let format = arg_value(&rest, "--format");
+            let paths: Vec<&String> = rest
+                .iter()
+                .enumerate()
+                .filter(|(n, a)| !a.starts_with("--") && !(*n > 0 && rest.get(n - 1).is_some_and(|p| p == "--format")))
+                .map(|(_, a)| a)
+                .collect();
+            let missing = || format!("missing argument\n\n{USAGE}");
+            let (i, o) = (paths.first().ok_or_else(missing)?.to_string(), paths.get(1).ok_or_else(missing)?.to_string());
             let markup = rest.iter().any(|a| a == "--markup");
             let mut s = open(&i)?;
             let r = if o.to_ascii_lowercase().ends_with(".png") {
                 s.run("file.exportPng", &json!({"path": o, "page": 1, "markup": markup}))
             } else {
-                s.run("file.save", &json!({"path": o, "markup": markup}))
+                let mut params = json!({"path": o, "markup": markup});
+                if let Some(f) = format {
+                    params["format"] = json!(f);
+                }
+                s.run("file.save", &params)
             };
             r.map_err(|e| e.to_string())?;
             eprintln!("wrote {o}");
@@ -249,10 +270,8 @@ fn run(args: &[String]) -> Result<(), Failure> {
         "text" => {
             validate_options("text", &rest, NO_OPTIONS)?;
             let s = open(&pos(0)?)?;
-            // The same text `convert … .txt` writes: list labels and the text with every
-            // tracked change accepted, not deleted text inline (#866, #1080).
-            let out = String::from_utf8_lossy(&wordcraft_formats::txt::export(&s.doc)).replace("\r\n", "\n");
-            write_stdout(|o| writeln!(o, "{out}"))
+            let text = listed_text(&s.doc)?;
+            write_stdout(|o| writeln!(o, "{text}"))
         }
         "inspect" => {
             validate_options("inspect", &rest, NO_OPTIONS)?;
@@ -541,6 +560,12 @@ mod tests {
         // #968: `commands --help` prints usage instead of erroring on an unknown option.
         assert!(run(&args(&["commands", "--help"])).is_ok());
         assert!(run(&args(&["render", "a.docx", "b.png", "-h"])).is_ok());
+    }
+
+    #[test]
+    fn text_keeps_bullet_and_number_labels() {
+        let doc = wordcraft_engine::io::open_bytes("lists.md", b"- alpha\n- beta\n\n1. first\n2. second\n").unwrap();
+        assert_eq!(listed_text(&doc).unwrap(), "\u{2022}\talpha\n\u{2022}\tbeta\n1.\tfirst\n2.\tsecond");
     }
 
     #[test]

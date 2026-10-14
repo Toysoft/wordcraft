@@ -67,23 +67,6 @@ pub(crate) fn fill(app: &mut WordApp, id: &str, params: &mut Value) -> Option<Re
     None
 }
 
-/// Copy/Cut finished: the text always reaches the system clipboard through egui, and its HTML
-/// rendering goes along where the host takes it, so pasting into other programs keeps
-/// bold/italics (#1243). A copied picture goes as image data too (#375).
-pub(crate) fn copied(app: &WordApp, ctx: &egui::Context, text: &str) {
-    ctx.copy_text(text.to_string());
-    if let Some(write) = &app.services.clipboard_write
-        && let Some(f) = &app.session.clipboard
-    {
-        write(text, &f.to_html());
-    }
-    if let Some(set_image) = &app.services.clipboard_write_image
-        && let Some((w, h, rgba)) = copied_image(app)
-    {
-        set_image(w, h, rgba);
-    }
-}
-
 /// Largest picture side copied as image data, pixels.
 const MAX_IMAGE_DIM: u32 = 2048;
 
@@ -120,6 +103,43 @@ pub(crate) fn copied_image(app: &WordApp) -> Option<(u32, u32, Vec<u8>)> {
     let bytes = app.session.doc.media.get(&key)?;
     let img = image::load_from_memory(bytes).ok()?.to_rgba8();
     (img.width() <= MAX_IMAGE_DIM && img.height() <= MAX_IMAGE_DIM).then(|| (img.width(), img.height(), img.into_raw()))
+}
+
+/// Put a copy on the system clipboard: its HTML beside the text when the copy has some (an
+/// equation as MathML, #816) and the host can set it, else the text through egui. egui sets its
+/// text at the end of the frame, which would replace the HTML, so only one of them runs.
+/// A copied picture goes as image data too (#375).
+pub(crate) fn put(app: &WordApp, ctx: &egui::Context, text: &str, html: &str) {
+    if let Some(set_image) = &app.services.clipboard_write_image
+        && let Some((w, h, rgba)) = copied_image(app)
+    {
+        set_image(w, h, rgba);
+    }
+    if text.is_empty() {
+        return;
+    }
+    if !html.is_empty() && app.services.set_clipboard_html.as_ref().is_some_and(|f| f(html, text)) {
+        return;
+    }
+    if let Some(write) = &app.services.clipboard_write
+        && let Some(f) = &app.session.clipboard
+    {
+        write(text, &f.to_html());
+        return;
+    }
+    ctx.copy_text(text.to_string());
+}
+
+/// Put what Copy or Cut returned on the system clipboard (see [`put`]).
+pub(crate) fn put_result(app: &WordApp, ctx: &egui::Context, r: &Value) {
+    let s = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("");
+    put(app, ctx, s("text"), s("html"));
+}
+
+/// Copy/Cut finished: backward-compatible helper for callers passing plain text alone.
+#[allow(dead_code)]
+pub(crate) fn copied(app: &WordApp, ctx: &egui::Context, text: &str) {
+    put(app, ctx, text, "");
 }
 
 /// Format names worth showing: not the clipboard protocol's own bookkeeping targets.
@@ -322,5 +342,34 @@ mod tests {
         };
         let e = app(unreadable).run("edit.paste", json!({})).unwrap_err();
         assert!(e.contains("couldn't be read") && e.contains("isn't supported"), "{e}");
+    }
+
+    #[test]
+    fn copying_an_equation_puts_its_html_on_the_system_clipboard() {
+        // #816: the host gets HTML with the equation as MathML beside the text.
+        let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, String)>::new()));
+        let sink = got.clone();
+        let mut a = app(Services {
+            set_clipboard_html: Some(Box::new(move |h, t| {
+                sink.borrow_mut().push((h.to_string(), t.to_string()));
+                true
+            })),
+            ..Default::default()
+        });
+        a.run("document.setText", json!({"text": "Speed "})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        a.run("insert.equation", json!({"linear": "y=2x_s", "edit": false})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        let ctx = egui::Context::default();
+        let r = a.run("edit.copy", json!({})).unwrap();
+        put_result(&a, &ctx, &r);
+        let got_now = got.borrow().clone();
+        assert_eq!(got_now.len(), 1);
+        assert!(got_now[0].0.contains("<math") && got_now[0].1.contains("y=2x_s"), "{got_now:?}");
+        // Plain text needs no HTML.
+        a.run("select.range", json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 5}})).unwrap();
+        let r = a.run("edit.copy", json!({})).unwrap();
+        put_result(&a, &ctx, &r);
+        assert_eq!(got.borrow().len(), 1);
     }
 }

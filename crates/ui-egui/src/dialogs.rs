@@ -2461,16 +2461,17 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             cancel
         }
         Dialog::PageNumberFormat { format, start, message } => {
-            const FORMATS: [(&str, &str); 5] = [
+            const FORMATS: [(&str, &str); 6] = [
                 ("decimal", "1, 2, 3, …"),
                 ("upperRoman", "I, II, III, …"),
                 ("lowerRoman", "i, ii, iii, …"),
                 ("upperLetter", "A, B, C, …"),
                 ("lowerLetter", "a, b, c, …"),
+                ("numberInDash", "- 1 -, - 2 -, …"),
             ];
             egui::Grid::new("page_number_format").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
                 ui.label(tl!("Number format:"));
-                let shown = FORMATS.iter().find(|(v, _)| *v == format).map(|(_, l)| tl!(l)).unwrap_or_default();
+                let shown = FORMATS.iter().find(|(v, _)| *v == format).map(|(_, l)| tl!(l).to_string()).unwrap_or_else(|| format.clone());
                 egui::ComboBox::from_id_salt("page_number_format").selected_text(shown).show_ui(ui, |ui| {
                     for (v, l) in FORMATS {
                         ui.selectable_value(format, v.to_string(), tl!(l));
@@ -2488,7 +2489,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if ok {
                 let mut v = json!({"format": format});
                 match start.trim() {
-                    "" => {}
+                    "" => v["start"] = json!(null),
                     digits => match digits.parse::<u32>() {
                         Ok(n) if n >= 1 => v["start"] = json!(n),
                         _ => {
