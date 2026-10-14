@@ -620,12 +620,15 @@ pub fn check_grammar_in(text: &str, lang: ProofLang) -> Vec<Issue> {
 /// inside that language's spans: an English quotation in a Polish paragraph gets English
 /// spelling and is never told a Polish rule.
 pub fn check_text(text: &str, spans: &[(Range<usize>, ProofLang)]) -> Vec<Issue> {
-    check_text_with(text, spans, &Options::default(), true)
+    check_text_with(text, spans, &Options::default(), true, false)
 }
 
 /// [`check_text`] with the File › Options › Proofing choices: what spelling skips, and whether
 /// grammar is checked at all.
-pub fn check_text_with(text: &str, spans: &[(Range<usize>, ProofLang)], opts: &Options, grammar: bool) -> Vec<Issue> {
+///
+/// `list_item` marks a list paragraph: items are often fragments, so the English rule asking for
+/// a capital on the paragraph's first word is off for it (later sentences are still checked).
+pub fn check_text_with(text: &str, spans: &[(Range<usize>, ProofLang)], opts: &Options, grammar: bool, list_item: bool) -> Vec<Issue> {
     // Sorted, empty ones dropped, neighbours of one language merged.
     let mut sorted: Vec<&(Range<usize>, ProofLang)> = spans.iter().filter(|(r, _)| r.start < r.end).collect();
     sorted.sort_by_key(|s| s.0.start);
@@ -659,7 +662,8 @@ pub fn check_text_with(text: &str, spans: &[(Range<usize>, ProofLang)], opts: &O
     langs.sort();
     langs.dedup();
     for lang in langs {
-        v.extend(check_grammar_in(text, lang).into_iter().filter(|i| lang_at(i.start) == lang));
+        let found = if lang == ProofLang::En { grammar_en(text, !list_item) } else { check_grammar_in(text, lang) };
+        v.extend(found.into_iter().filter(|i| lang_at(i.start) == lang));
     }
     v.sort_by_key(|i| (i.start, i.end));
     v
@@ -667,6 +671,12 @@ pub fn check_text_with(text: &str, spans: &[(Range<usize>, ProofLang)], opts: &O
 
 /// Grammar issues in a paragraph of English text.
 pub fn check_grammar(text: &str) -> Vec<Issue> {
+    grammar_en(text, true)
+}
+
+/// The English rules; `capital_first` is whether the text's first word must start a sentence
+/// with a capital (false for a list item, which may be a fragment).
+fn grammar_en(text: &str, capital_first: bool) -> Vec<Issue> {
     let mut v = Vec::new();
     let ws = words(text);
     for pair in ws.windows(2) {
@@ -739,7 +749,7 @@ pub fn check_grammar(text: &str) -> Vec<Issue> {
         });
     }
     // Sentence start capital.
-    let mut after_end = true;
+    let mut after_end = capital_first;
     for (a, b) in &ws {
         let Some(w) = text.get(*a..*b) else { continue };
         if after_end && w.chars().next().is_some_and(char::is_lowercase) && w.chars().all(char::is_alphabetic) {
@@ -778,6 +788,18 @@ mod tests {
     /// in it are reported and used, and cached checks are dropped. The folder holds the same test
     /// dictionaries the other tests install, so tests running meanwhile see the same words; it
     /// stays set for the rest of the run for that reason.
+    #[test]
+    fn list_item_first_word_needs_no_capital() {
+        let msg = "Capitalize the first word of a sentence";
+        let capitals =
+            |t: &str, list: bool| -> usize { check_text_with(t, &[], &Options::default(), true, list).iter().filter(|i| i.message == msg).count() };
+        assert_eq!(capitals("item one", true), 0);
+        assert_eq!(capitals("item one", false), 1);
+        assert_eq!(capitals("hello world.", false), 1);
+        // Later sentences in a list item are still checked.
+        assert_eq!(capitals("item one. then two", true), 1);
+    }
+
     #[test]
     fn dictionaries_folder_is_searched_first() {
         let dir = std::env::temp_dir().join(format!("wc-proof-dictionaries-{}", std::process::id()));

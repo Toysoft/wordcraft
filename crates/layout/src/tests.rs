@@ -4779,10 +4779,30 @@ fn hyphenation_and_proofing_follow_each_runs_language() {
     assert_eq!(flagged, ["żeka", "beautifull"]);
     // The layout and the Review commands report the same issues.
     let p = d.para(StoryRef::Body, &Path::top(0)).unwrap();
-    let issues = para::paragraph_issues(p, &para::proof_runs(&d, p, None), &Default::default(), true);
+    let issues = para::paragraph_issues(p, &para::proof_runs(&d, p, None), &Default::default(), true, false);
     assert_eq!(issues.iter().map(|i| (i.start, i.end, i.kind == wordcraft_proof::IssueKind::Grammar)).collect::<Vec<_>>(), para.issues);
     assert_eq!(issues[0].lang, wordcraft_proof::ProofLang::Pl);
     assert_eq!(issues[1].lang, wordcraft_proof::ProofLang::En);
+}
+
+/// A list item may be a fragment: its first word needs no capital, a plain paragraph's does (#1741).
+#[test]
+fn list_item_first_word_gets_no_capital_grammar_issue() {
+    let d = Document::new();
+    let mut b = d.para(StoryRef::Body, &Path::top(0)).unwrap().clone();
+    b.text = "item one".into();
+    b.props.numbering = Some(wordcraft_doc::props::NumRef { num: 1, level: 0 });
+    let mut plain = b.clone();
+    plain.props.numbering = None;
+    let grammar = |p: &Paragraph| -> usize {
+        let li = para::is_list_item(&d, p);
+        para::paragraph_issues(p, &para::proof_runs(&d, p, None), &Default::default(), true, li)
+            .iter()
+            .filter(|i| i.kind == wordcraft_proof::IssueKind::Grammar)
+            .count()
+    };
+    assert_eq!(grammar(&b), 0);
+    assert_eq!(grammar(&plain), 1);
 }
 
 /// Text in a language WordCraft can't proof gets no spelling marks, and "Do not check spelling
