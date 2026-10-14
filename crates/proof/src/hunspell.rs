@@ -2,13 +2,14 @@
 //! `craft-proof` crate.
 //!
 //! WordCraft doesn't bundle large spelling dictionaries. For languages with an affix dictionary
-//! (Polish, Portuguese), it reads the standard Hunspell `.aff`/`.dic` pair installed by the
+//! (Polish, Portuguese, Russian), it reads the standard Hunspell `.aff`/`.dic` pair installed by the
 //! operating system, a package manager or LibreOffice. When none is installed the language has no
 //! spelling check (no marks, no errors), like Word without the language's proofing tools.
 //!
 //! Search order: the directory set with [`set_dictionary_dir`] (a setting), then
-//! `WORDCRAFT_DICTIONARIES`, `%LOCALAPPDATA%\WordCraft\dictionaries` on Windows, and the usual
-//! system locations. On the web there are none.
+//! `WORDCRAFT_DICTIONARIES`, a `WordCraft` dictionaries folder under the user's application data
+//! (`%LOCALAPPDATA%`, `~/Library/Application Support` or `$XDG_DATA_HOME`), and the usual system
+//! locations. On the web there are none.
 
 use std::path::PathBuf;
 use std::sync::RwLock;
@@ -63,6 +64,13 @@ pub fn find(names: &[&str]) -> Option<(PathBuf, PathBuf)> {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn russian_dictionaries_in_older_encodings_decode() {
+        // `ёлка` in KOI8-R and in Windows-1251 (#894), decoded by craft-proof.
+        assert_eq!(decode(b"SET KOI8-R\n", b"1\n\xa3\xcc\xcb\xc1\n").unwrap().1, "1\nёлка\n");
+        assert_eq!(decode(b"SET microsoft-cp1251\n", b"1\n\xb8\xeb\xea\xe0\n").unwrap().1, "1\nёлка\n");
+    }
 
     #[test]
     fn wordcraft_names_its_folder_and_variable() {

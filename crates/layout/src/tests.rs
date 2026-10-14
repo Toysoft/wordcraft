@@ -8,6 +8,247 @@ fn lay(doc: &Document) -> DocLayout {
     layout(doc, &mut c, &LayoutOptions::default())
 }
 
+#[derive(Clone, Copy)]
+enum SpacingLocation {
+    Cell,
+    Body,
+    Header,
+}
+
+fn legacy_table_gap(mode: u32, allow: bool, location: SpacingLocation) -> f32 {
+    let mut d = Document::new();
+    d.settings.compat_mode = mode;
+    d.settings.allow_space_of_same_style_in_table = allow;
+    let chr = wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() };
+    let mut a = wordcraft_doc::Paragraph::with_text("Alpha probe", chr.clone());
+    a.props = ParaProps {
+        space_before: Some(0.0),
+        space_after: Some(12.0),
+        line_spacing: Some(wordcraft_doc::props::LineSpacing::Exactly(24.0)),
+        contextual_spacing: Some(true),
+        ..Default::default()
+    };
+    let mut b = wordcraft_doc::Paragraph::with_text("Beta probe", chr);
+    b.props = ParaProps { space_after: Some(0.0), ..a.props.clone() };
+    let blocks = vec![wordcraft_doc::para_block(a), wordcraft_doc::para_block(b)];
+    match location {
+        SpacingLocation::Cell => {
+            let mut table = Table::new(1, 1, 468.0);
+            // Cell identity must not depend on whether table-style formatting exists.
+            table.props.style = None;
+            table.props.cell_margins = Some([0.0; 4]);
+            table.rows[0].cells[0].blocks = blocks;
+            d.body = vec![std::sync::Arc::new(wordcraft_doc::Block::Table(table))];
+        }
+        SpacingLocation::Body => d.body = blocks,
+        SpacingLocation::Header => {
+            let id = d.add_part(wordcraft_doc::PartKind::Header, blocks);
+            d.last_section.headers.default = Some(id);
+        }
+    }
+    let l = lay(&d);
+    let items = if matches!(location, SpacingLocation::Header) { &l.pages[0].header } else { &l.pages[0].items };
+    let baselines: Vec<_> = items
+        .iter()
+        .filter_map(|i| match i {
+            Placed::Lines { para, y, .. } => Some(y + para.lines[0].baseline),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(baselines.len(), 2);
+    baselines[1] - baselines[0] - 24.0
+}
+
+#[test]
+fn legacy_table_contextual_spacing_flag_keeps_after_space() {
+    // Original Word for Mac 16.113.3 probe: after 12 pt, before 0 pt, both contextual.
+    // Zero before-space keeps the compatibility rule independent of ordinary overlap.
+    for mode in [11, 12, 14] {
+        let gap = legacy_table_gap(mode, true, SpacingLocation::Cell);
+        assert!((gap - 12.0).abs() < 0.01, "mode={mode}: gap={gap}, expected 12 pt");
+    }
+}
+
+#[test]
+fn legacy_table_contextual_spacing_flag_is_scoped_to_cells_and_legacy_mode() {
+    for (mode, allow) in [(11, false), (12, false), (14, false), (15, false), (15, true)] {
+        assert!(legacy_table_gap(mode, allow, SpacingLocation::Cell).abs() < 0.01);
+    }
+    for mode in [14, 15] {
+        for location in [SpacingLocation::Body, SpacingLocation::Header] {
+            assert!(legacy_table_gap(mode, true, location).abs() < 0.01);
+        }
+    }
+}
+
+fn contextual_gap(after: f32, before: f32, first: bool, second: bool, different_style: bool, header: bool) -> f32 {
+    use wordcraft_doc::props::LineSpacing;
+    let mut d = Document::new();
+    for id in ["SpacingA", "SpacingB"] {
+        d.styles.upsert(wordcraft_doc::Style { id: id.into(), name: id.into(), ..Default::default() });
+    }
+    let chr = wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() };
+    let props = ParaProps {
+        style: Some("SpacingA".into()),
+        space_before: Some(0.0),
+        space_after: Some(0.0),
+        line_spacing: Some(LineSpacing::Exactly(24.0)),
+        ..Default::default()
+    };
+    let mut a = wordcraft_doc::Paragraph::with_text("Alpha probe", chr.clone());
+    a.props = ParaProps { space_after: Some(after), contextual_spacing: Some(first), ..props.clone() };
+    let mut b = wordcraft_doc::Paragraph::with_text("Beta probe", chr);
+    b.props = ParaProps {
+        style: Some(if different_style { "SpacingB" } else { "SpacingA" }.into()),
+        space_before: Some(before),
+        contextual_spacing: Some(second),
+        ..props
+    };
+    let paragraphs = vec![wordcraft_doc::para_block(a), wordcraft_doc::para_block(b)];
+    if header {
+        let id = d.add_part(wordcraft_doc::PartKind::Header, paragraphs);
+        d.last_section.headers.default = Some(id);
+    } else {
+        d.body = paragraphs;
+    }
+    let l = lay(&d);
+    let items = if header { &l.pages[0].header } else { &l.pages[0].items };
+    let baselines: Vec<_> =
+        items.iter().filter_map(|i| if let Placed::Lines { para, y, .. } = i { Some(y + para.lines[0].baseline) } else { None }).collect();
+    assert_eq!(baselines.len(), 2);
+    baselines[1] - baselines[0] - 24.0
+}
+
+// Original two-paragraph probes measured in Word for Mac 16.113.3, build 26092714.
+// Exactly 24 pt spacing isolates the extra gap from font-dependent line height.
+#[test]
+fn contextual_after_removes_a_smaller_before_gap() {
+    for header in [false, true] {
+        let gap = contextual_gap(12.0, 8.0, true, false, false, header);
+        assert!(gap.abs() < 0.01, "header={header}: gap={gap}, expected 0 pt");
+    }
+}
+
+#[test]
+fn contextual_after_keeps_only_the_residual_before_gap() {
+    // ISO/IEC 29500-1 §17.3.1.9's worked example: max(10, 12) - 10 = 2 pt.
+    for header in [false, true] {
+        let gap = contextual_gap(10.0, 12.0, true, false, false, header);
+        assert!((gap - 2.0).abs() < 0.01, "header={header}: gap={gap}, expected 2 pt");
+    }
+}
+
+#[test]
+fn contextual_spacing_preserves_each_side_and_style_identity() {
+    for header in [false, true] {
+        for (after, before, first, second, different, expected) in [
+            (12.0, 8.0, false, true, false, 12.0),
+            (12.0, 8.0, true, true, false, 0.0),
+            (12.0, 0.0, true, true, true, 12.0),
+            (12.0, 0.0, false, false, false, 12.0),
+        ] {
+            let gap = contextual_gap(after, before, first, second, different, header);
+            assert!(
+                (gap - expected).abs() < 0.01,
+                "header={header}, first={first}, second={second}, different={different}: gap={gap}, expected {expected}"
+            );
+        }
+    }
+}
+
+#[test]
+fn contextual_spacing_removes_every_gap_in_a_four_paragraph_run() {
+    use wordcraft_doc::props::LineSpacing;
+    for table in [false, true] {
+        let mut doc = Document::new();
+        doc.styles.upsert(wordcraft_doc::Style { id: "SpacingA".into(), name: "SpacingA".into(), ..Default::default() });
+        let paragraphs = ["One", "Two", "Three", "Four"]
+            .into_iter()
+            .map(|text| {
+                let mut p = wordcraft_doc::Paragraph::with_text(
+                    text,
+                    wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() },
+                );
+                p.props = ParaProps {
+                    style: Some("SpacingA".into()),
+                    space_before: Some(6.0),
+                    space_after: Some(6.0),
+                    contextual_spacing: Some(true),
+                    line_spacing: Some(LineSpacing::Exactly(24.0)),
+                    ..Default::default()
+                };
+                wordcraft_doc::para_block(p)
+            })
+            .collect::<Vec<_>>();
+        if table {
+            let mut cell = Table::new(1, 1, 400.0);
+            cell.rows[0].cells[0].blocks = paragraphs;
+            doc.body = vec![Arc::new(Block::Table(cell))];
+        } else {
+            doc.body = paragraphs;
+        }
+        let layout = lay(&doc);
+        let baselines = layout.pages[0]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Placed::Lines { para, y, .. } => Some(y + para.lines[0].baseline),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(baselines.len(), 4);
+        // Every same-style contextual boundary has zero extra space, including after paragraph two.
+        for pair in baselines.windows(2) {
+            assert!((pair[1] - pair[0] - 24.0).abs() < 0.01, "table={table}: {baselines:?}");
+        }
+    }
+}
+
+// Contextual and automatic list spacing can suppress the same after-space only once.
+#[test]
+fn contextual_automatic_lists_do_not_subtract_the_gap_twice() {
+    use wordcraft_doc::props::{LineSpacing, NumRef};
+    for table in [false, true] {
+        let mut doc = Document::new();
+        let num = doc.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+        let paragraphs = ["First", "Second", "Third"]
+            .into_iter()
+            .map(|text| {
+                let mut p = wordcraft_doc::Paragraph::with_text(text, Default::default());
+                p.props = ParaProps {
+                    contextual_spacing: Some(true),
+                    space_before_auto: Some(true),
+                    space_after_auto: Some(true),
+                    numbering: Some(NumRef { num, level: 0 }),
+                    line_spacing: Some(LineSpacing::Exactly(24.0)),
+                    ..Default::default()
+                };
+                wordcraft_doc::para_block(p)
+            })
+            .collect::<Vec<_>>();
+        if table {
+            let mut cell = Table::new(1, 1, 400.0);
+            cell.rows[0].cells[0].blocks = paragraphs;
+            doc.body = vec![Arc::new(Block::Table(cell))];
+        } else {
+            doc.body = paragraphs;
+        }
+        let layout = lay(&doc);
+        let baselines = layout.pages[0]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Placed::Lines { para, y, .. } => Some(y + para.lines[0].baseline),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(baselines.len(), 3);
+        for pair in baselines.windows(2) {
+            assert!((pair[1] - pair[0] - 24.0).abs() < 0.01, "table={table}: {baselines:?}");
+        }
+    }
+}
+
 fn lines_of(l: &DocLayout) -> usize {
     l.pages.iter().flat_map(|p| p.items.iter()).map(|it| if let Placed::Lines { l0, l1, .. } = it { l1 - l0 } else { 0 }).sum()
 }
@@ -2646,6 +2887,26 @@ fn multiple_line_spacing_adds_its_leading_below_the_text() {
 }
 
 #[test]
+fn list_label_does_not_inflate_an_inline_picture_floor() {
+    use wordcraft_doc::props::{LineSpacing, NumRef};
+    for spacing in [LineSpacing::Multiple(1.25), LineSpacing::AtLeast(12.0)] {
+        let mut d = Document::from_text("");
+        let id = d.numbering.add_list(wordcraft_doc::ListKind::Bullet);
+        d.numbering.abstracts[0].levels[0].chr.size = Some(24.0);
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        p.props.line_spacing = Some(spacing);
+        p.props.numbering = Some(NumRef { num: id, level: 0 });
+        p.insert_object(0, picture(144.0, 144.0, Default::default()), &Default::default()).unwrap();
+        let l = lay(&d);
+        let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!() };
+        let line = &para.lines[0];
+        let desc = para.styles[para.clusters[0].style as usize].descent;
+        assert!((line.height - (144.0 + desc)).abs() < 0.01, "{spacing:?}: {}", line.height);
+        assert!((line.baseline - line.top - 144.0).abs() < 0.01);
+    }
+}
+
+#[test]
 fn body_starts_right_below_a_tall_header() {
     let mut d = Document::from_text("Body");
     let mut hp = wordcraft_doc::Paragraph::with_text("", Default::default());
@@ -5036,6 +5297,135 @@ fn keep_with_next_moves_a_paragraph_only_when_it_would_fit() {
     assert_eq!(pages(fit + 1, kn.clone(), none.clone()), split, "doesn't fit anyway: breaks as usual");
     assert_eq!(pages(fit + 1, kl.clone(), none.clone()), [1, 1, 1, 1, 1, 1], "with keep lines together it moves whole");
     assert_eq!(pages(fit - 1, kn.clone(), kn.clone()), [1, 1, 1, 1, 1, 1], "a kept chain moves together");
+}
+
+/// A kept heading goes with the paragraph after it when that paragraph cannot start on its
+/// page (#966): with widow/orphan control on, one line of it at the bottom of the page moves
+/// over with the rest, so only two lines below the heading hold it there. Word and LibreOffice
+/// both move the heading; WordCraft left it alone. With the control off the single line stays,
+/// and the heading keeps it company.
+#[test]
+fn keep_with_next_carries_the_heading_when_widow_control_moves_the_next_paragraph() {
+    // Page of the heading, then of the next paragraph's lines at "Bb", "Bc" and "Be".
+    let pages = |fillers: usize, widow: bool| -> [usize; 4] {
+        let mut d = Document::new();
+        let plain = ParaProps {
+            space_before: Some(0.0),
+            space_after: Some(0.0),
+            line_spacing: Some(wordcraft_doc::props::LineSpacing::Multiple(1.0)),
+            widow_control: Some(widow),
+            ..Default::default()
+        };
+        let para = |text: &str, p: &ParaProps| {
+            let mut x = wordcraft_doc::Paragraph::with_text(text, Default::default());
+            x.props = p.clone();
+            wordcraft_doc::para_block(x)
+        };
+        d.body = (0..fillers).map(|i| para(&format!("F{i}"), &plain)).collect();
+        let mut heading = wordcraft_doc::Paragraph::with_text("HEADING", Default::default());
+        heading.props = ParaProps { keep_next: Some(true), ..plain.clone() };
+        d.body.push(wordcraft_doc::para_block(heading));
+        d.body.push(para("Bb\nBc\nBd\nBe\nBf", &plain));
+        let l = lay(&d);
+        [
+            l.caret(&Pos::body(fillers, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 3)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 9)).unwrap().page,
+        ]
+    };
+    // Find the page edge that leaves the heading room for exactly one line of the paragraph
+    // after it: with the control off it starts there and the rest goes over.
+    let fit = (20..100).find(|n| pages(*n, false) == [0, 0, 1, 1]).expect("a filler count that leaves room for one line after the heading");
+    assert_eq!(pages(fit, false), [0, 0, 1, 1], "without the control one line stays: {fit}");
+    // With widow/orphan control the paragraph moves over whole, and the heading goes with it.
+    assert_eq!(pages(fit, true), [1, 1, 1, 1], "the heading follows the paragraph: {fit}");
+    // One line more of room holds both of its first lines below the heading, under either
+    // setting.
+    assert_eq!(pages(fit - 1, true), [0, 0, 0, 1], "two lines below the heading hold it");
+    assert_eq!(pages(fit - 1, false), [0, 0, 0, 1]);
+}
+
+/// The chain case of #966: a kept heading before a kept paragraph before a long one all move
+/// over when the last one cannot start on the page, and all stay when it can.
+#[test]
+fn keep_with_next_chain_carries_over_when_the_last_paragraph_cannot_start() {
+    let pages = |fillers: usize, widow: bool| -> Vec<usize> {
+        let mut d = Document::new();
+        let plain = ParaProps {
+            space_before: Some(0.0),
+            space_after: Some(0.0),
+            line_spacing: Some(wordcraft_doc::props::LineSpacing::Multiple(1.0)),
+            widow_control: Some(widow),
+            ..Default::default()
+        };
+        let para = |text: &str, p: &ParaProps| {
+            let mut x = wordcraft_doc::Paragraph::with_text(text, Default::default());
+            x.props = p.clone();
+            wordcraft_doc::para_block(x)
+        };
+        d.body = (0..fillers).map(|i| para(&format!("F{i}"), &plain)).collect();
+        let kept = ParaProps { keep_next: Some(true), ..plain.clone() };
+        d.body.push(para("HEADING", &kept));
+        d.body.push(para("MID", &kept));
+        d.body.push(para("Bb\nBc\nBd\nBe\nBf", &plain));
+        let l = lay(&d);
+        // Pages of the heading, the kept middle, and the long paragraph's first two lines.
+        vec![
+            l.caret(&Pos::body(fillers, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 2, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 2, 3)).unwrap().page,
+        ]
+    };
+    // The page edge that leaves the heading and the kept middle room for one line of the long
+    // paragraph after them.
+    let fit = (20..100).find(|n| pages(*n, false) == [0, 0, 0, 1]).expect("a filler count that leaves room for one line after the chain");
+    // With widow/orphan control the long paragraph cannot start there, so the whole chain
+    // moves over.
+    assert_eq!(pages(fit, true), [1, 1, 1, 1], "the chain follows the paragraph: {fit}");
+    assert_eq!(pages(fit, false), [0, 0, 0, 1], "without the control one line stays: {fit}");
+}
+
+/// Keep lines together on the paragraph after a kept heading: when the whole paragraph does
+/// not fit below the heading, both move over. Word does not leave a kept heading holding part
+/// of a paragraph that keep lines together will not split (#966).
+#[test]
+fn keep_with_next_carries_the_heading_when_keep_lines_moves_the_next_paragraph() {
+    let pages = |fillers: usize, kept_lines: bool| -> Vec<usize> {
+        let mut d = Document::new();
+        let plain = ParaProps {
+            space_before: Some(0.0),
+            space_after: Some(0.0),
+            line_spacing: Some(wordcraft_doc::props::LineSpacing::Multiple(1.0)),
+            widow_control: Some(false),
+            ..Default::default()
+        };
+        let para = |text: &str, p: &ParaProps| {
+            let mut x = wordcraft_doc::Paragraph::with_text(text, Default::default());
+            x.props = p.clone();
+            wordcraft_doc::para_block(x)
+        };
+        d.body = (0..fillers).map(|i| para(&format!("F{i}"), &plain)).collect();
+        let mut heading = wordcraft_doc::Paragraph::with_text("HEADING", Default::default());
+        heading.props = ParaProps { keep_next: Some(true), ..plain.clone() };
+        d.body.push(wordcraft_doc::para_block(heading));
+        let body = ParaProps { keep_lines: Some(kept_lines), ..plain.clone() };
+        d.body.push(para("Bb\nBc\nBd", &body));
+        let l = lay(&d);
+        // Pages of the heading and of the paragraph's first two lines.
+        vec![
+            l.caret(&Pos::body(fillers, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 0)).unwrap().page,
+            l.caret(&Pos::body(fillers + 1, 3)).unwrap().page,
+        ]
+    };
+    // The page edge that leaves the heading room for exactly one line of the three-line
+    // paragraph after it.
+    let fit = (20..100).find(|n| pages(*n, false) == [0, 0, 1]).expect("a filler count that leaves room for one line after the heading");
+    // With keep lines together the paragraph moves over whole, and the heading goes with it.
+    assert_eq!(pages(fit, true), [1, 1, 1], "the heading follows the paragraph: {fit}");
+    assert_eq!(pages(fit, false), [0, 0, 1], "without it the paragraph splits: {fit}");
 }
 
 /// An empty paragraph that only carries a section break before a continuous section takes no

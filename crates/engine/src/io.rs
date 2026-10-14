@@ -102,8 +102,23 @@ pub fn open_bytes(name: &str, bytes: &[u8]) -> Result<Document, String> {
     open_bytes_with(name, bytes, None).map(|(doc, _)| doc)
 }
 
+/// Open a Word 97-2003 binary file, decrypting it with `password` when it is password-protected
+/// (XOR, RC4, RC4 CryptoAPI). The errors for a missing or wrong password are the same texts the
+/// `.docx` reader gives, so [`needs_password`] and [`wrong_password`] recognise them.
+fn open_binary_doc(bytes: &[u8], password: Option<&str>) -> Result<(Document, bool), String> {
+    use wordcraft_docbin::DocbinError;
+    let encrypted = wordcraft_docbin::is_encrypted(bytes);
+    match wordcraft_docbin::read_with_password(bytes, password) {
+        Ok(doc) => Ok((doc, encrypted)),
+        Err(DocbinError::PasswordRequired) => Err(wordcraft_docx::PASSWORD_REQUIRED.to_string()),
+        Err(DocbinError::WrongPassword) => Err(wordcraft_docx::WRONG_PASSWORD.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// [`open_bytes`] for a file that may be password-protected: a Word document encrypted with a
-/// password ([MS-OFFCRYPTO] agile encryption) is decrypted with `password` first. Also says
+/// password ([MS-OFFCRYPTO] agile encryption, or the Word 97-2003 schemes) is decrypted with
+/// `password` first. Also says
 /// whether the file was encrypted. Without the password needed the error satisfies
 /// [`needs_password`]; with a wrong one, [`wrong_password`].
 pub fn open_bytes_with(name: &str, bytes: &[u8], password: Option<&str>) -> Result<(Document, bool), String> {
@@ -147,6 +162,11 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
         return open_by_content(name, &ext, bytes, password, page);
     }
     let mut doc = match ext.as_str() {
+        "doc" | "dot" => {
+            let (mut doc, encrypted) = open_binary_doc(bytes, password)?;
+            doc.ensure_nonempty();
+            return Ok((doc, encrypted));
+        }
         // Plain text goes through the formats importer: BOMs, unmarked UTF-16, Windows-1252.
         "txt" | "text" | "" => wordcraft_formats::txt::import_on(bytes, page),
         "json" => serde_json::from_slice::<Document>(bytes).map_err(|e| format!("{name}: {e}"))?,
@@ -239,7 +259,8 @@ fn open_by_content(
     } else if bytes.starts_with(ZIP) {
         (wordcraft_docx::read(bytes).map_err(|e| format!("{name}: not a document WordCraft can open ({e})"))?, false)
     } else if bytes.starts_with(OLE) {
-        (wordcraft_docbin::read(bytes).map_err(|e| format!("{name}: not a document WordCraft can open ({e})"))?, false)
+        open_binary_doc(bytes, password)
+            .map_err(|e| if needs_password(&e) || wrong_password(&e) { e } else { format!("{name}: not a document WordCraft can open ({e})") })?
     } else if bytes.starts_with(b"{\\rtf") {
         (wordcraft_formats::rtf::import(bytes)?, false)
     } else if wordcraft_formats::txt::is_text(bytes) {
@@ -449,6 +470,40 @@ pub fn read_file_capped(path: &str, max: u64, what: &str) -> Result<Vec<u8>, Str
     std::fs::read(path).map_err(|e| format!("{path}: {e}"))
 }
 
+/// Rename without replacing another file, respecting both automation access roots.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn rename_file(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+    crate::file_access::check_read(&source.to_string_lossy())?;
+    crate::file_access::check_write(&source.to_string_lossy())?;
+    crate::file_access::check_write(&destination.to_string_lossy())?;
+    // Creating a sibling hard link refuses collisions atomically and keeps the original bytes.
+    if let Err(e) = std::fs::hard_link(source, destination) {
+        if e.kind() == std::io::ErrorKind::AlreadyExists && only_case_differs(source, destination) {
+            return std::fs::rename(source, destination).map_err(|e| format!("Could not rename document: {e}"));
+        }
+        return Err(format!("Could not rename document: {e}"));
+    }
+    if let Err(e) = std::fs::remove_file(source) {
+        let _ = std::fs::remove_file(destination);
+        return Err(format!("Could not rename document: {e}"));
+    }
+    Ok(())
+}
+
+/// Whether `destination` names `source` in the same directory spelled with different case, and
+/// the directory holds no entry spelled exactly as `destination`.
+#[cfg(not(target_arch = "wasm32"))]
+fn only_case_differs(source: &std::path::Path, destination: &std::path::Path) -> bool {
+    let (Some(dir), Some(from), Some(to)) = (source.parent(), source.file_name(), destination.file_name()) else {
+        return false;
+    };
+    if destination.parent() != Some(dir) || from == to || from.to_string_lossy().to_lowercase() != to.to_string_lossy().to_lowercase() {
+        return false;
+    }
+    let dir = if dir.as_os_str().is_empty() { std::path::Path::new(".") } else { dir };
+    std::fs::read_dir(dir).is_ok_and(|entries| entries.filter_map(Result::ok).all(|entry| entry.file_name() != to))
+}
+
 /// The first `max` bytes of the file at `path` (fewer when it is shorter), inside the automation
 /// read root when there is one: enough to tell a file's format by its start.
 #[cfg(not(target_arch = "wasm32"))]
@@ -500,8 +555,9 @@ pub fn save_path_with(path: &std::path::Path, _doc: &Document, _password: Option
     Err(format!("{}: files are saved through the browser on the web", path.display()))
 }
 
-/// Decode text bytes: UTF-8 (with or without BOM), UTF-16 LE/BE (BOM or sniffed), else
-/// Windows-1252 (see [`wordcraft_formats::txt::decode`]).
+/// Decode text bytes: UTF-8 (with or without BOM), UTF-16 LE/BE (BOM or sniffed), else the
+/// legacy encoding they look like — GBK, Big5, Shift_JIS, Windows-1252… (see
+/// [`wordcraft_formats::txt::decode`]).
 pub fn decode_text(b: &[u8]) -> String {
     wordcraft_formats::txt::decode(b)
 }

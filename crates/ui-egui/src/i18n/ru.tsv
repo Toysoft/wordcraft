@@ -189,6 +189,8 @@
 	Delete Style	Удалить стиль
 	Delete Table	Удалить таблицу
 	Design	Дизайн
+	In the margin	На полях
+	Only for the selected text	Только для выделенного текста
 	No document is open. Create a document or open one first.	Нет открытого документа. Сначала создайте или откройте документ.
 	Search	Поиск
 	Title Bar	Строка заголовка
@@ -2462,6 +2464,39 @@ preview	Title	Пример
 	AutoFit Column by Double-Clicking	Автоподбор ширины столбца двойным щелчком
 	Region:	Регион:
 	Automatic ({region})	Автоматически ({region})
+	Text of the nearest paragraph with a given style (running headers)	Текст ближайшего абзаца с заданным стилем (живые колонтитулы)
+	Style name:	Имя стиля:
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Фильтр получателей
+	Sort Recipients	Сортировка получателей
+	Filter and Sort	Фильтр и сортировка
+	And	И
+	Or	Или
+	Comparison	Сравнение
+	Compare to	Значение
+	Add Condition	Добавить условие
+	Remove condition	Удалить условие
+	Sort by	Сортировать по
+	Then by	Затем по
+	Ascending	По возрастанию
+	Descending	По убыванию
+	Equal to	Равно
+	Not equal to	Не равно
+	Less than	Меньше
+	Greater than	Больше
+	Less than or equal	Меньше или равно
+	Greater than or equal	Больше или равно
+	Is blank	Пусто
+	Is not blank	Не пусто
+	Contains	Содержит
+	Does not contain	Не содержит
+	{count} of {total} recipients will be merged.	Получателей для слияния: {count} из {total}.
+	Take the last match on the page	Брать последнее совпадение на странице
+	Show its list number	Показывать его номер в списке
+	Show its number relative to this field	Показывать его номер относительно этого поля
+	Show its number with all higher levels	Показывать его номер со всеми верхними уровнями
+	Number only, without the label's words	Только номер, без слов метки
+	Add whether it is above or below	Добавлять, выше он или ниже
 	Start-up	Запуск
 	Show the Start screen when WordCraft starts	Показывать начальный экран при запуске WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Вкл.: WordCraft открывается на странице Файл › Главная с пустым документом, шаблонами и недавними документами. Выкл.: открывается пустой документ.
@@ -2472,6 +2507,13 @@ preview	Title	Пример
 	Level 7	Уровень 7
 	Level 8	Уровень 8
 	Level 9	Уровень 9
+	Copy to	Копировать в
+
+# Document naming and account controls.
+	Rename Document	Переименовать документ
+	Document name	Имя документа
+	Rename	Переименовать
+	Account	Учётная запись
 	Privacy Options	Параметры конфиденциальности
 	Trust Center	Центр управления безопасностью
 	Privacy for this document	Конфиденциальность этого документа
@@ -2513,3 +2555,21 @@ preview	Title	Пример
 	Suggested	Предлагаемые
 	Set Proofing Language…	Выбрать язык проверки правописания…
 	Language Preferences…	Языковые параметры…
+
+# Cross-reference dialog (#1003)
+	For which item:	Для какого элемента:
+	Heading	Заголовок
+	Heading text	Текст заголовка
+	Insert reference to:	Вставить ссылку на:
+	Reference type:	Тип ссылки:
+
+# Dictionaries folder (#1063)
+	Dictionaries	Словари
+	Dictionaries folder:	Папка словарей:
+	Not set: the system's usual places	Не задана: стандартные расположения в системе
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Файлы Hunspell .aff и .dic из этой папки (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) используются раньше системных.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: словарь не найден
+
+# Backstage › Recover (#586)
+	Recover	Восстановить

@@ -8,6 +8,7 @@ use std::hash::{Hash, Hasher};
 use egui::{Color32, Pos2, Rect, Sense, Stroke, TextureHandle, Ui, pos2, vec2};
 use serde_json::json;
 use wordcraft_doc::{PartKind, Pos, StoryRef};
+use wordcraft_layout::display::CommentDisplay;
 use wordcraft_layout::{DocLayout, Page, Placed};
 
 use crate::WordApp;
@@ -90,6 +91,9 @@ pub struct CanvasState {
     pub context_menu_at: Option<Pos2>,
     /// Screen rect of the selection's first line, for the floating mini toolbar.
     pub mini_anchor: Option<Rect>,
+    /// The selection the mini toolbar was put away for by a click outside the document (the
+    /// ribbon, a pane, the status bar); it comes back when the selection changes.
+    pub mini_dismissed: Option<wordcraft_engine::Selection>,
     /// A picture, shape or text box being dragged by its frame.
     pub(crate) obj_drag: Option<crate::objects::ObjectDrag>,
     /// An ink stroke being drawn with a pen (Draw tab).
@@ -196,6 +200,7 @@ impl Default for CanvasState {
             context_menu_from_keys: false,
             context_menu_at: None,
             mini_anchor: None,
+            mini_dismissed: None,
             pasted: false,
             swallow_text: false,
             alt_code: String::new(),
@@ -313,6 +318,23 @@ fn on_page_gap(rects: &[Rect], bands: &[(f32, f32)], p: Pos2) -> bool {
     })
 }
 
+/// Width of the card that floats beside a page when comments show only for the selected text (points).
+const FLOAT_WIDTH: f32 = 216.0;
+
+/// Comments show as a floating card rather than in a margin column (#1055): the option is on,
+/// balloons are shown at all, and no other markup needs the column.
+fn floating_comments(app: &WordApp) -> bool {
+    let s = &app.session;
+    let m = &s.prefs.markup;
+    s.balloons_shown() && m.comments && m.comment_display == CommentDisplay::Selected && !s.doc.comments.is_empty() && markup_width(app) <= 0.0
+}
+
+/// The comment shown when only the selected one is: the clicked balloon, else the comment whose
+/// range holds the caret.
+fn shown_comment(app: &WordApp) -> Option<u32> {
+    app.canvas.balloon.or_else(|| wordcraft_engine::cmd::review::comment_range_at_caret(&app.session))
+}
+
 /// Width of the markup area beside each page for comment and revision balloons (points), or 0.
 pub fn markup_width(app: &WordApp) -> f32 {
     // Word shows comments either in balloons (contextual) or in the Comments pane (list); Track
@@ -322,7 +344,7 @@ pub fn markup_width(app: &WordApp) -> f32 {
         return 0.0;
     }
     let m = &s.prefs.markup;
-    let comments = m.comments && !s.doc.comments.is_empty();
+    let comments = m.comments && !s.doc.comments.is_empty() && m.comment_display == CommentDisplay::Margin;
     let [has_formats, has_moves, has_deletions] = match app.canvas.markup_facts.get() {
         Some((rev, facts)) if rev == (s.document_id(), s.rev()) => facts,
         _ => {
@@ -567,7 +589,8 @@ fn view_key(app: &WordApp, dim_body: bool) -> u64 {
     (v.marks, app.session.prefs.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
     app.session.prefs.markup.hash(&mut h);
     dim_body.hash(&mut h);
-    format!("{:?}{:?}", app.session.doc.settings.page_color, app.session.doc.settings.watermark).hash(&mut h);
+    format!("{:?}{:?}{:?}", app.session.doc.settings.page_color, app.session.doc.settings.page_picture, app.session.doc.settings.watermark)
+        .hash(&mut h);
     app.session.doc.media.len().hash(&mut h);
     h.finish()
 }
@@ -873,7 +896,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     };
     // Dragging a selection near the viewport's edge scrolls on (#688): from a crawl at the margin
     // to full speed at the edge, through the same offset the wheel writes.
-    let (down, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos(), i.stable_dt));
+    let (down, released, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.latest_pos(), i.stable_dt));
+    // A release `mouse` returned before seeing (double-click paths, off the canvas) ends the drag here (#1019).
+    if app.canvas.dragging && !down && !released {
+        app.canvas.dragging = false;
+        app.canvas.column_drag = None;
+        app.canvas.unit_drag = None;
+    }
     let auto_delta = if !app.session.view.read_mode
         && app.canvas.drag_selecting()
         && down
@@ -1067,7 +1096,21 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let near = clip.expand2(vec2(clip.width(), clip.height() * TEXTURE_KEEP_SCREENS));
         app.canvas.textures.retain(|k, _| *k < n && geo.rects.get(*k).is_some_and(|r| r.translate(content_origin.to_vec2()).intersects(near)));
         app.canvas.page_rects = rects.clone();
-        balloons(app, ui, &painter, &rects, &layout, geo.scale);
+        let view_rect = ui.clip_rect();
+        if floating_comments(app) {
+            // Its own layer, so presses on the card never reach the canvas under it.
+            let ctx = ui.ctx().clone();
+            egui::Area::new(egui::Id::new("floating_comment")).order(egui::Order::Foreground).fixed_pos(Pos2::ZERO).sense(Sense::hover()).show(
+                &ctx,
+                |aui| {
+                    aui.set_clip_rect(view_rect);
+                    let ap = aui.painter().clone();
+                    balloons(app, aui, &ap, &rects, &layout, geo.scale, view_rect);
+                },
+            );
+        } else {
+            balloons(app, ui, &painter, &rects, &layout, geo.scale, view_rect);
+        }
         // Find › Reading Highlight.
         let marks: Vec<(Pos, Pos)> = app.session.find_highlights().iter().take(5000).cloned().collect();
         for (a, b) in &marks {
@@ -1080,17 +1123,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         }
         // Selection (a selected object shows its frame instead): whole table cells shade the
-        // cells (an empty one too), a column selection each row's piece.
+        // cells (an empty one too), a column selection each row's piece, text running into or
+        // across a table the whole cells of the rows it takes.
         let selected: Vec<_> = if crate::objects::selected(app).is_some() {
             Vec::new()
         } else if let Some(range) = app.session.cell_range() {
             wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range)
         } else if !app.session.sel.is_collapsed() {
-            let pieces: Vec<(Pos, Pos)> = match app.session.column_segments() {
-                Some(segs) => segs.to_vec(),
-                None => vec![app.session.sel.ordered()],
-            };
-            pieces.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect()
+            match app.session.column_segments() {
+                Some(segs) => segs.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect(),
+                None => {
+                    let (a, b) = app.session.sel.ordered();
+                    wordcraft_engine::cmd::table_mouse::selection_rects(&layout, &app.session.doc, &a, &b, app.session.page_hint)
+                }
+            }
         } else {
             Vec::new()
         };
@@ -1238,10 +1284,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // the scroll area is built, so it reads last frame's viewport.
     app.canvas.viewport = Some(out.inner_rect);
     let (resp, rects) = out.inner;
-    // A click on the page leaves the selected comment balloon; a click inside a balloon (its
-    // Delete or Resolve button, say) does not (#1085).
-    let in_balloon = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p)));
-    if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() && !in_balloon {
+    // A click on the page leaves the selected comment balloon.
+    if app.canvas.balloon.is_some()
+        && ui.input(|i| i.pointer.any_pressed())
+        && resp.contains_pointer()
+        && !ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| over_balloon(app, p))
+    {
         deselect_balloon(app, ui.ctx());
     }
     // Space and Enter also set `Response::clicked` on a focused click-sensing widget
@@ -1381,6 +1429,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if let (Some(h), Some(v)) = (hruler, vruler) {
         rulers(app, ui, h, v, &rects, &layout, geo.scale);
     }
+    crate::mini_toolbar::track_dismissal(app, ui.ctx(), area);
     if let Some(sel) = app.canvas.mini_anchor
         && app.ui.mini_toolbar
     {
@@ -1418,17 +1467,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
 /// Comment balloons in the markup area right of each page, joined to their anchors, with each
 /// comment's replies under it. Clicking a balloon selects it, like Word: its text becomes editable
 /// in place, with Reply, Resolve and Delete (the same commands as the Comments pane).
-fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Rect], layout: &DocLayout, scale: f32) {
+fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Rect], layout: &DocLayout, scale: f32, view: Rect) {
     app.canvas.balloon_rects.clear();
     let mw = markup_width(app);
-    if app.canvas.balloon.is_some_and(|id| mw <= 0.0 || !app.session.doc.comments.contains_key(&id)) {
+    let float = floating_comments(app);
+    if app.canvas.balloon.is_some_and(|id| (mw <= 0.0 && !float) || !app.session.doc.comments.contains_key(&id)) {
         deselect_balloon(app, ui.ctx());
     }
-    if mw <= 0.0 {
+    if mw <= 0.0 && !float {
         return;
     }
     let t = Tokens::get(ui.ctx());
-    let clip = ui.clip_rect();
+    let clip = view;
+    let only_shown = app.session.prefs.markup.comment_display == CommentDisplay::Selected;
+    let shown = shown_comment(app);
     // Replies hang under the comment they answer rather than getting balloons of their own.
     let is_reply = |c: &wordcraft_doc::Comment| c.parent.is_some_and(|p| app.session.doc.comments.contains_key(&p));
     let mut replies: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -1445,7 +1497,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     let comments = if m.comments { wordcraft_engine::cmd::review::comment_list(&app.session) } else { Vec::new() };
     for (id, pos) in comments {
         let Some(pos) = pos else { continue };
-        if app.session.doc.comments.get(&id).is_some_and(is_reply) {
+        if app.session.doc.comments.get(&id).is_some_and(is_reply) || (only_shown && shown != Some(id)) {
             continue;
         }
         let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
@@ -1479,7 +1531,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     for (pi, pr) in rects.iter().enumerate() {
         let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
         let area = Rect::from_min_max(pos2(pr.max.x, pr.min.y), pos2(pr.max.x + mw * page_scale, pr.max.y));
-        if area.intersects(clip) {
+        if mw > 0.0 && area.intersects(clip) {
             painter.rect_filled(area, 0.0, Color32::from_rgb(0xF3, 0xF3, 0xF3));
             painter.line_segment([area.left_top(), area.left_bottom()], Stroke::new(1.0, Color32::from_rgb(0xE0, 0xE0, 0xE0)));
         }
@@ -1494,8 +1546,14 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
         }
         list.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
         let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
-        let x0 = pr.max.x + 10.0;
-        let w = (mw * page_scale - 20.0).max(60.0);
+        // Beside the page in the column; floating, beside it when the view has room, else over its edge.
+        let (x0, w, over_page) = if mw > 0.0 {
+            (pr.max.x + 10.0, (mw * page_scale - 20.0).max(60.0), false)
+        } else {
+            let w = (FLOAT_WIDTH * page_scale - 20.0).max(60.0);
+            let beside = pr.max.x + 10.0;
+            if beside + w <= view.max.x - 8.0 { (beside, w, false) } else { ((view.max.x - w - 8.0).max(view.min.x + 8.0), w, true) }
+        };
         let mut next_y = pr.min.y;
         for (ax, ay, item, pos) in list.iter() {
             let id = match item {
@@ -1540,7 +1598,8 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             let fs = (11.0 * page_scale / PX_PER_PT).clamp(8.0, 16.0);
             let thread: Vec<u32> = replies.get(id).cloned().unwrap_or_default();
             let anchor = pos2(pr.min.x + ax * page_scale, pr.min.y + ay * page_scale);
-            let top = (anchor.y - 12.0).max(next_y);
+            // Over the page the card goes under the commented line, not on it.
+            let top = (anchor.y + if over_page { 4.0 } else { -12.0 }).max(next_y);
             let active = app.canvas.balloon == Some(*id);
             // Lay out a read-only balloon's text: the comment, then each reply under a rule.
             let mut lines: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
@@ -1567,8 +1626,10 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             let selected = active || (app.session.sel.focus.path == pos.path && app.session.sel.focus.story == pos.story);
             // Leader: from the anchor along the text to the page edge, then to the card.
             let lead = Stroke::new(if selected { 1.5 } else { 1.0 }, color.linear_multiply(if selected { 1.0 } else { 0.7 }));
-            dashed(painter, anchor, pos2(pr.max.x, anchor.y), lead);
-            painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
+            if !over_page {
+                dashed(painter, anchor, pos2(pr.max.x, anchor.y), lead);
+                painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
+            }
             let card = if active {
                 active_balloon(app, ui, painter, *id, &thread, card, fs, color)
             } else {
@@ -1698,6 +1759,11 @@ pub fn select_balloon(app: &mut WordApp, ctx: &egui::Context, id: u32) {
     app.canvas.balloon = Some(id);
     app.canvas.balloon_focus = true;
     app.canvas.balloon_h = 0.0;
+}
+
+/// A press over a balloon card belongs to the card, though the canvas under it also contains the pointer (#1013).
+fn over_balloon(app: &WordApp, p: Pos2) -> bool {
+    app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p))
 }
 
 /// Leave the selected balloon, writing back what was typed in it (its fields may not be drawn
@@ -1878,7 +1944,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         let _ = app.run("select.paragraph", json!({}));
         return;
     }
-    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer();
+    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);
     if pressed {
         let now = ui.input(|i| i.time);
         let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
@@ -2726,7 +2792,7 @@ fn link_under(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32, po
     let at = wordcraft_geom::Point::new(x, y);
     // The caret falls between characters: the one under the point is on either side of it.
     [(pos.off, para.next_boundary(pos.off)), (para.prev_boundary(pos.off), pos.off)].into_iter().filter(|(a, b)| a < b).find_map(|(a, b)| {
-        let link = para.props_of_char(a).link.clone()?;
+        let link = para.props_of_char(a).link.clone().filter(|l| !l.is_empty())?;
         let (from, to) = (Pos { off: a, ..pos.clone() }, Pos { off: b, ..pos.clone() });
         layout.selection_rects(doc, &from, &to, page).into_iter().any(|(pi, r)| pi == page && r.contains(at)).then_some(link)
     })
@@ -2966,6 +3032,66 @@ mod tests {
         multi_drag(&mut h, at, at, 2);
         let (s, e) = h.state().session.sel.ordered();
         assert_eq!((s, e), (Pos::body(0, 0), Pos::body(0, 6)));
+    }
+
+    /// #1014: Ctrl+drag on a shape leaves it and drops a copy; a plain drag moves it.
+    #[test]
+    fn ctrl_drag_copies_an_object() {
+        use egui::{Event, Modifiers, PointerButton};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Some text"})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        a.run("insert.shape", json!({"kind": "rectangle"})).unwrap();
+        a.run("arrange.bounds", json!({"width": 100, "height": 60, "page": 0, "x": 200, "y": 300})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let objects = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            let doc = &h.state().session.doc;
+            doc.para(wordcraft_doc::StoryRef::Body, &wordcraft_doc::Path::top(0)).map_or(0, |p| p.objects.len())
+        };
+        let xs = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            let mut v: Vec<i32> = Vec::new();
+            for x in (0..600).step_by(50) {
+                if h.state_mut().session.layout().find_object(0, |o| (o.rect.x - x as f32).abs() < 0.5).is_some() {
+                    v.push(x);
+                }
+            }
+            v
+        };
+        let drag = |h: &mut egui_kittest::Harness<'_, WordApp>, mods: Modifiers| {
+            let from = page_to_screen(h.state_mut(), 0, 250.0, 330.0).expect("on screen");
+            let to = page_to_screen(h.state_mut(), 0, 400.0, 330.0).expect("on screen");
+            h.event(Event::ModifiersChanged(mods));
+            h.event(Event::PointerMoved(from));
+            h.event(Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: mods });
+            h.step();
+            for k in 1..=4 {
+                h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 4.0)));
+                h.step();
+            }
+            h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: mods });
+            for _ in 0..3 {
+                h.step();
+            }
+            h.event(Event::ModifiersChanged(Modifiers::NONE));
+            h.step();
+        };
+        assert_eq!((objects(&mut h), xs(&mut h)), (1, vec![200]));
+        drag(&mut h, Modifiers::COMMAND);
+        assert_eq!((objects(&mut h), xs(&mut h)), (2, vec![200, 350]), "the original stays, a copy lands 150pt right");
+        // Without Ctrl the object under the pointer (the original) is moved, not copied again:
+        // it lands on the copy.
+        drag(&mut h, Modifiers::NONE);
+        assert_eq!((objects(&mut h), xs(&mut h)), (2, vec![350]));
     }
 
     /// #856: the left margin beside body text is Word's selection bar. A click selects the line,
@@ -3303,6 +3429,54 @@ mod tests {
         }
         let o = wordcraft_engine::cmd::objects::selected(&h.state().session).unwrap().1;
         assert_eq!(o.frame().unwrap().2.wrap, wordcraft_doc::para::Wrap::Square);
+    }
+
+    /// #996: on macOS a Control-click is the right-click (the trackpad's and the one-button
+    /// mouse's way to it), so it opens the same menu and leaves the caret where the menu needs it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn control_click_on_macos_opens_the_context_menu() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "The quick brwn fox"})).unwrap();
+        a.session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 12));
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let (p, ht) = caret_screen(h.state_mut()).unwrap();
+        let at = p + egui::vec2(0.0, ht / 2.0);
+        h.state_mut().session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 0));
+        h.step();
+        let ctrl = egui::Modifiers { ctrl: true, ..Default::default() };
+        // The events winit delivers for a Control-click, through the app's input hook as eframe runs it.
+        let send = |h: &mut egui_kittest::Harness<'_, WordApp>, events: Vec<egui::Event>| {
+            let mut raw = egui::RawInput { events, ..Default::default() };
+            h.state_mut().raw_input_hook(&mut raw);
+            for e in raw.events {
+                h.event(e);
+            }
+            h.step();
+        };
+        send(&mut h, vec![egui::Event::ModifiersChanged(ctrl), egui::Event::PointerMoved(at)]);
+        for pressed in [true, false] {
+            send(&mut h, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: ctrl }]);
+        }
+        h.event(egui::Event::ModifiersChanged(Default::default()));
+        h.step();
+        assert!(h.state().canvas.context_menu_open, "the Control-click opened the menu");
+        h.get_by_label("brown").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "The quick brown fox");
     }
 
     #[test]
