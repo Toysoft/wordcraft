@@ -2466,6 +2466,12 @@ preview	Title	Tytuł
 	Typing	Pisanie
 	Search	Wyszukaj
 	Title Bar	Pasek tytułu
+
+# Document naming and account controls.
+	Rename Document	Zmień nazwę dokumentu
+	Document name	Nazwa dokumentu
+	Rename	Zmień nazwę
+	Account	Konto
 	Privacy Options	Opcje prywatności
 	Trust Center	Centrum zaufania
 	Privacy for this document	Prywatność tego dokumentu
@@ -2507,3 +2513,10 @@ preview	Title	Tytuł
 	Suggested	Sugerowane
 	Set Proofing Language…	Ustaw język sprawdzania…
 	Language Preferences…	Preferencje językowe…
+
+# Cross-reference dialog (#1003)
+	For which item:	Dla którego elementu:
+	Heading	Nagłówek
+	Heading text	Tekst nagłówka
+	Insert reference to:	Wstaw odwołanie do:
+	Reference type:	Typ odwołania:
