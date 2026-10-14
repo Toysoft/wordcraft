@@ -12,7 +12,7 @@ use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("layout.margins", "Margins", "Layout › Page Setup", margins).params(
-            r#"{"preset"?: "normal|narrow|moderate|wide|mirrored|office2003", "top"?: pt, "bottom"?: pt, "left"?: pt, "right"?: pt, "gutter"?: pt}"#,
+            r#"{"preset"?: "normal|narrow|moderate|wide|mirrored|office2003", "top"?: pt, "bottom"?: pt, "left"?: pt, "right"?: pt, "gutter"?: pt, "mirror"?: bool}"#,
         ),
         CommandSpec::new("layout.orientation", "Orientation", "Layout › Page Setup", |s, v| {
             let land = match p::str(v, "value") {
@@ -48,13 +48,10 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"section"?: SectionProps}"#),
         CommandSpec::new("layout.verticalAlign", "Vertical Alignment", "Layout › Page Setup › Layout", |s, v| {
-            let va = match p::str(v, "value") {
-                Some("center") => wordcraft_doc::props::VAlign::Center,
-                Some("bottom") => wordcraft_doc::props::VAlign::Bottom,
-                _ => wordcraft_doc::props::VAlign::Top,
-            };
+            let va = wordcraft_doc::section::PageVAlign::parse(p::str(v, "value").unwrap_or_default());
             with_sect(s, |x| x.valign = va)
-        }),
+        })
+        .params(r#"{"value": "top|center|justify|bottom"} (also both|justified; anything else is top). Justified shares each page's spare room between its paragraphs and tables"#),
         CommandSpec::new("layout.sectionRtl", "Right-to-Left Section", "Layout › Page Setup", |s, v| {
             let on = p::bool(v, "value").unwrap_or(!sect(s).rtl);
             with_sect(s, |x| x.rtl = on)
@@ -337,16 +334,50 @@ fn document_grid(s: &mut Session, v: &Value) -> CmdResult {
     Ok(grid_result(&sect(s), size))
 }
 
+/// Layout › Margins presets: id and top, bottom, left, right in points.
+pub const MARGIN_PRESETS: [(&str, [f32; 4]); 6] = [
+    ("normal", [72.0, 72.0, 72.0, 72.0]),
+    ("narrow", [36.0, 36.0, 36.0, 36.0]),
+    ("moderate", [72.0, 72.0, 54.0, 54.0]),
+    ("wide", [72.0, 72.0, 144.0, 144.0]),
+    ("mirrored", [72.0, 72.0, 90.0, 72.0]),
+    ("office2003", [72.0, 72.0, 90.0, 90.0]),
+];
+
+/// The Margins preset the caret's section is set to, if any (Mirrored only with mirror margins
+/// on, the others only with it off), so the menu can mark it.
+pub fn margins_preset_at(s: &Session) -> Option<&'static str> {
+    let x = sect(s);
+    let m = [x.margin_top, x.margin_bottom, x.margin_left, x.margin_right];
+    MARGIN_PRESETS
+        .iter()
+        .find(|(id, p)| (*id == "mirrored") == s.doc.settings.mirror_margins && p.iter().zip(m).all(|(a, b)| (a - b).abs() < 0.5))
+        .map(|(id, _)| *id)
+}
+
+/// The Columns preset the caret's section matches: `one`, `two`, `three` (equal columns), or
+/// `left` / `right` (two columns, the narrower one on that side).
+pub fn columns_preset_at(s: &Session) -> Option<&'static str> {
+    let c = sect(s).columns;
+    let first = c.widths.first().map(|w| w.0);
+    let equal = c.widths.iter().all(|w| first.is_some_and(|f| (w.0 - f).abs() < 0.5));
+    match (c.count, c.widths.as_slice()) {
+        (1, _) => Some("one"),
+        (2, [a, b]) if a.0 < b.0 - 0.5 => Some("left"),
+        (2, [a, b]) if a.0 > b.0 + 0.5 => Some("right"),
+        (2, _) if equal => Some("two"),
+        (3, _) if equal => Some("three"),
+        _ => None,
+    }
+}
+
 fn margins(s: &mut Session, v: &Value) -> CmdResult {
     let preset = p::str(v, "preset");
     let (t, b, l, r) = match preset {
-        Some("normal") => (72.0, 72.0, 72.0, 72.0),
-        Some("narrow") => (36.0, 36.0, 36.0, 36.0),
-        Some("moderate") => (72.0, 72.0, 54.0, 54.0),
-        Some("wide") => (72.0, 72.0, 144.0, 144.0),
-        Some("mirrored") => (72.0, 72.0, 90.0, 72.0),
-        Some("office2003") => (72.0, 72.0, 90.0, 90.0),
-        Some(x) => return Err(CmdError::Params(format!("unknown preset `{x}`"))),
+        Some(x) => match MARGIN_PRESETS.iter().find(|(id, _)| *id == x) {
+            Some((_, [t, b, l, r])) => (*t, *b, *l, *r),
+            None => return Err(CmdError::Params(format!("unknown preset `{x}`"))),
+        },
         None => {
             let c = sect(s);
             (
@@ -362,9 +393,10 @@ fn margins(s: &mut Session, v: &Value) -> CmdResult {
     if !margins_fit((cur.page_w, cur.page_h), (t, b, l, r), gutter.unwrap_or(cur.gutter)) {
         return Err(CmdError::Params("margins leave no room for text".into()));
     }
-    // A preset picks mirrored or not; plain numbers (a ruler drag, an agent) keep the setting.
-    if preset.is_some() {
-        s.doc.settings.mirror_margins = preset == Some("mirrored");
+    // A preset picks mirrored or not, as does `mirror` (Page Setup's Multiple pages); plain numbers
+    // alone (a ruler drag, an agent) keep the setting.
+    if let Some(on) = p::bool(v, "mirror").or(preset.map(|k| k == "mirrored")) {
+        s.doc.settings.mirror_margins = on;
     }
     with_sect(s, |x| {
         x.margin_top = t.max(0.0);
@@ -589,6 +621,32 @@ mod tests {
         s.run("layout.textDirection", &json!({"value": "btLr"})).unwrap();
         assert_eq!(text_direction_at(&s), TextDirection::Up);
         assert_eq!(sect(&s).text_direction, TextDirection::Down);
+    }
+
+    /// #1206: each Margins and Columns preset is recognised after it's applied (Mirrored and
+    /// Office 2003 share three margins; mirror margins tell them apart), and a value no preset
+    /// gives is none of them.
+    #[test]
+    fn page_setup_presets_are_recognised() {
+        let mut s = doc();
+        for (id, _) in MARGIN_PRESETS {
+            s.run("layout.margins", &json!({"preset": id})).unwrap();
+            assert_eq!(margins_preset_at(&s), Some(id));
+        }
+        s.run("layout.margins", &json!({"left": 80.0})).unwrap();
+        assert_eq!(margins_preset_at(&s), None);
+        for (params, id) in [
+            (json!({"count": 2}), "two"),
+            (json!({"preset": "left"}), "left"),
+            (json!({"count": 3}), "three"),
+            (json!({"preset": "right"}), "right"),
+            (json!({"count": 1}), "one"),
+        ] {
+            s.run("layout.columns", &params).unwrap();
+            assert_eq!(columns_preset_at(&s), Some(id), "{params}");
+        }
+        s.run("layout.columns", &json!({"count": 4})).unwrap();
+        assert_eq!(columns_preset_at(&s), None);
     }
 
     /// #852: a continuous section break with text selected goes before the selection and keeps

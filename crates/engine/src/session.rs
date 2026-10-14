@@ -449,6 +449,8 @@ pub struct Session {
     /// Password, `file.encrypt`); `None` saves them unencrypted. Kept from a password-protected
     /// file that was opened, cleared when the document is replaced.
     pub password: Option<crate::io::Password>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) recovery: Option<crate::recovery::Recovery>,
     /// More pictures and shapes selected along with the one the selection holds (Shift+click),
     /// for Group. Cleared by any edit or selection change other than adding to it.
     pub also_selected: Vec<Pos>,
@@ -508,6 +510,10 @@ pub struct Prefs {
     /// The region the user chose for new documents, units and the decimal separator (a locale
     /// tag like `pl-PL`, File › Options › Advanced › Region); `None` follows the system.
     pub region: Option<String>,
+    /// A folder searched for Hunspell dictionaries before the system locations (File › Options ›
+    /// Proofing, #1063): an app started from Finder or the Dock doesn't see
+    /// `WORDCRAFT_DICTIONARIES`. `None` searches the system locations only.
+    pub dictionaries_folder: Option<String>,
     /// Formatting marks shown even while Show/Hide ¶ is off.
     pub marks: wordcraft_layout::display::FormattingMarks,
     /// Mark grammar errors as you type (with Check spelling as you type on).
@@ -532,6 +538,7 @@ impl Default for Prefs {
             overtype: false,
             units: Default::default(),
             region: None,
+            dictionaries_folder: None,
             marks: Default::default(),
             mark_grammar: true,
             ignore_uppercase: true,
@@ -636,6 +643,8 @@ impl Session {
             editing_lang: None,
             read_aloud: Default::default(),
             password: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            recovery: None,
             column: None,
             column_mode: false,
             widened: None,
@@ -1083,6 +1092,8 @@ impl Session {
             math_normal_text: _,
             // The save password, like the file path: not an edit to the document.
             password: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                recovery: _,
             also_selected: _,
             // Column selection and a widened selection's ends, like `sel`'s shape: valid only while
             // `sel` matches them.
