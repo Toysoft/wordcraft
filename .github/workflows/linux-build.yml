@@ -16,6 +16,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Incremental compilation helps when the same crate is rebuilt after a small
+  # source edit within a debug profile (test/check). Left unset (cargo default)
+  # for the release build below, where it mostly adds cache weight.
+  CARGO_INCREMENTAL: 1
 
 jobs:
   build:
@@ -53,17 +57,54 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-          
+
+      # Persistent, incremental-aware cache for the registry, downloaded
+      # sources, and compiled artifacts (both dependency crates and workspace
+      # crates). The key is derived automatically from: job name, runner OS,
+      # rustc version/toolchain, and a hash of Cargo.lock, so a toolchain
+      # bump, a dependency change, or a different target platform all
+      # naturally produce a new cache rather than reusing incompatible
+      # artifacts. `env-vars` widens that key to also track any build-flag
+      # env vars that affect codegen (features/flags are otherwise invisible
+      # to the key). `cache-on-failure` ensures a failed run still saves
+      # whatever it managed to compile, so the next run resumes from there
+      # instead of starting cold.
       - name: Cache Cargo build
+        id: cargo-cache
         uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
+          cache-on-failure: true
+          shared-key: wordcraft-linux
+          env-vars: "RUSTFLAGS CARGO_BUILD_TARGET CARGO_PROFILE_RELEASE_LTO CARGO_INCREMENTAL"
+
+      - name: Record cache status
+        run: |
+          echo "Cache hit: ${{ steps.cargo-cache.outputs.cache-hit }}"
+          echo "BUILD_START=$(date +%s)" >> "$GITHUB_ENV"
+          echo "CACHE_HIT=${{ steps.cargo-cache.outputs.cache-hit }}" >> "$GITHUB_ENV"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      # `cargo fetch` first so the "download deps" network step is cleanly
+      # separated from compilation in the logs/timing below; it's a no-op
+      # when the registry cache already has everything.
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+
+      # These three steps run in the same job and therefore share the same
+      # target/ directory and dependency fingerprints. Cargo itself (not the
+      # workflow) is what avoids recompiling unaffected crates: as long as a
+      # later step's profile/features match an earlier step's, cargo reuses
+      # the already-built .rlib/.rmeta outputs and only compiles what changed
+      # (the edited crate plus crates that depend on it). cargo test and
+      # cargo check both use the default debug profile, so they share
+      # compiled dependency artifacts; the release build below uses a
+      # separate profile directory but still reuses the cached registry and
+      # downloaded sources.
       - name: Run mini-toolbar tests
-        run: cargo test -p wordcraft-ui-egui mini_toolbar
+        run: cargo test --locked -p wordcraft-ui-egui mini_toolbar
 
       - name: Check desktop application
         run: cargo check --locked -p wordcraft
@@ -85,3 +126,17 @@ jobs:
           path: WordCraft-linux-x86_64.tar.gz
           if-no-files-found: error
           retention-days: 14
+
+      # Writes a simple cold-vs-warm timing record to the job summary so
+      # build-time improvements from the cache are visible run-over-run
+      # without needing an external dashboard.
+      - name: Record build duration
+        if: always()
+        run: |
+          END=$(date +%s)
+          DURATION=$((END - BUILD_START))
+          {
+            echo "### Build timing"
+            echo "- Cache hit (restored existing artifacts): \`${CACHE_HIT}\`"
+            echo "- Total elapsed time (post-checkout): \`${DURATION}s\`"
+          } >> "$GITHUB_STEP_SUMMARY"
