@@ -1315,11 +1315,11 @@ fn count_dialog_frame(ctx: &egui::Context, id: egui::Id) {
 /// edge, which closes it the same way the title bar's close button does (#1842).
 fn dialog_backdrop(ctx: &egui::Context) -> bool {
     egui::Area::new(egui::Id::new("dialog_backdrop"))
-        .order(egui::Order::PanelResizeLine)
+        .order(egui::Order::Foreground)
         .fixed_pos(egui::Pos2::ZERO)
         .interactable(true)
         .show(ctx, |ui| {
-            let screen = ctx.screen_rect();
+            let screen = ctx.content_rect();
             ui.painter().rect_filled(screen, 0.0, egui::Color32::from_black_alpha((255.0 * 0.2) as u8));
             ui.allocate_rect(screen, Sense::click()).clicked()
         })
