@@ -88,9 +88,43 @@ use wordcraft_engine::Session;
 pub use control::ControlRequest;
 pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
 
+/// A new document window, never a second editable view of the same in-memory document.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DocumentWindow {
+    New { template: String },
+    Open { path: String },
+}
+
+impl DocumentWindow {
+    fn from_command(id: &str, params: &Value) -> Option<Self> {
+        match id {
+            "file.new" => {
+                let template = params
+                    .get("template")
+                    .and_then(Value::as_str)
+                    .filter(|t| matches!(*t, "sample" | "letter" | "resume" | "report"))
+                    .unwrap_or("blank");
+                Some(Self::New { template: template.into() })
+            }
+            // In-memory uploads and password retries stay in this window. Never put bytes or
+            // passwords in another process's arguments. The child asks for its own password.
+            "file.open" if params.get("data").is_none() && params.get("password").is_none() => {
+                params.get("path").and_then(Value::as_str).map(|path| Self::Open { path: path.into() })
+            }
+            _ => None,
+        }
+    }
+}
+
+pub type DocumentWindowHook = Box<dyn Fn(DocumentWindow) -> Result<(), String>>;
+
 /// Platform services injected by the host (file dialogs, file I/O).
 #[derive(Default)]
 pub struct Services {
+    /// Desktop: open another document in an independent window. User New/Open commands use
+    /// this while a document is already open; scripts still address this window's session.
+    /// Hosts without it (including the web) keep the in-place Save Changes flow.
+    pub document_window: Option<DocumentWindowHook>,
     /// Desktop: discover configured printers on a worker.
     pub printers: Option<printing::Discover>,
     /// Desktop: submit the PDF with the chosen settings on a worker.
@@ -715,6 +749,16 @@ impl WordApp {
     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        if (self.has_document() || matches!(self.dialog, Some(dialogs::Dialog::Password { .. })))
+            && let Some(open) = &self.services.document_window
+            && let Some(request) = DocumentWindow::from_command(id, &params)
+        {
+            if let Err(e) = open(request) {
+                self.status(e.clone());
+                return Err(e);
+            }
+            return Ok(json!({"openedWindow": true}));
+        }
         if id == "file.recover" && params.as_object().is_none_or(|p| p.is_empty()) {
             self.ui.backstage = true;
             self.ui.backstage_page = "recover".into();
@@ -3811,6 +3855,105 @@ mod tests {
         b.run("file.encrypt", json!({"password": null})).unwrap();
         assert_eq!(prompt(&b), None, "null removes the password without asking");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn desktop_new_and_open_keep_the_current_document_and_undo_history() {
+        use std::{cell::RefCell, rc::Rc};
+        let requests = Rc::new(RefCell::new(Vec::new()));
+        let recorded = requests.clone();
+        let mut a = typed();
+        a.services.document_window = Some(Box::new(move |request| {
+            recorded.borrow_mut().push(request);
+            Ok(())
+        }));
+        let document = a.session.document_id();
+        assert_eq!(a.run("file.new", json!({"template": "report"})).unwrap(), json!({"openedWindow": true}));
+        a.run("file.open", json!({"path": "another.docx"})).unwrap();
+        assert_eq!(*requests.borrow(), [DocumentWindow::New { template: "report".into() }, DocumentWindow::Open { path: "another.docx".into() },]);
+        assert_eq!(a.session.document_id(), document);
+        assert!(a.session.dirty);
+        assert!(body_text(&a).contains(UNSAVED));
+        assert_eq!(prompt(&a), None);
+        a.run("edit.undo", json!({})).unwrap();
+        assert!(!body_text(&a).contains(UNSAVED));
+        // Closing still asks about this window's work.
+        a.run("text.insert", json!({"text": UNSAVED})).unwrap();
+        a.run("file.close", json!({})).unwrap();
+        assert_eq!(prompt(&a), Some("saveChanges"));
+    }
+
+    #[test]
+    fn failed_window_launch_keeps_unsaved_work_and_reports_error() {
+        let mut a = typed();
+        a.services.document_window = Some(Box::new(|_| Err("Couldn't start WordCraft".into())));
+        let document = a.session.document_id();
+        assert_eq!(a.run("file.new", json!({})).unwrap_err(), "Couldn't start WordCraft");
+        assert_eq!(a.session.document_id(), document);
+        assert!(body_text(&a).contains(UNSAVED));
+        assert!(a.session.dirty);
+        assert_eq!(prompt(&a), None);
+    }
+
+    #[test]
+    fn desktop_start_screen_uses_this_window_then_opens_others() {
+        use std::{cell::Cell, rc::Rc};
+        let count = Rc::new(Cell::new(0));
+        let recorded = count.clone();
+        let mut a = app();
+        a.ui.start_screen = true;
+        assert!(a.start_screen());
+        a.services.document_window = Some(Box::new(move |_| {
+            recorded.set(recorded.get() + 1);
+            Ok(())
+        }));
+        a.run("file.new", json!({"template": "letter"})).unwrap();
+        assert!(a.has_document());
+        assert_eq!(count.get(), 0);
+        a.run("file.new", json!({})).unwrap();
+        assert_eq!(count.get(), 1);
+    }
+
+    #[test]
+    fn another_finder_open_does_not_replace_a_start_screen_password_prompt() {
+        let dir = scratch("window-password");
+        let path = dir.join("locked.docx");
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Locked away"));
+        s.run("file.save", &json!({"path": path.to_string_lossy(), "password": "sesame"})).unwrap();
+        let mut a = app();
+        a.ui.start_screen = true;
+        a.start_screen();
+        a.services.document_window = Some(Box::new(|request| {
+            assert_eq!(request, DocumentWindow::Open { path: "second.docx".into() });
+            Ok(())
+        }));
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        assert_eq!(prompt(&a), Some("password"));
+        let first_prompt = serde_json::to_value(&a.dialog).unwrap();
+        assert_eq!(a.run("file.open", json!({"path": "second.docx"})).unwrap(), json!({"openedWindow": true}));
+        assert_eq!(serde_json::to_value(&a.dialog).unwrap(), first_prompt);
+        assert!(!a.has_document());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn scripts_still_replace_this_windows_document() {
+        let mut a = typed();
+        a.services.document_window = Some(Box::new(|_| Err("must not launch for scripts".into())));
+        a.execute("file.new", json!({})).unwrap();
+        assert!(!body_text(&a).contains(UNSAVED));
+    }
+
+    #[test]
+    fn window_requests_never_forward_passwords_or_uploads_and_picker_stays_local() {
+        assert_eq!(DocumentWindow::from_command("file.open", &json!({})), None);
+        assert_eq!(DocumentWindow::from_command("file.open", &json!({"path": "secret.docx", "password": "secret"})), None);
+        assert_eq!(DocumentWindow::from_command("file.open", &json!({"path": "upload.docx", "data": "YQ=="})), None);
+        assert_eq!(DocumentWindow::from_command("file.new", &json!({"template": "unknown"})), Some(DocumentWindow::New { template: "blank".into() }));
+        let mut a = typed();
+        a.services.document_window = Some(Box::new(|_| Err("must not launch for picker".into())));
+        a.run("file.open", json!({})).unwrap();
+        assert!(body_text(&a).contains(UNSAVED));
     }
 
     /// Open (after the file is picked), recent files and dropped files all go through `file.open`.
