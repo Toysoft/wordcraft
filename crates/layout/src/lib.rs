@@ -17,6 +17,7 @@ pub mod kinsoku;
 pub mod math;
 pub mod outline;
 pub mod para;
+pub mod styleref;
 mod table;
 mod textbox;
 mod vertical;
@@ -472,6 +473,8 @@ struct Key {
     grid: (u32, u32, u32, bool),
     fit: bool,
     hide_deleted: bool,
+    /// STYLEREF results in headers and footers ([`FieldCtx::styleref_key`]).
+    sref: u64,
 }
 
 /// Memoised paragraph layouts.
@@ -485,6 +488,10 @@ pub struct LayoutCache {
     outlines: HashMap<(String, usize, usize, [u32; 4]), Option<Arc<Vec<(f32, f32)>>>>,
     env: u64,
     used: HashSet<Key>,
+    /// The STYLEREF style index of the last pass and what it was built from: the body blocks
+    /// (shared, so an edited block is a different pointer) and `env` (styles and numbering). Kept
+    /// while both are unchanged, so headers using STYLEREF don't rebuild it on every pass.
+    styleref: Option<(Blocks, u64, Arc<styleref::StyleIndex>)>,
     pub hits: u64,
     pub misses: u64,
 }
@@ -503,6 +510,21 @@ impl LayoutCache {
         self.paras.clear();
         self.measures.clear();
         self.outlines.clear();
+        self.styleref = None;
+    }
+
+    /// The STYLEREF style index for `doc`, rebuilt only when the body or the styles changed.
+    fn style_index(&mut self, doc: &Document) -> Arc<styleref::StyleIndex> {
+        if let Some((body, env, ix)) = &self.styleref
+            && *env == self.env
+            && body.len() == doc.body.len()
+            && body.iter().zip(doc.body.iter()).all(|(a, b)| Arc::ptr_eq(a, b))
+        {
+            return ix.clone();
+        }
+        let ix = Arc::new(styleref::StyleIndex::build(doc));
+        self.styleref = Some((doc.body.to_vec(), self.env, ix.clone()));
+        ix
     }
 }
 
@@ -785,6 +807,7 @@ impl Ctx<'_> {
             grid: self.grid.key(),
             fit: self.boxes.inside(),
             hide_deleted: self.hide_deleted,
+            sref: if self.fields.styleref.is_some() && styleref::has_styleref(p) { self.fields.styleref_key() } else { 0 },
         };
         (key, eq_number)
     }
@@ -1009,11 +1032,18 @@ fn layout_box(
                     continue;
                 }
                 let ctxl = pl.rp.contextual_spacing;
-                let same = prev_style.as_ref().is_some_and(|(s, c)| *s == pl.rp.style && (*c || ctxl));
-                let mut before = if same && ctxl { 0.0 } else { pl.rp.space_before };
-                if same && ctxl {
-                    y -= prev_after;
-                    prev_after = 0.0;
+                let mut before = pl.rp.space_before;
+                if let Some((style, previous_contextual)) = &prev_style
+                    && *style == pl.rp.style
+                {
+                    if *previous_contextual {
+                        y -= prev_after;
+                        before = (before - prev_after).max(0.0);
+                        prev_after = 0.0;
+                    }
+                    if ctxl {
+                        before = 0.0;
+                    }
                 }
                 // Automatic spacing: none between two list items (as in an HTML list).
                 if i > 0 && prev_listed && listed {
@@ -2877,6 +2907,8 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     if broke_before {
         pb.new_page(block, body_top);
     }
+    // Same-style contextual spacing removes this paragraph's before-space, or subtracts the
+    // previous paragraph's after-space from the merged gap (ISO/IEC 29500-1 §17.3.1.9).
     let mut before = pl.rp.space_before;
     let prev_para = pb.prev.clone();
     // At the top of a page, measured in Word for Windows: no space before after a paragraph that
@@ -2896,10 +2928,11 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     if let Some((style, ctxl, mut after, after_auto, listed)) = pb.prev.take()
         && !pb.at_top()
     {
-        // Contextual spacing: no space between paragraphs of the same style when either asks for it.
+        // Contextual spacing suppresses each paragraph's own side of the gap.
         if style == pl.rp.style {
             if ctxl {
                 pb.y -= after;
+                before = (before - after).max(0.0);
                 after = 0.0;
             }
             if pl.rp.contextual_spacing {
@@ -3333,10 +3366,12 @@ fn space_after_kept(ctx: &Ctx, block: usize, rp: &wordcraft_doc::resolve::Resolv
     after
 }
 
-/// Height of the first line of the block after `block` (for keep-with-next).
-/// The room the paragraphs after `block` need on its page for keep with next: the next one's
-/// first line, or all of it and what it keeps with in turn when it is kept with the next too
-/// (a chain moves together in Word).
+/// The room the paragraphs after `block` need on the page for keep with next: enough of the
+/// next one to start there — its first line, two of its lines with widow/orphan control (it
+/// doesn't leave a single line at the bottom of a page; it moves over whole instead), or all
+/// of it under keep lines together — or all of it and what it keeps with in turn when it is
+/// kept with the next too (a chain moves together in Word). Word carries a kept heading over
+/// when the paragraph after it cannot start on the page (#966).
 fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32 {
     match ctx.doc.body.get(block + 1).map(|b| &**b) {
         Some(Block::Para(p)) => {
@@ -3364,7 +3399,20 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize) -> f32
             if pl.rp.keep_next && depth < 8 {
                 pl.rp.space_before + pl.height + pl.rp.space_after + next_first_line(ctx, block + 1, width, depth + 1)
             } else {
-                pl.rp.space_before + pl.lines.first().map(|l| l.height).unwrap_or(0.0)
+                // The room this one needs to start on the page with the kept paragraph before
+                // it (#966).
+                let to = |k: usize| match (pl.lines.first(), pl.lines.get(k)) {
+                    (Some(first), Some(last)) => last.top + last.height - first.top,
+                    _ => 0.0,
+                };
+                pl.rp.space_before
+                    + if pl.rp.keep_lines {
+                        pl.height
+                    } else if pl.rp.widow_control && pl.lines.len() >= 2 {
+                        to(1)
+                    } else {
+                        to(0)
+                    }
             }
         }
         Some(Block::Table(_)) => 24.0,
@@ -3658,6 +3706,7 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
         *per_section.entry(p.section).or_default() += 1;
     }
     let even_odd = ctx.doc.settings.even_odd_headers;
+    let styles = styleref::headers_use_styleref(ctx.doc).then(|| ctx.cache.style_index(ctx.doc));
     let mut first_of_section: HashSet<usize> = HashSet::new();
     let mut seen = HashSet::new();
     for (i, p) in pages.iter().enumerate() {
@@ -3692,6 +3741,14 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
         ctx.fields.pages = total;
         ctx.fields.section_pages = per_section.get(&page.section).copied().unwrap_or(1);
         ctx.fields.section = page.section as u32 + 1;
+        // STYLEREF: the body paragraphs on this page.
+        ctx.fields.styleref = styles.as_ref().map(|ix| {
+            let paths = page.items.iter().filter_map(|it| match it {
+                Placed::Lines { story: StoryRef::Body, path, .. } => Some(path),
+                _ => None,
+            });
+            (ix.clone(), ix.page_at(paths, page.first_block))
+        });
         let w = sect.text_width();
         let x = sect.margin_left + sect.gutter;
         if let Some(id) = hid
@@ -3721,6 +3778,7 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
             page.footer_story = Some(id);
         }
     }
+    ctx.fields.styleref = None;
 }
 
 /// Mirrored margins: even pages have the inside margin (and gutter) on the right, so their
@@ -3773,6 +3831,8 @@ mod tests_grid;
 mod tests_numeral;
 #[cfg(test)]
 mod tests_pages;
+#[cfg(test)]
+mod tests_styleref;
 #[cfg(test)]
 mod tests_textbox;
 #[cfg(test)]

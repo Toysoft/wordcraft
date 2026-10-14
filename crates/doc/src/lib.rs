@@ -322,6 +322,13 @@ pub struct Comment {
     pub resolved: bool,
     /// `Document::parts` id of the comment text.
     pub part: u32,
+    /// Word's durable id for the comment (`w16cid:durableId`, hex), kept across saves so Word
+    /// keeps tracking the same comment. `None` for comments made here: the writer assigns one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub durable_id: Option<String>,
+    /// The comment's UTC timestamp from the file (`w16cex:dateUtc`); `date` is local time there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date_utc: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -433,6 +440,8 @@ pub struct Settings {
     /// Most consecutive lines that may end with a hyphen (`w:consecutiveHyphenLimit`); 0 = no limit.
     pub consecutive_hyphen_limit: u32,
     pub page_color: Option<Rgb>,
+    /// Picture or texture page background (Design › Page Color › Fill Effects), drawn over the colour.
+    pub page_picture: Option<PagePicture>,
     pub watermark: Option<Watermark>,
     /// Theme fonts (major = headings, minor = body).
     pub major_font: String,
@@ -480,6 +489,10 @@ pub struct Settings {
     pub attached_template: Option<String>,
     /// Update the document's styles from the attached template when it is opened (`w:linkStyles`).
     pub link_styles: bool,
+    /// The zoom the document was saved at (`w:zoom`), restored when it is opened; `None` for 100%
+    /// without a fit mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<Zoom>,
     /// Remove personal information when saving (`w:removePersonalInformation`, ECMA-376
     /// §17.15.1.70): the saved file names comment and revision authors "Author" and leaves out
     /// the document's creator and last-modified-by. The open document keeps its real values.
@@ -489,6 +502,24 @@ pub struct Settings {
     /// comments and tracked changes are saved without `w:date`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub remove_date_time: bool,
+}
+
+/// A saved zoom: a percentage, or a fit mode (the percentage it last came to).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Zoom {
+    /// 10–500.
+    pub percent: u32,
+    pub fit: Option<ZoomFit>,
+}
+
+/// View › Zoom's fit modes a document can be saved in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ZoomFit {
+    OnePage,
+    PageWidth,
+    TextWidth,
 }
 
 /// Word's compatibility mode for documents that don't state one.
@@ -502,6 +533,18 @@ pub const DEFAULT_HYPHENATION_ZONE: f32 = 18.0;
 
 /// ECMA-376 §17.15.1.44/45: 180 twentieths of a point when a document doesn't say.
 pub const DEFAULT_GRID: f32 = 9.0;
+
+/// A picture fill for the page background (`v:background/v:fill` with an image).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PagePicture {
+    /// Key into [`Document::media`].
+    pub media: String,
+    /// `v:fill/@type` (`tile`, `frame`, `tile`...); tiled when `tile`, stretched to the page otherwise.
+    pub fill_type: String,
+    /// `o:title` of the fill (texture name), kept for round trip.
+    pub title: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -547,6 +590,7 @@ impl Default for Settings {
             hyphenate_caps: true,
             consecutive_hyphen_limit: 0,
             page_color: None,
+            page_picture: None,
             watermark: None,
             major_font: styles::HEADING_FONT.into(),
             minor_font: styles::BODY_FONT.into(),
@@ -566,6 +610,7 @@ impl Default for Settings {
             bib_style: None,
             attached_template: None,
             link_styles: false,
+            zoom: None,
             remove_personal_info: false,
             remove_date_time: false,
         }

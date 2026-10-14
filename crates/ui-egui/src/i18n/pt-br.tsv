@@ -97,6 +97,7 @@
 	Ignore web and file addresses	Ignorar endereços da Web e de arquivos
 	Ignore words in capitals	Ignorar palavras em maiúsculas
 	Ignore words with numbers	Ignorar palavras com números
+	In the margin	Na margem
 	Inches	Polegadas
 	Formatting exceptions	Exceções de formatação
 	Include level number from:	Incluir número do nível:
@@ -124,6 +125,7 @@
 	Number alignment:	Alinhamento do número:
 	Number format	Formato do número
 	Number style for this level:	Estilo de número deste nível:
+	Only for the selected text	Somente para o texto selecionado
 	Outside border	Borda externa
 	Overtype	Sobrescrever
 	Overtype (typing replaces the characters after the caret)	Sobrescrever (o que você digita substitui os caracteres após o cursor)
@@ -2091,9 +2093,49 @@
 	AutoFit Column by Double-Clicking	Autoajustar coluna com clique duplo
 	Region:	Região:
 	Automatic ({region})	Automático ({region})
+	Text of the nearest paragraph with a given style (running headers)	Texto do parágrafo mais próximo com um determinado estilo (cabeçalhos dinâmicos)
+	Style name:	Nome do estilo:
+	Search from bottom of page to top	Pesquisar de baixo para cima na página
+	Insert paragraph number	Inserir número do parágrafo
+	Insert paragraph number in relative context	Inserir número do parágrafo em contexto relativo
+	Insert paragraph number in full context	Inserir número do parágrafo em contexto completo
+	Suppress all non-delimiter characters	Suprimir todos os caracteres que não sejam delimitadores
+	Insert position (above or below)	Inserir posição (acima ou abaixo)
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Filtrar destinatários
+	Sort Recipients	Classificar destinatários
+	Filter and Sort	Filtrar e classificar
+	And	E
+	Or	Ou
+	Comparison	Comparação
+	Compare to	Comparar com
+	Add Condition	Adicionar condição
+	Remove condition	Remover condição
+	Sort by	Classificar por
+	Then by	Depois por
+	Ascending	Crescente
+	Descending	Decrescente
+	Equal to	Igual a
+	Not equal to	Diferente de
+	Less than	Menor que
+	Greater than	Maior que
+	Less than or equal	Menor ou igual a
+	Greater than or equal	Maior ou igual a
+	Is blank	Está em branco
+	Is not blank	Não está em branco
+	Contains	Contém
+	Does not contain	Não contém
+	{count} of {total} recipients will be merged.	{count} de {total} destinatários serão mesclados.
 	Start-up	Inicialização
 	Show the Start screen when WordCraft starts	Mostrar a tela inicial ao abrir o WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Ativado: o WordCraft abre em Arquivo › Início, com um documento em branco, os modelos e seus documentos recentes. Desativado: abre um documento em branco.
+	Copy to	Copiar para
+
+# Document naming and account controls.
+	Rename Document	Renomear documento
+	Document name	Nome do documento
+	Rename	Renomear
+	Account	Conta
 	Privacy Options	Opções de privacidade
 	Trust Center	Central de confiabilidade
 	Privacy for this document	Privacidade deste documento
@@ -2135,3 +2177,11 @@
 	Suggested	Sugestões
 	Set Proofing Language…	Definir idioma de revisão…
 	Language Preferences…	Preferências de idioma…
+
+# Dictionaries folder (#1063)
+	Dictionaries	Dicionários
+	Dictionaries folder:	Pasta de dicionários:
+	Not set: the system's usual places	Não definida: os locais habituais do sistema
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Os arquivos .aff e .dic do Hunspell nesta pasta (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) são usados antes dos do sistema.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: nenhum dicionário encontrado

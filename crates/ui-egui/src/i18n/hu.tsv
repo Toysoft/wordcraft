@@ -328,6 +328,7 @@
 	Immersive	Elmélyült
 	Immersive Reader	Elmélyült olvasás
 	Immersive\nReader	Elmélyült\nolvasás
+	In the margin	A margón
 	Increase Font Size	Betűméret növelése
 	Increase Indent	Behúzás növelése
 	Indent	Behúzás
@@ -482,6 +483,7 @@
 	OK	OK
 	One	Egy
 	One Page	Egy oldal
+	Only for the selected text	Csak a kijelölt szövegnél
 	Open	Megnyitás
 	OpenDocument Text (*.odt)	OpenDocument szöveg (*.odt)
 	Optional Hyphen	Feltételes kötőjel
@@ -2449,6 +2451,30 @@
 	Reading Column Width	Olvasási oszlopszélesség
 	Reading Line Spacing	Olvasási sorköz
 	Reading Text Size	Olvasási szövegméret
+	Filter Recipients	Címzettek szűrése
+	Sort Recipients	Címzettek rendezése
+	Filter and Sort	Szűrés és rendezés
+	And	És
+	Or	Vagy
+	Comparison	Összehasonlítás
+	Compare to	Összehasonlítás ezzel
+	Add Condition	Feltétel hozzáadása
+	Remove condition	Feltétel eltávolítása
+	Sort by	Rendezés alapja
+	Then by	Majd
+	Ascending	Növekvő
+	Descending	Csökkenő
+	Equal to	Egyenlő
+	Not equal to	Nem egyenlő
+	Less than	Kisebb, mint
+	Greater than	Nagyobb, mint
+	Less than or equal	Kisebb vagy egyenlő
+	Greater than or equal	Nagyobb vagy egyenlő
+	Is blank	Üres
+	Is not blank	Nem üres
+	Contains	Tartalmazza
+	Does not contain	Nem tartalmazza
+	{count} of {total} recipients will be merged.	{total} címzettből {count} kerül egyesítésre.
 	Undo Actions	Több művelet visszavonása
 	Undo History	Visszavonási előzmények
 	Undo 1 Action	1 művelet visszavonása
@@ -2462,6 +2488,14 @@
 	Automatic ({region})	Automatikus ({region})
 	Picture	Kép
 	Pastes the clipboard's picture.	Beilleszti a vágólapon lévő képet.
+	Text of the nearest paragraph with a given style (running headers)	Az adott stílusú legközelebbi bekezdés szövege (élőfejek)
+	Style name:	Stílus neve:
+	Search from bottom of page to top	Keresés a lap aljától felfelé
+	Insert paragraph number	Bekezdésszám beszúrása
+	Insert paragraph number in relative context	Bekezdésszám beszúrása relatív környezetben
+	Insert paragraph number in full context	Bekezdésszám beszúrása teljes környezetben
+	Suppress all non-delimiter characters	Az elválasztókon kívüli összes karakter elhagyása
+	Insert position (above or below)	Pozíció beszúrása (fent vagy lent)
 	Select Column	Oszlop kijelölése
 	Select Table Cells by Clicking	Táblázatcellák kijelölése kattintással
 	Insert Row or Column by Clicking	Sor vagy oszlop beszúrása kattintással
@@ -2470,6 +2504,13 @@
 	Insert Caption…	Felirat beszúrása…
 	Table Properties…	Táblázat tulajdonságai…
 	Search	Keresés
+	Copy to	Másolás ide
+
+# Document naming and account controls.
+	Rename Document	Dokumentum átnevezése
+	Document name	Dokumentum neve
+	Rename	Átnevezés
+	Account	Fiók
 	Privacy Options	Adatvédelmi beállítások
 	Trust Center	Adatvédelmi központ
 	Privacy for this document	A dokumentum adatvédelme
@@ -2512,3 +2553,18 @@
 	Set Proofing Language…	Nyelvi ellenőrzés nyelvének beállítása…
 	Language Preferences…	Nyelvi beállítások…
 	Title Bar	Címsáv
+
+# Cross-reference dialog (#1003)
+	For which item:	Melyik elemhez:
+	Heading	Címsor
+	Heading text	Címsor szövege
+	Insert reference to:	Hivatkozás beszúrása erre:
+	Reference type:	Hivatkozás típusa:
+
+# Dictionaries folder (#1063)
+	Dictionaries	Szótárak
+	Dictionaries folder:	Szótárak mappája:
+	Not set: the system's usual places	Nincs beállítva: a rendszer szokásos helyei
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Az ebben a mappában lévő Hunspell .aff és .dic fájlok (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) elsőbbséget élveznek a rendszer fájljaival szemben.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: nem található szótár

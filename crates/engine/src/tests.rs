@@ -1831,6 +1831,35 @@ fn reject_one_paragraph_break_and_rejecting_a_typed_paragraph() {
 }
 
 #[test]
+fn reject_all_of_an_inserted_paragraph_keeps_the_next_paragraphs_style() {
+    // A whole paragraph inserted before a heading, in another style: rejecting it removes the
+    // paragraph, and the heading keeps its own style (it used to take the rejected one's).
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Intro"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "Heading"}));
+    run(&mut s, "para.style", json!({"style": "Heading1"}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "text.insert", json!({"text": "Inserted"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "review.trackChanges", json!({"value": false}));
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "para.style", json!({"style": "Normal"}));
+    assert_eq!(body_texts(&s), ["Intro", "Inserted", "Heading"]);
+    let style = |s: &Session, i: usize| s.doc.para_at(&Pos::body(i, 0)).unwrap().props.style.clone();
+    assert_eq!(style(&s, 2).as_deref(), Some("Heading1"));
+    run(&mut s, "review.rejectAll", json!({}));
+    assert_eq!(body_texts(&s), ["Intro", "Heading"]);
+    assert_eq!(style(&s, 1).as_deref(), Some("Heading1"));
+    // Accepting instead keeps all three, each with its style.
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(body_texts(&s), ["Intro", "Inserted", "Heading"]);
+    assert_eq!(style(&s, 2).as_deref(), Some("Heading1"));
+}
+
+#[test]
 fn tracked_backspace_and_delete_mark_a_paragraph_break_deleted() {
     let two = || {
         let mut s = s();
@@ -3389,6 +3418,37 @@ fn zoom_after_one_page_keeps_single_column() {
     assert!(!s.view.single_column);
 }
 
+/// Issue #995: One Page is saved with the document (`w:zoom`, like Word) and restored when it is
+/// reopened; changing the zoom alone doesn't make the document unsaved.
+#[test]
+fn one_page_is_restored_when_the_document_is_reopened() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-engine-zoom-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("one-page.docx");
+    let path = path.to_string_lossy();
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "file.save", json!({"path": path}));
+    run(&mut s, "view.onePage", json!({}));
+    assert!(!s.dirty, "a zoom isn't an edit");
+    run(&mut s, "file.save", json!({}));
+
+    let mut other = Session::new(wordcraft_doc::Document::new());
+    run(&mut other, "file.open", json!({"path": path}));
+    assert_eq!(other.view.fit, "onePage");
+    assert!(other.view.single_column && !other.view.multi_page);
+    assert!(!other.dirty);
+
+    // A percentage is restored as a percentage, the fit mode dropped.
+    run(&mut other, "view.zoom", json!({"value": 80}));
+    run(&mut other, "file.save", json!({}));
+    run(&mut s, "file.open", json!({"path": path}));
+    assert!(s.view.fit.is_empty() && !s.view.single_column);
+    assert!((s.view.zoom - 0.8).abs() < 1e-6);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn navigation_pane_opens_without_changing_view_mode() {
     // Reading Mode's heading navigation is the Navigation pane; Outline is an editing view (#493).
@@ -4676,17 +4736,57 @@ fn note_options_per_section_and_convert_notes() {
 /// A tiny synthetic Polish Hunspell dictionary (written for these tests). Real dictionaries are
 /// installed on the system, never bundled; every Polish test installs this same one.
 fn polish_test_dictionary() {
-    let aff = "SET UTF-8\nTRY aioeznrwcyszżtkpdmłjlubąęgh\nMAP 2\nMAP oó\nMAP zż\nREP 2\nREP ż rz\nREP rz ż\n";
-    let dic = "12\npłynie\nrzeka\na\nto\nwiem\nże\ntak\nw\nogóle\nzażółć\ngęślą\njaźń\n";
-    wordcraft_proof::pl::install_dictionary(aff, dic).unwrap();
+    wordcraft_proof::pl::install_dictionary(POLISH_TEST_AFF, POLISH_TEST_DIC).unwrap();
 }
+
+const POLISH_TEST_AFF: &str = "SET UTF-8\nTRY aioeznrwcyszżtkpdmłjlubąęgh\nMAP 2\nMAP oó\nMAP zż\nREP 2\nREP ż rz\nREP rz ż\n";
+const POLISH_TEST_DIC: &str = "12\npłynie\nrzeka\na\nto\nwiem\nże\ntak\nw\nogóle\nzażółć\ngęślą\njaźń\n";
 
 /// A tiny synthetic Portuguese Hunspell dictionary (written for these tests). Real dictionaries
 /// are installed on the system, never bundled; every Portuguese test installs this same one.
 fn portuguese_test_dictionary() {
-    let aff = "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY aeiousrntmdlcpvgqbzfhjxçãõáéíóúâêô\nMAP 2\nMAP aáã\nMAP eé\nREP 1\nREP seje seja\n";
-    let dic = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\né\nque\nseja\nfrequencia/F\nmuito\n";
-    wordcraft_proof::pt::install_dictionary(aff, dic).unwrap();
+    wordcraft_proof::pt::install_dictionary(PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC).unwrap();
+}
+
+const PORTUGUESE_TEST_AFF: &str =
+    "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY aeiousrntmdlcpvgqbzfhjxçãõáéíóúâêô\nMAP 2\nMAP aáã\nMAP eé\nREP 1\nREP seje seja\n";
+const PORTUGUESE_TEST_DIC: &str = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\né\nque\nseja\nfrequencia/F\nmuito\n";
+
+/// #1063: File › Options › Proofing › Dictionaries folder. A folder of Hunspell files is saved,
+/// searched first and reported per language; a missing folder or a relative path is refused and
+/// changes nothing. The folder holds the same test dictionaries the other tests install, so tests
+/// running meanwhile see the same words; it stays set for the rest of the run for that reason.
+#[test]
+fn dictionaries_folder_option_is_saved_searched_and_reported() {
+    let dir = std::env::temp_dir().join(format!("wc-engine-dictionaries-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, aff, dic) in [("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC), ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC)] {
+        std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
+        std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
+    }
+    let mut s = s();
+    let missing = dir.join("no-such-folder");
+    assert!(s.run("file.options", &json!({"dictionariesFolder": missing.to_string_lossy()})).is_err());
+    assert!(s.run("file.options", &json!({"dictionariesFolder": "relative/dictionaries"})).is_err());
+    assert!(s.run("file.options", &json!({"dictionariesFolder": 7})).is_err());
+    assert_eq!(s.prefs.dictionaries_folder, None, "a refused folder changes nothing");
+    let r = run(&mut s, "file.options", json!({"dictionariesFolder": dir.to_string_lossy()}));
+    assert_eq!(s.prefs.dictionaries_folder.as_deref(), Some(dir.to_string_lossy().as_ref()));
+    assert_eq!(r["dictionariesFolder"], json!(dir.to_string_lossy()));
+    let dicts = r["dictionaries"].as_array().unwrap();
+    let file = |lang: &str| dicts.iter().find(|d| d["language"] == lang).map(|d| d["file"].clone());
+    assert_eq!(file("pl"), Some(json!(dir.join("pl_PL.dic").to_string_lossy())));
+    assert_eq!(file("pt"), Some(json!(dir.join("pt_BR.dic").to_string_lossy())));
+    // Polish text is checked against the folder's dictionary.
+    run(&mut s, "document.setText", json!({"text": "rzeka płynie żeka"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "pl-PL"}));
+    let issues = run(&mut s, "review.issues", json!({}));
+    let words: Vec<&str> = issues.as_array().unwrap().iter().filter(|i| i["kind"] == "spelling").filter_map(|i| i["text"].as_str()).collect();
+    assert_eq!(words, ["żeka"], "{issues}");
+    // Saved with the settings.
+    let prefs = serde_json::to_value(&s.prefs).unwrap();
+    assert_eq!(prefs["dictionariesFolder"], json!(dir.to_string_lossy()));
 }
 
 /// Review › Language and the proofing commands work in Portuguese end to end: the language makes
@@ -4807,6 +4907,11 @@ fn polish_proofing_through_the_review_commands() {
 /// Review › Language and proofing commands work in Turkish end to end.
 #[test]
 fn turkish_proofing_through_the_review_commands() {
+    // Spelling and suggestions come from the installed Turkish Hunspell dictionary; machines
+    // without one (CI, most desktops) have nothing to check here.
+    if !crate::proof::tr::has_dictionary() {
+        return;
+    }
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "Bana bazen gelenler oldu ise de. Sana olacaklardan sonra sorna"}));
     run(&mut s, "select.all", json!({}));
@@ -5534,6 +5639,137 @@ fn insert_picture_takes_a_windows_metafile() {
     let err = s.run("insert.picture", &json!({"path": path.to_string_lossy()})).unwrap_err();
     assert!(err.to_string().contains("WMF, EMF"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A DOCX built in code: a tracked deletion inside a field result, as Word writes when a
+/// formula field's result is edited (#1037). The first field's result is split across the field
+/// end; the second has its whole result deleted.
+fn tracked_field_result_docx() -> Vec<u8> {
+    use std::io::Write;
+    const WHO: &str = r#"w:author="Tester" w:date="2026-10-12T00:00:00Z""#;
+    let field = |instr: &str, inside: &str, after: &str| {
+        format!(
+            r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> {instr} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>{inside}<w:r><w:fldChar w:fldCharType="end"/></w:r>{after}"#
+        )
+    };
+    let del = |id: u32, t: &str| format!(r#"<w:del w:id="{id}" {WHO}><w:r><w:delText>{t}</w:delText></w:r></w:del>"#);
+    let ins = |id: u32, t: &str| format!(r#"<w:ins w:id="{id}" {WHO}><w:r><w:t>{t}</w:t></w:r></w:ins>"#);
+    let p1 = field("=SUM(ABOVE)", &del(1, "$"), &(del(2, "150.00") + &ins(3, "$140.00")));
+    let p2 = field("=2+3", &del(4, "5"), &ins(5, "five"));
+    let xml = format!(
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>{p1}</w:p><w:p>{p2}</w:p></w:body></w:document>"#
+    );
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, value) in [
+        ("word/document.xml", xml.as_str()),
+        (
+            "_rels/.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+        ),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(value.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+#[test]
+fn tracked_deletion_inside_a_field_result_is_a_revision_and_is_saved() {
+    let doc = wordcraft_docx::read(&tracked_field_result_docx()).unwrap();
+    // Revisions with one author and date are shared: one deletion, one insertion.
+    let kinds: Vec<_> = doc.revisions.iter().map(|r| r.kind).collect();
+    assert_eq!(kinds, [wordcraft_doc::RevisionKind::Delete, wordcraft_doc::RevisionKind::Insert]);
+    // The deleted `$` is still in the text, marked deleted (not ordinary result text).
+    let p = doc.body[0].as_para().unwrap();
+    assert_eq!(p.text.replace(wordcraft_doc::para::OBJ, ""), "$150.00$140.00");
+    // Saving keeps the deletion inside the result, with its text as delText.
+    let bytes = wordcraft_docx::write(&doc).unwrap();
+    let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(&mut z.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
+    let sep = xml.find(r#"w:fldCharType="separate""#).unwrap();
+    let end = xml.find(r#"w:fldCharType="end""#).unwrap();
+    let inside = &xml[sep..end];
+    assert!(inside.contains("<w:del ") && inside.contains("<w:delText") && inside.contains('$'), "{inside}");
+}
+
+/// Paragraph texts without the field markers' placeholder characters.
+fn visible_texts(s: &Session) -> Vec<String> {
+    body_texts(s).iter().map(|t| t.replace(wordcraft_doc::para::OBJ, "")).collect()
+}
+
+#[test]
+fn accept_and_reject_all_handle_a_tracked_deletion_inside_a_field_result() {
+    let open = || Session::new(wordcraft_docx::read(&tracked_field_result_docx()).unwrap());
+    let mut s = open();
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(visible_texts(&s), ["$140.00", "five"]);
+    assert!(s.doc.revisions.is_empty());
+    let mut s = open();
+    run(&mut s, "review.rejectAll", json!({}));
+    assert_eq!(visible_texts(&s), ["$150.00", "5"]);
+}
+
+#[test]
+fn rename_document_preserves_saved_contents_and_rejects_collisions() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-rename-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("original.docm");
+    let renamed = dir.join("Notes.docm");
+    let existing = dir.join("existing.docm");
+    std::fs::write(&original, b"original bytes").unwrap();
+    std::fs::write(&existing, b"keep these bytes").unwrap();
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.path = Some(original.clone());
+    s.dirty = true;
+    assert!(s.run("file.rename", &json!({"name": "existing"})).is_err());
+    assert_eq!(s.path.as_ref(), Some(&original));
+    assert_eq!(std::fs::read(&existing).unwrap(), b"keep these bytes");
+    let roots = crate::file_access::AutomationRoots::new(Some(&dir), None).unwrap();
+    assert!(crate::file_access::confine(roots.as_ref(), || s.run("file.rename", &json!({"name": "Notes"}))).is_err());
+    assert!(original.exists());
+    assert!(!renamed.exists());
+    s.run("file.rename", &json!({"name": " Notes "})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&renamed));
+    assert!(s.dirty);
+    assert!(!original.exists());
+    assert_eq!(std::fs::read(&renamed).unwrap(), b"original bytes");
+    s.run("file.rename", &json!({"name": "Notes"})).unwrap();
+    s.run("file.rename", &json!({"name": "notes"})).unwrap();
+    let lower = dir.join("notes.docm");
+    assert_eq!(s.path.as_ref(), Some(&lower));
+    let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert!(names.contains(&"notes.docm".into()) && !names.contains(&"Notes.docm".into()), "{names:?}");
+    assert_eq!(std::fs::read(&lower).unwrap(), b"original bytes");
+    assert!(s.run("file.rename", &json!({"name": "existing"})).is_err());
+    assert_eq!(s.path.as_ref(), Some(&lower));
+    assert_eq!(std::fs::read(&existing).unwrap(), b"keep these bytes");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn rename_unsaved_document_names_the_file_not_the_document() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.doc.core.title = "Quarterly report".into();
+    for name in ["", "  ", "../report", "a/b", "a\\b", "a\nb", "name."] {
+        assert!(s.run("file.rename", &json!({"name": name})).is_err(), "{name:?}");
+        assert!(s.file_name.is_none());
+    }
+    s.run("file.rename", &json!({"name": " Résumé notes "})).unwrap();
+    assert_eq!(s.file_name.as_deref(), Some("Résumé notes"));
+    assert_eq!(s.doc.core.title, "Quarterly report");
+    assert!(s.path.is_none());
+    assert!(!s.dirty);
+    assert!(!s.can_undo());
+    s.run("file.new", &json!({})).unwrap();
+    assert!(s.file_name.is_none());
+    s.run("file.rename", &json!({"name": "Draft"})).unwrap();
+    s.run("file.open", &json!({"path": "other.txt", "data": "aGk="})).unwrap();
+    assert!(s.file_name.is_none());
+    s.run("file.new", &json!({})).unwrap();
+    s.run("file.rename", &json!({"name": "Draft"})).unwrap();
+    s.run("review.compare", &json!({"text": "changed", "showIn": "new"})).unwrap();
+    assert!(s.file_name.is_none() && s.path.is_none());
 }
 
 /// #1344: File › Info › Inspect Document finds hidden text by its effective formatting (direct,

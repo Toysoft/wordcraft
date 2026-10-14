@@ -337,6 +337,7 @@
 	Immersive	Süvenemine
 	Immersive Reader	Süvaluger
 	Immersive\nReader	Süva-\nluger
+	In the margin	Veerisel
 	Inches	Tollid
 	Increase Font Size	Suurenda fondi suurust
 	Increase Indent	Suurenda taanet
@@ -504,6 +505,7 @@
 	Office 2003 Default	Office 2003 vaikevalik
 	One	Üks
 	One Page	Üks leht
+	Only for the selected text	Ainult valitud teksti jaoks
 	Open	Ava
 	OpenDocument Text (*.odt)	OpenDocumenti tekst (*.odt)
 	Optional Hyphen	Valikuline poolitusmärk
@@ -2113,9 +2115,49 @@
 	AutoFit Column by Double-Clicking	Veeru automaatne sobitus topeltklõpsuga
 	Region:	Piirkond:
 	Automatic ({region})	Automaatne ({region})
+	Text of the nearest paragraph with a given style (running headers)	Antud stiiliga lähima lõigu tekst (jooksvad päised)
+	Style name:	Stiili nimi:
+	Search from bottom of page to top	Otsi lehe lõpust alguse poole
+	Insert paragraph number	Lisa lõigu number
+	Insert paragraph number in relative context	Lisa lõigu number suhtelises kontekstis
+	Insert paragraph number in full context	Lisa lõigu number täielikus kontekstis
+	Suppress all non-delimiter characters	Jäta välja kõik märgid peale eraldajate
+	Insert position (above or below)	Lisa asukoht (ülal või all)
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Filtreeri adressaate
+	Sort Recipients	Sordi adressaate
+	Filter and Sort	Filtreerimine ja sortimine
+	And	Ja
+	Or	Või
+	Comparison	Võrdlus
+	Compare to	Võrdle väärtusega
+	Add Condition	Lisa tingimus
+	Remove condition	Eemalda tingimus
+	Sort by	Sordi välja järgi
+	Then by	Seejärel
+	Ascending	Kasvavalt
+	Descending	Kahanevalt
+	Equal to	Võrdne
+	Not equal to	Ei võrdu
+	Less than	Väiksem kui
+	Greater than	Suurem kui
+	Less than or equal	Väiksem või võrdne
+	Greater than or equal	Suurem või võrdne
+	Is blank	On tühi
+	Is not blank	Pole tühi
+	Contains	Sisaldab
+	Does not contain	Ei sisalda
+	{count} of {total} recipients will be merged.	Ühendatavaid adressaate: {count} / {total}.
 	Start-up	Käivitamine
 	Show the Start screen when WordCraft starts	Näita WordCrafti käivitamisel avakuva
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Sees: WordCraft avaneb vaates Fail › Avaleht, kus on tühi dokument, mallid ja hiljutised dokumendid. Väljas: avaneb tühi dokument.
+	Copy to	Kopeeri asukohta
+
+# Document naming and account controls.
+	Rename Document	Nimeta dokument ümber
+	Document name	Dokumendi nimi
+	Rename	Nimeta ümber
+	Account	Konto
 	Privacy Options	Privaatsussuvandid
 	Trust Center	Usalduskeskus
 	Privacy for this document	Selle dokumendi privaatsus
@@ -2157,3 +2199,11 @@
 	Suggested	Soovitused
 	Set Proofing Language…	Määra õigekeelsuskontrolli keel…
 	Language Preferences…	Keele-eelistused…
+
+# Dictionaries folder (#1063)
+	Dictionaries	Sõnastikud
+	Dictionaries folder:	Sõnastike kaust:
+	Not set: the system's usual places	Määramata: süsteemi tavapärased asukohad
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Selle kausta Hunspelli .aff- ja .dic-failid (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) on eelistatud süsteemi omadele.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: sõnastikku ei leitud

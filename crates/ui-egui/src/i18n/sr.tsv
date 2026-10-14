@@ -125,6 +125,7 @@
 	Ignore web and file addresses	Занемари веб-адресе и путање датотека
 	Ignore words in capitals	Занемари речи писане великим словима
 	Ignore words with numbers	Занемари речи са бројевима
+	In the margin	На маргини
 	Inches	Инчи
 	Formatting exceptions	Изузеци форматирања
 	Include level number from:	Укључи број нивоа:
@@ -153,6 +154,7 @@
 	Number alignment:	Поравнање броја:
 	Number format	Формат броја
 	Number style for this level:	Стил броја за овај ниво:
+	Only for the selected text	Само за изабрани текст
 	Outside border	Спољна ивица
 	In Default apps, choose WordCraft for the document types you want it to open.	У подразумеваним апликацијама изаберите WordCraft за врсте докумената које желите да отвара.
 	Make WordCraft the default for Word documents…	Постави WordCraft као подразумевану апликацију за Word документе…
@@ -2093,9 +2095,49 @@
 	AutoFit Column by Double-Clicking	Аутоматско уклапање колоне двоструким кликом
 	Region:	Регион:
 	Automatic ({region})	Аутоматски ({region})
+	Text of the nearest paragraph with a given style (running headers)	Текст најближег пасуса са задатим стилом (текућа заглавља)
+	Style name:	Назив стила:
+	Search from bottom of page to top	Претражи од дна странице ка врху
+	Insert paragraph number	Уметни број пасуса
+	Insert paragraph number in relative context	Уметни број пасуса у релативном контексту
+	Insert paragraph number in full context	Уметни број пасуса у пуном контексту
+	Suppress all non-delimiter characters	Изостави све знакове осим граничника
+	Insert position (above or below)	Уметни положај (изнад или испод)
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Филтрирај примаоце
+	Sort Recipients	Сортирај примаоце
+	Filter and Sort	Филтрирање и сортирање
+	And	И
+	Or	Или
+	Comparison	Поређење
+	Compare to	Упореди са
+	Add Condition	Додај услов
+	Remove condition	Уклони услов
+	Sort by	Сортирај по
+	Then by	Затим по
+	Ascending	Растуће
+	Descending	Опадајуће
+	Equal to	Једнако
+	Not equal to	Није једнако
+	Less than	Мање од
+	Greater than	Веће од
+	Less than or equal	Мање или једнако
+	Greater than or equal	Веће или једнако
+	Is blank	Празно
+	Is not blank	Није празно
+	Contains	Садржи
+	Does not contain	Не садржи
+	{count} of {total} recipients will be merged.	Прималаца за спајање: {count} од {total}.
 	Start-up	Покретање
 	Show the Start screen when WordCraft starts	Прикажи почетни екран при покретању програма WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Укључено: WordCraft се отвара на Фајл › Почетак, са празним документом, шаблонима и недавним документима. Искључено: отвара празан документ.
+	Copy to	Копирај у
+
+# Document naming and account controls.
+	Rename Document	Преименуј документ
+	Document name	Име документа
+	Rename	Преименуј
+	Account	Налог
 	Privacy Options	Опције приватности
 	Trust Center	Центар за безбедност
 	Privacy for this document	Приватност овог документа
@@ -2137,3 +2179,11 @@
 	Suggested	Предлози
 	Set Proofing Language…	Постави језик провере…
 	Language Preferences…	Језичке поставке…
+
+# Dictionaries folder (#1063)
+	Dictionaries	Речници
+	Dictionaries folder:	Фасцикла речника:
+	Not set: the system's usual places	Није подешено: уобичајене локације у систему
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell .aff и .dic датотеке из ове фасцикле (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) користе се пре системских.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: речник није пронађен
