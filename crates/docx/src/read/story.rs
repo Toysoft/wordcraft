@@ -7,7 +7,7 @@ use wordcraft_doc::control::{ContentControl, ControlKind, ControlWrap};
 use wordcraft_doc::effects::{Glow, Shadow, ShapeEffects};
 use wordcraft_doc::graphic::{Embedded, Graphic, GraphicItem, GraphicKind};
 use wordcraft_doc::para::{AltText, Anchor, Float, FloatAlign, NoteKind, ShapeKind, Wrap, WrapText, cap_alt};
-use wordcraft_doc::props::{CharProps, NumChange, PropChange, Rgb};
+use wordcraft_doc::props::{CharProps, NumChange, PropChange, Rgb, TextColor};
 use wordcraft_doc::table::{Cell, MAX_COLS, MAX_ROWS, Row, Table};
 use wordcraft_doc::{Block, Blocks, InlineObject, Paragraph, PartKind, RevisionKind, Run, para_block};
 
@@ -496,8 +496,11 @@ impl Reader<'_> {
             }
             "w:smartTag" | "w:customXml" | "w:dir" | "w:bdo" => self.read_inline_children(sc, pb, k, rels, ctx, depth + 1),
             "m:oMath" => {
-                let props = self.run_props_none(ctx);
-                let math = super::math::read_omath(k, Default::default());
+                let mut props = self.run_props_none(ctx);
+                let mut math = super::math::read_omath(k, Default::default());
+                if let Some(c) = super::math::lift_color(&mut math) {
+                    props.color = Some(TextColor::Rgb(c));
+                }
                 let linear = wordcraft_doc::math::to_linear(&math.nodes);
                 self.emit_obj(sc, pb, InlineObject::Equation { linear, display: false, math }, &props);
             }
@@ -505,7 +508,11 @@ impl Reader<'_> {
                 let props = self.run_props_none(ctx);
                 let jc = super::math::para_jc(k);
                 for m in k.children("m:oMath") {
-                    let math = super::math::read_omath(m, jc);
+                    let mut math = super::math::read_omath(m, jc);
+                    let mut props = props.clone();
+                    if let Some(c) = super::math::lift_color(&mut math) {
+                        props.color = Some(TextColor::Rgb(c));
+                    }
                     let linear = wordcraft_doc::math::to_linear(&math.nodes);
                     self.emit_obj(sc, pb, InlineObject::Equation { linear, display: true, math }, &props);
                 }
@@ -1251,6 +1258,14 @@ impl Reader<'_> {
             part.body.auto_fit = bp.child("a:spAutoFit").is_some();
         }
         let mut extra = ShapeExtra::default();
+        // A rounded rectangle's own corner (`adj`, ECMA-376 §20.1.10.56); other presets drawn as
+        // rounded rectangles keep the default.
+        if prst == "roundRect" {
+            extra.corner = sppr
+                .and_then(|s| s.child("a:prstGeom"))
+                .and_then(|g| preset_adj(g, "adj"))
+                .and_then(|v| u32::try_from(v.clamp(0, i64::from(wordcraft_doc::connector::MAX_CORNER))).ok());
+        }
         // Arrowheads: any end type but `none` (ECMA-376 §20.1.10.33) is drawn as a triangle.
         let arrow = |tag: &str| ln.and_then(|l| l.child(tag)).and_then(|e| e.attr("type")).is_some_and(|t| t != "none");
         extra.arrow_start = arrow("a:headEnd");
@@ -1540,7 +1555,13 @@ fn nv_alt(p: Option<&El>) -> (String, AltText) {
 fn anchor_float(c: &El) -> Float {
     let mut f = Float { wrap: Wrap::Square, ..Float::default() };
     let behind = on_off_attr(c, "behindDoc");
-    for k in c.els() {
+    // Word wraps a position relative to the page's size (`wp14:pctPosVOffset`) in
+    // `mc:AlternateContent`; its Fallback gives the same position as an offset (#743).
+    let kids = c.els().flat_map(|k| match k.name.as_str() {
+        "mc:AlternateContent" => k.child("mc:Fallback").map(|f| f.els().collect()).unwrap_or_default(),
+        _ => vec![k],
+    });
+    for k in kids {
         match k.name.as_str() {
             "wp:wrapSquare" => {
                 f.wrap = Wrap::Square;
@@ -1728,6 +1749,12 @@ fn text_warp(e: &El) -> Option<TextWarp> {
         }
     }
     Some(w)
+}
+
+/// A preset geometry's adjust value `name` (`a:avLst/a:gd` with `fmla="val N"`).
+fn preset_adj(geom: &El, name: &str) -> Option<i64> {
+    let gd = geom.child("a:avLst")?.children("a:gd").find(|g| g.attr("name") == Some(name))?;
+    gd.attr("fmla")?.trim().strip_prefix("val")?.trim().parse::<i64>().ok()
 }
 
 fn effect_list(l: &El) -> ShapeEffects {

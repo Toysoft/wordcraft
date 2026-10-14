@@ -2,7 +2,7 @@
 
 use wordcraft_doc::effects::ShapeEffects;
 use wordcraft_doc::para::{AltText, Anchor, Float, NoteKind, ShapeKind, Wrap};
-use wordcraft_doc::props::{CharProps, PropChange, Rgb};
+use wordcraft_doc::props::{CharProps, PropChange, Rgb, TextColor};
 use wordcraft_doc::section::{LineNumberRestart, NoteProps, SectionProps, SectionStart};
 use wordcraft_doc::table::Table;
 use wordcraft_doc::{Block, Blocks, InlineObject, Paragraph, RevisionKind};
@@ -472,9 +472,13 @@ impl Writer<'_> {
             }
             InlineObject::Equation { linear, display, math } => {
                 // Automatic equation numbers become text: Word numbers nothing by itself.
+                let color = match props.color {
+                    Some(TextColor::Rgb(c)) => Some(c),
+                    _ => None,
+                };
                 match super::math::resolve_numbers(math, *display, &mut self.eq_number) {
-                    Some(m) => super::math::write_equation(w, linear, *display, &m),
-                    None => super::math::write_equation(w, linear, *display, math),
+                    Some(m) => super::math::write_equation(w, linear, *display, &m, color),
+                    None => super::math::write_equation(w, linear, *display, math, color),
                 }
             }
             InlineObject::Field { instr, result, locked, .. } => self.field(w, instr, result, *locked, props),
@@ -624,7 +628,7 @@ impl Writer<'_> {
                 }
                 // Tight and Through wrapping need a polygon: the shape's outline unless it has one.
                 if matches!(float.wrap, Wrap::Tight | Wrap::Through) && float.wrap_polygon.is_none() {
-                    float.wrap_polygon = wordcraft_doc::wrap::shape_outline(*kind, *sw, *sh)
+                    float.wrap_polygon = wordcraft_doc::wrap::shape_outline(*kind, *sw, *sh, extra.corner)
                         .and_then(|pts| wordcraft_doc::wrap::WrapPolygon::from_unit(false, &pts))
                         .map(std::sync::Arc::new);
                 }
@@ -965,7 +969,15 @@ impl Writer<'_> {
             Some(f) => cust_geom(w, f, *sw, *sh),
             None => {
                 w.open("a:prstGeom", &[("prst", prst)]);
-                w.empty("a:avLst", &[]);
+                match extra.corner.filter(|_| *kind == ShapeKind::RoundedRectangle) {
+                    Some(c) => {
+                        w.open("a:avLst", &[]);
+                        let fmla = format!("val {}", c.min(wordcraft_doc::connector::MAX_CORNER));
+                        w.empty("a:gd", &[("name", "adj"), ("fmla", &fmla)]);
+                        w.close("a:avLst");
+                    }
+                    None => w.empty("a:avLst", &[]),
+                }
                 w.close("a:prstGeom");
             }
         }
