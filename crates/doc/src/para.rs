@@ -212,6 +212,10 @@ pub struct Float {
     /// decorative mark). See [`InlineObject::alt_text`].
     #[serde(skip_serializing_if = "AltText::is_empty")]
     pub alt: AltText,
+    /// Hidden (`wp:docPr/@hidden`, VML `visibility:hidden`): kept and saved, but neither drawn nor
+    /// laid out, as Word for Windows does (Word for Mac draws hidden VML shapes).
+    #[serde(skip_serializing_if = "is_false")]
+    pub hidden: bool,
 }
 
 /// Longest alternative text kept (characters): hostile files and commands are capped.
@@ -376,7 +380,7 @@ pub enum InlineObject {
         crop: [f32; 4],
         /// The OLE object (embedded or linked file) this picture shows, as read from a file:
         /// saving writes the object back, not only its picture. See [`crate::graphic::Embedded`].
-        #[serde(skip)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         ole: Option<std::sync::Arc<crate::graphic::Embedded>>,
     },
     /// A chart or SmartArt diagram (see [`crate::graphic`]).
