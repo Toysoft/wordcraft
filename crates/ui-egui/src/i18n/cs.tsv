@@ -2491,6 +2491,7 @@ preview	Title	Ukázka
 	Automatic ({region})	Automaticky ({region})
 	Search	Hledat
 	Title Bar	Záhlaví okna
+	Copy to	Kopírovat do
 
 # Document naming and account controls.
 	Rename Document	Přejmenovat dokument
@@ -2545,3 +2546,11 @@ preview	Title	Ukázka
 	Heading text	Text nadpisu
 	Insert reference to:	Vložit odkaz na:
 	Reference type:	Typ odkazu:
+
+# Dictionaries folder (#1063)
+	Dictionaries	Slovníky
+	Dictionaries folder:	Složka se slovníky:
+	Not set: the system's usual places	Nenastaveno: obvyklá umístění v systému
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Soubory Hunspell .aff a .dic z této složky (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) mají přednost před systémovými.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: slovník nebyl nalezen
