@@ -455,10 +455,10 @@ fn blend_backgrounds(items: &[Draw], p: wordcraft_geom::Point, opts: &RenderOpti
             Draw::Fill { rect, color, alpha } if rect.contains(p) => (*color, *alpha),
             // The shape's own outline (an ellipse's corners are not inside it). Shape fills are
             // drawn opaque (the model has no fill transparency), so they cover what's beneath.
-            Draw::Shape { rect, kind, fill: Some(fill), .. }
+            Draw::Shape { rect, kind, fill: Some(fill), corner, .. }
                 if *kind != ShapeKind::Line && rect.contains(p) && {
                     let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
-                    kurbo::Shape::contains(&shape_path(*kind, r), kurbo::Point::new(p.x as f64, p.y as f64))
+                    kurbo::Shape::contains(&shape_path(*kind, r, *corner), kurbo::Point::new(p.x as f64, p.y as f64))
                 } =>
             {
                 (*fill, 1.0)
@@ -1061,6 +1061,7 @@ mod tests {
             stroke: None,
             stroke_width: 0.0,
             effects: Default::default(),
+            corner: None,
         };
         let at = |x: f32, y: f32| {
             let mut bg = [255.0; 3];
