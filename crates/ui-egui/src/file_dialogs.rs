@@ -56,6 +56,8 @@ pub(crate) enum AfterPick {
     SaveAs(AfterSave),
     /// Save a copy there in this format (`pdf`, `docx`, `png`…).
     Export { ext: String },
+    /// Run Export PDF with the chosen path, keeping any command options (such as `markup`).
+    ExportPdf { params: Value },
     /// Write the PDF of these print settings there (File › Print › Save these pages as PDF).
     PrintPdf { settings: Value },
     /// Load the picked CSV/TSV/text file or spreadsheet as the mail-merge recipients (#240, #334).
@@ -227,6 +229,18 @@ impl WordApp {
                 }
                 r
             }
+            AfterPick::ExportPdf { params } => {
+                let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
+                let mut params = if params.is_object() { params } else { json!({}) };
+                params["path"] = json!(path);
+                let r = self.run("file.exportPdf", params);
+                if let Ok(v) = &r
+                    && let Some(path) = v.get("path").and_then(Value::as_str)
+                {
+                    self.status(crate::i18n::fmt(tl!("Exported {path}"), &[("path", path)]));
+                }
+                r
+            }
             AfterPick::PrintPdf { settings } => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
                 let mut params = settings;
@@ -281,6 +295,12 @@ impl WordApp {
         let file_ext = if ext == crate::print_page::EXPORT_WORD_2003 { "xml" } else { ext };
         let name = format!("{}.{file_ext}", self.title_stem());
         let _ = self.ask_file(FileDialogRequest::Save { name }, AfterPick::Export { ext: ext.to_string() });
+    }
+
+    /// Export PDF from a user command without a path (#1680), through the same picker as File › Export.
+    pub(crate) fn export_pdf_dialog(&mut self, params: Value) -> Asked {
+        let name = format!("{}.pdf", self.title_stem());
+        self.ask_file(FileDialogRequest::Save { name }, AfterPick::ExportPdf { params })
     }
 
     /// File › Print › Save these pages as PDF: ask where, then write the pages the print
@@ -422,6 +442,92 @@ mod tests {
         assert!(a.file_dialog_open(), "F12's saveAs request opens the dialog");
         assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "two.docx".into() });
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1680: Export PDF from a button has no path yet. Ask for one, then export a copy
+    /// without marking the editable document saved or changing its name or contents.
+    #[test]
+    fn pdf_export_without_path_asks_then_exports_a_copy() {
+        let dir = scratch("pdf-export");
+        let original = dir.join("novel.docx");
+        let picked = dir.join("proof");
+        let (mut a, shown) = async_app();
+        typed(&mut a);
+        a.run("file.save", json!({"path": original.to_string_lossy()})).unwrap();
+        let original_bytes = std::fs::read(&original).unwrap();
+        typed(&mut a);
+        let before = a.session.doc.clone();
+
+        a.run("file.exportPdf", json!({"markup": false})).unwrap();
+        assert!(a.file_dialog_open());
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "novel.pdf".into() });
+        assert!(!picked.with_extension("pdf").exists());
+        answer(&shown, Some(&picked.to_string_lossy()));
+        let result = a.poll_file_dialog().unwrap().unwrap();
+        assert_eq!(result["markup"], false, "export options survive the asynchronous picker");
+        assert_eq!(result["path"], picked.with_extension("pdf").to_string_lossy().as_ref());
+        assert!(std::fs::read(picked.with_extension("pdf")).unwrap().starts_with(b"%PDF-"));
+        assert!(!a.file_dialog_open());
+        assert_eq!(a.session.path.as_deref(), Some(original.as_path()));
+        assert!(a.session.dirty);
+        assert_eq!(a.session.doc, before);
+        assert_eq!(std::fs::read(&original).unwrap(), original_bytes);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pdf_export_cancellation_keeps_unsaved_document_and_only_one_picker() {
+        let (mut a, shown) = async_app();
+        typed(&mut a);
+        let before = a.session.doc.clone();
+        a.run("file.exportPdf", json!({})).unwrap();
+        a.run("file.exportPdf", json!({})).unwrap();
+        assert_eq!(shown.borrow().len(), 1);
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "Document1.pdf".into() });
+        answer(&shown, None);
+        assert_eq!(a.poll_file_dialog().unwrap().unwrap(), json!({"cancelled": true}));
+        assert!(!a.file_dialog_open());
+        assert!(a.session.path.is_none());
+        assert!(a.session.dirty);
+        assert_eq!(a.session.doc, before);
+    }
+
+    #[test]
+    fn pdf_export_explicit_path_and_script_calls_do_not_open_a_picker() {
+        let dir = scratch("pdf-export-explicit");
+        let path = dir.join("copy.pdf");
+        let (mut a, shown) = async_app();
+        typed(&mut a);
+        a.run("file.exportPdf", json!({"path": path.to_string_lossy()})).unwrap();
+        assert!(std::fs::read(&path).unwrap().starts_with(b"%PDF-"));
+        assert!(a.execute("file.exportPdf", json!({})).unwrap_err().contains("`path`"));
+        assert!(shown.borrow().is_empty());
+        assert!(a.session.dirty);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pdf_export_web_download_and_no_document_do_not_open_a_picker() {
+        let (mut a, shown) = async_app();
+        typed(&mut a);
+        let downloads = Rc::new(RefCell::new(Vec::new()));
+        let got = downloads.clone();
+        a.services.download = Some(Box::new(move |name, bytes| {
+            assert!(name.ends_with(".pdf"));
+            assert!(bytes.starts_with(b"%PDF-"));
+            got.borrow_mut().push(name.to_string());
+            Ok(())
+        }));
+        a.run("file.exportPdf", json!({})).unwrap();
+        assert_eq!(downloads.borrow().len(), 1);
+        assert!(shown.borrow().is_empty());
+        assert!(a.session.dirty);
+
+        let (mut empty, shown) = async_app();
+        empty.start_screen();
+        assert!(!empty.has_document());
+        assert!(empty.run("file.exportPdf", json!({})).is_err());
+        assert!(shown.borrow().is_empty());
     }
 
     /// While a dialog is open, more Save As / Open / Export / Picture clicks don't open a second one.

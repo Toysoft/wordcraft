@@ -475,4 +475,31 @@ mod tests {
         a.run("tools.customizeRibbon", json!({"qatRemove": "file.new"})).unwrap();
         assert_eq!(a.session.ribbon.qat(), ["file.save", "edit.undo", "edit.redo"]);
     }
+
+    /// #1680: the actual toolbar button and its numbered KeyTip both ask where to export.
+    #[test]
+    fn quick_access_pdf_export_click_and_keytip_open_save_picker() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let ctx = ctx();
+        let mut n = 0;
+        let mut a = app();
+        let shown = Rc::new(RefCell::new(Vec::new()));
+        let got = shown.clone();
+        a.services.pick_save = Some(Box::new(move |name| {
+            got.borrow_mut().push(name.to_string());
+            None
+        }));
+        a.run("tools.customizeRibbon", json!({"layout": {"qat": ["file.exportPdf"]}})).unwrap();
+        assert_eq!(a.session.ribbon.qat(), ["file.exportPdf"]);
+        frame(&ctx, &mut n, vec![], |ui| crate::chrome::title_bar(&mut a, ui));
+        let more = ctx.read_response(crate::chrome::qat_menu_button_id()).unwrap();
+        // The PDF button immediately precedes the menu (26 pt button, 2 pt gap).
+        click(&ctx, &mut n, more.rect.center() - egui::vec2(28.0, 0.0), |ui| crate::chrome::title_bar(&mut a, ui));
+        assert_eq!(&*shown.borrow(), &["Document1.pdf"]);
+        a.ui.keytips = crate::keytips::Phase::Tabs;
+        assert!(crate::keytips::handle_key(&mut a, egui::Key::Num1));
+        assert_eq!(&*shown.borrow(), &["Document1.pdf", "Document1.pdf"]);
+    }
 }
