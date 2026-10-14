@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (gap #3: dragging a Behind Text picture or shape over text now works, in the body and headers, and plain clicks still reach the text; previously trivial: crop handles on the canvas landed; previously trivial: re-audited every row against main: stale PR and issue states, counts and landed items corrected; previously trivial: Windows Magnifier follows the caret onto a new line, #1119; previously trivial: sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** trivial (Behind-text frames participate in cell vertical alignment without increasing row flow height; previously trivial: gap #3: dragging a Behind Text picture or shape over text now works, in the body and headers, and plain clicks still reach the text; previously trivial: crop handles on the canvas landed; previously trivial: re-audited every row against main: stale PR and issue states, counts and landed items corrected; previously trivial: Windows Magnifier follows the caret onto a new line, #1119; previously trivial: sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -83,10 +83,13 @@ The same gaps grouped the way the parity documents are, for agents working in on
 - **Localization gaps:** #8, #11, #16, #17; native-speaker review of every catalog (human).
 - **Stability and performance gaps:** #3, #20.
 
+Behind-text frames participate in cell vertical alignment without increasing row flow height. Original two-cell regressions cover a populated cell beside an empty frame. Automatic-height rows and other floating-object geometry remain outside this fix.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Behind-text frames participate in cell vertical alignment without increasing row flow height |
 | 2026-10-13 | trivial | Gap #3: Behind Text pictures and shapes drag over text in the body and headers, selected or not; a click without movement still edits the text |
 | 2026-10-13 | trivial | Row 1: the watermark is saved to DOCX headers (#1290) |
 | 2026-10-13 | trivial | Row 1: Word's text watermark in DOCX headers is drawn (#1290) |
