@@ -1649,6 +1649,7 @@
 	Hyphenation Options…	Možnosti dělení slov…
 	Hyphenation zone:	Pásmo dělení slov:
 	Italian	Italština
+	Croatian	Chorvatština
 	Japanese	Japonština
 	Korean	Korejština
 	Limit consecutive hyphens to:	Omezit počet po sobě jdoucích rozdělení:
@@ -1854,6 +1855,8 @@
 	No words yet. Add to Dictionary on a misspelled word puts it here.	Zatím žádná slova. Sem se ukládají slova přidaná příkazem Přidat do slovníku u chybně napsaného slova.
 	Overtype	Přepisování
 	Overtype (typing replaces the characters after the caret)	Přepisování (psaný text nahrazuje znaky za kurzorem)
+	Show alignment guides when moving pictures and shapes	Při přesouvání obrázků a tvarů zobrazovat zarovnávací vodítka
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Přesouvané objekty se přichytávají k okrajům a středu stránky, k okrajům textu a k dalším objektům. Podržením klávesy Alt je přesunete volně.
 	Page display	Zobrazení stránky
 	Paragraph marks	Značky odstavců
 	Personalize	Přizpůsobení
@@ -2091,6 +2094,16 @@
 	Leave out the date and time of comments and tracked changes when saving	Při ukládání vynechat datum a čas komentářů a sledovaných změn
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Upravovaný dokument si jména a data ponechá; vynechá je jen uložený soubor.
 	Privacy Settings	Aktuální nastavení soukromí
+	Waiting for the save to finish…	Čeká se na dokončení ukládání…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Ukládání {name} bylo zrušeno, dokument zůstává otevřený a nic se neztratilo.
+	Paper	Papír
+	Paper size:	Velikost papíru:
+	Custom size	Vlastní velikost
+	More Paper Sizes…	Další velikosti papíru…
+	The margins don't fit on a page this size; make the margins smaller first.	Okraje se na stránku této velikosti nevejdou; nejprve okraje zmenšete.
+	Full Screen	Celá obrazovka
+	Full\nScreen	Celá\nobrazovka
+	Use the browser's full screen (F11)	Použijte celou obrazovku prohlížeče (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} palce

@@ -403,6 +403,22 @@ fn stack(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     });
 }
 
+/// Layout › Size: the named paper sizes, then More Paper Sizes… for a custom size in Page
+/// Setup (#1433).
+pub(crate) fn size_menu(ui: &mut Ui, app: &mut WordApp) {
+    for (n, w, h) in wordcraft_geom::PAPER_SIZES {
+        // Paper names are the industry's (Letter, A4, B5 (JIS)) and stay as they are; the
+        // envelopes say what they are. Sizes in the measurement unit, written the region's
+        // way (`21 cm × 29,7 cm`, #838).
+        let name = if n.starts_with("Envelope ") { tl!(n) } else { n };
+        let (width, height) = (crate::options::length(*w), crate::options::length(*h));
+        let label = crate::i18n::fmt(tl!("{paper}   {width} × {height}"), &[("paper", name), ("width", &width), ("height", &height)]);
+        mi_text(ui, app, &label, "layout.size", json!({"name": n}));
+    }
+    ui.separator();
+    mi(ui, app, crate::dialogs::PAPER_LABELS.more, "ui.dialog", json!({"name": "pageSetup"}));
+}
+
 pub(crate) fn mi(ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: Value) {
     mi_text(ui, app, tl!(label), id, params);
 }
@@ -1286,17 +1302,7 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
             mi(ui, app, "Portrait", "layout.orientation", json!({"value": "portrait"}));
             mi(ui, app, "Landscape", "layout.orientation", json!({"value": "landscape"}));
         });
-        menu_button(ui, app, "size", Some("Size"), "Size", true, "layout.size", |ui, app| {
-            for (n, w, h) in wordcraft_geom::PAPER_SIZES {
-                // Paper names are the industry's (Letter, A4, B5 (JIS)) and stay as they are; the
-                // envelopes say what they are. Sizes in the measurement unit, written the region's
-                // way (`21 cm × 29,7 cm`, #838).
-                let name = if n.starts_with("Envelope ") { tl!(n) } else { n };
-                let (width, height) = (crate::options::length(*w), crate::options::length(*h));
-                let label = crate::i18n::fmt(tl!("{paper}   {width} × {height}"), &[("paper", name), ("width", &width), ("height", &height)]);
-                mi_text(ui, app, &label, "layout.size", json!({"name": n}));
-            }
-        });
+        menu_button(ui, app, "size", Some("Size"), "Size", true, "layout.size", size_menu);
         menu_button(ui, app, "columns", Some("Columns"), "Columns", true, "layout.columns", |ui, app| {
             mi(ui, app, "One", "layout.columns", json!({"count": 1}));
             mi(ui, app, "Two", "layout.columns", json!({"count": 2}));
@@ -1825,6 +1831,7 @@ fn view(app: &mut WordApp, ui: &mut Ui) {
         big(ui, app, "newWindow", "New\nWindow", "view.newWindow", json!({}), false);
         big(ui, app, "arrangeAll", "Arrange\nAll", "view.arrangeAll", json!({}), false);
         big(ui, app, "split", "Split", "view.split", json!({}), false);
+        big(ui, app, "fullScreen", "Full\nScreen", "view.fullScreen", json!({}), v.full_screen);
     });
     group(ui, "Macros", None, app, |ui, app| {
         big(ui, app, "macros", "Macros", "tools.macros", json!({}), false);
@@ -2203,6 +2210,25 @@ fn picture_format(app: &mut WordApp, ui: &mut Ui) {
         menu_button(ui, app, "picture", Some("Transparency"), "Picture transparency", true, "picture.transparency", |ui, app| {
             for v in [0.0, 15.0, 30.0, 50.0, 65.0, 80.0, 95.0] {
                 mi(ui, app, &format!("{v:.0}%"), "picture.transparency", json!({"percent": v}));
+            }
+            ui.separator();
+            // An exact value, dragged with a live preview: absolute from the original
+            // pixels, one undo step for the whole drag (same pattern as Size › W/H).
+            // The current value isn't stored anywhere, so the slider reopens where it
+            // was last left for this picture.
+            let (media, off) = match wordcraft_engine::cmd::objects::selected(&app.session) {
+                Some((pos, wordcraft_doc::para::InlineObject::Image { media, .. })) => (media, pos.off),
+                _ => (String::new(), 0),
+            };
+            let key = egui::Id::new(("picture_transparency", media, off));
+            let mut v = ui.data(|d| d.get_temp::<f64>(key)).unwrap_or(0.0);
+            let r = ui.add(egui::DragValue::new(&mut v).speed(1.0).range(0.0..=100.0).suffix("%"));
+            if r.changed() {
+                ui.data_mut(|d| d.insert_temp(key, v));
+                if r.dragged() && !r.drag_started() {
+                    app.session.join_next_undo();
+                }
+                let _ = app.run("picture.transparency", json!({"percent": v}));
             }
         });
         stack(ui, |ui| {

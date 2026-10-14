@@ -1570,6 +1570,7 @@
 	Ionosphere	Jonosfera
 	Issue	Numer
 	Italian	Włoski
+	Croatian	Chorwacki
 	Japanese	Japoński
 	Journal	Czasopismo naukowe
 	Korean	Koreański
@@ -1909,6 +1910,8 @@
 	Outside:	Na zewnątrz:
 	Overtype	Zastępowanie
 	Overtype (typing replaces the characters after the caret)	Zastępowanie (wpisywany tekst zastępuje znaki za kursorem)
+	Show alignment guides when moving pictures and shapes	Pokazuj linie wyrównania podczas przesuwania obrazów i kształtów
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Przesuwane obiekty przyciągają się do krawędzi i środka strony, marginesów i innych obiektów. Przytrzymaj Alt, aby przesuwać swobodnie.
 	Page display	Wyświetlanie strony
 	Pages like 1-3, 5	Strony, np. 1-3, 5
 	Paragraph Character	Znak akapitu
@@ -2470,6 +2473,16 @@ preview	Title	Tytuł
 	Leave out the date and time of comments and tracked changes when saving	Pomiń datę i godzinę komentarzy i śledzonych zmian przy zapisywaniu
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Edytowany dokument zachowuje nazwiska i daty; pomija je tylko zapisany plik.
 	Privacy Settings	Bieżące ustawienia prywatności
+	Waiting for the save to finish…	Oczekiwanie na zakończenie zapisywania…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Zapisywanie pliku {name} zostało anulowane. Dokument jest nadal otwarty i nic nie zostało utracone.
+	Paper	Papier
+	Paper size:	Rozmiar papieru:
+	Custom size	Rozmiar niestandardowy
+	More Paper Sizes…	Więcej rozmiarów papieru…
+	The margins don't fit on a page this size; make the margins smaller first.	Marginesy nie mieszczą się na stronie tego rozmiaru; najpierw zmniejsz marginesy.
+	Full Screen	Pełny ekran
+	Full\nScreen	Pełny\nekran
+	Use the browser's full screen (F11)	Użyj trybu pełnoekranowego przeglądarki (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} cala

@@ -185,6 +185,10 @@ pub struct ViewState {
     /// Developer › Design Mode: every content control shows its frame and title.
     #[serde(default)]
     pub design_mode: bool,
+    /// View › Window › Full Screen (F11): the window fills the screen (#980). The front end
+    /// carries it to the window.
+    #[serde(default)]
+    pub full_screen: bool,
 }
 
 fn on() -> bool {
@@ -242,6 +246,7 @@ impl Default for ViewState {
             hide_white_space: false,
             outline: Default::default(),
             design_mode: false,
+            full_screen: false,
         }
     }
 }
@@ -684,6 +689,12 @@ impl Session {
     /// those).
     pub fn sel_ends(&self) -> &Selection {
         self.widened.as_ref().filter(|w| w.sel == self.sel).map_or(&self.sel, |w| &w.ends)
+    }
+
+    pub fn selects_whole_story(&self) -> bool {
+        let st = self.sel.focus.story;
+        let (a, b) = self.sel.ordered();
+        a == self.doc.start_of(st) && b == self.doc.end_of(st)
     }
 
     /// Document revision (bumped by every change).

@@ -1574,6 +1574,8 @@
 	Outside border	Külső szegély
 	Overtype	Felülírás
 	Overtype (typing replaces the characters after the caret)	Felülírás (a gépelés a kurzor utáni karaktereket cseréli)
+	Show alignment guides when moving pictures and shapes	Igazítási segédvonalak megjelenítése képek és alakzatok mozgatásakor
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	A mozgatott objektumok a lap széleihez és közepéhez, a margókhoz és más objektumokhoz illeszkednek. Szabad mozgatáshoz tartsa lenyomva az Alt billentyűt.
 	Page display	Oldalmegjelenítés
 	Paragraph marks	Bekezdésjelek
 	Personalize	Személyre szabás
@@ -2187,6 +2189,7 @@
 	Hyphenation Options…	Elválasztási beállítások…
 	Hyphenation zone:	Elválasztási zóna:
 	Italian	Olasz
+	Croatian	Horvát
 	Japanese	Japán
 	Korean	Koreai
 	Limit consecutive hyphens to:	Egymást követő elválasztások legfeljebb:
@@ -2463,11 +2466,10 @@
 	Select Table Cells by Clicking	Táblázatcellák kijelölése kattintással
 	Insert Row or Column by Clicking	Sor vagy oszlop beszúrása kattintással
 	Move Table by Dragging	Táblázat áthelyezése húzással
-	AutoFit Column by Double-Clicking	Oszlop automatikus igazítása dupla kattintással
+	AutoFit Column by Double-Clicking	Oszlop automatikus méretezése dupla kattintással
 	Insert Caption…	Felirat beszúrása…
 	Table Properties…	Táblázat tulajdonságai…
 	Search	Keresés
-	Title Bar	Címsor
 	Privacy Options	Adatvédelmi beállítások
 	Trust Center	Adatvédelmi központ
 	Privacy for this document	A dokumentum adatvédelme
@@ -2475,6 +2477,16 @@
 	Leave out the date and time of comments and tracked changes when saving	Mentéskor a megjegyzések és a követett módosítások dátumának és idejének elhagyása
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	A szerkesztett dokumentum megtartja a neveket és a dátumokat; csak a mentett fájlból maradnak ki.
 	Privacy Settings	Jelenlegi adatvédelmi beállítások
+	Waiting for the save to finish…	Várakozás a mentés befejezésére…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	A(z) {name} mentése megszakadt, így továbbra is nyitva van, és semmi sem veszett el.
+	Paper	Papír
+	Paper size:	Papírméret:
+	Custom size	Egyéni méret
+	More Paper Sizes…	További papírméretek…
+	The margins don't fit on a page this size; make the margins smaller first.	A margók nem férnek el ekkora oldalon; először csökkentse a margókat.
+	Full Screen	Teljes képernyő
+	Full\nScreen	Teljes\nképernyő
+	Use the browser's full screen (F11)	Használja a böngésző teljes képernyős módját (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} hüvelyk
@@ -2499,3 +2511,4 @@
 	Suggested	Javaslatok
 	Set Proofing Language…	Nyelvi ellenőrzés nyelvének beállítása…
 	Language Preferences…	Nyelvi beállítások…
+	Title Bar	Címsáv

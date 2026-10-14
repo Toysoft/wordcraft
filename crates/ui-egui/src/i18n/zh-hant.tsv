@@ -134,6 +134,8 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	開啟「設定 › 預設應用程式」，在其中為 .docx 及其他文件類型選擇 WordCraft。
 	Overtype	取代
 	Overtype (typing replaces the characters after the caret)	取代（輸入的內容會取代插入點後的字元）
+	Show alignment guides when moving pictures and shapes	移動圖片和圖案時顯示對齊參考線
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	移動的物件會貼齊頁面的邊緣和中心、邊界以及其他物件。按住 Alt 可自由移動。
 	Page display	頁面顯示
 	Paragraph marks	段落標記
 	Personalize	個人化
@@ -2031,6 +2033,7 @@
 	Hyphenation Options…	斷字選項…
 	Hyphenation zone:	斷字區：
 	Italian	義大利文
+	Croatian	克羅埃西亞文
 	Japanese	日文
 	Korean	韓文
 	Limit consecutive hyphens to:	連續斷字數上限：
@@ -2087,6 +2090,16 @@
 	Leave out the date and time of comments and tracked changes when saving	儲存時不包含註解和追蹤修訂的日期與時間
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	正在編輯的文件會保留名稱和日期；只有儲存的檔案不包含它們。
 	Privacy Settings	目前的隱私設定
+	Waiting for the save to finish…	正在等待儲存完成…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	已取消儲存 {name}，文件仍保持開啟，沒有遺失任何內容。
+	Paper	紙張
+	Paper size:	紙張大小：
+	Custom size	自訂大小
+	More Paper Sizes…	其他紙張大小…
+	The margins don't fit on a page this size; make the margins smaller first.	邊界放不進此大小的頁面；請先縮小邊界。
+	Full Screen	全螢幕
+	Full\nScreen	全螢幕
+	Use the browser's full screen (F11)	請使用瀏覽器的全螢幕模式 (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} 英寸

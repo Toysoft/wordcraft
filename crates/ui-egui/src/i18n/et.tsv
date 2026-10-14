@@ -516,6 +516,8 @@
 	Oval	Ovaal
 	Overtype	Ülekirjutus
 	Overtype (typing replaces the characters after the caret)	Ülekirjutus (kirjutatu asendab kursori järel olevad märgid)
+	Show alignment guides when moving pictures and shapes	Näita piltide ja kujundite teisaldamisel joondusjuhikuid
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Teisaldatavad objektid haakuvad lehe servade ja keskkoha, veeriste ja teiste objektide külge. Vabaks teisaldamiseks hoia all Alt-klahvi.
 	PDF document (*.pdf)	PDF-dokument (*.pdf)
 	Page	Leht
 	Page Background	Lehe taust
@@ -2064,6 +2066,7 @@
 	Hyphenation Options…	Poolitussätted…
 	Hyphenation zone:	Poolitusala:
 	Italian	Itaalia
+	Croatian	Horvaadi
 	Japanese	Jaapani
 	Korean	Korea
 	Limit consecutive hyphens to:	Järjestikuseid poolitusi kuni:
@@ -2120,6 +2123,16 @@
 	Leave out the date and time of comments and tracked changes when saving	Jäta salvestamisel välja kommentaaride ja jälitatud muudatuste kuupäev ja kellaaeg
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Redigeeritav dokument säilitab nimed ja kuupäevad; need jäetakse välja ainult salvestatud failist.
 	Privacy Settings	Praegused privaatsussätted
+	Waiting for the save to finish…	Ootan salvestamise lõppu…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Faili {name} salvestamine tühistati, see on endiselt avatud ja midagi ei läinud kaotsi.
+	Paper	Paber
+	Paper size:	Paberi suurus:
+	Custom size	Kohandatud suurus
+	More Paper Sizes…	Rohkem paberisuurusi…
+	The margins don't fit on a page this size; make the margins smaller first.	Veerised ei mahu selle suurusega lehele; vähendage esmalt veeriseid.
+	Full Screen	Täisekraan
+	Full\nScreen	Täis-\nekraan
+	Use the browser's full screen (F11)	Kasutage brauseri täisekraani (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} tolli

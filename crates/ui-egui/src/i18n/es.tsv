@@ -126,6 +126,8 @@
 	Outside border	Borde exterior
 	Overtype	Sobrescribir
 	Overtype (typing replaces the characters after the caret)	Sobrescribir (lo que escribes reemplaza los caracteres tras el cursor)
+	Show alignment guides when moving pictures and shapes	Mostrar guías de alineación al mover imágenes y formas
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Los objetos que mueves se ajustan a los bordes y el centro de la página, a los márgenes y a otros objetos. Mantén pulsada Alt para moverlos libremente.
 	Page display	Visualización de página
 	Paragraph marks	Marcas de párrafo
 	Personalize	Personalizar
@@ -2070,6 +2072,7 @@
 	Hyphenation Options…	Opciones de separación de palabras…
 	Hyphenation zone:	Zona de separación:
 	Italian	Italiano
+	Croatian	Croata
 	Japanese	Japonés
 	Korean	Coreano
 	Limit consecutive hyphens to:	Limitar guiones consecutivos a:
@@ -2452,6 +2455,16 @@ preview	Title	Título
 	Leave out the date and time of comments and tracked changes when saving	Omitir la fecha y la hora de los comentarios y los cambios controlados al guardar
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	El documento que editas conserva los nombres y las fechas; solo el archivo guardado los omite.
 	Privacy Settings	Configuración de privacidad actual
+	Waiting for the save to finish…	Esperando a que termine de guardarse…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Se canceló el guardado de {name}; sigue abierto y no se perdió nada.
+	Paper	Papel
+	Paper size:	Tamaño del papel:
+	Custom size	Tamaño personalizado
+	More Paper Sizes…	Más tamaños de papel…
+	The margins don't fit on a page this size; make the margins smaller first.	Los márgenes no caben en una página de este tamaño; reduzca primero los márgenes.
+	Full Screen	Pantalla completa
+	Full\nScreen	Pantalla\ncompleta
+	Use the browser's full screen (F11)	Use la pantalla completa del navegador (F11)
 
 # #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
 	{name}   {height} × {width} in	{name}   {height} × {width} pulg.
