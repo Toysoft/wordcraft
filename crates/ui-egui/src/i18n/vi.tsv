@@ -2546,6 +2546,9 @@
 	Rename	Đổi tên
 	Rename Document	Đổi tên tài liệu
 
+# Ctrl+drag copies (#1046)
+	Copy to	Sao chép tới
+
 # Dictionaries folder (#1063)
 	Dictionaries	Từ điển
 	Dictionaries folder:	Thư mục từ điển:

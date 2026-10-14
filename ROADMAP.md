@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (title rename and account settings; previously trivial: progress log: Down and Up no longer skip a table, #1007; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (progress log: clicking in a comment's text moves its caret, #1013; previously trivial: progress log: a press on the ribbon no longer scrolls the document, #1019; previously trivial: title rename and account settings; previously trivial: progress log: Down and Up no longer skip a table, #1007; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -136,6 +136,10 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-12 | Clicking inside a selected comment's balloon moves the caret in its text (#1013); the click used to leave the balloon, so the caret could only be moved with the arrow keys. A press on any balloon now belongs to the balloon, not the page behind it |
+| 2026-10-12 | Page background pictures and textures (Design › Page Color › Fill Effects) are drawn (tiled or stretched) and kept on save instead of being dropped from the package (#999); PDF export paints them too |
+| 2026-10-12 | Holding a click on the ribbon or toolbar no longer scrolls the document up (#1019): a double-click in the header or footer area left a text drag running, so the next press anywhere drove the edge auto-scroll; a drag now ends with the button, wherever it's released |
+| 2026-10-12 | Tracked insertions and deletions inside a field result (a `=SUM(ABOVE)` subtotal) are kept as revisions: Accept All and Reject All act on them and a save writes the `w:del` back (#1037) |
 | 2026-10-12 | Document title opens Rename Document; the account badge opens Options › General for user name and initials. `file.rename {name}` preserves file extensions and refuses an existing destination; unsaved names become the suggested save name without changing the Title property. |
 | 2026-10-13 | Rounded rectangles (#1476): a `roundRect` keeps the corner radius its file gives it (`adj`), on screen, in PDF and when saved; all were drawn with a 16% corner |
 | 2026-10-13 | PAGEREF in headers and footers (#1477): "Page X of Y" with Y a page reference to a bookmark at each letter's end shows each letter's own total instead of the result stored in the file |
@@ -233,6 +237,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Fonts: Palatino Linotype and Book Antiqua fall back to Palatino (macOS) or TeX Gyre Pagella / P052 / URW Palladio (Linux) before generic serif (#670) |
 |---|---|
 | 2026-10-12 | Track Changes: Accept All after a tracked deletion from the end of one paragraph into a later one no longer joins the paragraph that follows the range, and Reject All after typing into an empty paragraph keeps that paragraph (#864) |
+| 2026-10-12 | Ctrl+drag copies an object (#1014): holding Ctrl (⌘ on macOS) while dragging a picture, shape or text box leaves the original and drops a copy where you let go (text boxes get their own text); the copy is selected, the clipboard is untouched, one undo step; `arrange.copyTo` |
 | 2026-10-11 | Table border drags like Word's (#711): Ctrl shares a column border's change among the columns right of it (the table keeps its width), the table's left edge moves a left-aligned table's indent (a centred or right-aligned table keeps its alignment, as in Word), a border of cells selected across moves only in their rows, and Alt shows the column widths on the ruler |
 | 2026-10-11 | Tables on the rulers (#700): with the caret in a table the horizontal ruler marks its row's column borders and the vertical ruler its rows' bottoms; dragging a marker resizes the column (the columns right of it move along; with Shift the neighbour makes up the difference) or the row, one undo step, Escape cancels; in a cell the indents and tabs are measured from the cell |
 | 2026-10-12 | Save Changes prompt answers from the keyboard: Save has focus when it opens; arrow keys and Tab move between Save, Don't Save and Cancel; Enter answers (#861) |
@@ -331,6 +336,9 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | trivial | Progress log: clicking in a comment's text moves its caret (#1013) |
+| 2026-10-12 | trivial | Progress log: a press on the ribbon no longer scrolls the document (#1019) |
+| 2026-10-12 | trivial | Progress log: Ctrl+drag copies an object (#1014) |
 | 2026-10-12 | trivial | Document title opens Rename Document; the account badge opens Options › General for user name and initials. |
 | 2026-10-13 | trivial | Progress log: rounded rectangle corners (#1476) |
 | 2026-10-13 | trivial | Progress log: PAGEREF in headers and footers (#1477) |
