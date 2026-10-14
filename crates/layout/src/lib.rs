@@ -1362,21 +1362,27 @@ fn push_para(items: &mut Vec<Placed>, story: StoryRef, path: &[u32], pl: &Arc<Pa
         let sp = |o: &Option<Border>| o.map(|b| b.space).unwrap_or(0.0);
         let (lx, rx) = (left - sp(&b.left), right + sp(&b.right));
         let (ty, by) = (y - sp(&b.top), y + h + sp(&b.bottom));
-        if let Some(t) = b.top.filter(|_| l0 == 0)
-            && t.is_visible()
-        {
-            items.push(Placed::Rule { x0: lx, y0: ty, x1: rx, y1: ty, border: t });
+        box_rules(items, (lx, ty, rx, by), [b.top.filter(|_| l0 == 0), b.bottom.filter(|_| l1 >= pl.lines.len()), b.left, b.right]);
+    }
+}
+
+/// The visible lines of a border box with corners `(x0, y0)` and `(x1, y1)` (`[top, bottom, left,
+/// right]`), ending square as Word draws them: a top or bottom line runs on over half the side
+/// line it meets, or half its own width where there is none, so single-line boxes close at the
+/// corners; a side line runs on by half its width where no top or bottom line is drawn.
+fn box_rules(items: &mut Vec<Placed>, (x0, y0, x1, y1): (f32, f32, f32, f32), sides: [Option<Border>; 4]) {
+    let [top, bottom, left, right] = sides.map(|b| b.filter(Border::is_visible));
+    let half = |t: &Border| display::rule_width(t) / 2.0;
+    for (t, y) in [(top, y0), (bottom, y1)] {
+        if let Some(t) = t {
+            let over = |side: Option<Border>| half(&side.unwrap_or(t));
+            items.push(Placed::Rule { x0: x0 - over(left), y0: y, x1: x1 + over(right), y1: y, border: t });
         }
-        if let Some(t) = b.bottom.filter(|_| l1 >= pl.lines.len())
-            && t.is_visible()
-        {
-            items.push(Placed::Rule { x0: lx, y0: by, x1: rx, y1: by, border: t });
-        }
-        if let Some(t) = b.left.filter(Border::is_visible) {
-            items.push(Placed::Rule { x0: lx, y0: ty, x1: lx, y1: by, border: t });
-        }
-        if let Some(t) = b.right.filter(Border::is_visible) {
-            items.push(Placed::Rule { x0: rx, y0: ty, x1: rx, y1: by, border: t });
+    }
+    for (t, x) in [(left, x0), (right, x1)] {
+        if let Some(t) = t {
+            let end = |o: Option<Border>| if o.is_some() { 0.0 } else { half(&t) };
+            items.push(Placed::Rule { x0: x, y0: y0 - end(top), x1: x, y1: y1 + end(bottom), border: t });
         }
     }
 }
@@ -1655,11 +1661,7 @@ fn page_border_rules(s: &SectionProps) -> Vec<Placed> {
     if let Some(b) = &s.page_borders {
         let sp = |e: &Option<Border>| e.map(|x| x.space).unwrap_or(24.0);
         let (x0, x1, y0, y1) = (sp(&b.left), s.page_w - sp(&b.right), sp(&b.top), s.page_h - sp(&b.bottom));
-        for (e, a, bb) in [(b.top, (x0, y0), (x1, y0)), (b.bottom, (x0, y1), (x1, y1)), (b.left, (x0, y0), (x0, y1)), (b.right, (x1, y0), (x1, y1))] {
-            if let Some(e) = e.filter(Border::is_visible) {
-                v.push(Placed::Rule { x0: a.0, y0: a.1, x1: bb.0, y1: bb.1, border: e });
-            }
-        }
+        box_rules(&mut v, (x0, y0, x1, y1), [b.top, b.bottom, b.left, b.right]);
     }
     v
 }
