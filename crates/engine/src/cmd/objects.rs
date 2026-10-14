@@ -5,6 +5,7 @@
 
 use serde_json::{Value, json};
 use wordcraft_doc::para::{Float, InlineObject, Wrap, WrapText};
+use wordcraft_doc::picfx::PicFx;
 use wordcraft_doc::props::{Rgb, TextVert, VAlign};
 use wordcraft_doc::{Pos, StoryRef, TextBody};
 use wordcraft_geom::Spin;
@@ -109,10 +110,9 @@ pub fn specs() -> Vec<CommandSpec> {
             let sharpen = p::f32(v, "sharpen").unwrap_or(0.0).clamp(-100.0, 100.0);
             // Absolute from the original (like transparency): re-setting all three to 0
             // restores the original pixels instead of stacking on the last pass.
-            let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
-            let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
-            let base = s.originals.get(&media).cloned().unwrap_or(media.clone());
-            adjust_media(s, &base, move |img| {
+            // The file's own brightness and contrast (`fx`) are replaced, not stacked on.
+            let base = original_media(s)?;
+            adjust_media(s, &base, clear_lum, move |img| {
                 let mut img = img;
                 if b != 0.0 {
                     img = image::DynamicImage::ImageRgba8(image::imageops::colorops::brighten(&img, (b * 2.55) as i32));
@@ -134,10 +134,9 @@ pub fn specs() -> Vec<CommandSpec> {
             let mode = p::str(v, "mode").unwrap_or("grayscale").to_string();
             let sat = p::f32(v, "saturation").unwrap_or(100.0);
             // Absolute from the original (like transparency): saturation 100 restores it.
-            let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
-            let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
-            let base = s.originals.get(&media).cloned().unwrap_or(media.clone());
-            adjust_media(s, &base, move |img| recolor(img, &mode, sat))
+            // Replaces the file's own brightness and contrast (`fx`) as well.
+            let base = original_media(s)?;
+            adjust_media(s, &base, clear_lum, move |img| recolor(img, &mode, sat))
         })
         .params(r#"{"mode": "grayscale|sepia|washout|blackAndWhite|saturation|tint", "saturation"?: 0..400}"#)
         .when(has_picture),
@@ -190,10 +189,10 @@ pub fn specs() -> Vec<CommandSpec> {
             // slider back and forth never fades what a previous pass already faded.
             // (Combining with other pixel edits then re-setting transparency drops those
             // edits; a full live-effect stack is future work.)
-            let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
-            let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
-            let base = s.originals.get(&media).cloned().unwrap_or(media.clone());
-            adjust_media(s, &base, move |img| {
+            // The file's own transparency (`fx`, `a:alphaModFix`) is replaced too: it's baked
+            // into the pixels from here on.
+            let base = original_media(s)?;
+            adjust_media(s, &base, |fx: &mut PicFx| fx.transparency = 0, move |img| {
                 let mut rgba = img.to_rgba8();
                 for px in rgba.pixels_mut() {
                     px.0[3] = (px.0[3] as f32 * (1.0 - t / 100.0)) as u8;
@@ -981,13 +980,28 @@ fn size(s: &mut Session, v: &Value) -> CmdResult {
 fn adjust(s: &mut Session, f: impl Fn(image::DynamicImage) -> image::DynamicImage) -> CmdResult {
     let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
     let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
-    adjust_media(s, &media, f)
+    adjust_media(s, &media, |_| {}, f)
+}
+
+/// The selected picture's pre-edit media key (itself when never edited).
+fn original_media(s: &Session) -> Result<String, CmdError> {
+    let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
+    let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
+    Ok(s.originals.get(&media).map(|(m, _)| m.clone()).unwrap_or(media))
+}
+
+/// Drops brightness and contrast read from the file: an edit baked them from the original.
+fn clear_lum(fx: &mut PicFx) {
+    fx.bright = 0;
+    fx.contrast = 0;
 }
 
 /// Like [`adjust`], but decodes `base` (a media key, usually the pre-edit original) instead
 /// of the picture's current bitmap. The result still chains onto the originals map, so Reset
 /// Picture keeps working.
-fn adjust_media(s: &mut Session, base: &str, f: impl Fn(image::DynamicImage) -> image::DynamicImage) -> CmdResult {
+/// `fx` changes the picture's brightness, contrast and transparency from the file (see
+/// [`PicFx`]) for an edit that bakes its own.
+fn adjust_media(s: &mut Session, base: &str, fx: impl Fn(&mut PicFx), f: impl Fn(image::DynamicImage) -> image::DynamicImage) -> CmdResult {
     let bytes = s.doc.media.get(base).cloned().ok_or_else(|| CmdError::Failed("picture data missing".into()))?;
     let img = image::load_from_memory(&bytes).map_err(|e| CmdError::Failed(format!("can't decode the picture: {e}")))?;
     if (img.width() as u64) * (img.height() as u64) > 80_000_000 {
@@ -999,32 +1013,37 @@ fn adjust_media(s: &mut Session, base: &str, f: impl Fn(image::DynamicImage) -> 
     let key = s.doc.add_media(png, "png");
     // Chain onto the ultimate original (the base's, or the current picture's when the base
     // is itself derived), so Reset Picture always finds it.
+    // The original's brightness, contrast and transparency go with it.
     let cur = selected(s).and_then(|(_, o)| match o {
-        InlineObject::Image { media, .. } => Some(media),
+        InlineObject::Image { media, fx, .. } => Some((media, fx)),
         _ => None,
     });
     let orig = s
         .originals
         .get(base)
         .cloned()
-        .or_else(|| cur.as_ref().and_then(|m| s.originals.get(m).cloned()))
-        .unwrap_or_else(|| cur.clone().unwrap_or_else(|| key.clone()));
+        .or_else(|| cur.as_ref().and_then(|(m, _)| s.originals.get(m).cloned()))
+        .unwrap_or_else(|| cur.clone().unwrap_or_else(|| (key.clone(), PicFx::default())));
     s.originals.entry(key.clone()).or_insert(orig);
     with_obj(s, |o| {
-        if let InlineObject::Image { media, .. } = o {
+        if let InlineObject::Image { media, fx: pic_fx, .. } = o {
             *media = key.clone();
+            fx(pic_fx);
         }
     })
 }
 
 fn reset(s: &mut Session, _: &Value) -> CmdResult {
     let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
-    let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
-    let orig = s.originals.get(&media).cloned().unwrap_or(media);
+    let InlineObject::Image { media, fx, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
+    // Back to the picture as imported: its bitmap and its file's brightness, contrast and
+    // transparency (#1711, #1766).
+    let (orig, orig_fx) = s.originals.get(&media).cloned().unwrap_or((media, fx));
     with_obj(s, |o| {
-        if let InlineObject::Image { media, crop, .. } = o {
+        if let InlineObject::Image { media, crop, fx, .. } = o {
             *media = orig.clone();
             *crop = [0.0; 4];
+            *fx = orig_fx;
         }
     })
 }
@@ -1555,6 +1574,55 @@ mod tests {
         );
         s.run("picture.reset", &json!({})).unwrap();
         assert_eq!(rgba(&s), orig, "reset still finds the original");
+    }
+
+    /// A picture opened with brightness, contrast and transparency from its file (`fx`, #1711,
+    /// #1766): Transparency, Corrections and Color are absolute and replace the file's values
+    /// instead of stacking on them, and Reset Picture brings back the picture as imported.
+    #[test]
+    fn picture_edits_replace_the_file_corrections() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        let data = super::super::insert::base64_encode(&png(20, 10));
+        s.run("insert.picture", &json!({"data": data})).unwrap();
+        let imported = PicFx::new(80_000, -80_000, 50_000);
+        with_obj(&mut s, |o| {
+            if let InlineObject::Image { fx, .. } = o {
+                *fx = imported;
+            }
+        })
+        .unwrap();
+        let state = |s: &Session| {
+            let (_, o) = selected(s).unwrap();
+            let InlineObject::Image { media, fx, .. } = o else { panic!("a picture") };
+            let bytes = s.doc.media.get(&media).cloned().unwrap();
+            (media, fx, image::load_from_memory(&bytes).unwrap().to_rgba8().pixels().map(|p| p.0).collect::<Vec<_>>())
+        };
+        let (orig_media, _, orig) = state(&s);
+        // Reset right after opening keeps the file's corrections.
+        s.run("picture.reset", &json!({})).unwrap();
+        assert_eq!(state(&s).1, imported);
+        // Transparency 50%: 50% (not 75%), the file's transparency dropped, its lum kept.
+        s.run("picture.transparency", &json!({"percent": 50})).unwrap();
+        let (_, fx, px) = state(&s);
+        assert_eq!(fx, PicFx::new(80_000, -80_000, 0));
+        assert!(px.iter().all(|p| p[3] == 127));
+        // 0%: opaque, no `a:alphaModFix` left to write.
+        s.run("picture.transparency", &json!({"percent": 0})).unwrap();
+        let (_, fx, px) = state(&s);
+        assert_eq!((fx.transparency, px), (0, orig.clone()));
+        // Corrections and Color bake from the original and replace the file's lum.
+        s.run("picture.corrections", &json!({"brightness": 0})).unwrap();
+        let (_, fx, px) = state(&s);
+        assert_eq!((fx, px), (PicFx::default(), orig.clone()));
+        s.run("picture.reset", &json!({})).unwrap();
+        assert_eq!(state(&s).1, imported);
+        s.run("picture.color", &json!({"mode": "saturation", "saturation": 100})).unwrap();
+        let (_, fx, _) = state(&s);
+        assert_eq!((fx.bright, fx.contrast, fx.transparency), (0, 0, 50_000));
+        // Reset: the imported bitmap and corrections.
+        s.run("picture.reset", &json!({})).unwrap();
+        let (media, fx, px) = state(&s);
+        assert_eq!((media, fx, px), (orig_media, imported, orig));
     }
 
     /// #513: Wrap Text › Fix Position on Page / Move with Text re-anchor a floating picture

@@ -16,7 +16,7 @@ use super::Reader;
 use super::props::{sectpr, tcpr, trpr};
 use super::shape_style::{preset_kind, shape_paint, vml_color};
 use crate::package::{ContentTypes, Rels, rt};
-use crate::units::{int, measure, u32_of, vml_fraction};
+use crate::units::{blip_fx, int, measure, u32_of, vml_fraction};
 use crate::xml::{El, Node};
 use wordcraft_doc::wordart::TextWarp;
 
@@ -1834,15 +1834,6 @@ struct Xfrm {
     ext: (f32, f32),
     ch_off: Option<(f32, f32)>,
     ch_ext: Option<(f32, f32)>,
-}
-
-/// A picture's brightness, contrast and transparency: `a:lum` (ECMA-376 §20.1.8.42) and
-/// `a:alphaModFix` (§20.1.8.4) in its `a:blip` (#1766).
-fn blip_fx(blip: &El) -> PicFx {
-    let val = |el: Option<&El>, k: &str| el.and_then(|e| e.attr(k)).and_then(int).map(|v| v.clamp(-1_000_000, 1_000_000) as i32);
-    let lum = blip.child("a:lum");
-    let amt = val(blip.child("a:alphaModFix"), "amt").unwrap_or(100_000).clamp(0, 100_000);
-    PicFx::new(val(lum, "bright").unwrap_or(0), val(lum, "contrast").unwrap_or(0), 100_000 - amt)
 }
 
 /// The rotation and flips of the `a:xfrm` in shape properties `sppr` (ECMA-376 §20.1.7.6:

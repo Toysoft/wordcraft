@@ -404,8 +404,9 @@ pub struct Session {
         (bool, bool),
         NumeralMode,
     )>,
-    /// Picture edits: edited media key → original media key (Reset Picture).
-    pub originals: std::collections::HashMap<String, String>,
+    /// Picture edits: edited media key → original media key and the brightness, contrast and
+    /// transparency the picture had then (Reset Picture).
+    pub originals: std::collections::HashMap<String, (String, wordcraft_doc::picfx::PicFx)>,
     /// Last mutating command (Repeat).
     pub last_command: Option<(String, Value)>,
     /// Macro being recorded: (name, steps).

@@ -912,8 +912,8 @@ impl Writer<'_> {
         w.close("pic:cNvPicPr");
         w.close("pic:nvPicPr");
         w.open("pic:blipFill", &[]);
-        // Brightness, contrast and transparency (#1711, #1766), in schema order: `a:alphaModFix`
-        // before `a:lum` (ECMA-376 §20.1.8.13 CT_Blip).
+        // Brightness, contrast and transparency (#1711, #1766) as `a:blip` effects (ECMA-376
+        // §20.1.8.13 CT_Blip: an unbounded choice of effects, in any order).
         let fx = fx.clamped();
         if fx.is_identity() {
             w.empty("a:blip", &[("r:embed", &rid)]);

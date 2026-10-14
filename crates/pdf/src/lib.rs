@@ -56,6 +56,9 @@ use wordcraft_metafile::{Picture, PlacedItem};
 const MAX_SIDE: f32 = 14_400.0;
 /// Largest picture side we embed (pixels).
 const MAX_IMAGE_SIDE: u32 = 30_000;
+/// Most pixels a picture may have to be decoded for embedding (400 MB of RGBA), checked from its
+/// header before decoding. The `image` crate's own allocation limit (512 MiB) still applies.
+const MAX_IMAGE_PIXELS: u64 = 100_000_000;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum PdfError {
@@ -625,7 +628,9 @@ struct Exporter<'a> {
     /// Faces whose glyphs are drawn as outlines because krilla can't subset them.
     outlined: &'a HashSet<u32>,
     cmaps: HashMap<u32, Arc<HashMap<u32, char>>>,
-    images: HashMap<String, Option<Image>>,
+    /// Embedded pictures by media key and the brightness and contrast baked into them, so one
+    /// picture with the same corrections is embedded once however often it's drawn.
+    images: HashMap<(String, i32, i32), Option<Image>>,
     /// Parsed metafiles by media key (`None`: not readable).
     vectors: HashMap<String, Option<Arc<Vector>>>,
     tags: Vec<TagEntry>,
@@ -705,7 +710,7 @@ impl Exporter<'_> {
     fn image(&mut self, key: &str, fx: PicFx) -> Option<Image> {
         // Corrected pixels are embedded apart from the picture's own (#1711, #1766).
         let fx = fx.clamped();
-        let cache_key = if fx.changes_pixels() { format!("{key}#fx{},{}", fx.bright, fx.contrast) } else { key.to_string() };
+        let cache_key = (key.to_string(), fx.bright, fx.contrast);
         if let Some(i) = self.images.get(&cache_key) {
             return i.clone();
         }
@@ -1609,11 +1614,17 @@ fn path_from(b: &kurbo::BezPath) -> Option<Path> {
 }
 
 /// Decode a picture for embedding (validated with the `image` crate first, so a broken file
-/// can't fail the whole export).
-/// A picture to embed, with its brightness and contrast `fx` applied to the pixels (a JPEG goes
-/// in as it is only when `fx` leaves its pixels alone).
+/// can't fail the whole export), with its brightness and contrast `fx` applied to the pixels. A
+/// JPEG goes in as it is only when `fx` leaves its pixels alone; otherwise, like every other
+/// picture, its pixels go in raw and krilla compresses them (Flate). Pictures larger than
+/// [`MAX_IMAGE_SIDE`] or [`MAX_IMAGE_PIXELS`] are refused from their header, before decoding.
 fn load_image(data: &Arc<Vec<u8>>, fx: PicFx) -> Option<Image> {
     let fmt = image::guess_format(data).ok()?;
+    let (hw, hh) = image::ImageReader::with_format(std::io::Cursor::new(data.as_slice()), fmt).into_dimensions().ok()?;
+    if hw > MAX_IMAGE_SIDE || hh > MAX_IMAGE_SIDE || u64::from(hw) * u64::from(hh) > MAX_IMAGE_PIXELS {
+        log::warn!("PDF: a {hw} × {hh} picture is too large to embed");
+        return None;
+    }
     let dec = image::load_from_memory_with_format(data, fmt).ok()?;
     let (w, h) = (dec.width(), dec.height());
     if w == 0 || h == 0 || w > MAX_IMAGE_SIDE || h > MAX_IMAGE_SIDE {
