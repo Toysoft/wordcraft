@@ -1391,15 +1391,6 @@
 	Lines +/−	Řádky +/−
 	Craft	Řemeslo
 	Studio	Studio
-	Letter   8.50" × 11.00"	Letter   8.50" × 11.00"
-	Legal   8.50" × 14.00"	Legal   8.50" × 14.00"
-	Executive   7.25" × 10.50"	Executive   7.25" × 10.50"
-	Statement   5.50" × 8.50"	Statement   5.50" × 8.50"
-	Tabloid   11.00" × 17.00"	Tabloid   11.00" × 17.00"
-	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10.12" × 14.33"
-	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7.17" × 10.12"
-	Envelope #10   4.12" × 9.50"	Obálka #10   4.12" × 9.50"
-	Envelope DL   4.33" × 8.66"	Obálka DL   4.33" × 8.66"
 	Plain Table 1	Prostá tabulka 1
 	Grid Table 1 Light	Tabulka s mřížkou 1 – světlá
 	Grid Table 4 – Blue	Tabulka s mřížkou 4 – modrá
@@ -2522,3 +2513,10 @@ preview	Title	Ukázka
 	Suggested	Navrhované
 	Set Proofing Language…	Nastavit jazyk kontroly pravopisu…
 	Language Preferences…	Předvolby jazyka…
+
+# Cross-reference dialog (#1003)
+	For which item:	Pro kterou položku:
+	Heading	Nadpis
+	Heading text	Text nadpisu
+	Insert reference to:	Vložit odkaz na:
+	Reference type:	Typ odkazu:
