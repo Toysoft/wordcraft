@@ -1402,6 +1402,126 @@ fn cut_rows_and_cells_clears_their_text() {
     }
 }
 
+fn clip_is_table(s: &Session) -> bool {
+    matches!(s.clipboard.as_ref().map(|f| f.blocks.as_slice()), Some([wordcraft_doc::Block::Table(_)]))
+}
+
+/// The body table's cells as they read with every change accepted.
+fn body_table_final(s: &Session) -> Vec<String> {
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).expect("a table");
+    t.rows.iter().flat_map(|r| r.cells.iter()).map(|c| c.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.final_text()).collect()).collect()
+}
+
+/// #1744 review: an empty table or cell selected whole still copies, and Cut of the empty
+/// table removes it, as in Word.
+#[test]
+fn copy_and_cut_of_an_empty_table_or_cell() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Intro"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "edit.copy", json!({}));
+    assert!(clip_is_table(&s), "an empty 1×1 table copies: {:?}", s.clipboard);
+    run(&mut s, "edit.cut", json!({}));
+    assert!(body_table_cells(&s).is_empty(), "Cut removes the empty table");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(body_table_cells(&s), vec![vec![String::new()]]);
+
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    run(&mut s, "document.setText", json!({"text": "Intro"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    select_table_cells(&mut s, (0, 0), (0, 0));
+    run(&mut s, "edit.copy", json!({}));
+    assert!(clip_is_table(&s), "an empty cell copies as a one-cell table");
+    run(&mut s, "edit.cut", json!({}));
+    assert_eq!(body_table_cells(&s).len(), 1, "Cut of an empty cell leaves the table");
+}
+
+/// #1744 review: a text selection over exactly a whole table (no whole-cell record) copies the
+/// table; so does one over exactly a table nested in a cell. Other users of the copied range
+/// read it as a table too: the selected text is tab separated, a Quick Part saved from it
+/// inserts a table.
+#[test]
+fn text_selection_of_a_whole_table_copies_the_table() {
+    let mut s = table_doc();
+    let at = |path: Vec<u32>, off: usize| json!({"story": "body", "path": path, "off": off});
+    run(&mut s, "select.range", json!({"anchor": at(vec![1, 0, 0, 0], 0), "focus": at(vec![1, 1, 1, 0], 2)}));
+    assert!(s.cell_range().is_none(), "a text selection");
+    assert_eq!(s.selected_text(), "A1\tB1\nA2\tB2");
+    run(&mut s, "edit.copy", json!({}));
+    assert!(clip_is_table(&s));
+    run(&mut s, "insert.quickParts", json!({"save": "grid"}));
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "insert.quickParts", json!({"insert": "grid"}));
+    assert_eq!(body_table_cells(&s).len(), 2, "the Quick Part is a table");
+
+    // A table nested in cell A1: selecting its text whole copies just it.
+    let mut s = table_doc();
+    run(&mut s, "select.range", json!({"anchor": at(vec![1, 0, 0, 0], 2), "focus": at(vec![1, 0, 0, 0], 2)}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 1}));
+    run(&mut s, "text.insert", json!({"text": "N1"}));
+    run(&mut s, "text.tab", json!({}));
+    run(&mut s, "text.insert", json!({"text": "N2"}));
+    let (inner, _, _) = s.sel.focus.path.cell().unwrap();
+    assert_eq!(inner.0.len(), 4, "nested in a cell");
+    let first = [inner.0.clone(), vec![0, 0, 0]].concat();
+    let last = [inner.0.clone(), vec![1, 0, 0]].concat();
+    run(&mut s, "select.range", json!({"anchor": at(first, 0), "focus": at(last, 2)}));
+    assert!(s.cell_range().is_none(), "a text selection");
+    run(&mut s, "edit.copy", json!({}));
+    let Some([wordcraft_doc::Block::Table(t)]) = s.clipboard.as_ref().map(|f| f.blocks.as_slice()) else { panic!("{:?}", s.clipboard_text) };
+    assert_eq!(t.rows.len(), 2, "the nested table, not the outer one");
+}
+
+/// #1744 review: with Track Changes on, Cut of the whole table or of a row marks the text
+/// deleted and keeps the table; one Undo takes the marks back.
+#[test]
+fn tracked_cut_of_a_table_or_row_marks_text_deleted() {
+    let full = row_cells(&["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"]);
+    let mut s = table3_doc();
+    s.doc.settings.track_changes = true;
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "edit.cut", json!({}));
+    assert!(clip_is_table(&s));
+    assert_eq!(body_table_cells(&s), vec![full.clone()], "the table and its text stay, marked");
+    assert!(body_table_final(&s).iter().all(String::is_empty), "{:?}", body_table_final(&s));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(body_table_final(&s), full);
+
+    select_table_cells(&mut s, (1, 1), (0, 2));
+    run(&mut s, "edit.cut", json!({}));
+    assert!(clip_is_table(&s));
+    assert_eq!(body_table_cells(&s), vec![full.clone()]);
+    assert_eq!(body_table_final(&s), row_cells(&["A1", "B1", "C1", "", "", "", "A3", "B3", "C3"]));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(body_table_final(&s), full);
+}
+
+/// #1744 review: Cut of a table, or of cells, holding a content control locked against deletion
+/// is refused and changes nothing in the document; the copy is made first, so the clipboard
+/// holds the table, as for any refused Cut.
+#[test]
+fn cut_of_cells_with_a_locked_control_is_refused() {
+    for whole in [true, false] {
+        let mut s = table3_doc();
+        run(&mut s, "edit.find", json!({"text": "B2"}));
+        run(&mut s, "developer.richText", json!({"tag": "keep"}));
+        run(&mut s, "developer.properties", json!({"control": "keep", "lockDelete": true}));
+        if whole {
+            run(&mut s, "table.selectTable", json!({}));
+        } else {
+            select_table_cells(&mut s, (1, 1), (0, 2));
+        }
+        let before = s.doc.clone();
+        assert!(s.run("edit.cut", &json!({})).is_err(), "whole table: {whole}");
+        assert_eq!(s.doc, before, "whole table: {whole}");
+        assert!(s.status.contains("can't be deleted"), "{}", s.status);
+        assert!(clip_is_table(&s), "whole table: {whole}");
+    }
+}
+
 fn cells(s: &Session) -> Option<((usize, usize), (usize, usize))> {
     s.cell_range().map(|x| (x.rows, x.cols))
 }
