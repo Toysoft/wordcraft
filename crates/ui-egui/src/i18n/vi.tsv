@@ -2530,3 +2530,10 @@
 	It may have been moved or deleted.	Có thể thư mục đã bị di chuyển hoặc xóa.
 	This folder can't be read.	Không thể đọc thư mục này.
 file	Home	Trang chủ
+
+# Custom paper sizes (#1496)
+	Custom size	Kích thước tùy chỉnh
+	More Paper Sizes…	Thêm khổ giấy…
+	Paper	Giấy
+	Paper size:	Khổ giấy:
+	The margins don't fit on a page this size; make the margins smaller first.	Lề không vừa với trang có kích thước này; hãy thu nhỏ lề trước.
