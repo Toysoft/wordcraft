@@ -316,6 +316,10 @@ pub struct UiState {
     pub update_fields_before_print: bool,
     /// The custom dictionary (File › Options › Proofing, Add to Dictionary), kept between runs.
     pub dictionary: Vec<String>,
+    /// Reopen the last document at startup (#918).
+    pub reopen_last: bool,
+    /// The last opened or saved file (#918).
+    pub last_open: Option<String>,
 }
 
 /// Most recent documents kept (File › Options › Advanced offers 0–50, as Word does).
@@ -367,6 +371,8 @@ impl Default for UiState {
             print_backgrounds: false,
             update_fields_before_print: false,
             dictionary: Vec::new(),
+            reopen_last: true,
+            last_open: None,
         }
     }
 }
@@ -878,7 +884,7 @@ impl WordApp {
         if let Ok(v) = &r {
             self.keep_web_font(id, &params, v);
         }
-        self.after_command(id);
+        self.after_command(id, &r);
         if let Err(e) = &r {
             self.status(e.clone());
         }
@@ -1116,7 +1122,7 @@ impl WordApp {
         false
     }
 
-    fn after_command(&mut self, id: &str) {
+    fn after_command(&mut self, id: &str, r: &Result<Value, String>) {
         options::sync(self);
         self.canvas.caret_visible_since = now_ms();
         if id == "view.outline" {
@@ -1143,6 +1149,14 @@ impl WordApp {
             self.ui.recent.retain(|r| *r != p);
             self.ui.recent.insert(0, p);
             self.ui.recent.truncate(MAX_RECENT);
+        }
+        // #918: the last opened file, for reopening at startup.
+        if let Ok(v) = r {
+            if matches!(id, "file.save" | "file.saveAs") && v.get("saved").and_then(Value::as_bool) == Some(true) {
+                self.ui.last_open = self.session.path.as_ref().map(|p| p.to_string_lossy().to_string());
+            } else if id == "file.open" && v.get("path").and_then(Value::as_str).is_some() {
+                self.ui.last_open = self.session.path.as_ref().map(|p| p.to_string_lossy().to_string());
+            }
         }
         if !self.session.status.is_empty() {
             // Engine messages are English; the catalog translates the ones it knows.
@@ -3472,6 +3486,21 @@ mod tests {
         assert!(!body_text(&a).trim().is_empty());
     }
 
+    /// #918: the last opened file is recorded for reopening at startup.
+    #[test]
+    fn last_opened_file_is_recorded() {
+        let dir = scratch("last-open");
+        let path = dir.join("novel.docx");
+        let p = path.to_string_lossy().to_string();
+        let mut a = app();
+        assert!(a.ui.reopen_last, "reopening is on by default");
+        assert_eq!(a.ui.last_open, None);
+        a.execute("file.save", json!({"path": p})).unwrap();
+        assert_eq!(a.ui.last_open.as_deref(), Some(p.as_str()));
+        a.execute("file.open", json!({"path": p})).unwrap();
+        assert_eq!(a.ui.last_open.as_deref(), Some(p.as_str()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     /// #55: a password-protected document asks for its password (after Save Changes) instead of
     /// opening blank; scripts get the error instead of a dialog; Encrypt with Password asks for one.
     #[test]
@@ -4792,6 +4821,18 @@ mod tests {
             assert!(on_file(&path).contains("Signed contract"), "{id}: the original is untouched");
             let _ = std::fs::remove_dir_all(&dir);
         }
+    }
+
+    /// #184: AutoSave is off per document until it is saved where AutoSave can write: an
+    /// unsaved document is never written and never ambushed with Save As.
+    #[test]
+    fn autosave_never_touches_unsaved_documents() {
+        let mut a = typed();
+        assert!(a.session.path.is_none() && a.session.dirty);
+        assert!(!a.autosaves());
+        a.autosave_tick(now_ms() + 10_000.0);
+        assert!(a.session.ui_requests.is_empty(), "no Save As ambush");
+        assert!(a.session.dirty);
     }
 
     /// Surfaces finding 3: AutoSave rewrote any opened .docx ~2.5 s after the first keystroke,
