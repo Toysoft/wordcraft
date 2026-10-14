@@ -2891,6 +2891,51 @@ mod tests {
         }
     }
 
+    /// The dimming backdrop must not cover the Save Changes window or intercept its buttons.
+    #[test]
+    fn save_prompt_buttons_are_above_the_backdrop() {
+        use egui_kittest::kittest::Queryable;
+
+        let dir = scratch("backdrop");
+        let path = docx_on_disk(&dir, "Draft");
+        let before = std::fs::read(&path).unwrap();
+
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Revised "})).unwrap();
+        a.run("file.close", json!({})).unwrap();
+        assert_eq!(prompt(&a), Some("saveChanges"));
+
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                if fonts {
+                    dialogs::show(app, &ctx);
+                } else {
+                    theme::install_fonts_for(&ctx, false);
+                    fonts = true;
+                }
+            },
+            a,
+        );
+
+        h.run_steps(3);
+        assert!(h.get_by_label("Save").is_focused());
+
+        // Clicking Save must activate the dialog button, not the backdrop.
+        h.get_by_label("Save").click();
+        h.run_steps(3);
+
+        assert_eq!(prompt(h.state()), None, "Save should close the prompt");
+        assert!(
+            std::fs::read(&path).unwrap() != before,
+            "Save should write the revised document"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `ui.print` hands the document's PDF to the host's print hook, and is an error (with
     /// nothing printed) when the host has none.
     #[test]

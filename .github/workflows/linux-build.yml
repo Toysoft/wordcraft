@@ -131,6 +131,9 @@ jobs:
       - name: Run mini-toolbar tests
         run: cargo test --locked -p wordcraft-ui-egui mini_toolbar
 
+      - name: Test Save Changes backdrop
+        run: cargo test --locked -p wordcraft-ui-egui save_prompt_buttons_are_above_the_backdrop
+
       - name: Check desktop application
         run: cargo check --locked -p wordcraft
 

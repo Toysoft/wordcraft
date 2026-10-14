@@ -1314,12 +1314,14 @@ fn count_dialog_frame(ctx: &egui::Context, id: egui::Id) {
 /// Dims whatever is behind an open dialog by 20% and reports whether the person clicked past its
 /// edge, which closes it the same way the title bar's close button does (#1842).
 fn dialog_backdrop(ctx: &egui::Context) -> bool {
+    // `Middle` overlays normal app content while keeping this backdrop below the
+    // Save Changes window, which is explicitly placed in `Foreground` below.
+    let screen = ctx.content_rect();
     egui::Area::new(egui::Id::new("dialog_backdrop"))
-        .order(egui::Order::Foreground)
-        .fixed_pos(egui::Pos2::ZERO)
+        .order(egui::Order::Middle)
+        .fixed_pos(screen.min)
         .interactable(true)
         .show(ctx, |ui| {
-            let screen = ctx.content_rect();
             ui.painter().rect_filled(screen, 0.0, egui::Color32::from_black_alpha((255.0 * 0.2) as u8));
             ui.allocate_rect(screen, Sense::click()).clicked()
         })
@@ -1336,7 +1338,8 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     // Only the Save Changes prompt dims the screen and closes on an outside click, as in Word:
     // other dialogs (Font, Paragraph, Insert Table…) and non-modal popups like the mini toolbar
     // are left alone (#1842).
-    let clicked_outside = matches!(d, Dialog::SaveChanges { .. }) && dialog_backdrop(ctx);
+    let save_changes_dialog = matches!(d, Dialog::SaveChanges { .. });
+    let clicked_outside = save_changes_dialog && dialog_backdrop(ctx);
     let title = match &d {
         Dialog::Font { .. } => "Font",
         Dialog::Paragraph { .. } => "Paragraph",
@@ -1389,7 +1392,10 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::Layout(d) => d.title(),
     };
     let id = egui::Id::new(("dialog", title));
-    let shown = place_dialog(ctx, id, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false)).open(&mut open).show(ctx, |ui| {
+    // Keep the Save Changes prompt above its Middle-layer backdrop. Other dialogs
+    // retain egui's normal Window layer so their existing stacking is unchanged.
+    let window_order = if save_changes_dialog { egui::Order::Foreground } else { egui::Order::Middle };
+    let shown = place_dialog(ctx, id, egui::Window::new(tl!(title)).id(id).order(window_order).collapsible(false).resizable(false)).open(&mut open).show(ctx, |ui| {
         ui.set_min_width(340.0);
         close = body(app, ui, &mut d);
     });
