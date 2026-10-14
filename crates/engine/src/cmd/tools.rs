@@ -659,7 +659,6 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         CommandSpec::new("view.immersive", "Immersive Reader", "View › Immersive", |s, _| {
             s.view.read_mode = !s.view.read_mode;
-            s.view.focus_mode = s.view.read_mode;
             Ok(json!({"value": s.view.read_mode}))
         })
         .pure(),
@@ -1115,6 +1114,7 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
     if show_in != "original" || p::str(v, "original").is_some() {
         // The result is a new, untitled document: saving it never overwrites either file.
         s.path = None;
+        s.file_name = None;
     }
     s.sel = Selection::caret(s.doc.start_of(StoryRef::Body));
     Ok(json!({"changes": changes, "author": author, "notHonoured": not_honoured}))

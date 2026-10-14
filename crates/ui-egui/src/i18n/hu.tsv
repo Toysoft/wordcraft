@@ -2470,6 +2470,12 @@
 	Insert Caption…	Felirat beszúrása…
 	Table Properties…	Táblázat tulajdonságai…
 	Search	Keresés
+
+# Document naming and account controls.
+	Rename Document	Dokumentum átnevezése
+	Document name	Dokumentum neve
+	Rename	Átnevezés
+	Account	Fiók
 	Privacy Options	Adatvédelmi beállítások
 	Trust Center	Adatvédelmi központ
 	Privacy for this document	A dokumentum adatvédelme
@@ -2524,3 +2530,10 @@
 	It may have been moved or deleted.	Lehet, hogy áthelyezték vagy törölték.
 	This folder can't be read.	Ez a mappa nem olvasható.
 	Title Bar	Címsáv
+
+# Cross-reference dialog (#1003)
+	For which item:	Melyik elemhez:
+	Heading	Címsor
+	Heading text	Címsor szövege
+	Insert reference to:	Hivatkozás beszúrása erre:
+	Reference type:	Hivatkozás típusa:

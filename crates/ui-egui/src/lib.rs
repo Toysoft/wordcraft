@@ -442,6 +442,8 @@ pub struct WordApp {
     queued_shots: Vec<(u64, f64, u32)>,
     pending_shots: Vec<(u64, Option<String>, std::sync::mpsc::Sender<Value>, f64)>,
     pub(crate) synthetic: Vec<egui::Event>,
+    /// macOS: the primary button went down with Control, so it is being read as the secondary.
+    control_click: bool,
     /// Badge rects recorded during layout for the current keytip phase (cleared by `logic`, painted by `show`).
     pub(crate) keytip_rects: Vec<(egui::Rect, String)>,
     /// The Navigation pane's search box takes the keyboard on its next frame (Ctrl+F, #712).
@@ -571,6 +573,7 @@ impl WordApp {
             queued_shots: Vec::new(),
             pending_shots: Vec::new(),
             synthetic: Vec::new(),
+            control_click: false,
             keytip_rects: Vec::new(),
             nav_search_focus: false,
             styled: false,
@@ -838,6 +841,7 @@ impl WordApp {
             return Ok(json!({"downloaded": name, "bytes": bytes.len()}));
         }
         let document = self.session.document_id();
+        let old_path = self.session.path.clone();
         let r = self.session.run(id, &params).map_err(|e| e.to_string());
         // When the document has been replaced (not when Open only showed its picker), a pending
         // "Save changes?" and AutoSave's go-ahead were both about the old one.
@@ -846,6 +850,7 @@ impl WordApp {
             if matches!(self.dialog, Some(dialogs::Dialog::SaveChanges { .. })) {
                 self.dialog = None;
             }
+            crate::table_pen::stop(self);
         }
         // An explicit save to the document's own file lets AutoSave keep writing there.
         if let Ok(v) = &r
@@ -854,6 +859,17 @@ impl WordApp {
             && v.get("path").and_then(Value::as_str).map(std::path::Path::new) == self.session.path.as_deref()
         {
             self.autosave_path = self.session.path.clone();
+        }
+        // A renamed file is the same file: AutoSave keeps covering it, and Recent drops the old name.
+        if r.is_ok()
+            && id == "file.rename"
+            && let Some(old) = old_path.filter(|old| self.session.path.as_ref() != Some(old))
+        {
+            if self.autosave_path.as_ref() == Some(&old) {
+                self.autosave_path = self.session.path.clone();
+            }
+            let old = old.to_string_lossy();
+            self.ui.recent.retain(|r| *r != old);
         }
         if let Ok(v) = &r {
             self.keep_web_font(id, &params, v);
@@ -1129,6 +1145,11 @@ impl WordApp {
             let s = std::mem::take(&mut self.session.status);
             let s = tl!(&s).to_string();
             self.status(s);
+        }
+        if matches!(id, "table.deleteTable")
+            || (self.canvas.table_tool == Some(crate::table_pen::TableTool::Erase) && self.session.sel.focus.path.cell().is_none())
+        {
+            crate::table_pen::stop(self);
         }
     }
 
@@ -1551,13 +1572,11 @@ impl WordApp {
     pub fn title_stem(&self) -> String {
         match &self.session.path {
             Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| tl!("Document1").into()),
-            None => {
-                if self.session.doc.core.title.is_empty() {
-                    tl!("Document1").into()
-                } else {
-                    self.session.doc.core.title.clone()
-                }
-            }
+            None => match &self.session.file_name {
+                Some(name) => name.clone(),
+                None if self.session.doc.core.title.is_empty() => tl!("Document1").into(),
+                None => self.session.doc.core.title.clone(),
+            },
         }
     }
 
@@ -1760,8 +1779,12 @@ impl WordApp {
         }
     }
 
-    /// Inject synthetic input events from the control channel (one pointer event per frame).
+    /// Read a Control-click as the right-click on macOS, then inject synthetic input events from
+    /// the control channel (one pointer event per frame).
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
+        if cfg!(target_os = "macos") {
+            control_click_as_secondary(&mut raw.events, &mut self.control_click);
+        }
         if self.synthetic.is_empty() {
             return;
         }
@@ -1797,6 +1820,11 @@ impl WordApp {
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
         crate::keytips::logic(self, &ctx);
+        // Focus (View › Immersive, the status bar) keeps only the title bar and the page; Escape
+        // brings the rest back, as in Word.
+        if self.session.view.focus_mode && self.dialog.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            let _ = self.run("view.focus", json!({"value": false}));
+        }
         if self.ui.backstage {
             backstage::show(self, ui);
         } else if !self.has_document() {
@@ -1807,9 +1835,11 @@ impl WordApp {
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
         } else {
             chrome::title_bar(self, ui);
-            ribbon::show(self, ui);
-            chrome::status_bar(self, ui);
-            panes::show(self, ui);
+            if !self.session.view.focus_mode {
+                ribbon::show(self, ui);
+                chrome::status_bar(self, ui);
+                panes::show(self, ui);
+            }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
                 canvas::show(self, ui);
             });
@@ -2062,6 +2092,7 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
     let has = |k: &str| params.get(k).is_some_and(|v| !v.is_null());
     let rule = params.get("rule").and_then(Value::as_str).map(str::to_ascii_uppercase);
     match id {
+        "file.rename" if !has("name") => Some("renameDocument"),
         "mailings.rules" if !has("field") => match rule.as_deref() {
             None | Some("IF") => Some("ruleIf"),
             Some("SKIPIF") => Some("ruleSkipIf"),
@@ -2114,6 +2145,8 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
             Some(if id == "references.caption" { "caption" } else { "index" })
         }
         "references.markEntry" if !has("entry") => Some("markEntry"),
+        // Cross-reference without a target shows its dialog (#916); scripts get the target list.
+        "insert.crossReference" if !has("target") => Some("crossReference"),
         "references.sources" if params.as_object().is_none_or(|m| m.is_empty()) => Some("sourceManager"),
         "references.citation" if !has("tag") && !has("source") => Some("createSource"),
         // Templates and Add-ins, and the Organizer without a file to list (#377).
@@ -2198,6 +2231,25 @@ pub fn now_ms() -> f64 {
     {
         let ms = js_sys::Date::now();
         if ms.is_finite() && ms > 0.0 { ms } else { 0.0 }
+    }
+}
+
+/// macOS reads a Control-click as the right-click (winit reports the primary button with Control
+/// held), so menus open on it as on a two-finger click. The release follows its press even if
+/// Control was let go in between.
+fn control_click_as_secondary(events: &mut [egui::Event], held: &mut bool) {
+    for e in events {
+        if let egui::Event::PointerButton { button: button @ egui::PointerButton::Primary, pressed, modifiers, .. } = e {
+            if *pressed {
+                *held = modifiers.ctrl && !modifiers.mac_cmd;
+            }
+            if *held {
+                *button = egui::PointerButton::Secondary;
+            }
+            if !*pressed {
+                *held = false;
+            }
+        }
     }
 }
 
@@ -2289,6 +2341,63 @@ mod tests {
 
     fn app() -> WordApp {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
+    }
+
+    #[test]
+    fn title_and_account_buttons_work() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        h.run_steps(6);
+        h.get_by_label("Document1 — Not saved").click();
+        h.run_steps(2);
+        assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("renameDocument"));
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Rename").click();
+        h.run_steps(2);
+        assert!(h.state().dialog.is_none());
+        assert!(h.state().session.file_name.is_none());
+        assert!(!h.state().session.dirty);
+        h.get_by_label("Document1 — Not saved").click();
+        h.run_steps(2);
+        h.event(egui::Event::Key {
+            key: egui::Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers { command: true, ..Default::default() },
+        });
+        h.event(egui::Event::Text("Project notes".into()));
+        h.run_steps(2);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Rename").click();
+        h.run_steps(2);
+        assert!(h.state().dialog.is_none());
+        assert_eq!(h.state().title_stem(), "Project notes");
+        assert_eq!(h.state().default_save_name(), "Project notes.docx");
+        assert!(h.state().session.doc.core.title.is_empty());
+        assert!(!h.state().session.dirty);
+        // A long name remains clickable, and Escape leaves it unchanged.
+        let long_name = "Notes ".repeat(25);
+        h.state_mut().run("file.rename", json!({"name": long_name})).unwrap();
+        h.run_steps(2);
+        h.get_by_label(&format!("{} — Not saved", long_name.trim())).click();
+        h.run_steps(2);
+        assert!(h.state().dialog.is_some());
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+        h.run_steps(2);
+        assert!(h.state().dialog.is_none());
+        assert_eq!(h.state().title_stem(), long_name.trim());
+        h.get_by_label("Account").click();
+        h.run_steps(2);
+        assert!(h.state().ui.backstage);
+        assert_eq!(h.state().ui.backstage_page, "options");
+        assert_eq!(h.state().ui.options_pane, "general");
+        assert!(h.query_by_label("User name:").is_some());
     }
 
     /// File › Options › Advanced › Editing: alignment guides are a UI command, on by default and
@@ -4146,6 +4255,35 @@ mod tests {
         }
     }
 
+    #[test]
+    fn renaming_a_saved_file_keeps_autosave_and_replaces_its_recent_entry() {
+        let dir = scratch("rename-autosave");
+        let path = dir.join("notes.docx");
+        let renamed = dir.join("Notes v2.docx");
+        let mut a = typed();
+        a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
+        assert!(a.autosaves());
+        a.run("file.rename", json!({"name": "Notes v2"})).unwrap();
+        assert_eq!(a.session.path.as_deref(), Some(renamed.as_path()));
+        assert!(a.autosaves(), "AutoSave still covers the renamed file");
+        assert_eq!(a.ui.recent.first(), Some(&renamed.to_string_lossy().to_string()));
+        assert!(!a.ui.recent.contains(&path.to_string_lossy().to_string()), "{:?}", a.ui.recent);
+        a.run("text.insert", json!({"text": "More "})).unwrap();
+        a.autosave_tick(now_ms() + 10_000.0);
+        assert!(!a.session.dirty, "AutoSave wrote the renamed file");
+        let saved = wordcraft_engine::io::open_path(&renamed).unwrap();
+        assert!(saved.plain_text(wordcraft_doc::StoryRef::Body).contains("More "));
+        assert!(!path.exists());
+
+        // A file opened but not saved in this session doesn't gain AutoSave by being renamed.
+        let mut b = app();
+        b.run("file.open", json!({"path": renamed.to_string_lossy()})).unwrap();
+        assert!(!b.saved_here());
+        b.run("file.rename", json!({"name": "Notes v3"})).unwrap();
+        assert!(!b.saved_here() && !b.autosaves());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Web: the download callback couldn't report a failure, so Save marked the document saved
     /// and the prompt went ahead even when no download started.
     #[test]
@@ -5647,5 +5785,45 @@ mod tests {
         h.state_mut().run("edit.advancedFind", json!({})).unwrap();
         h.step();
         assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("find"));
+    }
+
+    /// #991: the status bar's Focus button leaves only the page (no ribbon, status bar or panes);
+    /// Escape brings them back.
+    #[test]
+    fn focus_hides_the_ribbon_and_escape_brings_it_back() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.ui.tab = "View".into();
+        a.session.view.nav_pane = true;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let shown = |h: &egui_kittest::Harness<WordApp>, label| h.query_by_label(label).is_some();
+        assert!(shown(&h, "Ruler"), "the View tab is showing");
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Focus").click();
+        h.step();
+        h.step();
+        assert!(h.state().session.view.focus_mode);
+        assert!(!shown(&h, "Ruler") && !shown(&h, "Focus"), "the ribbon is hidden");
+        assert!(!shown(&h, "Navigation"), "and so is the Navigation pane");
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
+        h.step();
+        h.step();
+        assert!(!h.state().session.view.focus_mode, "Escape leaves Focus");
+        assert!(shown(&h, "Ruler"), "and the ribbon is back");
+        assert!(shown(&h, "Navigation"), "with the pane");
+        // Immersive Reader is Read Mode, not Focus: its status bar stays.
+        h.state_mut().run("view.immersive", json!({})).unwrap();
+        h.step();
+        h.step();
+        assert!(h.state().session.view.read_mode && shown(&h, "Focus"), "Immersive Reader keeps the status bar");
     }
 }

@@ -2477,6 +2477,12 @@ file	Home	Strona główna
 	To list it here, allow WordCraft in System Settings, under Privacy & Security, Files and Folders.	Aby wyświetlić go tutaj, zezwól aplikacji WordCraft w Ustawieniach systemowych, w sekcji Prywatność i ochrona, Pliki i foldery.
 	No access to this folder	Brak dostępu do tego folderu
 	It may have been moved or deleted.	Mógł zostać przeniesiony lub usunięty.
+
+# Document naming and account controls.
+	Rename Document	Zmień nazwę dokumentu
+	Document name	Nazwa dokumentu
+	Rename	Zmień nazwę
+	Account	Konto
 	Privacy Options	Opcje prywatności
 	Trust Center	Centrum zaufania
 	Privacy for this document	Prywatność tego dokumentu
@@ -2520,3 +2526,10 @@ file	Home	Strona główna
 	Language Preferences…	Preferencje językowe…
 	Add a place	Dodaj miejsce
 	Loading…	Wczytywanie…
+
+# Cross-reference dialog (#1003)
+	For which item:	Dla którego elementu:
+	Heading	Nagłówek
+	Heading text	Tekst nagłówka
+	Insert reference to:	Wstaw odwołanie do:
+	Reference type:	Typ odwołania:
