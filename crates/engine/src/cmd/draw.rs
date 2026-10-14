@@ -309,7 +309,7 @@ fn draw_shape(s: &mut Session, v: &Value) -> CmdResult {
     let page_idx = usize::try_from(page).unwrap_or(usize::MAX);
     let layout = s.layout();
     let story = StoryRef::Body;
-    let anchor = super::objects::anchor_paragraph(&layout, page_idx, y, story)
+    let anchor = super::objects::anchor_paragraph(&s.doc, &layout, page_idx, (x, y), story)
         .map(|path| Pos { story, path, off: 0 })
         .or_else(|| super::objects::nearest_line(&layout, page_idx, y, story))
         .ok_or_else(|| CmdError::Params("no text on that page to anchor to".into()))?;
