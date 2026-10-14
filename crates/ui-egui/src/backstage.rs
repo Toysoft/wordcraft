@@ -61,8 +61,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let foot = [item("options", "Options"), item("discord", "Discord community"), item("about", "About")];
             let paint = |key: Option<&str>, p: &egui::Painter, r: Rect, c: egui::Color32| icons::paint(p, r, nav_icon(key), c, c);
             // macOS (#222): the File page covers the title bar, so the column's top band is the
-            // title bar. It holds only the window buttons and drags the window.
-            let band = if mac { crate::chrome::MAC_TITLE_BAR } else { 0.0 };
+            // title bar, as tall as macOS draws it around the traffic lights (#1559). It holds only
+            // the window buttons and drags the window.
+            let band = if mac { app.mac_titlebar.height } else { 0.0 };
             let showing = app.ui.backstage_page.clone();
             let action = FileNav::new(tl!("Back"), &[&top, &rest], Some(showing.as_str()), &style, &paint)
                 .foot(&foot)

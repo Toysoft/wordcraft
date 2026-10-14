@@ -1515,6 +1515,8 @@
 	Mirror indents	Rientri speculari
 	Overtype	Sovrascrittura
 	Overtype (typing replaces the characters after the caret)	Sovrascrittura (il testo digitato sostituisce i caratteri dopo il cursore)
+	Show alignment guides when moving pictures and shapes	Mostra le guide di allineamento durante lo spostamento di immagini e forme
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Gli oggetti spostati si agganciano ai bordi e al centro della pagina, ai margini e agli altri oggetti. Tieni premuto Alt per spostarli liberamente.
 	Page display	Visualizzazione pagina
 	Paragraph marks	Segni di paragrafo
 	Personalize	Personalizza
@@ -2462,6 +2464,8 @@ preview	Title	Esempio
 	Leave out the date and time of comments and tracked changes when saving	Ometti data e ora di commenti e revisioni al salvataggio
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Il documento che stai modificando conserva nomi e date; solo il file salvato li omette.
 	Privacy Settings	Impostazioni di privacy attuali
+	Waiting for the save to finish…	In attesa del termine del salvataggio…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Il salvataggio di {name} è stato annullato: il documento è ancora aperto e non è andato perso nulla.
 	Paper	Carta
 	Paper size:	Dimensioni carta:
 	Custom size	Dimensioni personalizzate

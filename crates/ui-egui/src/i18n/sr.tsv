@@ -160,6 +160,8 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Отвара Подешавања › Подразумеване апликације, где бирате WordCraft за .docx и друге врсте докумената.
 	Overtype	Преписивање
 	Overtype (typing replaces the characters after the caret)	Преписивање (откуцано замењује знакове после курсора)
+	Show alignment guides when moving pictures and shapes	Приказуј водиље за поравнање при померању слика и облика
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Померени објекти се приањају уз ивице и средину странице, маргине и друге објекте. Држите Alt да бисте померали слободно.
 	Page display	Приказ стране
 	Paragraph marks	Ознаке пасуса
 	Personalize	Персонализација
@@ -2101,6 +2103,8 @@
 	Leave out the date and time of comments and tracked changes when saving	Изостави датум и време коментара и праћених измена при чувању
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Документ који уређујете задржава имена и датуме; изоставља их само сачувана датотека.
 	Privacy Settings	Тренутна подешавања приватности
+	Waiting for the save to finish…	Чека се да се чување заврши…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Чување {name} је отказано. Документ је и даље отворен и ништа није изгубљено.
 	Paper	Папир
 	Paper size:	Величина папира:
 	Custom size	Прилагођена величина
