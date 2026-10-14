@@ -228,6 +228,16 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     if let Some(bg) = root.child("w:background").and_then(|b| b.attr("w:color")).and_then(Rgb::parse) {
         r.doc.settings.page_color = Some(bg);
     }
+    // A picture/texture background fill rides along as document media (#999); drawing it is
+    // still to come, like the shapes in #611/#743.
+    if let Some(el) = root.child("w:background").and_then(|b| b.find("v:fill"))
+        && let Some(id) = el.attr("r:id")
+        && let Some(key) = r.media_for(&rels, id)
+    {
+        let fill = el.attr("type").filter(|t| !t.is_empty() && t.len() <= 32).unwrap_or("tile").to_string();
+        let title = el.attr("o:title").filter(|t| t.chars().count() <= 128).unwrap_or("").to_string();
+        r.doc.settings.page_background = Some(wordcraft_doc::PageBackground { media: key, fill, title });
+    }
     if let Some(body) = root.child("w:body") {
         let mut sc = StoryCtx::default();
         let mut blocks = Blocks::new();
