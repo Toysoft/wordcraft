@@ -100,7 +100,7 @@ struct Writer {
 /// `\sectd` and a section's formatting, in the words the reader reads back.
 fn sect_words(s: &wordcraft_doc::SectionProps) -> String {
     use wordcraft_doc::section::{NumFormat, SectionStart};
-    let tw = |v: f32| if v.is_finite() { (v * 20.0).round() as i64 } else { 0 };
+    let tw = |v: f32| if v.is_finite() { ((v * 20.0).round() as i64).max(0) } else { 0 };
     let mut o = String::from("\\sectd");
     o.push_str(match s.start {
         SectionStart::Continuous => "\\sbknone",
@@ -335,6 +335,10 @@ impl Writer {
                     if p.section.is_some() && !intbl && depth == 0 && self.sect_i + 1 < self.sections.len() {
                         self.sect_i += 1;
                         end = format!("\\sect\n{}", self.sections.get(self.sect_i).map(sect_words).unwrap_or_default());
+                        // A body that ends on the break keeps its last section: an empty paragraph holds it.
+                        if i + 1 == n {
+                            end.push_str("\\pard\\plain \\par");
+                        }
                     }
                     let ls = match p.list {
                         Some(li) => {
@@ -545,13 +549,13 @@ pub fn export(doc: &Document) -> String {
     let mut w =
         Writer { t: Tables { fonts: vec![base_font], colors: Vec::new() }, lists: Vec::new(), authors: None, sections: Vec::new(), sect_i: 0 };
     let mut body = String::new();
-    // Every section with its own `\sectd`; one section needs none (the document-level words say it).
-    let mut secs: Vec<wordcraft_doc::SectionProps> = doc.sections().into_iter().map(|(_, s)| s.clone()).collect();
+    // Every section starts with its own `\sectd`; `\sect` breaks only where there are several.
+    let secs: Vec<wordcraft_doc::SectionProps> = doc.sections().into_iter().map(|(_, s)| s.clone()).collect();
+    if let Some(first) = secs.first() {
+        body.push_str(&sect_words(first));
+    }
     if secs.len() > 1 {
-        if let Some(first) = secs.first() {
-            body.push_str(&sect_words(first));
-        }
-        w.sections = std::mem::take(&mut secs);
+        w.sections = secs;
     }
     w.blocks(&flow.blocks, false, "\\par", &mut body, 0);
     export_with(&flow.meta, &w, &body, &doc.last_section)
@@ -2698,7 +2702,14 @@ mod tests {
             assert_eq!(g.start, want.start);
             assert_eq!(g.landscape, want.landscape);
             assert!((g.page_w - want.page_w).abs() < 0.1 && (g.page_h - want.page_h).abs() < 0.1);
-            assert!((g.margin_left - want.margin_left).abs() < 0.1);
+            for (a, b) in [
+                (g.margin_left, want.margin_left),
+                (g.margin_right, want.margin_right),
+                (g.margin_top, want.margin_top),
+                (g.margin_bottom, want.margin_bottom),
+            ] {
+                assert!((a - b).abs() < 0.1);
+            }
             assert!((g.header - want.header).abs() < 0.1 && (g.footer - want.footer).abs() < 0.1);
             assert_eq!(g.columns.count, want.columns.count);
             assert_eq!(g.columns.separator, want.columns.separator);
@@ -2711,7 +2722,52 @@ mod tests {
         assert_eq!(secs.iter().map(|(i, _)| *i).collect::<Vec<_>>(), [0, 1, 2]);
         // One section: no section break.
         let one = export(&wordcraft_doc::Document::from_text("a\nb"));
-        assert!(!one.contains("\\sect"), "{one}");
+        assert!(!one.contains("\\sect\n") && !one.contains("\\sect\\"), "{one}");
+    }
+
+    #[test]
+    fn export_keeps_a_single_sections_formatting() {
+        use wordcraft_doc::SectionProps;
+        let mut d = wordcraft_doc::Document::from_text("a\nb");
+        d.last_section = SectionProps { title_page: true, ..Default::default() };
+        d.last_section.columns.count = 2;
+        d.last_section.columns.space = 20.0;
+        let back = import(export(&d).as_bytes()).unwrap();
+        assert_eq!(back.sections().len(), 1);
+        assert_eq!(back.last_section.columns.count, 2);
+        assert!(back.last_section.title_page);
+    }
+
+    #[test]
+    fn export_keeps_a_section_that_ends_the_body() {
+        use wordcraft_doc::{Block, SectionProps};
+        let mut d = wordcraft_doc::Document::from_text("a\nb");
+        let s1 = SectionProps { landscape: true, page_w: 792.0, page_h: 612.0, ..Default::default() };
+        if let Some(Block::Para(p)) = d.body.get_mut(1).map(std::sync::Arc::make_mut) {
+            p.section = Some(Box::new(s1));
+        }
+        d.last_section.columns.count = 3;
+        let back = import(export(&d).as_bytes()).unwrap();
+        let secs = back.sections();
+        assert_eq!(secs.len(), 2);
+        assert!(secs[0].1.landscape);
+        assert_eq!(secs[1].1.columns.count, 3);
+    }
+
+    #[test]
+    fn export_writes_no_section_break_inside_a_table() {
+        use wordcraft_doc::{Block, SectionProps};
+        let mut d = wordcraft_doc::Document::from_text("a");
+        let mut t = wordcraft_doc::Table::new(1, 1, 400.0);
+        if let Some(Block::Para(p)) =
+            t.rows.first_mut().and_then(|r| r.cells.first_mut()).and_then(|c| c.blocks.first_mut()).map(std::sync::Arc::make_mut)
+        {
+            p.section = Some(Box::new(SectionProps::default()));
+        }
+        d.body.push(std::sync::Arc::new(Block::Table(t)));
+        let rtf = export(&d);
+        assert!(!rtf.contains("\\sect\n") && !rtf.contains("\\sect\\") && rtf.matches("\\sectd").count() == 1, "{rtf}");
+        assert_eq!(import(rtf.as_bytes()).unwrap().sections().len(), 1);
     }
 
     #[test]
