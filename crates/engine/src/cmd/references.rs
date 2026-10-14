@@ -37,7 +37,8 @@ pub fn specs() -> Vec<CommandSpec> {
             .key("Mod+Alt+F")
             .params(r#"{"text"?: string, "mark"?: string (a custom mark instead of the number)}"#),
         CommandSpec::new("references.endnote", "Insert Endnote", "References › Footnotes", |s, v| note(s, v, NoteKind::Endnote))
-            .key("Mod+Alt+D")
+            // macOS takes ⌘⌥D to show and hide the Dock; Word for Mac uses ⌘⌥E.
+            .key(super::mac_or("Mod+Alt+E", "Mod+Alt+D"))
             .params(r#"{"text"?: string, "mark"?: string (a custom mark instead of the number)}"#),
         CommandSpec::new("references.convertNotes", "Convert Notes", "References › Footnotes", |s, v| {
             let (foot, end) = match p::req_str(v, "to")? {
@@ -547,7 +548,7 @@ fn note(s: &mut Session, v: &Value, kind: NoteKind) -> CmdResult {
         NoteKind::Endnote => (PartKind::Endnote, "EndnoteText", "EndnoteReference"),
     };
     let mut para = Paragraph::new().styled(style);
-    let id = s.doc.add_part(pk, Vec::new());
+    let id = s.doc.try_add_part(pk, Vec::new())?;
     para.insert_object(
         0,
         InlineObject::NoteRef { kind, id, custom: custom.clone() },
