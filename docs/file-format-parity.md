@@ -19,6 +19,7 @@ Weights are the share of a Word user's file traffic (estimate). Read/write: ✅ 
 
 | Format | Weight | Word | WordCraft read | WordCraft write | Fidelity | Hours | How it's tested | Notes |
 |---|---|---|---|---|---|---|---|---|
+| `.docx` page background picture/texture (`v:background/v:fill`) | — | R/W | ✅ | ✅ | ~80% | — | `roundtrip.rs::page_background_picture_round_trips`, `crates/render` | Image part and `type`/`o:title` kept; tiled at 96 dpi or stretched; drawn on screen and in PDF; no Fill Effects dialog yet, gradients and patterns are not read |
 | `.docx` Word Document (ECMA-376 Transitional) | 70% | R/W | ✅ | ✅ | ~65% | 70–110 | `crates/docx/tests` (roundtrip 34, fixtures 29, malformed 8, bidi 5, citations 5); synthetic fixtures only | Word opens our files. Untested on a real-world corpus. Tracked changes inside a field result stay revisions (the field is kept as a range, #1037). Details below |
 | `.docx` Strict Open XML | 1% | R/W | ✅ (namespace mapping in `xml.rs`) | ❌ | ~60% | 2–4 | one fixture | Writing Strict is rare |
 | `.docm` / `.dotx` / `.dotm` | 3% | R/W | ✅ | ✅ | ~65% | incl. above | `macro_packages.rs` | Macros and signatures kept on save (#172); macros never run |
