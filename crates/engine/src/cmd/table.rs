@@ -123,10 +123,12 @@ pub fn specs() -> Vec<CommandSpec> {
         })),
         t(CommandSpec::new("table.columnWidth", "Table Column Width", "Table Layout › Cell Size", |s, v| {
             let w = p::req_f32(v, "width")?.clamp(6.0, 1584.0);
-            let (_, r, c) = cell(s)?;
-            with_table(s, |t| set_column_width(t, r, c, w))
+            let cells = selected_cells(s);
+            with_table(s, |t| set_column_widths(t, &cells, w))
         })
-        .params(r#"{"width": pt} (the caret cell's column; the table's preferred width is cleared so the column gets exactly this)"#)),
+        .params(
+            r#"{"width": pt} (every column the selection covers, the caret cell's without one; the table's preferred width is cleared so the columns get exactly this)"#,
+        )),
         t(CommandSpec::new("table.rowHeight", "Table Row Height", "Table Layout › Cell Size", |s, v| {
             let h = p::req_f32(v, "height")?.clamp(1.0, 1584.0);
             let rule = match p::str(v, "rule") {
@@ -134,15 +136,18 @@ pub fn specs() -> Vec<CommandSpec> {
                 Some("exact") => HeightRule::Exact,
                 Some(x) => return Err(CmdError::Params(format!("unknown height rule `{x}`"))),
             };
-            let (_, r, _) = cell(s)?;
+            let mut rows: Vec<usize> = selected_cells(s).into_iter().map(|(r, _)| r).collect();
+            rows.dedup();
             with_table(s, |t| {
-                if let Some(row) = t.rows.get_mut(r) {
-                    row.props.height = Some(h);
-                    row.props.height_rule = rule;
+                for r in &rows {
+                    if let Some(row) = t.rows.get_mut(*r) {
+                        row.props.height = Some(h);
+                        row.props.height_rule = rule;
+                    }
                 }
             })
         })
-        .params(r#"{"height": pt, "rule"?: "atLeast|exact"}"#)),
+        .params(r#"{"height": pt, "rule"?: "atLeast|exact"} (every row the selection covers, the caret's without one)"#)),
         t(CommandSpec::new("table.repeatHeader", "Repeat Header Rows", "Table Layout › Data", |s, v| {
             let (_, r, _) = cell(s)?;
             let on = p::bool(v, "value");
@@ -256,6 +261,25 @@ pub(crate) fn sync_cell_widths(t: &mut Table) {
 
 /// Set the width of the grid column cell `c` of row `r` starts in. The table's preferred width
 /// goes, so the layout doesn't scale the column back.
+/// Give every grid column the `cells` (row, cell) pairs touch the width `w`.
+fn set_column_widths(t: &mut Table, cells: &[(usize, usize)], w: f32) {
+    let mut cols: Vec<usize> = cells.iter().map(|&(r, c)| t.grid_col(r, c)).collect();
+    cols.sort_unstable();
+    cols.dedup();
+    let mut any = false;
+    for g in cols {
+        if let Some(x) = t.grid.get_mut(g) {
+            *x = w;
+            any = true;
+        }
+    }
+    if any {
+        t.props.width = None;
+        t.props.width_pct = None;
+        sync_cell_widths(t);
+    }
+}
+
 fn set_column_width(t: &mut Table, r: usize, c: usize, w: f32) {
     let g = t.grid_col(r, c);
     if let Some(x) = t.grid.get_mut(g) {
@@ -835,7 +859,7 @@ fn formula(s: &mut Session, v: &Value) -> CmdResult {
     let at = s.sel.focus.clone();
     let end = s.doc.insert_object(
         &at,
-        wordcraft_doc::InlineObject::Field { instr: f.clone(), result: text.clone(), locked: false, code: false },
+        wordcraft_doc::InlineObject::Field { instr: f.clone(), result: text.clone(), locked: false, code: false, form: String::new() },
         &props,
     )?;
     s.sel = Selection::caret(end);
@@ -1076,7 +1100,15 @@ fn from_text(s: &mut Session, v: &Value) -> CmdResult {
     }
     let lines: Vec<String> =
         (a.path.last()..=b.path.last()).filter_map(|i| s.doc.para(a.story, &a.path.with_last(i)).map(|p| p.plain_text())).collect();
-    let cols = lines.iter().map(|l| l.split(sep).count()).max().unwrap_or(1).clamp(1, 63);
+    // Refuse rather than drop content: a table between the paragraphs would be removed with them.
+    if lines.len() != b.path.last() - a.path.last() + 1 {
+        return Err(CmdError::Failed("select only paragraphs to convert".into()));
+    }
+    let cols = lines.iter().map(|l| l.split(sep).count()).max().unwrap_or(1);
+    // A table has at most 63 columns; a longer row would lose its last fields.
+    if cols > 63 {
+        return Err(CmdError::Failed("a table can have at most 63 columns".into()));
+    }
     let width = super::page::sect(s).text_width();
     let mut t = Table::new(lines.len().max(1), cols, width);
     for (r, l) in lines.iter().enumerate() {
