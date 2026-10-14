@@ -1185,6 +1185,82 @@ fn tables_commands() {
     assert!(s.run("table.merge", &json!({})).is_err());
 }
 
+fn cells(s: &Session) -> Option<((usize, usize), (usize, usize))> {
+    s.cell_range().map(|x| (x.rows, x.cols))
+}
+
+#[test]
+fn select_all_grows_cell_then_row_then_table_then_document() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Before"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "A1"}));
+    assert_eq!(s.sel.focus.path.cell().map(|(_, r, c)| (r, c)), Some((0, 0)));
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 0), (0, 0))), "first Ctrl+A selects the cell");
+    assert_eq!(s.selected_text(), "A1");
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 0), (0, 1))), "second Ctrl+A selects the row");
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 1))), "third Ctrl+A selects the table");
+
+    run(&mut s, "select.all", json!({}));
+    assert!(s.column.is_none());
+    let (a, b) = s.sel.ordered();
+    assert_eq!(a, s.doc.start_of(StoryRef::Body));
+    assert_eq!(b, s.doc.end_of(StoryRef::Body));
+    assert!(s.selected_text().starts_with("Before"));
+
+    run(&mut s, "select.all", json!({}));
+    let (a, b) = s.sel.ordered();
+    assert_eq!((a, b), (s.doc.start_of(StoryRef::Body), s.doc.end_of(StoryRef::Body)));
+}
+
+#[test]
+fn select_all_from_a_column_grows_to_the_table() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "table.selectColumn", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 0))));
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 1))), "Ctrl+A on a column selects the table");
+}
+
+#[test]
+fn select_all_keeps_the_whole_story_when_it_ends_in_a_table() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "A1"}));
+    s.doc.body.pop();
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    let whole = (s.doc.start_of(StoryRef::Body), s.doc.end_of(StoryRef::Body));
+    assert!(s.doc.end_of(StoryRef::Body).path.cell().is_some());
+    assert_eq!(s.sel.ordered(), whole);
+    run(&mut s, "select.all", json!({}));
+    assert!(s.column.is_none());
+    assert_eq!(s.sel.ordered(), whole);
+}
+
+#[test]
+fn select_extend_from_a_table_paragraph_selects_the_document() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "Hello world"}));
+    run(&mut s, "select.paragraph", json!({}));
+    run(&mut s, "select.extend", json!({}));
+    assert!(s.column.is_none());
+    let (a, b) = s.sel.ordered();
+    assert_eq!(a, s.doc.start_of(StoryRef::Body));
+    assert_eq!(b, s.doc.end_of(StoryRef::Body));
+}
+
 /// AutoFit Contents (#44) measures the text: a column of short words narrows, a column with a
 /// long sentence widens (wrapping within the page), and the widths are written to the grid.
 #[test]
@@ -1994,6 +2070,32 @@ fn toc_page_numbers_follow_headings() {
     for (name, page) in [("Alpha", 2), ("Bravo", 3), ("Charlie", 4)] {
         assert!(t.contains(&format!("{name}\t{page}")), "{name} should be on page {page}: {t}");
     }
+}
+
+/// Headings numbered through a list carry their numbers, and the level's separator, into the
+/// TOC entries.
+#[test]
+fn toc_entries_carry_heading_numbers() {
+    let mut s = s();
+    run(&mut s, "references.toc", json!({}));
+    run(&mut s, "caret.docEnd", json!({}));
+    for name in ["Alpha", "Bravo"] {
+        run(&mut s, "text.pageBreak", json!({}));
+        run(&mut s, "text.insert", json!({"text": name}));
+        run(&mut s, "para.heading1", json!({}));
+        run(&mut s, "text.newParagraph", json!({}));
+    }
+    let num = s.doc.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    for b in s.doc.body.iter_mut() {
+        if let wordcraft_doc::Block::Para(p) = std::sync::Arc::make_mut(b)
+            && p.props.style.as_deref() == Some("Heading1")
+        {
+            p.props.numbering = Some(wordcraft_doc::props::NumRef { num, level: 0 });
+        }
+    }
+    run(&mut s, "references.updateToc", json!({}));
+    let t = text(&s);
+    assert!(t.contains("1.\tAlpha\t2") && t.contains("2.\tBravo\t3"), "{t}");
 }
 
 /// A heading above the TOC keeps its index when the entries go in below it, so its page is read
