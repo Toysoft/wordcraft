@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (Recent Thai file-name/path font fallback on Home/Open; previously Progress log: Thai justification, stored mode selection and A4 export checks; previously Thai Distributed model/DOCX compatibility) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -135,6 +135,10 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-14 | Home/Open Recent: Thai document names and folder paths load installed interface fallbacks on the Start screen, before opening a document; stored paths are unchanged |
+| 2026-10-14 | Thai word segmentation and safe line breaking (#1548): ICU dictionary boundaries in visible paragraph context, safe emergency breaks for overlong words, and regressions for hidden/deleted text and wrapping settings; initial regression failed at the expected resource boundary, then cargo test -p wordcraft-layout passed (245 tests) |
+| 2026-10-14 | Thai Distributed: `distribute` and `thaiDistribute` are distinct through DOCX direct/style/override properties and repeated reopen; temporary layout follows Justify, while Thai spacing and automatic mode selection remain for task 3 |
+| 2026-10-14 | Thai task 3: wrapped Thai Justify/ThaiDistribute lines use capped space-first/group-second spacing; `para.distribute` stores a per-paragraph mode. Package regressions pass except the inherited engine filesystem scanner (`File::open` in `cmd/file.rs:264`); CI fmt/clippy, assets, layers, WASM, Trunk web bundle and desktop release build pass. A4 PDF/DOCX checks verified Angsana New 16 pt and Tahoma 11 pt; Sarabun skipped because absent. Cross-application Word page parity remains unverified. |
 | 2026-10-12 | Text boxes from older Word files (VML) keep their internal margins, Resize shape to fit text and vertical alignment, so letterhead address blocks and form headers sit where Word puts them instead of 7 pt in and 4 pt down. Hidden drawings stay hidden (they were drawn as empty boxes) and are kept on save |
 | 2026-10-13 | Word's privacy options are kept and honoured when saving .docx (#1062): with Remove personal information, comments and tracked changes are saved by "Author" and the file has no creator or last-modified-by; with Remove date and time, they are saved without dates. The open document keeps the real names and dates; `file.privacyOptions` sets both |
 | 2026-10-13 | A selected comment balloon's Delete, Reply and Resolve buttons work again (#1085): pressing them no longer counts as a click on the page that closes the balloon first, so a new empty comment, or any other, can be deleted from its balloon |
@@ -287,6 +291,10 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | trivial | Progress log: Recent file names and folder paths get interface font fallbacks on Home/Open before document open |
+| 2026-10-14 | minor | Progress log: Thai dictionary segmentation and safe line breaking (#1548) |
+| 2026-10-14 | minor | Progress log: distinct Thai Distributed model and DOCX round-trip compatibility; Thai spacing/automatic mode selection remain |
+| 2026-10-14 | minor | Progress log: Thai justification, automatic Distributed selection and local A4 PDF/DOCX export consistency |
 | 2026-10-12 | trivial | Progress log: VML text box margins, fit and alignment; hidden drawings |
 | 2026-10-13 | trivial | Progress log: comment balloon buttons work, empty comments can be deleted (#1085) |
 | 2026-10-12 | trivial | Progress log: sample-text formulas on Enter (#1067) |

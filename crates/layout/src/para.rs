@@ -4,6 +4,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use icu_segmenter::LineSegmenter;
 use wordcraft_doc::math::MathJc;
 use wordcraft_doc::numbering::{Level, LevelSuffix};
 use wordcraft_doc::para::{COLUMN_BREAK, InlineObject, LINE_BREAK, NoteKind, OBJ, PAGE_BREAK, RubyAlign, SOFT_HYPHEN, WrapText};
@@ -114,6 +115,8 @@ pub struct Cluster {
     pub g1: u32,
     /// A line may break after this cluster.
     pub break_after: bool,
+    /// An overlong word may break here if no word opportunity fits on the line.
+    emergency_break_after: bool,
     /// Height above the baseline for objects (images), points.
     pub obj_h: f32,
     /// Depth below the baseline for objects (equations), points.
@@ -870,6 +873,7 @@ impl<'a> Builder<'a> {
                     g0,
                     g1: if kind == ClKind::Marker { g0 } else { g1 },
                     break_after: false,
+                    emergency_break_after: false,
                     obj_h: 0.0,
                     obj_d: 0.0,
                     dot: s == "." || s == ",",
@@ -895,6 +899,7 @@ impl<'a> Builder<'a> {
                 g0: g,
                 g1: g,
                 break_after: false,
+                emergency_break_after: false,
                 obj_h: 0.0,
                 obj_d: 0.0,
                 dot: false,
@@ -923,7 +928,20 @@ impl<'a> Builder<'a> {
         let style = first.style;
         let g1 = added.last().map(|c| c.g1).unwrap_or(g0);
         self.shown.push((self.clusters.len(), text.to_string(), ranges));
-        self.clusters.push(Cluster { start, end, adv: x, kind: ClKind::Text, style, g0, g1, break_after: false, obj_h: 0.0, obj_d: 0.0, dot: false });
+        self.clusters.push(Cluster {
+            start,
+            end,
+            adv: x,
+            kind: ClKind::Text,
+            style,
+            g0,
+            g1,
+            break_after: false,
+            emergency_break_after: false,
+            obj_h: 0.0,
+            obj_d: 0.0,
+            dot: false,
+        });
     }
 
     /// Shape `texts` on top of one another as one cluster for `start..end`: each aligned within
@@ -976,7 +994,20 @@ impl<'a> Builder<'a> {
         if !text.is_empty() {
             self.shown.push((k, text, ranges));
         }
-        self.clusters.push(Cluster { start, end, adv, kind: ClKind::Text, style, g0, g1, break_after: false, obj_h: 0.0, obj_d: 0.0, dot: false });
+        self.clusters.push(Cluster {
+            start,
+            end,
+            adv,
+            kind: ClKind::Text,
+            style,
+            g0,
+            g1,
+            break_after: false,
+            emergency_break_after: false,
+            obj_h: 0.0,
+            obj_d: 0.0,
+            dot: false,
+        });
         Some(k)
     }
 }
@@ -1229,6 +1260,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                     g0: g,
                     g1: g,
                     break_after: false,
+                    emergency_break_after: false,
                     obj_h: 0.0,
                     obj_d: 0.0,
                     dot: false,
@@ -1274,7 +1306,20 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             let si = b.style(&rc, None, false);
             let g = b.glyphs.len() as u32;
             let push = |b: &mut Builder, kind: ClKind, adv: f32, h: f32| {
-                b.clusters.push(Cluster { start, end, adv, kind, style: si, g0: g, g1: g, break_after: false, obj_h: h, obj_d: 0.0, dot: false })
+                b.clusters.push(Cluster {
+                    start,
+                    end,
+                    adv,
+                    kind,
+                    style: si,
+                    g0: g,
+                    g1: g,
+                    break_after: false,
+                    emergency_break_after: false,
+                    obj_h: h,
+                    obj_d: 0.0,
+                    dot: false,
+                })
             };
             match c {
                 '\t' => push(&mut b, ClKind::Tab, 0.0, 0.0),
@@ -1354,6 +1399,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                                 g0: g,
                                 g1: g,
                                 break_after: false,
+                                emergency_break_after: false,
                                 obj_h: ml.ascent.max(a).max(0.01),
                                 obj_d: ml.descent.max(d),
                                 dot: false,
@@ -1426,17 +1472,62 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             found.push(i);
         }
     }
+    // Thai has no spaces between most words. Segment the complete visible paragraph so ICU keeps
+    // context across formatting runs; only dictionary opportunities inside Thai text replace the
+    // Unicode line-break opportunities, leaving other scripts and punctuation to the old rules.
+    let thai_runs = crate::kinsoku::thai_text_runs(&text);
+    let has_thai = !thai_runs.is_empty();
+    if !thai_runs.is_empty() {
+        let segmenter = LineSegmenter::new_dictionary(Default::default());
+        let dictionary: Vec<usize> = segmenter.segment_str(&text).collect();
+        for run in thai_runs {
+            let thai: Vec<usize> = dictionary
+                .iter()
+                .copied()
+                .filter(|&i| run.start < i && i < run.end)
+                .filter(|&i| crate::kinsoku::is_safe_line_break(&text, i))
+                .collect();
+            if !thai.is_empty() {
+                found.retain(|&i| !(run.start < i && i < run.end));
+                found.extend(thai);
+            }
+        }
+    }
     // Myanmar has no spaces between words: it wraps between syllables.
     if text.chars().any(|c| matches!(u32::from(c), 0x1000..=0x109F | 0xA9E0..=0xA9FF | 0xAA60..=0xAA7F)) {
         found.extend(wordcraft_doc::cluster::myanmar_breaks(&text));
         found.sort_unstable();
         found.dedup();
     }
-    // Asian typography: kinsoku and breaking Latin words anywhere.
+    // Asian typography: kinsoku plus unwrapped Latin/Thai word breaks.
     crate::kinsoku::apply(&text, &mut found, rp.kinsoku, rp.word_wrap);
+    // ICU, Unicode line breaking and word-wrap-off may all suggest boundaries, but a Thai line
+    // break must still respect whole-paragraph graphemes and keep a preposed vowel with its base.
+    found.retain(|&i| !crate::kinsoku::is_thai_text_boundary(&text, i) || crate::kinsoku::is_safe_line_break(&text, i));
     let opps: std::collections::HashSet<usize> = found.into_iter().filter_map(to_para).collect();
+    // Emergency opportunities are every safe layout-cluster boundary. Resolve each cluster end
+    // through the visible-text map as well, so hidden text and tracked deletions cannot split a
+    // grapheme or Thai preposed-vowel sequence across formatting runs.
+    let to_visible = |i: usize| -> Option<usize> {
+        if left.is_empty() { Some(i) } else { ends.binary_search_by_key(&i, |e| e.1).ok().and_then(|k| ends.get(k)).map(|e| e.0) }
+    };
+    let safe_breaks: std::collections::HashSet<usize> = b
+        .clusters
+        .iter()
+        .filter_map(|c| {
+            if !matches!(c.kind, ClKind::Text | ClKind::Space) {
+                return None;
+            }
+            if !has_thai {
+                return Some(c.end);
+            }
+            let visible = to_visible(c.end)?;
+            (!crate::kinsoku::boundary_touches_thai(&text, visible) || crate::kinsoku::is_safe_line_break(&text, visible)).then_some(c.end)
+        })
+        .collect();
     for c in &mut b.clusters {
         c.break_after = opps.contains(&c.end) || matches!(c.kind, ClKind::Object(_) | ClKind::Tab);
+        c.emergency_break_after = safe_breaks.contains(&c.end);
     }
 
     // List label.
@@ -1506,13 +1597,33 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     };
     let auto = env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens;
     pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps, &runs);
-    pl.left_out = left;
     for k in pl.hyph_after.clone() {
         if let Some(c) = pl.clusters.get_mut(k as usize) {
             c.break_after = true;
         }
     }
-    break_lines(&mut pl, env, mark_style, env.label.as_ref().map(|(_, l)| l));
+    let thai_justify_after: Vec<usize> = if has_thai {
+        pl.clusters
+            .windows(2)
+            .enumerate()
+            .filter_map(|(i, pair)| {
+                let (left, right) = (pair.first()?, pair.get(1)?);
+                let left_text = text_cluster_source(p, left)?;
+                let right_text = text_cluster_source(p, right)?;
+                let a = left_text.chars().next_back()?;
+                let b = right_text.chars().next()?;
+                if !crate::kinsoku::is_thai_text_char(a) || !crate::kinsoku::is_thai_text_char(b) {
+                    return None;
+                }
+                let visible = to_visible(left.end)?;
+                crate::kinsoku::is_safe_line_break(&text, visible).then_some(i)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    pl.left_out = left;
+    break_lines(&mut pl, p, env, mark_style, env.label.as_ref().map(|(_, l)| l), has_thai, &thai_justify_after);
     pl
 }
 
@@ -1533,7 +1644,142 @@ fn next_tab(x: f32, tabs: &[TabStop], default_tab: f32, hanging_at: Option<f32>)
     })
 }
 
-fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Option<&Level>) {
+fn capped_equal_spacing(slack: f32, caps: &[f32]) -> Vec<f32> {
+    let mut added = vec![0.0; caps.len()];
+    let mut active: Vec<usize> = caps.iter().enumerate().filter_map(|(i, cap)| (cap.is_finite() && *cap > 0.0).then_some(i)).collect();
+    let mut remaining = if slack.is_finite() { slack.max(0.0) } else { 0.0 };
+    while remaining > 0.0001 && !active.is_empty() {
+        let share = remaining / active.len() as f32;
+        let saturated: Vec<usize> = active
+            .iter()
+            .copied()
+            .filter(|i| caps.get(*i).copied().unwrap_or(0.0) - added.get(*i).copied().unwrap_or(0.0) <= share + 0.0001)
+            .collect();
+        if saturated.is_empty() {
+            for i in &active {
+                if let Some(v) = added.get_mut(*i) {
+                    *v += share;
+                }
+            }
+            break;
+        }
+        for i in &saturated {
+            if let Some(v) = added.get_mut(*i) {
+                let room = (caps.get(*i).copied().unwrap_or(0.0) - *v).max(0.0);
+                *v += room;
+                remaining = (remaining - room).max(0.0);
+            }
+        }
+        active.retain(|i| !saturated.contains(i));
+    }
+    added
+}
+
+fn style_size(pl: &ParaLayout, cluster: usize) -> f32 {
+    pl.clusters.get(cluster).and_then(|c| pl.styles.get(c.style as usize)).map(|s| s.size).filter(|s| s.is_finite() && *s > 0.0).unwrap_or(12.0)
+}
+
+fn text_cluster_source<'a>(p: &'a Paragraph, c: &Cluster) -> Option<&'a str> {
+    if c.kind != ClKind::Text {
+        return None;
+    }
+    let text = p.text.get(c.start..c.end)?;
+    (!text.chars().any(|ch| matches!(ch, OBJ | LINE_BREAK | PAGE_BREAK | COLUMN_BREAK | '\t'))).then_some(text)
+}
+
+fn space_text_neighbors(pl: &ParaLayout, p: &Paragraph, k: usize, c0: usize, c1: usize) -> Option<(usize, usize)> {
+    if pl.clusters.get(k)?.kind != ClKind::Space {
+        return None;
+    }
+    let mut left = k;
+    let left_text = loop {
+        left = left.checked_sub(1)?;
+        if left < c0 {
+            return None;
+        }
+        let c = pl.clusters.get(left)?;
+        if c.kind == ClKind::Space {
+            continue;
+        }
+        break text_cluster_source(p, c)?;
+    };
+    let mut right = k;
+    let right_text = loop {
+        right += 1;
+        if right >= c1 {
+            return None;
+        }
+        let c = pl.clusters.get(right)?;
+        if c.kind == ClKind::Space {
+            continue;
+        }
+        break text_cluster_source(p, c)?;
+    };
+    (!left_text.is_empty() && !right_text.is_empty()).then_some((left, right))
+}
+
+fn apply_thai_justification(
+    pl: &ParaLayout,
+    p: &Paragraph,
+    xs: &mut [f32],
+    c0: usize,
+    c1: usize,
+    align_from: usize,
+    content_end: f32,
+    slack: f32,
+    thai_justify_after: &[usize],
+) {
+    let mut increments = vec![0.0f32; c1.saturating_sub(c0)];
+    let space_indices: Vec<usize> = (align_from..c1)
+        .filter(|k| {
+            pl.clusters.get(*k).is_some_and(|c| c.kind == ClKind::Space)
+                && xs.get(k - c0).copied().unwrap_or(f32::MAX) < content_end - 0.01
+                && space_text_neighbors(pl, p, *k, c0, c1).is_some()
+        })
+        .collect();
+    let space_caps: Vec<f32> = space_indices
+        .iter()
+        .map(|k| {
+            let (left, right) = space_text_neighbors(pl, p, *k, c0, c1).unwrap_or((*k, *k));
+            THAI_JUSTIFY_SPACE_MAX_EM * style_size(pl, left).min(style_size(pl, right))
+        })
+        .collect();
+    let space_added = capped_equal_spacing(slack, &space_caps);
+    let mut remaining = slack.max(0.0);
+    for (k, add) in space_indices.iter().zip(space_added) {
+        if let Some(slot) = increments.get_mut(k - c0) {
+            *slot += add;
+        }
+        remaining = (remaining - add).max(0.0);
+    }
+
+    let group_indices: Vec<usize> = thai_justify_after.iter().copied().filter(|k| *k >= align_from && *k >= c0 && k.saturating_add(1) < c1).collect();
+    let group_caps: Vec<f32> = group_indices.iter().map(|k| THAI_JUSTIFY_GROUP_MAX_EM * style_size(pl, *k).min(style_size(pl, k + 1))).collect();
+    for (k, add) in group_indices.iter().zip(capped_equal_spacing(remaining, &group_caps)) {
+        if let Some(slot) = increments.get_mut(k - c0) {
+            *slot += add;
+        }
+    }
+
+    let mut extra = 0.0;
+    for (i, x) in xs.iter_mut().take(c1.saturating_sub(c0)).enumerate() {
+        *x += extra;
+        extra += increments.get(i).copied().unwrap_or(0.0);
+    }
+    if let Some(end) = xs.get_mut(c1.saturating_sub(c0)) {
+        *end += extra;
+    }
+}
+
+fn break_lines(
+    pl: &mut ParaLayout,
+    p: &Paragraph,
+    env: &ParaEnv,
+    mark_style: u16,
+    level: Option<&Level>,
+    has_thai: bool,
+    thai_justify_after: &[usize],
+) {
     let suffix = level.map(|l| l.suffix);
     let rp = pl.rp.clone();
     let width = env.width.max(12.0);
@@ -1542,7 +1788,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
     let first_left = rp.indent_left + rp.indent_first;
     // Word 2013+ (compatibility mode 15) fits more text on a justified line by shrinking its
     // spaces, up to MAX_SPACE_SHRINK of their width; never on lines with tabs.
-    let shrink_spaces = rp.align == Align::Justify && env.doc.settings.compat_mode >= wordcraft_doc::COMPAT_MODE_CURRENT;
+    let shrink_spaces =
+        matches!(rp.align, Align::Justify | Align::ThaiDistribute) && env.doc.settings.compat_mode >= wordcraft_doc::COMPAT_MODE_CURRENT;
     let hanging_at = if rp.indent_first < 0.0 { Some(rp.indent_left) } else { None };
     // Hyphenation Options: the zone, and how many lines in a row may end with a hyphen.
     let zone = Some(env.doc.settings.hyphenation_zone).filter(|z| z.is_finite() && *z >= 0.0).unwrap_or(HYPHENATION_ZONE).min(1584.0);
@@ -1652,6 +1899,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
         let mut xs: Vec<f32> = Vec::new();
         let mut leaders = Vec::new();
         let mut last_break: Option<usize> = None; // cluster index after which we may break
+        let mut last_emergency_break: Option<usize> = None; // last safe cluster boundary on this line
         let mut last_plain: Option<(usize, f32)> = None; // last non-hyphen break and the x after it
         // After `hyph_limit` hyphenated lines in a row this one may not end with a hyphen.
         let hyph_ok = hyph_limit == 0 || lines.iter().rev().take_while(|l| l.hyphen.is_some()).count() < hyph_limit;
@@ -1733,8 +1981,10 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
             // A line's first item stays on it even when it doesn't fit; markers before it
             // (a content control's start, a bookmark) take no room and don't count (Word).
             if !fits && (c0..j).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker)) {
-                // Wrap: back up to the last break opportunity on this line.
-                end = LineEnd::Wrap;
+                // Prefer an actual word opportunity, then an emergency boundary that keeps the
+                // whole grapheme/shaping unit. If neither exists, this cluster belongs to an
+                // over-wide safe unit: let it overflow and keep going until that unit ends.
+                let mut wrap_at = last_break.filter(|bk| *bk >= c0);
                 // Hyphenate only when the plain break leaves more than the hyphenation zone empty.
                 if let (Some(bk), Some((pj, px))) = (last_break, last_plain)
                     && pj >= c0
@@ -1742,20 +1992,22 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
                     && pl.hyph_after.binary_search(&(bk as u32)).is_ok()
                     && right_edge - px <= zone
                 {
-                    last_break = Some(pj);
+                    wrap_at = Some(pj);
                 }
-                if let Some(bk) = last_break.filter(|bk| *bk >= c0) {
+                if let Some(bk) = wrap_at.or_else(|| last_emergency_break.filter(|bk| *bk >= c0)) {
+                    end = LineEnd::Wrap;
                     xs.truncate(bk + 1 - c0);
                     j = bk + 1;
                     // Recompute x for the kept clusters.
                     x = xs.last().copied().unwrap_or(line_start_x) + pl.clusters.get(bk).map(|c| c.adv).unwrap_or(0.0);
-                } else {
-                    // No opportunity: break here (a long word).
+                    break;
                 }
-                break;
             }
             xs.push(x);
             x += c.adv;
+            if c.emergency_break_after {
+                last_emergency_break = Some(j);
+            }
             if c.kind == ClKind::Space {
                 space_w += c.adv;
             }
@@ -1944,42 +2196,48 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
                 *v += shift;
             }
         }
-        let justify = display.is_none() && ((rp.align == Align::Justify && end == LineEnd::Wrap) || rp.align == Align::Distribute);
+        let justify = display.is_none()
+            && ((matches!(rp.align, Align::Justify | Align::ThaiDistribute) && end == LineEnd::Wrap) || rp.align == Align::Distribute);
         // A line that only fits with shrunk spaces is shrunk, the last line of the paragraph too.
         let shrink = display.is_none() && shrink_spaces && slack < 0.0 && last_tab.is_none();
         if shrink {
             shrink_line_spaces(pl, &mut xs, c0, c1, content_end, slack);
         } else if justify && slack > 0.0 {
-            // Spaces inside the content (after the last tab).
-            let spaces: Vec<usize> = (align_from..c1)
-                .filter(|k| {
-                    pl.clusters.get(*k).is_some_and(|c| c.kind == ClKind::Space) && xs.get(k - c0).copied().unwrap_or(f32::MAX) < content_end - 0.01
-                })
-                .collect();
-            if rp.align == Align::Distribute || spaces.is_empty() {
-                let cnt = (c1 - align_from).saturating_sub(1).max(1) as f32;
-                if rp.align == Align::Distribute {
-                    let per = slack / cnt;
-                    for (q, v) in xs.iter_mut().enumerate().skip(align_from - c0) {
-                        let k = (q + c0 - align_from) as f32;
-                        *v += per * k.min(cnt);
-                    }
-                }
+            if has_thai && matches!(rp.align, Align::Justify | Align::ThaiDistribute) {
+                apply_thai_justification(pl, p, &mut xs, c0, c1, align_from, content_end, slack, thai_justify_after);
             } else {
-                let per = slack / spaces.len() as f32;
-                let mut add = 0.0;
-                let mut si = 0;
-                for k in align_from..c1 {
-                    if let Some(v) = xs.get_mut(k - c0) {
+                // The original non-Thai Justify / Distributed spacing rules stay unchanged.
+                let spaces: Vec<usize> = (align_from..c1)
+                    .filter(|k| {
+                        pl.clusters.get(*k).is_some_and(|c| c.kind == ClKind::Space)
+                            && xs.get(k - c0).copied().unwrap_or(f32::MAX) < content_end - 0.01
+                    })
+                    .collect();
+                if rp.align == Align::Distribute || spaces.is_empty() {
+                    let cnt = (c1 - align_from).saturating_sub(1).max(1) as f32;
+                    if rp.align == Align::Distribute {
+                        let per = slack / cnt;
+                        for (q, v) in xs.iter_mut().enumerate().skip(align_from - c0) {
+                            let k = (q + c0 - align_from) as f32;
+                            *v += per * k.min(cnt);
+                        }
+                    }
+                } else {
+                    let per = slack / spaces.len() as f32;
+                    let mut add = 0.0;
+                    let mut si = 0;
+                    for k in align_from..c1 {
+                        if let Some(v) = xs.get_mut(k - c0) {
+                            *v += add;
+                        }
+                        if spaces.get(si) == Some(&k) {
+                            add += per;
+                            si += 1;
+                        }
+                    }
+                    if let Some(v) = xs.last_mut() {
                         *v += add;
                     }
-                    if spaces.get(si) == Some(&k) {
-                        add += per;
-                        si += 1;
-                    }
-                }
-                if let Some(v) = xs.last_mut() {
-                    *v += add;
                 }
             }
         }
@@ -2224,6 +2482,8 @@ fn row_spans(exclusions: &[Exclusion], top: f32, h: f32, lo: f32, hi: f32) -> Re
 
 /// Word's default hyphenation zone (0.25"), points.
 const HYPHENATION_ZONE: f32 = wordcraft_doc::DEFAULT_HYPHENATION_ZONE;
+const THAI_JUSTIFY_SPACE_MAX_EM: f32 = 0.5;
+const THAI_JUSTIFY_GROUP_MAX_EM: f32 = 0.15;
 
 /// How much of their width the spaces of a justified line may give up to fit more text (Word
 /// 2013+, compatibility mode 15).
