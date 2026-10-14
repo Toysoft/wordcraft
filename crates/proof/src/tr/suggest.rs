@@ -285,6 +285,10 @@ mod tests {
 
     #[test]
     fn typo_transposition_is_suggested() {
+        // Suggestions come from the installed Turkish dictionary; without one there are none.
+        if !super::super::has_dictionary() {
+            return;
+        }
         let sugs = suggest("sorna", 3);
         assert!(sugs.contains(&"sonra".to_string()), "sorna should suggest sonra, got {sugs:?}");
 

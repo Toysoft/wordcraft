@@ -135,7 +135,10 @@ mod tests {
 
     #[test]
     fn installed_dictionary_checks_words_if_present() {
-        assert!(has_dictionary(), "system Turkish dictionary should be loaded");
+        // Machines without a Turkish Hunspell dictionary (CI, most desktops) have nothing to check.
+        if !has_dictionary() {
+            return;
+        }
         assert!(is_correct("kitap"));
         assert!(is_correct("kitaplar"));
         assert!(is_correct("evde"));
