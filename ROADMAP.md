@@ -115,7 +115,8 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
 system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish, Italian and Czech proofing are not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
-2,448-entry catalog, also without proofing.
+2,448-entry catalog, also without proofing. Romanian (`ro`) has a complete 2,538-entry catalog, also
+without proofing.
 Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), chosen per run from its language. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
@@ -136,6 +137,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-14 | Romanian interface (`ro`): 2,538 catalog entries (every key of the reference catalog), `ro`/`ro-RO`/`ro_RO.UTF-8` system locales and a saved language choice; locale, catalog and bundled-font tests; no Romanian proofing resources |
 | 2026-10-13 | Cut copies to the system clipboard however it is run (#1265): the ribbon, the context menu and the native menu cut deleted the words without copying them (only the Cmd+X event wrote the clipboard, so Paste re-inserted the previous copy); Copy/Cut publication is centralised in one sink and every entry point is tested |
 | 2026-10-13 | Insert › Bookmark deletes bookmarks (#1236): the dialog is laid out as Word's, with Add, Delete and Go To beside the list, Sort by Name or Location and Hidden bookmarks; it opens on the bookmark around the caret, Delete and Go To keep it open, and Go To selects the bookmark's text. `insert.deleteBookmark {name}` removes both ends of a bookmark, also one across paragraphs (adding a bookmark under a name in use left such a one's end behind) |
 | 2026-10-12 | Password-protected Word 97-2003 `.doc` files open after a password prompt (XOR obfuscation, RC4, RC4 CryptoAPI; wrong passwords are rejected by the stored verifier, #1079); written from the public specs and tested on synthetic files only, AES-encrypted `.doc` files are still refused |

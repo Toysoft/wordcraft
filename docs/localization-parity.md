@@ -1,6 +1,6 @@
 # Localization parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (Romanian interface catalog, 2,538 entries; previously trivial: Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Interface languages, script support and proofing per language. How translation works (catalog
 format, adding a language, clean-room rule): `crates/ui-egui/src/i18n/mod.rs`.
@@ -19,8 +19,8 @@ native-speaker review (human).
 
 ## What WordCraft ships (measured)
 
-- **20 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, `uk`, `es`, `pt-br`,
-  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg` and Vietnamese `vi` (#1434). Catalogs have 2,061–2,463 entries
+- **21 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, `uk`, `es`, `pt-br`,
+  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434) and Romanian `ro`. Catalogs have 2,061–2,538 entries
   each; Polish has every key of every other catalog, including the built-in style names and the equation gallery, except the citation style names only Hungarian and Bulgarian translate so far (a test checks it). A test (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
   label and ribbon location is translated in every language.
   `pl`, `pl-PL` and `pl_PL.UTF-8` system locales pick Polish automatically.
@@ -59,8 +59,8 @@ shared items below.
 | Korean | ko | 0 | ❌ | Hangul ✅; macOS Korean IME fixes pending (#163, #164) | no | none | 3–5 |
 | Vietnamese | vi | 2,448 entries; every key of the reference catalogs (#1434); 98% of extracted, ~95% of visible | most | Latin ✅ | no | partial | 0–1 (review) |
 
-Other shipped languages: **14** — Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian
-Cyrillic and Latin (`sr`, `sr-latn`, #250), Estonian (`et`), Turkish (`tr`), Russian (`ru`), Italian (`it`, #594), Polish (`pl`), Czech (`cs`), Hungarian (`hu`), French (`fr`), Bulgarian (`bg`) and Vietnamese (`vi`, #1434), all partial.
+Other shipped languages: **15** — Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian
+Cyrillic and Latin (`sr`, `sr-latn`, #250), Estonian (`et`), Turkish (`tr`), Russian (`ru`), Italian (`it`, #594), Polish (`pl`), Czech (`cs`), Hungarian (`hu`), French (`fr`), Bulgarian (`bg`), Vietnamese (`vi`, #1434) and Romanian (`ro`), all partial.
 Estonian uses the existing fonts, follows `et-EE` system locales, and is available in Options or
 through `ui.language` with `{"value":"et"}`. Its 1,307 entries cover the existing interface catalog.
 Estonian spelling, grammar, dates and document templates are not added by the interface catalog.
@@ -184,6 +184,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | trivial | Romanian interface catalog (`ro`, 2,538 entries): every key of the reference catalogs, `ro`/`ro-RO`/`ro_RO.UTF-8` system locales and a saved language choice; catalog and bundled-font tests; no Romanian proofing resources |
 | 2026-10-12 | minor | File › Options › Proofing › Dictionaries folder (#1063): a saved folder of Hunspell dictionaries searched first, so an app started from Finder or the Dock finds them without `WORDCRAFT_DICTIONARIES`; the pane lists the dictionary file each language found — Polish, Portuguese, Italian, Croatian, Turkish (`file.options` `dictionariesFolder`) |
 | 2026-10-12 | minor | Czech interface catalog completed: 386 entries added (2,447 total), including built-in style names, numbered families, equation gallery, watermarks, paper sizes and preview tiles; coverage test requires every Russian and Spanish key and retains Chinese coverage |
 | 2026-10-12 | minor | Italian proofing: it-IT spelling from the installed Hunspell dictionary (system `it_IT`, never bundled — upstream is GPL), accent-first suggestions, conservative grammar with Italian messages, TeX Italian hyphenation patterns (MIT option); Review › Language already offered Italian; an `it` interface writes it-IT documents |
