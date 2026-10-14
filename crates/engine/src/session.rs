@@ -337,6 +337,9 @@ pub struct Session {
     /// Formatting picked with a collapsed caret, applied to the next typed text.
     pub pending: Option<CharProps>,
     pub path: Option<std::path::PathBuf>,
+    /// Name given to a document not saved yet (File › Info › Rename): what Save suggests. A file
+    /// name, not document metadata, so it is not part of the document or its undo history.
+    pub file_name: Option<String>,
     pub dirty: bool,
     /// Where the custom dictionary is kept on disk, if the host wired one up. Only the desktop
     /// app does: headless sessions (MCP, `wordcraft-cli run`), tests and the web build leave
@@ -586,6 +589,7 @@ impl Session {
             view: ViewState::default(),
             pending: None,
             path: None,
+            file_name: None,
             user_dict_path: None,
             dirty: false,
             clipboard: None,
@@ -865,8 +869,10 @@ impl Session {
     }
     /// Stamp the document's save metadata (modified time, last modified by, revision; created
     /// when it has none) the way Word does on every save. `file.save` calls it, and so does any
-    /// front end that writes the bytes itself (the web build's download, #262).
+    /// front end that writes the bytes itself (the web build's download, #262). Like Word, the
+    /// document also keeps the zoom it is shown at (#995).
     pub fn stamp_save(&mut self) {
+        self.doc.settings.zoom = crate::cmd::view::saved_zoom(&self.view);
         let core = &mut self.doc.core;
         core.modified = crate::cmd::now_iso();
         if core.created.is_empty() {
@@ -985,6 +991,7 @@ impl Session {
         self.doc = doc;
         self.doc.ensure_nonempty();
         self.password = None;
+        self.file_name = None;
         self.sel = Selection::caret(self.doc.start_of(StoryRef::Body));
         self.pending = None;
         self.also_selected.clear();
@@ -1024,6 +1031,7 @@ impl Session {
             view: _,
             pending: _,
             path: _,
+            file_name: _,
             // The custom dictionary file, like the file path: host wiring, not an edit.
             user_dict_path: _,
             dirty,
