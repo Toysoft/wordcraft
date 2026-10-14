@@ -235,10 +235,13 @@ pub enum Dialog {
         cols: u32,
     },
     PageSetup {
+        /// Margins and paper size in points, so switching units mid-dialog loses nothing.
         top: f32,
         bottom: f32,
         left: f32,
         right: f32,
+        width: f32,
+        height: f32,
         landscape: bool,
         /// Document grid: kind (0 none, 1 lines, 2 lines and characters, 3 snap to characters),
         /// lines per page and characters per line; `grid_was` as opened (applied only if changed).
@@ -1072,10 +1075,12 @@ impl Dialog {
                 let size = app.session.doc.styles.resolve_char(Some("Normal"), &Default::default()).size;
                 let grid = (kind, sp.grid_lines_per_page().min(1000), sp.grid_chars_per_line(size).min(1000));
                 Dialog::PageSetup {
-                    top: sp.margin_top / crate::options::unit().pt_per_unit(),
-                    bottom: sp.margin_bottom / crate::options::unit().pt_per_unit(),
-                    left: sp.margin_left / crate::options::unit().pt_per_unit(),
-                    right: sp.margin_right / crate::options::unit().pt_per_unit(),
+                    top: sp.margin_top,
+                    bottom: sp.margin_bottom,
+                    left: sp.margin_left,
+                    right: sp.margin_right,
+                    width: sp.page_w,
+                    height: sp.page_h,
                     landscape: sp.landscape,
                     grid,
                     grid_was: grid,
@@ -1865,27 +1870,72 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::PageSetup { top, bottom, left, right, landscape, rtl, grid, grid_was } => {
+        Dialog::PageSetup { top, bottom, left, right, width, height, landscape, rtl, grid, grid_was } => {
             ui.label(egui::RichText::new(tl!("Margins")).font(semibold(12.5)));
             egui::Grid::new("ps").num_columns(4).show(ui, |ui| {
                 ui.label(tl!("Top:"));
-                ui.add(egui::DragValue::new(top).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
+                length_field(ui, top, 0.0, PAGE_MAX);
                 ui.label(tl!("Bottom:"));
-                ui.add(
-                    egui::DragValue::new(bottom).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2),
-                );
+                length_field(ui, bottom, 0.0, PAGE_MAX);
                 ui.end_row();
                 ui.label(tl!("Left:"));
-                ui.add(egui::DragValue::new(left).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
+                length_field(ui, left, 0.0, PAGE_MAX);
                 ui.label(tl!("Right:"));
-                ui.add(egui::DragValue::new(right).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
+                length_field(ui, right, 0.0, PAGE_MAX);
                 ui.end_row();
             });
             ui.label(egui::RichText::new(tl!("Orientation")).font(semibold(12.5)));
             ui.horizontal(|ui| {
+                let was = *landscape;
                 ui.radio_value(landscape, false, tl!("Portrait"));
                 ui.radio_value(landscape, true, tl!("Landscape"));
+                // Turning the page swaps its sides, as the Size presets are listed portrait.
+                if *landscape != was && (*width > *height) != *landscape {
+                    std::mem::swap(width, height);
+                }
             });
+            ui.label(egui::RichText::new(tl!("Paper")).font(semibold(12.5)));
+            egui::Grid::new("ps_paper").num_columns(4).show(ui, |ui| {
+                ui.label(tl!("Paper size:"));
+                let name = wordcraft_geom::paper_name(*width, *height);
+                egui::ComboBox::from_id_salt("ps_paper_size").selected_text(tl!(name.unwrap_or("Custom size"))).width(160.0).show_ui(ui, |ui| {
+                    for (n, w, h) in wordcraft_geom::PAPER_SIZES {
+                        if ui.selectable_label(name == Some(*n), tl!(n)).clicked() {
+                            (*width, *height) = if *landscape { (w.max(*h), w.min(*h)) } else { (w.min(*h), w.max(*h)) };
+                        }
+                    }
+                    // Any width and height typed below is a custom size; this entry just names it.
+                    let _ = ui.selectable_label(name.is_none(), tl!("Custom size"));
+                });
+                ui.label(tl!("Units:"));
+                let units = crate::options::unit();
+                let shown = crate::options::UNITS.iter().find(|(u, _)| *u == units).map_or("Inches", |(_, n)| n);
+                egui::ComboBox::from_id_salt("ps_units").selected_text(tl!(shown)).width(110.0).show_ui(ui, |ui| {
+                    for (u, label) in crate::options::UNITS {
+                        // The same setting as File › Options › Advanced › Measurement units.
+                        if ui.selectable_label(units == u, tl!(label)).clicked()
+                            && let Err(e) = app.run("file.options", json!({"units": u}))
+                        {
+                            app.status(e);
+                        }
+                    }
+                });
+                ui.end_row();
+                ui.label(tl!("Width:"));
+                length_field(ui, width, PAGE_MIN, PAGE_MAX);
+                ui.label(tl!("Height:"));
+                length_field(ui, height, PAGE_MIN, PAGE_MAX);
+                ui.end_row();
+            });
+            ui.label(format!(
+                "{} {} × {} ({} {}–{})",
+                tl!("Page:"),
+                crate::options::length(*width),
+                crate::options::length(*height),
+                tl!("each side"),
+                crate::options::length(PAGE_MIN),
+                crate::options::length(PAGE_MAX)
+            ));
             ui.label(egui::RichText::new(tl!("Document Grid")).font(semibold(12.5)));
             ui.horizontal_wrapped(|ui| {
                 ui.radio_value(&mut grid.0, 0, tl!("No grid"));
@@ -1907,9 +1957,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             });
             let (ok, cancel) = buttons(ui, tl!("OK"));
             if ok {
-                let _ = app.run("layout.orientation", json!({"value": if *landscape { "landscape" } else { "portrait" }}));
-                let _ =
-                    app.run("layout.margins", json!({"top": *top * crate::options::unit().pt_per_unit(), "bottom": *bottom * crate::options::unit().pt_per_unit(), "left": *left * crate::options::unit().pt_per_unit(), "right": *right * crate::options::unit().pt_per_unit()}));
+                // A typed width wider than the height is a landscape page, whatever the radio says.
+                let landscape = if *width == *height { *landscape } else { *width > *height };
+                let _ = app.run("layout.orientation", json!({"value": if landscape { "landscape" } else { "portrait" }}));
+                let _ = app.run("layout.size", json!({"width": *width, "height": *height}));
+                let _ = app.run("layout.margins", json!({"top": *top, "bottom": *bottom, "left": *left, "right": *right}));
                 if grid != grid_was {
                     let kind = ["none", "lines", "linesAndChars", "snapToChars"].get(grid.0 as usize).copied().unwrap_or("none");
                     let mut v = json!({"type": kind});
@@ -3273,6 +3325,23 @@ fn enclose_preview(ui: &mut Ui, style: &str, text: &str, shape: &str) {
     p.text(c + vec2(0.0, dy), egui::Align2::CENTER_CENTER, text, egui::FontId::proportional(px), ink);
 }
 
+/// Smallest and largest page side, in points (`layout.size` accepts 1"–22").
+const PAGE_MIN: f32 = 72.0;
+const PAGE_MAX: f32 = 1584.0;
+
+/// A length field over a value kept in points, shown and typed in the measurement unit and
+/// clamped to `min..=max` points. Writes back only when edited, so an untouched A4 stays exact.
+fn length_field(ui: &mut Ui, pt: &mut f32, min: f32, max: f32) -> egui::Response {
+    let unit = crate::options::unit();
+    let k = unit.pt_per_unit();
+    let mut v = *pt / k;
+    let r = ui.add(egui::DragValue::new(&mut v).speed(3.6 / k).range(min / k..=max / k).measure(unit).max_decimals(2));
+    if r.changed() && v.is_finite() {
+        *pt = (v * k).clamp(min, max);
+    }
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3303,6 +3372,51 @@ mod tests {
             assert!(matches!(&app.dialog, Some(Dialog::Find { tab: t, .. }) if *t == tab), "{name}");
             assert_eq!(app.dialog.as_ref().map(|d| d.name()), Some(name));
         }
+    }
+
+    /// Page Setup's Paper section: a custom size typed in centimetres (21 × 29.7 cm is A4)
+    /// reaches the document, switching units mid-dialog keeps the physical size, and a width
+    /// wider than the height makes a landscape page.
+    #[test]
+    fn page_setup_takes_a_custom_paper_size_in_any_unit() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app_with("One");
+        a.run("file.options", json!({"units": "centimeters"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(2);
+        h.state_mut().run("ui.dialog", json!({"name": "pageSetup"})).unwrap();
+        h.run_steps(2);
+        let cm = wordcraft_geom::Unit::Centimeters.pt_per_unit();
+        if let Some(Dialog::PageSetup { width, height, .. }) = &mut h.state_mut().dialog {
+            (*width, *height) = (21.0 * cm, 29.7 * cm);
+        }
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("21 cm × 29.7 cm").is_some(), "the preview reads the size in centimetres");
+        // Inches now: the same paper, shown as 8.27" × 11.69".
+        h.state_mut().run("file.options", json!({"units": "inches"})).unwrap();
+        h.run_steps(3);
+        assert!(h.query_by_label_contains("8.27\" × 11.69\"").is_some(), "converted, not reinterpreted");
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "OK").click();
+        h.run_steps(2);
+        let sp = wordcraft_engine::cmd::page::sect(&h.state().session).clone();
+        assert_eq!(wordcraft_geom::paper_name(sp.page_w, sp.page_h), Some("A4"), "{} × {}", sp.page_w, sp.page_h);
+
+        h.state_mut().run("ui.dialog", json!({"name": "pageSetup"})).unwrap();
+        h.run_steps(2);
+        if let Some(Dialog::PageSetup { width, height, .. }) = &mut h.state_mut().dialog {
+            (*width, *height) = (500.0, 300.0);
+        }
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "OK").click();
+        h.run_steps(2);
+        let sp = wordcraft_engine::cmd::page::sect(&h.state().session).clone();
+        assert_eq!((sp.page_w, sp.page_h, sp.landscape), (500.0, 300.0, true));
     }
 
     fn app_with(text: &str) -> WordApp {

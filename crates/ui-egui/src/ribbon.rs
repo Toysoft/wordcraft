@@ -1161,6 +1161,8 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
                 // In the measurement unit, written the region's way (`21 cm × 29,7 cm`, #838).
                 mi(ui, app, &format!("{n}   {} × {}", crate::options::length(*w), crate::options::length(*h)), "layout.size", json!({"name": n}));
             }
+            ui.separator();
+            mi(ui, app, "More Paper Sizes…", "ui.dialog", json!({"name": "pageSetup"}));
         });
         menu_button(ui, app, "columns", Some("Columns"), "Columns", true, "layout.columns", |ui, app| {
             mi(ui, app, "One", "layout.columns", json!({"count": 1}));
