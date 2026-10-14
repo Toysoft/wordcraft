@@ -2080,3 +2080,10 @@
 	Automatic ({region})	Automaticky ({region})
 	Search	Hledat
 	Title Bar	Záhlaví okna
+	Cut, copy, and paste	Vyjmout, kopírovat a vložit
+	Pasting within the same document:	Vložení v rámci stejného dokumentu:
+	Pasting between documents:	Vložení mezi dokumenty:
+	Pasting between documents when style definitions conflict:	Vložení mezi dokumenty při konfliktu definic stylů:
+	Pasting from other programs:	Vložení z jiných programů:
+	Keep Source Formatting	Zachovat zdrojové formátování
+	Use Destination Styles	Použít styly cíle

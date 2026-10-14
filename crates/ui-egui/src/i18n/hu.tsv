@@ -2473,3 +2473,10 @@
 	Table Properties…	Táblázat tulajdonságai…
 	Search	Keresés
 	Title Bar	Címsor
+	Cut, copy, and paste	Vágás, másolás és beillesztés
+	Pasting within the same document:	Beillesztés ugyanazon a dokumentumon belül:
+	Pasting between documents:	Beillesztés dokumentumok között:
+	Pasting between documents when style definitions conflict:	Beillesztés dokumentumok között, ha a stílusdefiníciók ütköznek:
+	Pasting from other programs:	Beillesztés más programokból:
+	Keep Source Formatting	Forrásformázás megtartása
+	Use Destination Styles	Célstílusok használata

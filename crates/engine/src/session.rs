@@ -334,6 +334,9 @@ pub struct Session {
     /// Add to Dictionary and File › Options › Proofing save through it (#40).
     pub user_dict_path: Option<std::path::PathBuf>,
     pub clipboard: Option<Fragment>,
+    /// The document the clipboard fragment was copied from, so a paste can tell a copy within the
+    /// same document from one between documents (File › Options › Advanced › Cut, copy, and paste).
+    pub clipboard_doc: Option<u64>,
     /// A tracked cut the next paste can turn into a move (see `cmd::moves`).
     pub pending_move: Option<crate::cmd::moves::PendingMove>,
     /// Plain text mirror of the clipboard (for the system clipboard).
@@ -458,6 +461,59 @@ pub struct MathEdit {
     pub pos: wordcraft_doc::math_edit::MathPos,
 }
 
+/// What a plain paste does by default in one situation (File › Options › Advanced › Cut, copy, and
+/// paste), as in Word. Values are saved in `ui.json` by their code (`keepSource`, `mergeFormatting`,
+/// `keepText`, `useDestinationStyles`); an unknown value reads as [`PasteFormat::KeepSource`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum PasteFormat {
+    /// Keep the copied content's formatting.
+    #[default]
+    KeepSource,
+    /// Keep only bold, italic, underline, strikethrough and links; take the destination's other
+    /// formatting.
+    MergeFormatting,
+    /// Paste plain text.
+    KeepText,
+    /// Keep the content but map the source's styles to the destination's (Word's choice when two
+    /// documents define a style of the same name differently).
+    UseDestinationStyles,
+}
+
+impl PasteFormat {
+    /// The value saved in `ui.json` and used by `file.options`.
+    pub fn code(self) -> &'static str {
+        match self {
+            PasteFormat::KeepSource => "keepSource",
+            PasteFormat::MergeFormatting => "mergeFormatting",
+            PasteFormat::KeepText => "keepText",
+            PasteFormat::UseDestinationStyles => "useDestinationStyles",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<PasteFormat> {
+        match code.trim().to_ascii_lowercase().as_str() {
+            "keepsource" => Some(PasteFormat::KeepSource),
+            "mergeformatting" => Some(PasteFormat::MergeFormatting),
+            "keeptext" => Some(PasteFormat::KeepText),
+            "usedestinationstyles" => Some(PasteFormat::UseDestinationStyles),
+            _ => None,
+        }
+    }
+}
+
+impl From<String> for PasteFormat {
+    fn from(s: String) -> Self {
+        PasteFormat::from_code(&s).unwrap_or_default()
+    }
+}
+
+impl From<PasteFormat> for String {
+    fn from(f: PasteFormat) -> Self {
+        f.code().to_string()
+    }
+}
+
 /// Editing preferences that persist between runs (the front end saves and restores them).
 /// File › Options sets most of them (`file.options`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -499,6 +555,13 @@ pub struct Prefs {
     /// in Word). A damaged saved value reads as the defaults.
     #[serde(deserialize_with = "crate::cmd::tools::lenient_autocorrect")]
     pub autocorrect: crate::cmd::tools::AutoCorrectPrefs,
+    /// File › Options › Advanced › Cut, copy, and paste: what a plain paste (Ctrl+V, Home › Paste)
+    /// does when the copied content comes from the same document, a different WordCraft document,
+    /// a different document whose styles clash, or another program.
+    pub paste_same_document: PasteFormat,
+    pub paste_between_documents: PasteFormat,
+    pub paste_style_conflict: PasteFormat,
+    pub paste_from_other_programs: PasteFormat,
 }
 
 impl Default for Prefs {
@@ -519,6 +582,10 @@ impl Default for Prefs {
             ignore_internet: true,
             detect_language: true,
             autocorrect: Default::default(),
+            paste_same_document: PasteFormat::KeepSource,
+            paste_between_documents: PasteFormat::KeepSource,
+            paste_style_conflict: PasteFormat::UseDestinationStyles,
+            paste_from_other_programs: PasteFormat::MergeFormatting,
         }
     }
 }
@@ -572,6 +639,7 @@ impl Session {
             user_dict_path: None,
             dirty: false,
             clipboard: None,
+            clipboard_doc: None,
             pending_move: None,
             clipboard_text: String::new(),
             clip_history: Default::default(),
@@ -1002,6 +1070,7 @@ impl Session {
             user_dict_path: _,
             dirty,
             clipboard: _,
+            clipboard_doc: _,
             // Like the clipboard: what the next paste can make a move of.
             pending_move: _,
             clipboard_text: _,

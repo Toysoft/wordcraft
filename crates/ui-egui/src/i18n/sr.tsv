@@ -2089,3 +2089,10 @@
 	Start-up	Покретање
 	Show the Start screen when WordCraft starts	Прикажи почетни екран при покретању програма WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Укључено: WordCraft се отвара на Фајл › Почетак, са празним документом, шаблонима и недавним документима. Искључено: отвара празан документ.
+	Cut, copy, and paste	Исеци, копирај и налепи
+	Pasting within the same document:	Налепљивање у истом документу:
+	Pasting between documents:	Налепљивање између докумената:
+	Pasting between documents when style definitions conflict:	Налепљивање између докумената када се дефиниције стилова разликују:
+	Pasting from other programs:	Налепљивање из других програма:
+	Keep Source Formatting	Задржи изворно форматирање
+	Use Destination Styles	Користи стилове одредишта

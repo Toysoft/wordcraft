@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-12 · **Change:** trivial (Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** minor (File › Options › Advanced › Cut, copy, and paste: default paste settings per situation, #1727; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -118,6 +118,7 @@ Word.
 |---|---|---|
 | Typing over a selection | replaces it (Word's default); with "Typing replaces selected text" off, the text goes in front of the selection, which stays | `typing_over_a_selection_follows_the_replace_selection_option` |
 | Overtype on, typing | each character replaces the one after the caret, never the paragraph mark or an object; Insert switches overtype only with the Insert-key option on (off by default, as in Word) | `overtype_replaces_the_characters_after_the_caret` |
+| Paste defaults (File › Options › Advanced › Cut, copy, and paste) | the default for Ctrl+V and Home › Paste per situation — within the same document, between documents, between documents whose styles clash, from other programs — is Keep Source Formatting, Merge Formatting, Keep Text Only, or (for clashes) Use Destination Styles; kept between runs; the specific Paste commands override | `default_paste_format_follows_the_clipboards_origin` |
 
 ## Text direction
 
@@ -168,6 +169,7 @@ Word.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | File › Options › Advanced › Cut, copy, and paste (#1727): the default for a plain paste (Ctrl+V, Home › Paste) in each situation as in Word — within the same document, between documents, between documents whose styles clash, from other programs — with Keep Source Formatting, Merge Formatting, Keep Text Only and (for clashes) Use Destination Styles, kept between runs; the specific Paste commands still override |
 | 2026-10-12 | trivial | Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864) |
 | 2026-10-12 | minor | AutoCorrect: Correct TWo INitial CApitals, accidental cAPS LOCK, capitalize first letter of table cells (#544) |
 | 2026-10-11 | minor | Text direction: right-to-left letters typed into an empty paragraph make it right-to-left; existing paragraphs keep theirs (#713) |

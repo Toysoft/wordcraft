@@ -58,7 +58,9 @@ The same gaps grouped the way the parity documents are, for agents working in on
   re-implementing). Paste Special, Advanced Find, Column Selection, Style Inspector, custom table
   styles, and Draw Table and Eraser (#303) landed on 2026-10-10. Paste from other programs keeps
   their formatting (system clipboard HTML/RTF), Merge Formatting keeps emphasis, Paste Special lists
-  what the system clipboard holds, and Linux/Wayland clipboard pictures paste (#687, #833);
+  what the system clipboard holds, and Linux/Wayland clipboard pictures paste (#687, #833); the
+  default paste behavior per situation is configurable (File › Options › Advanced › Cut, copy, and
+  paste, #1727);
   still missing: the Paste Options button after a paste, and RTF on macOS and X11.
 - **UI/UX gaps:** #7, #18, #24; crop handles on the canvas (rotation handle landed, #332); context menus for objects (the table's landed; it still lacks Border Styles); Linux title bar theming (#78); File ›
   Options › Animation effects › Use system setting reads macOS (Reduce motion) and the Linux/BSD

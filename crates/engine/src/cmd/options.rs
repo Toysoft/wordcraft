@@ -20,7 +20,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("file.options", "Options", "File", options)
             .params(
-                r#"{"pane"?: "general|display|proofing|save|language|accessibility|advanced|agents", "author"?: string, "initials"?: string, "units"?: "inches|centimeters|millimeters|points|picas|auto" (auto: the region's), "region"?: string (a locale tag like pl-PL, saved: the paper File › New starts on, the default units and the decimal separator; auto: the system's), "typingReplacesSelection"?: bool, "insertKeyOvertype"?: bool, "overtype"?: bool, "marks"?: {"tabs"?: bool, "spaces"?: bool, "paragraphs"?: bool, "hidden"?: bool}, "checkSpelling"?: bool, "markGrammar"?: bool, "ignoreUppercase"?: bool, "ignoreNumbers"?: bool, "ignoreInternet"?: bool, "addWords"?: [string], "removeWords"?: [string]} — with any setting it changes them and opens nothing; without, it opens File › Options (at `pane`). Returns the settings."#,
+                r#"{"pane"?: "general|display|proofing|save|language|accessibility|advanced|agents", "author"?: string, "initials"?: string, "units"?: "inches|centimeters|millimeters|points|picas|auto" (auto: the region's), "region"?: string (a locale tag like pl-PL, saved: the paper File › New starts on, the default units and the decimal separator; auto: the system's), "typingReplacesSelection"?: bool, "insertKeyOvertype"?: bool, "overtype"?: bool, "marks"?: {"tabs"?: bool, "spaces"?: bool, "paragraphs"?: bool, "hidden"?: bool}, "checkSpelling"?: bool, "markGrammar"?: bool, "ignoreUppercase"?: bool, "ignoreNumbers"?: bool, "ignoreInternet"?: bool, "pasteSameDocument"?: "keepSource|mergeFormatting|keepText", "pasteBetweenDocuments"?: "keepSource|mergeFormatting|keepText", "pasteStyleConflict"?: "keepSource|useDestinationStyles|mergeFormatting|keepText", "pasteFromOtherPrograms"?: "keepSource|mergeFormatting|keepText", "addWords"?: [string], "removeWords"?: [string]} — with any setting it changes them and opens nothing; without, it opens File › Options (at `pane`). Returns the settings."#,
             )
             .pure(),
         CommandSpec::new("text.overtype", "Overtype", "File › Options › Advanced", |s, v| {
@@ -54,6 +54,17 @@ fn bool_param(v: &Value, k: &str) -> Result<Option<bool>, CmdError> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(b)) => Ok(Some(*b)),
         Some(_) => Err(CmdError::Params(format!("`{k}` must be true or false"))),
+    }
+}
+
+/// A default-paste setting: one of the [`crate::PasteFormat`] codes.
+fn paste_format_param(v: &Value, k: &str) -> Result<Option<crate::PasteFormat>, CmdError> {
+    match v.get(k) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => {
+            crate::PasteFormat::from_code(s).map(Some).ok_or_else(|| CmdError::Params(format!("`{k}` is one of keepSource, mergeFormatting, keepText, useDestinationStyles")))
+        }
+        Some(_) => Err(CmdError::Params(format!("`{k}` must be a string"))),
     }
 }
 
@@ -132,6 +143,10 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
         Some(_) => return Err(CmdError::Params("`marks` must be an object of true/false".into())),
     }
     let check_spelling = bool_param(v, "checkSpelling")?;
+    let paste_same = paste_format_param(v, "pasteSameDocument")?;
+    let paste_between = paste_format_param(v, "pasteBetweenDocuments")?;
+    let paste_conflict = paste_format_param(v, "pasteStyleConflict")?;
+    let paste_other = paste_format_param(v, "pasteFromOtherPrograms")?;
     let add = words_param(v, "addWords")?;
     let remove = words_param(v, "removeWords")?;
 
@@ -142,6 +157,10 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
         || !flag_values.is_empty()
         || !mark_values.is_empty()
         || check_spelling.is_some()
+        || paste_same.is_some()
+        || paste_between.is_some()
+        || paste_conflict.is_some()
+        || paste_other.is_some()
         || !add.is_empty()
         || !remove.is_empty();
     if let Some(name) = author {
@@ -164,6 +183,18 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
     }
     if let Some(b) = check_spelling {
         s.view.proofing = b;
+    }
+    if let Some(f) = paste_same {
+        s.prefs.paste_same_document = f;
+    }
+    if let Some(f) = paste_between {
+        s.prefs.paste_between_documents = f;
+    }
+    if let Some(f) = paste_conflict {
+        s.prefs.paste_style_conflict = f;
+    }
+    if let Some(f) = paste_other {
+        s.prefs.paste_from_other_programs = f;
     }
     for w in &add {
         wordcraft_proof::add_word(w);
@@ -207,6 +238,10 @@ pub fn current(s: &Session) -> Value {
         "ignoreUppercase": pr.ignore_uppercase,
         "ignoreNumbers": pr.ignore_numbers,
         "ignoreInternet": pr.ignore_internet,
+        "pasteSameDocument": pr.paste_same_document.code(),
+        "pasteBetweenDocuments": pr.paste_between_documents.code(),
+        "pasteStyleConflict": pr.paste_style_conflict.code(),
+        "pasteFromOtherPrograms": pr.paste_from_other_programs.code(),
         "dictionary": wordcraft_proof::user_dictionary(),
     })
 }

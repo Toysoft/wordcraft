@@ -913,8 +913,9 @@ fn props_at(s: &Session, off: usize) -> wordcraft_doc::CharProps {
     s.doc.para_at(&pos).map(|p| p.props_of_char(off).clone()).unwrap_or_default()
 }
 
-/// Paste of another program's formatted copy keeps its formatting (#687); Merge Formatting keeps
-/// only its emphasis, in the destination's font; Keep Text Only drops it all.
+/// Paste of another program's formatted copy: the default for other programs is Merge Formatting
+/// (Word's default), and choosing Keep Source keeps the font and colour (#1727); the specific
+/// commands override either way.
 #[test]
 fn paste_keeps_source_formatting_from_other_programs() {
     let mut s = s();
@@ -924,11 +925,18 @@ fn paste_keeps_source_formatting_from_other_programs() {
     let clip = json!({"text": "red bold", "html": html});
     run(&mut s, "edit.paste", clip.clone());
     assert_eq!(text(&s), "xred bold");
+    assert_eq!(props_at(&s, 1).font, None, "other programs default to Merge Formatting");
+    assert!(bold_at(&s, 0, 5), "which keeps the emphasis");
+    run(&mut s, "edit.undo", json!({}));
+
+    // Choosing Keep Source Formatting for other programs keeps the font and colour.
+    s.prefs.paste_from_other_programs = crate::PasteFormat::KeepSource;
+    run(&mut s, "edit.paste", clip.clone());
+    assert_eq!(text(&s), "xred bold");
     assert_eq!(props_at(&s, 1).font.as_deref(), Some("Courier New"));
     assert!(props_at(&s, 1).color.is_some());
     assert!(!bold_at(&s, 0, 1) && bold_at(&s, 0, 5));
     run(&mut s, "edit.undo", json!({}));
-    assert_eq!(text(&s), "x");
     run(&mut s, "edit.pasteMerge", clip.clone());
     assert_eq!(text(&s), "xred bold");
     assert_eq!(props_at(&s, 1).font, None, "Merge Formatting takes the destination's font");
@@ -977,6 +985,43 @@ fn paste_keeps_source_formatting_from_other_programs() {
     run(&mut s, "edit.paste", json!({"text": "Own"}));
     assert_eq!(text(&s), "OwnOwn");
     assert_eq!(props_at(&s, 4).italic, Some(true));
+}
+
+/// #1727: the default paste follows where the clipboard content came from — the same document, a
+/// different document (with or without a style-name clash), or another program.
+#[test]
+fn default_paste_format_follows_the_clipboards_origin() {
+    use crate::PasteFormat;
+    use wordcraft_doc::edit::Fragment;
+    use wordcraft_doc::{Block, Paragraph};
+
+    // Between documents (our own copy, but from the previous document): Keep Text Only.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "bold"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.bold", json!({}));
+    run(&mut s, "edit.copy", json!({}));
+    let clip = s.clipboard_text.clone();
+    run(&mut s, "file.new", json!({}));
+    run(&mut s, "text.insert", json!({"text": "y"}));
+    assert_ne!(s.clipboard_doc, Some(s.document_id()), "a new document");
+    s.prefs.paste_between_documents = PasteFormat::KeepText;
+    run(&mut s, "edit.paste", json!({"text": clip}));
+    assert_eq!(text(&s), "ybold");
+    assert!(!bold_at(&s, 0, 1), "between documents: Keep Text Only");
+
+    // A copy that names a style the destination defines uses the clash default instead.
+    run(&mut s, "document.setText", json!({"text": ""}));
+    let mut para = Paragraph::with_text("hi", Default::default());
+    para.props.style = Some("Normal".into());
+    s.clipboard = Some(Fragment { blocks: vec![Block::Para(para)], parts: Default::default() });
+    s.clipboard_text = "hi".into();
+    s.clipboard_doc = Some(s.document_id().wrapping_sub(1));
+    s.prefs.paste_between_documents = PasteFormat::KeepSource;
+    s.prefs.paste_style_conflict = PasteFormat::KeepText;
+    run(&mut s, "edit.paste", json!({"text": "hi"}));
+    assert_eq!(text(&s), "hi");
+    assert_eq!(props_at(&s, 0).style.as_deref(), None, "the clash default (Keep Text Only) applied, not Keep Source");
 }
 
 /// Paste Special lists a picture on the system clipboard and pastes it (#687).

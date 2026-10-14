@@ -2083,3 +2083,10 @@
 	Table Properties…	Propriétés du tableau…
 	Search	Rechercher
 	Title Bar	Barre de titre
+	Cut, copy, and paste	Couper, copier et coller
+	Pasting within the same document:	Collage dans le même document :
+	Pasting between documents:	Collage entre documents :
+	Pasting between documents when style definitions conflict:	Collage entre documents en cas de conflit de définitions de styles :
+	Pasting from other programs:	Collage à partir d’autres programmes :
+	Keep Source Formatting	Conserver la mise en forme source
+	Use Destination Styles	Utiliser les styles du document de destination

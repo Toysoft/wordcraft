@@ -2473,3 +2473,10 @@ preview	Title	Örnek
 	Level 7	Düzey 7
 	Level 8	Düzey 8
 	Level 9	Düzey 9
+	Cut, copy, and paste	Kesme, kopyalama ve yapıştırma
+	Pasting within the same document:	Aynı belge içinde yapıştırma:
+	Pasting between documents:	Belgeler arasında yapıştırma:
+	Pasting between documents when style definitions conflict:	Stil tanımları çakıştığında belgeler arasında yapıştırma:
+	Pasting from other programs:	Diğer programlardan yapıştırma:
+	Keep Source Formatting	Kaynak Biçimlendirmeyi Koru
+	Use Destination Styles	Hedef Stilleri Kullan

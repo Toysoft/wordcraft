@@ -2087,3 +2087,10 @@
 	Start-up	Запуск
 	Show the Start screen when WordCraft starts	Показувати початковий екран під час запуску WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Увімкнено: WordCraft відкривається на сторінці Файл › Основне з порожнім документом, шаблонами та нещодавніми документами. Вимкнено: відкривається порожній документ.
+	Cut, copy, and paste	Вирізання, копіювання та вставлення
+	Pasting within the same document:	Вставлення в межах одного документа:
+	Pasting between documents:	Вставлення між документами:
+	Pasting between documents when style definitions conflict:	Вставлення між документами в разі конфлікту визначень стилів:
+	Pasting from other programs:	Вставлення з інших програм:
+	Keep Source Formatting	Зберегти вихідне форматування
+	Use Destination Styles	Використовувати стилі призначення

@@ -2441,3 +2441,10 @@ preview	Title	Título
 	Start-up	Inicio de la aplicación
 	Show the Start screen when WordCraft starts	Mostrar la pantalla de inicio al abrir WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Activado: WordCraft se abre en Archivo › Inicio, con un documento en blanco, las plantillas y tus documentos recientes. Desactivado: abre un documento en blanco.
+	Cut, copy, and paste	Cortar, copiar y pegar
+	Pasting within the same document:	Pegar dentro del mismo documento:
+	Pasting between documents:	Pegar entre documentos:
+	Pasting between documents when style definitions conflict:	Pegar entre documentos cuando hay conflicto de definiciones de estilos:
+	Pasting from other programs:	Pegar desde otros programas:
+	Keep Source Formatting	Mantener formato de origen
+	Use Destination Styles	Usar estilos de destino

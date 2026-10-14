@@ -2474,3 +2474,10 @@ preview	Title	Пример
 	Level 7	Уровень 7
 	Level 8	Уровень 8
 	Level 9	Уровень 9
+	Cut, copy, and paste	Вырезание, копирование и вставка
+	Pasting within the same document:	Вставка в пределах одного документа:
+	Pasting between documents:	Вставка между документами:
+	Pasting between documents when style definitions conflict:	Вставка между документами при конфликте определений стилей:
+	Pasting from other programs:	Вставка из других программ:
+	Keep Source Formatting	Сохранить исходное форматирование
+	Use Destination Styles	Использовать стили конечного документа

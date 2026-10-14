@@ -2074,3 +2074,10 @@
 	Automatic ({region})	Automatisch ({region})
 	Search	Suchen
 	Title Bar	Titelleiste
+	Cut, copy, and paste	Ausschneiden, kopieren und einfügen
+	Pasting within the same document:	Einfügen innerhalb desselben Dokuments:
+	Pasting between documents:	Einfügen zwischen Dokumenten:
+	Pasting between documents when style definitions conflict:	Einfügen zwischen Dokumenten bei Konflikten mit Formatvorlagendefinitionen:
+	Pasting from other programs:	Einfügen aus anderen Programmen:
+	Keep Source Formatting	Quellformatierung beibehalten
+	Use Destination Styles	Zielformatvorlagen verwenden

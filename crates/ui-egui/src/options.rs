@@ -167,6 +167,30 @@ fn flag(app: &mut WordApp, ui: &mut Ui, label: &str, key: &str, value: bool) {
     }
 }
 
+/// The default-paste choices (File › Options › Advanced › Cut, copy, and paste), Word's labels.
+/// `Use Destination Styles` is only offered where Word offers it (style conflicts).
+const PASTE_FORMATS: [(wordcraft_engine::PasteFormat, &str); 4] = [
+    (wordcraft_engine::PasteFormat::KeepSource, "Keep Source Formatting"),
+    (wordcraft_engine::PasteFormat::MergeFormatting, "Merge Formatting"),
+    (wordcraft_engine::PasteFormat::KeepText, "Keep Text Only"),
+    (wordcraft_engine::PasteFormat::UseDestinationStyles, "Use Destination Styles"),
+];
+
+/// A dropdown for one default-paste setting.
+fn paste_format(app: &mut WordApp, ui: &mut Ui, id: &str, key: &str, value: wordcraft_engine::PasteFormat, allow_destination: bool) {
+    let shown = PASTE_FORMATS.iter().find(|(f, _)| *f == value).map_or("Keep Source Formatting", |(_, l)| l);
+    egui::ComboBox::from_id_salt(id).selected_text(tl!(shown)).width(220.0).show_ui(ui, |ui| {
+        for (f, label) in PASTE_FORMATS {
+            if !allow_destination && f == wordcraft_engine::PasteFormat::UseDestinationStyles {
+                continue;
+            }
+            if ui.selectable_label(value == f, tl!(label)).clicked() {
+                set(app, json!({ key: f.code() }));
+            }
+        }
+    });
+}
+
 fn general(app: &mut WordApp, ui: &mut Ui) {
     section(ui, "Interface");
     theme_picker(app, ui);
@@ -353,6 +377,22 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     flag(app, ui, "Typing replaces selected text", "typingReplacesSelection", pr.typing_replaces_selection);
     flag(app, ui, "Use the Insert key to switch overtype on and off", "insertKeyOvertype", pr.insert_key_overtype);
     flag(app, ui, "Overtype (typing replaces the characters after the caret)", "overtype", pr.overtype);
+    ui.add_space(8.0);
+    section(ui, "Cut, copy, and paste");
+    egui::Grid::new("options_paste").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+        ui.label(tl!("Pasting within the same document:"));
+        paste_format(app, ui, "options_paste_same", "pasteSameDocument", pr.paste_same_document, false);
+        ui.end_row();
+        ui.label(tl!("Pasting between documents:"));
+        paste_format(app, ui, "options_paste_between", "pasteBetweenDocuments", pr.paste_between_documents, false);
+        ui.end_row();
+        ui.label(tl!("Pasting between documents when style definitions conflict:"));
+        paste_format(app, ui, "options_paste_conflict", "pasteStyleConflict", pr.paste_style_conflict, true);
+        ui.end_row();
+        ui.label(tl!("Pasting from other programs:"));
+        paste_format(app, ui, "options_paste_other", "pasteFromOtherPrograms", pr.paste_from_other_programs, false);
+        ui.end_row();
+    });
     ui.add_space(8.0);
     section(ui, "Display");
     egui::Grid::new("options_display").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
@@ -706,6 +746,35 @@ mod tests {
         h.run_steps(2);
         assert!(!h.state().session.prefs.typing_replaces_selection);
         assert!(h.query_by_label("Measurement units:").is_some());
+        // The Cut, copy, and paste section is there, with Word's defaults (#1727).
+        assert!(h.query_by_label("Cut, copy, and paste").is_some());
+        assert!(h.query_by_label("Pasting within the same document:").is_some());
+        assert!(h.query_by_label("Pasting between documents when style definitions conflict:").is_some());
+    }
+
+    /// File › Options › Advanced › Cut, copy, and paste (#1727): the four settings are read and set
+    /// through `file.options`, kept between runs, and junk is refused without changing anything.
+    #[test]
+    fn default_paste_settings_round_trip() {
+        use wordcraft_engine::PasteFormat;
+        let mut a = app();
+        a.run("file.options", json!({"pasteSameDocument": "keepText", "pasteFromOtherPrograms": "keepSource"})).unwrap();
+        let r = a.run("file.options", json!({})).unwrap();
+        assert_eq!(r["pasteSameDocument"], "keepText");
+        assert_eq!(r["pasteFromOtherPrograms"], "keepSource");
+        assert_eq!(r["pasteBetweenDocuments"], "keepSource", "Word's default");
+        assert_eq!(r["pasteStyleConflict"], "useDestinationStyles", "Word's default");
+        // An unknown value or a wrong type changes nothing.
+        assert!(a.run("file.options", json!({"pasteSameDocument": "nope"})).is_err());
+        assert!(a.run("file.options", json!({"pasteStyleConflict": 5})).is_err());
+        assert_eq!(a.session.prefs.paste_same_document, PasteFormat::KeepText);
+        // Saved and restored with the other preferences.
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        assert!(saved.contains(r#""pasteSameDocument":"keepText""#), "{saved}");
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert_eq!(b.session.prefs.paste_same_document, PasteFormat::KeepText);
+        assert_eq!(b.session.prefs.paste_style_conflict, PasteFormat::UseDestinationStyles);
     }
 
     /// File › Options › Accessibility › Animation effects: Use system setting (the default), On

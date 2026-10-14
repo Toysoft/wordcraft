@@ -2459,3 +2459,10 @@ preview	Title	Esempio
 	Automatic ({region})	Automatico ({region})
 	Search	Cerca
 	Title Bar	Barra del titolo
+	Cut, copy, and paste	Taglia, copia e incolla
+	Pasting within the same document:	Incolla nello stesso documento:
+	Pasting between documents:	Incolla tra documenti:
+	Pasting between documents when style definitions conflict:	Incolla tra documenti in caso di conflitto tra definizioni di stili:
+	Pasting from other programs:	Incolla da altri programmi:
+	Keep Source Formatting	Mantieni formattazione originale
+	Use Destination Styles	Usa stili di destinazione

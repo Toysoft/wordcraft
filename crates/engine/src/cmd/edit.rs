@@ -5,7 +5,7 @@ use wordcraft_doc::edit::Fragment;
 use wordcraft_doc::{Pos, StoryRef};
 
 use super::{delete_selection, find_pattern, pos_json, sel_result};
-use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
+use crate::{CmdError, CmdResult, CommandSpec, PasteFormat, Selection, Session, p};
 
 /// Undo several steps at once: the Undo button's list (#701). `count` is validated here and
 /// clamped to the undo depth, so hostile numbers never reach the stack.
@@ -162,6 +162,7 @@ fn copy(s: &mut Session, _: &Value) -> CmdResult {
     s.clipboard_text = f.clipboard_text();
     s.clip_history.push(&f, &s.clipboard_text);
     s.clipboard = Some(f);
+    s.clipboard_doc = Some(s.document_id());
     Ok(json!({"text": s.clipboard_text}))
 }
 
@@ -175,12 +176,83 @@ fn cut(s: &mut Session, v: &Value) -> CmdResult {
     Ok(r)
 }
 
-/// Paste keeps the source formatting: our own copy while the system clipboard still holds it,
-/// else another program's HTML or RTF (#687), else the system clipboard's text.
+/// Paste applies the default the user chose (File › Options › Advanced › Cut, copy, and paste):
+/// keep source formatting, merge with the destination's, or keep text only. The specific Paste
+/// commands (`edit.pasteMerge`, `edit.pasteText`) stay explicit overrides.
 fn paste(s: &mut Session, v: &Value) -> CmdResult {
-    let frag = super::paste::paste_fragment(s, v)?;
-    super::paste::insert(s, frag)?;
-    sel_result(s)
+    match default_paste_format(s, v) {
+        PasteFormat::KeepSource => {
+            let frag = super::paste::paste_fragment(s, v)?;
+            super::paste::insert(s, frag)?;
+            sel_result(s)
+        }
+        PasteFormat::MergeFormatting | PasteFormat::UseDestinationStyles => paste_merge(s, v),
+        PasteFormat::KeepText => paste_text(s, v),
+    }
+}
+
+/// The configured default for a plain paste, by where the clipboard content came from: this
+/// document, another WordCraft document (whose styles may clash), or another program.
+fn default_paste_format(s: &Session, v: &Value) -> PasteFormat {
+    // Whether the clipboard still holds our own fragment, by the same test `paste_fragment` uses.
+    let text = p::str(v, "text");
+    let ours = s.clipboard.is_some()
+        && text.is_none_or(|t| s.clipboard_text == t)
+        && (text.is_some() || (p::str(v, "html").is_none() && p::str(v, "rtf").is_none()));
+    if !ours {
+        return s.prefs.paste_from_other_programs;
+    }
+    if s.clipboard_doc == Some(s.document_id()) {
+        return s.prefs.paste_same_document;
+    }
+    // Between documents: Word uses the clash setting when a style name is defined in both.
+    if fragment_uses_shared_style(s) {
+        s.prefs.paste_style_conflict
+    } else {
+        s.prefs.paste_between_documents
+    }
+}
+
+/// Whether the copied fragment uses a paragraph or character style the destination also defines —
+/// Word's "style definitions conflict" case. Our fragments carry style names, not definitions, so
+/// a shared name stands in for a clash.
+fn fragment_uses_shared_style(s: &Session) -> bool {
+    let Some(f) = &s.clipboard else { return false };
+    let mut used = std::collections::HashSet::new();
+    for block in &f.blocks {
+        collect_styles(block, &mut used);
+    }
+    for part in f.parts.values() {
+        for block in &part.blocks {
+            collect_styles(block, &mut used);
+        }
+    }
+    used.iter().any(|name| s.doc.styles.get(name).is_some())
+}
+
+/// Collect the paragraph/character style names a block uses (recursing into tables).
+fn collect_styles(block: &wordcraft_doc::Block, out: &mut std::collections::HashSet<String>) {
+    match block {
+        wordcraft_doc::Block::Para(p) => {
+            for style in [p.props.style.as_ref(), p.mark.style.as_ref()].into_iter().flatten() {
+                out.insert(style.clone());
+            }
+            for run in &p.runs {
+                if let Some(style) = &run.props.style {
+                    out.insert(style.clone());
+                }
+            }
+        }
+        wordcraft_doc::Block::Table(t) => {
+            for row in &t.rows {
+                for cell in &row.cells {
+                    for block in &cell.blocks {
+                        collect_styles(block, out);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Merge Formatting: the pasted text takes the destination's formatting, keeping its emphasis.
