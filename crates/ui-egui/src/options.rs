@@ -316,6 +316,23 @@ fn save(app: &mut WordApp, ui: &mut Ui) {
         app.session.autosave = autosave;
     }
     note(ui, "AutoSave writes your changes to the file a moment after you stop typing.");
+    ui.add_space(8.0);
+    // The open document's `file.privacyOptions` (#1062): saved with it, honoured when it is saved.
+    section(ui, "Privacy for this document");
+    let settings = &app.session.doc.settings;
+    let rows = [
+        ("Remove my name from comments, changes and file properties when saving", "removePersonalInfo", settings.remove_personal_info),
+        ("Leave out the date and time of comments and tracked changes when saving", "removeDateTime", settings.remove_date_time),
+    ];
+    for (label, key, value) in rows {
+        let mut v = value;
+        if ui.checkbox(&mut v, tl!(label)).changed()
+            && let Err(e) = app.run("file.privacyOptions", json!({ key: v }))
+        {
+            app.status(e);
+        }
+    }
+    note(ui, "The document you are editing keeps the names and dates; only the saved file leaves them out.");
 }
 
 fn language(app: &mut WordApp, ui: &mut Ui) {
@@ -353,6 +370,14 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     flag(app, ui, "Typing replaces selected text", "typingReplacesSelection", pr.typing_replaces_selection);
     flag(app, ui, "Use the Insert key to switch overtype on and off", "insertKeyOvertype", pr.insert_key_overtype);
     flag(app, ui, "Overtype (typing replaces the characters after the caret)", "overtype", pr.overtype);
+    let mut guides = app.ui.alignment_guides;
+    if ui
+        .checkbox(&mut guides, tl!("Show alignment guides when moving pictures and shapes"))
+        .on_hover_text(tl!("Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely."))
+        .changed()
+    {
+        let _ = app.run("ui.alignmentGuides", json!({"value": guides}));
+    }
     ui.add_space(8.0);
     section(ui, "Display");
     egui::Grid::new("options_display").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
@@ -451,15 +476,22 @@ fn theme_picker(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
-/// Interface size: 80–200 %, on top of the system's display scale (#475).
+/// Interface size (#475, #822): Auto, which keeps the system's display scale and shows the size it
+/// draws at, or an absolute size, so "100%" means one screen pixel per point.
 fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::InterfaceSize;
-    let current = app.ui.interface_size.percent();
+    let size = app.ui.interface_size;
+    let native = ui.ctx().native_pixels_per_point().unwrap_or(1.0);
+    let auto = crate::i18n::fmt(tl!("Auto ({percent}%)"), &[("percent", &InterfaceSize::AUTO.drawn_percent(native).to_string())]);
+    let selected = size.percent().map_or_else(|| auto.clone(), |pct| format!("{pct}%"));
     ui.horizontal(|ui| {
         ui.label(tl!("Interface size:"));
-        egui::ComboBox::from_id_salt("interface_size").selected_text(format!("{current}%")).width(220.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("interface_size").selected_text(selected).width(220.0).show_ui(ui, |ui| {
+            if ui.selectable_label(size.is_auto(), auto).clicked() {
+                let _ = app.run("ui.interfaceSize", json!({"value": "auto"}));
+            }
             for pct in InterfaceSize::PRESETS {
-                if ui.selectable_label(current == pct, format!("{pct}%")).clicked() {
+                if ui.selectable_label(size.percent() == Some(pct), format!("{pct}%")).clicked() {
                     let _ = app.run("ui.interfaceSize", json!({"percent": pct}));
                 }
             }
@@ -467,7 +499,7 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
     });
     ui.label(
         RichText::new(tl!(
-            "Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate."
+            "Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate."
         ))
         .small()
         .weak(),
@@ -708,6 +740,35 @@ mod tests {
         assert!(h.query_by_label("Measurement units:").is_some());
     }
 
+    /// File › Options › Save › Privacy (#1062): the checkboxes are the document's
+    /// `file.privacyOptions` settings, and an undoable change like any other.
+    #[test]
+    fn save_privacy_checkboxes_set_the_privacy_options() {
+        let mut a = app();
+        a.run("file.options", json!({"pane": "save"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.query_by_label("Privacy for this document").is_some(), "the section is there");
+        h.get_by_label("Remove my name from comments, changes and file properties when saving").click();
+        h.run_steps(4);
+        assert!(h.state().session.doc.settings.remove_personal_info);
+        assert!(!h.state().session.doc.settings.remove_date_time);
+        h.get_by_label("Leave out the date and time of comments and tracked changes when saving").click();
+        h.run_steps(4);
+        let privacy = h.state_mut().session.run("file.privacy", &json!({})).unwrap();
+        assert_eq!(privacy, json!({"removePersonalInfo": true, "removeDateTime": true}));
+        h.get_by_label("Remove my name from comments, changes and file properties when saving").click();
+        h.run_steps(4);
+        assert!(!h.state().session.doc.settings.remove_personal_info, "and off again");
+    }
+
     /// File › Options › Accessibility › Animation effects: Use system setting (the default), On
     /// or Off, with a line saying what the system's own setting is while it is followed.
     #[test]
@@ -759,6 +820,30 @@ mod tests {
         h.get_by_label("Show the Start screen when WordCraft starts").click();
         h.run_steps(4);
         assert!(h.state().ui.start_screen, "and on again");
+    }
+
+    /// File › Options › Advanced › Editing: the alignment guides checkbox is the
+    /// `ui.alignmentGuides` setting.
+    #[test]
+    fn advanced_alignment_guides_checkbox_turns_snapping_off_and_on() {
+        let mut a = app();
+        a.run("file.options", json!({"pane": "advanced"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let label = "Show alignment guides when moving pictures and shapes";
+        h.get_by_label(label).click();
+        h.run_steps(4);
+        assert!(!h.state().ui.alignment_guides, "the checkbox turns them off");
+        h.get_by_label(label).click();
+        h.run_steps(4);
+        assert!(h.state().ui.alignment_guides, "and on again");
     }
 
     /// File › Options › Advanced › Animation: the checkbox is the `ui.caretAnimation` setting,
