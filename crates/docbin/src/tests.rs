@@ -735,6 +735,9 @@ fn corpus_files_open() {
 /// RichSpec extended for the D3 fixtures.
 struct StructSpec {
     text: &'static str,
+    /// Extra paragraph styles after Normal, as (stk, istd_base, name, papx, chpx); istd is the
+    /// index in this list plus one.
+    styles: Vec<(u8, u16, &'static str, Vec<u8>, Vec<u8>)>,
     /// Extra pieces after the main text: header subdocument stories.
     header_stories: Vec<&'static str>,
     /// (end_cp, sepx grpprl) per section; the last one reaching the text end is the final one.
@@ -851,7 +854,11 @@ fn struct_doc(spec: &StructSpec) -> Vec<u8> {
     table.extend_from_slice(&plcf_sed);
     let hdd_plc_at = table.len();
     table.extend_from_slice(&plcf_hdd);
-    let stsh = stsh_bytes(&[std_bytes(1, 0x0FFF, "Normal", &Vec::new(), &Vec::new())]);
+    let mut styles = vec![std_bytes(1, 0x0FFF, "Normal", &Vec::new(), &Vec::new())];
+    for (stk, base, name, papx, chpx) in &spec.styles {
+        styles.push(std_bytes(*stk, *base, name, papx, chpx));
+    }
+    let stsh = stsh_bytes(&styles);
     let stsh_at = table.len();
     table.extend_from_slice(&stsh);
     let ffn = ffn_bytes(&["Times New Roman"]);
@@ -903,6 +910,7 @@ fn struct_doc(spec: &StructSpec) -> Vec<u8> {
 fn section_props_parsed() {
     let spec = StructSpec {
         text: "a\rb\r",
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(2, grpprl(&[(0xB01F, &12240u16.to_le_bytes()), (0xB020, &15840u16.to_le_bytes()), (0xB021, &1440u16.to_le_bytes())]))],
         chpx_runs: vec![(0, Vec::new())],
@@ -925,6 +933,7 @@ fn section_props_parsed() {
 fn two_sections_box_the_first() {
     let spec = StructSpec {
         text: "first\rsecond\r",
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(6, grpprl(&[(0x300A, &[0x01])])), (12, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],
@@ -943,10 +952,58 @@ fn two_sections_box_the_first() {
     assert!(!doc.last_section.title_page);
 }
 
+/// #880. Real `.doc` files end every non-final section with a 0x0C character whose CP just
+/// past it is listed in PlcfSed. The walker split paragraphs only at 0x0D/0x07, so no
+/// paragraph ended at the section CP and the section's properties were silently dropped:
+/// the whole document then laid out with the final section's margins.
+#[test]
+fn section_break_char_ends_paragraph() {
+    // "one" + section break (0x0C at CP 3) + "two" + paragraph mark; section 0 ends at CP 4.
+    let text = "one\u{C}two\r";
+    let margins = |tw: u16| grpprl(&[(0xB021, &tw.to_le_bytes()), (0xB022, &tw.to_le_bytes())]);
+    let spec = StructSpec {
+        text,
+        sections: vec![(4, margins(850)), (8, margins(1133))], // 1.5 cm vs 2 cm
+        papx_entries: vec![(0, 0, Vec::new()), (4, 0, Vec::new())],
+        ..structured_spec(text, 8)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    // The 0x0C ends the first paragraph and is not part of its text.
+    assert_eq!(body_texts(&doc), ["one", "two"]);
+    let sec = doc.body.first().and_then(|b| b.as_para()).and_then(|p| p.section.as_ref()).expect("section on the break paragraph");
+    assert_eq!(sec.margin_left, 42.5); // 850 twips = 1.5 cm
+    assert_eq!(sec.margin_right, 42.5);
+    // The final section keeps its own margins (1133 twips = 56.65 pt, float-rounded).
+    assert!((doc.last_section.margin_left - 56.65).abs() < 0.05, "{}", doc.last_section.margin_left);
+    assert!((doc.last_section.margin_right - 56.65).abs() < 0.05, "{}", doc.last_section.margin_right);
+}
+
+/// #880. A 0x0C that PlcfSed does not list is a plain page break inside a paragraph
+/// (Ctrl+Enter): it stays inline in the paragraph's text and creates no section of its own.
+#[test]
+fn page_break_char_stays_inline() {
+    let text = "one\u{C}two\r";
+    let spec = StructSpec {
+        text,
+        // One final section reaching the text end: no PlcfSed entry at CP 4.
+        sections: vec![(8, grpprl(&[(0xB021, &1133u16.to_le_bytes())]))],
+        ..structured_spec(text, 8)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    assert_eq!(body_texts(&doc), ["one\u{C}two"]);
+    for b in &doc.body {
+        if let Some(p) = b.as_para() {
+            assert!(p.section.is_none(), "section props on {p:?}");
+        }
+    }
+    assert!((doc.last_section.margin_left - 56.65).abs() < 0.05, "{}", doc.last_section.margin_left);
+}
+
 #[test]
 fn header_story_becomes_part() {
     let spec = StructSpec {
         text: "body\r",
+        styles: Vec::new(),
         header_stories: vec!["Header text\r\r"],
         sections: vec![(5, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],
@@ -992,6 +1049,7 @@ fn table_assembled_from_marks() {
     let ttp: Vec<u8> = [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), def_table].concat();
     let spec = StructSpec {
         text,
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(text.chars().count() as u32, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],
@@ -1071,6 +1129,7 @@ fn table_merges_borders_shading() {
     let in_tbl = grpprl(&[(0x2416, &[0x01])]);
     let spec = StructSpec {
         text,
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(text.chars().count() as u32, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],
@@ -1106,6 +1165,389 @@ fn table_merges_borders_shading() {
     let top = b.top.expect("top border");
     assert_eq!(top.style, wordcraft_doc::props::BorderStyle::Single);
     assert_eq!(top.width, 0.5);
+}
+
+/// #880. A PAPX too large for the FKP is stored in the Data stream: the FKP grpprl is just
+/// `sprmPHugePapx` with the fc of the real grpprl, which sits there as `cb: u16` plus bytes
+/// ([MS-DOC] §2.6.68). Before the swap, the whole row shape (and any other huge-paragraph
+/// properties) was lost.
+#[test]
+fn huge_papx_row_properties_apply() {
+    // One row, one cell: the row-end mark's PAPX is the huge marker pointing at fc 0.
+    let real: Vec<u8> = [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), t_def_table(&[0, 2880, 5760])].concat();
+    let mut data_stream = (real.len() as u16).to_le_bytes().to_vec();
+    data_stream.extend_from_slice(&real);
+    let text = "a\u{7}tail\r";
+    let spec = StructSpec {
+        text,
+        papx_entries: vec![
+            (0, 0, grpprl(&[(0x6646, &0u32.to_le_bytes())])), // "a" cell paragraph, huge PAPX
+            (2, 0, Vec::new()),                               // "tail" paragraph
+        ],
+        data_stream,
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let tbl = doc.body.iter().find_map(|b| b.as_table()).expect("table");
+    assert_eq!(tbl.rows.len(), 1);
+    assert_eq!(tbl.rows[0].cells.len(), 1);
+    let cell: String = tbl.rows[0].cells[0].blocks.iter().filter_map(|b| b.as_para()).map(|p| p.text.clone()).collect();
+    assert_eq!(cell, "a");
+    // The grid comes from the huge grpprl's TDefTable, not from the FKP.
+    assert_eq!(tbl.grid.len(), 2, "grid: {tbl:?}");
+    assert_eq!(tbl.grid[0], 144.0); // 2880 twips = 144 pt
+    assert_eq!(tbl.total_width(), 288.0);
+    let last = doc.body.last().and_then(|b| b.as_para()).expect("tail para");
+    assert_eq!(last.text, "tail");
+}
+
+/// #880: a huge-PAPX marker whose fc points past the Data stream, and one whose cb claims
+/// 65 535 bytes when only the count exists: both fall back to no properties, keep the
+/// paragraphs and never panic.
+#[test]
+fn hostile_huge_papx() {
+    let data_stream = [0xFFu8, 0xFF]; // cb = 0xFFFF, nothing after it
+    let text = "one\rtwo\r";
+    let huge = |fc: u32| grpprl(&[(0x6646, &fc.to_le_bytes())]);
+    let spec = StructSpec {
+        text,
+        // Paragraph 1's marker points past the stream; paragraph 2's cb overruns it.
+        papx_entries: vec![(0, 0, huge(data_stream.len() as u32 + 1000)), (4, 0, huge(0))],
+        data_stream: data_stream.to_vec(),
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    assert_eq!(body_texts(&doc), ["one", "two"]);
+    assert!(doc.body.iter().all(|b| b.as_table().is_none()), "no row detected");
+}
+
+/// #880: [MS-DOC] defines cell edges PER ROW (each row-end mark carries its own
+/// `sprmTDefTable`), so a two-column banner above nine-edge data rows must not fix the
+/// whole table's shape. The grid is the union of every row's edges, and each row's cells
+/// take their widths from that row's own edges. The row-end PAPXs are huge (their
+/// TDefTables don't fit one FKP page), pointing at real grpprls in the Data stream.
+#[test]
+fn per_row_edges_form_union_grid() {
+    let banner_edges: [i16; 3] = [0, 5000, 10423];
+    let data_edges: [i16; 9] = [0, 800, 1600, 2694, 3261, 3686, 4111, 8931, 9639];
+    let mut data_stream = Vec::new();
+    let huge_at = |data_stream: &mut Vec<u8>, real: Vec<u8>| -> Vec<u8> {
+        let fc = data_stream.len() as u32;
+        data_stream.extend_from_slice(&(real.len() as u16).to_le_bytes());
+        data_stream.extend_from_slice(&real);
+        grpprl(&[(0x6646, &fc.to_le_bytes())])
+    };
+    let ttp_row = |edges: &[i16]| [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), t_def_table(edges)].concat();
+    let in_tbl = grpprl(&[(0x2416, &[0x01])]);
+    let text = "a\u{7}b\u{7}c\u{7}d\u{7}e\u{7}f\u{7}g\u{7}h\u{7}i\u{7}j\u{7}k\u{7}l\u{7}m\u{7}n\u{7}o\u{7}p\u{7}q\u{7}r\u{7}tail\r";
+    let spec = StructSpec {
+        text,
+        // Banner (a-b), then two 8-cell data rows (c-j, k-r), then a tail paragraph.
+        papx_entries: vec![
+            (0, 0, in_tbl.clone()),
+            (2, 0, huge_at(&mut data_stream, ttp_row(&banner_edges))),
+            (4, 0, in_tbl.clone()),
+            (18, 0, huge_at(&mut data_stream, ttp_row(&data_edges))),
+            (20, 0, in_tbl),
+            (34, 0, huge_at(&mut data_stream, ttp_row(&data_edges))),
+            (36, 0, Vec::new()),
+        ],
+        data_stream,
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let tbl = doc.body.iter().find_map(|b| b.as_table()).expect("table");
+    assert_eq!(tbl.rows.len(), 3);
+    assert_eq!(tbl.rows[0].cells.len(), 2);
+    assert_eq!(tbl.rows[1].cells.len(), 8);
+    // The grid is the widths of the sorted, de-duplicated union of both rows' edges.
+    let pts = |es: &[i16]| -> Vec<f32> { es.iter().map(|&t| t as f32 / 20.0).collect() };
+    let widths_of = |es: &[f32]| -> Vec<f32> { es.windows(2).map(|w| w[1] - w[0]).collect() };
+    let mut union = pts(&banner_edges);
+    union.extend(pts(&data_edges));
+    union.sort_by(f32::total_cmp);
+    union.dedup();
+    assert_eq!(tbl.grid.len(), 10);
+    assert_eq!(tbl.grid, widths_of(&union));
+    // Both data rows carry their own edges' widths (800, 800, 1094, … twips), not the
+    // banner's.
+    let want = widths_of(&pts(&data_edges)).into_iter().map(Some).collect::<Vec<_>>();
+    for r in &tbl.rows[1..] {
+        assert_eq!(r.cells.iter().map(|c| c.props.width).collect::<Vec<_>>(), want);
+    }
+    // The banner cells too: 5000 and 5423 twips.
+    let bpts = pts(&banner_edges);
+    assert_eq!(tbl.rows[0].cells[0].props.width, Some(bpts[1] - bpts[0]));
+    assert_eq!(tbl.rows[0].cells[1].props.width, Some(bpts[2] - bpts[1]));
+    let last = doc.body.last().and_then(|b| b.as_para()).expect("tail para");
+    assert_eq!(last.text, "tail");
+}
+
+/// #880 hardening: `sprmTDefTable` edges are hostile file data — unsorted, negative, at
+/// the i16 extremes, and more per row than the model's 63-column cap. Nothing may panic,
+/// every width stays non-negative, and the unioned grid stays within the cap.
+#[test]
+fn hostile_edges() {
+    let row1_edges: Vec<i16> = vec![5000, 0, -200, 32767];
+    let row2_edges: Vec<i16> = (0..70).map(|i| i * 100).collect(); // 70 edges: past the cap
+    let mut data_stream = Vec::new();
+    let huge_at = |data_stream: &mut Vec<u8>, real: Vec<u8>| -> Vec<u8> {
+        let fc = data_stream.len() as u32;
+        data_stream.extend_from_slice(&(real.len() as u16).to_le_bytes());
+        data_stream.extend_from_slice(&real);
+        grpprl(&[(0x6646, &fc.to_le_bytes())])
+    };
+    let ttp_row = |edges: &[i16]| [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), t_def_table(edges)].concat();
+    let in_tbl = grpprl(&[(0x2416, &[0x01])]);
+    let text = "a\u{7}b\u{7}c\u{7}d\u{7}e\u{7}f\u{7}tail\r";
+    let spec = StructSpec {
+        text,
+        // Row 1 (a-c) with the hostile edges; row 2 (d-f) wider than the column cap.
+        papx_entries: vec![
+            (0, 0, in_tbl.clone()),
+            (4, 0, huge_at(&mut data_stream, ttp_row(&row1_edges))),
+            (6, 0, in_tbl),
+            (10, 0, huge_at(&mut data_stream, ttp_row(&row2_edges))),
+            (12, 0, Vec::new()),
+        ],
+        data_stream,
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let tbl = doc.body.iter().find_map(|b| b.as_table()).expect("table");
+    assert_eq!(tbl.rows.len(), 2);
+    assert_eq!(tbl.rows[0].cells.len(), 3);
+    assert_eq!(tbl.rows[1].cells.len(), 3);
+    assert!(tbl.grid.len() <= 63, "grid columns: {}", tbl.grid.len());
+    assert!(tbl.grid.iter().all(|w| *w >= 0.0 && w.is_finite()), "grid: {:?}", tbl.grid);
+    for r in &tbl.rows {
+        assert!(r.cells.iter().all(|c| c.props.width.is_none_or(|w| w >= 0.0 && w.is_finite())));
+    }
+    assert!(tbl.total_width().is_finite());
+    // Row 2's own edges still size its first cell (100 twips = 5pt).
+    assert_eq!(tbl.rows[1].cells[0].props.width, Some(100.0f32 / 20.0));
+    let last = doc.body.last().and_then(|b| b.as_para()).expect("tail para");
+    assert_eq!(last.text, "tail");
+}
+
+/// #880 fix round 1: the union grid interleaves every row's edges, so a coarse row's cell
+/// (a change-history banner: `2018-06`, `SP-230144`) covers several union columns. With
+/// span 1 it was laid out inside the first narrow column and wrapped mid-value
+/// (`SP-230` + `144`); a cell must span the union-grid columns it covers. Explicit
+/// `sprmTMerge` spans keep winning over the computed ones.
+#[test]
+fn union_grid_cells_span_covered_columns() {
+    let coarse_edges: [i16; 3] = [0, 1000, 2000]; // 2 cells over the fine grid
+    let fine_edges: [i16; 5] = [0, 500, 1000, 1500, 2000]; // 4 cells = the grid itself
+    let mut data_stream = Vec::new();
+    let huge_at = |data_stream: &mut Vec<u8>, real: Vec<u8>| -> Vec<u8> {
+        let fc = data_stream.len() as u32;
+        data_stream.extend_from_slice(&(real.len() as u16).to_le_bytes());
+        data_stream.extend_from_slice(&real);
+        grpprl(&[(0x6646, &fc.to_le_bytes())])
+    };
+    let ttp_row = |edges: &[i16]| [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), t_def_table(edges)].concat();
+    // sprmTMerge over both cells of the coarse row: the sprm span (2) must win.
+    let merged_row = [ttp_row(&coarse_edges), grpprl(&[(0x5624, &[0, 2])])].concat();
+    let in_tbl = grpprl(&[(0x2416, &[0x01])]);
+    let text = "a\u{7}b\u{7}c\u{7}d\u{7}e\u{7}f\u{7}g\u{7}h\u{7}tail\r";
+    let spec = StructSpec {
+        text,
+        // Coarse row (a-b), fine row (c-f), merged coarse row (g-h), then a tail paragraph.
+        papx_entries: vec![
+            (0, 0, in_tbl.clone()),
+            (2, 0, huge_at(&mut data_stream, ttp_row(&coarse_edges))),
+            (4, 0, in_tbl.clone()),
+            (10, 0, huge_at(&mut data_stream, ttp_row(&fine_edges))),
+            (12, 0, in_tbl),
+            (14, 0, huge_at(&mut data_stream, merged_row)),
+            (16, 0, Vec::new()),
+        ],
+        data_stream,
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let tbl = doc.body.iter().find_map(|b| b.as_table()).expect("table");
+    assert_eq!(tbl.rows.len(), 3);
+    assert_eq!(tbl.grid, vec![25.0f32; 4], "grid: {:?}", tbl.grid);
+    // The coarse row's two cells each cover two grid columns — their text lays out across
+    // both instead of wrapping inside the first.
+    assert_eq!(tbl.rows[0].cells.len(), 2);
+    assert_eq!(tbl.rows[0].cells[0].props.span, 2);
+    assert_eq!(tbl.rows[0].cells[1].props.span, 2);
+    // The cell width covers its spanned union columns (50pt = 25 + 25).
+    assert_eq!(tbl.rows[0].cells[0].props.width, Some(tbl.grid[0] + tbl.grid[1]));
+    assert_eq!(tbl.rows[0].cells[1].props.width, Some(tbl.grid[2] + tbl.grid[3]));
+    // The fine row defines the grid: one column per cell.
+    assert_eq!(tbl.rows[1].cells.len(), 4);
+    assert!(tbl.rows[1].cells.iter().all(|c| c.props.span == 1), "fine row spans");
+    // sprmTMerge keeps winning: the merged cell's span is the sprm's 2, not the 4 grid
+    // columns its edges cover.
+    assert_eq!(tbl.rows[2].cells.len(), 1);
+    assert_eq!(tbl.rows[2].cells[0].props.span, 2);
+    let last = doc.body.last().and_then(|b| b.as_para()).expect("tail para");
+    assert_eq!(last.text, "tail");
+}
+
+/// #880 fix round 2: `sprmTDxaGapHalf` is the table's cell side margin (half the gap
+/// between cells, applied inside each cell). The change-history rows carry 40 twips = 2pt
+/// — dropping it made layout fall back to Word's 108-twip default and wrap `SP-230144`
+/// mid-value. It maps 1:1 onto OOXML `w:tblCellMar` → `TableProps.cell_margins`
+/// `[top, left, bottom, right]`, first row wins like the other table-level props.
+#[test]
+fn table_cell_margins_from_gap_half() {
+    let def_table = t_def_table(&[0, 2880, 5760]);
+    let gap_bytes = 40i16.to_le_bytes(); // 40 twips = 2pt
+    let gap = (0x9602u16, gap_bytes.as_slice()); // sprmTDxaGapHalf
+    let text = "a\u{7}b\u{7}tail\r";
+    let in_tbl = grpprl(&[(0x2416, &[0x01])]);
+    let ttp = [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), def_table, grpprl(&[gap])].concat();
+    let spec = StructSpec {
+        text,
+        papx_entries: vec![
+            (0, 0, in_tbl),     // "a" cell paragraph
+            (2, 0, ttp),        // "b" cell paragraph, ends the row (TTP)
+            (4, 0, Vec::new()), // "tail" paragraph
+        ],
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let tbl = doc.body.iter().find_map(|b| b.as_table()).expect("table");
+    assert_eq!(tbl.rows.len(), 1);
+    assert_eq!(tbl.props.cell_margins, Some([0.0, 2.0, 0.0, 2.0]), "props: {:?}", tbl.props);
+    // The grid and cell widths are untouched by the margin.
+    assert_eq!(tbl.grid, vec![144.0f32, 144.0]);
+    assert_eq!(tbl.rows[0].cells[0].props.width, Some(144.0));
+}
+
+/// #880 fix round 3: a .doc table whose rows carry `sprmTDefTable` edges is
+/// edge-defined — Word lays it out at exactly those widths (the OOXML equivalent is
+/// `w:tblLayout w:type="fixed"`). docbin left the flag at its default, so layout's
+/// autofit recomputed columns from content and the model's exact TDefTable widths never
+/// reached the page (the rendered TDoc column was ~31 pt instead of 54.7). Tables with
+/// no edges of their own keep the autofit default.
+#[test]
+fn edge_defined_table_lays_out_fixed() {
+    let text = "a\u{7}b\u{7}tail\r";
+    let spec_of = |ttp: Vec<u8>| StructSpec {
+        text,
+        papx_entries: vec![
+            (0, 0, grpprl(&[(0x2416, &[0x01])])), // "a" cell paragraph
+            (2, 0, ttp),                          // "b" cell paragraph, ends the row
+            (4, 0, Vec::new()),                   // "tail" paragraph
+        ],
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    // With TDefTable edges: edge-defined, so the grid must reach the page unchanged.
+    let ttp_edges = [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), t_def_table(&[0, 2880, 5760])].concat();
+    let doc = read(&struct_doc(&spec_of(ttp_edges))).expect("opens");
+    let tbl = doc.body.iter().find_map(|b| b.as_table()).expect("table");
+    assert_eq!(tbl.grid, vec![144.0f32, 144.0]);
+    assert!(tbl.props.fixed, "edge-defined table must lay out fixed, props: {:?}", tbl.props);
+    // Without edges: no grid, autofit keeps deciding the widths.
+    let ttp_plain = grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]);
+    let doc = read(&struct_doc(&spec_of(ttp_plain))).expect("opens");
+    let tbl = doc.body.iter().find_map(|b| b.as_table()).expect("table");
+    assert!(tbl.grid.is_empty());
+    assert!(!tbl.props.fixed, "edgeless table stays autofit, props: {:?}", tbl.props);
+}
+
+/// #880 fix round 4, defect 1: real Word rows are written as N content cells, each ended
+/// by its own cell mark, followed by an **empty** row-end (TTP) mark that carries the
+/// row's `sprmTDefTable` (verified against the 3GPP repro: every change-history row is
+/// 8 content marks + an empty TTP whose TDefTable defines itcMac = 8). The row-end mark
+/// terminates the row; when it ends no content of its own and the TDefTable already has
+/// a column per flushed cell, it must not flush a phantom (N+1)th cell — that extra
+/// cell had no column (width `None`) and pushed every real cell's span one column over,
+/// misaligning the fixed grid (Subject 241 pt → ~50 pt).
+#[test]
+fn row_end_mark_is_not_an_extra_cell() {
+    let banner_edges: [i16; 2] = [0, 9639];
+    let data_edges: [i16; 9] = [0, 800, 1600, 2694, 3261, 3686, 4111, 8931, 9639];
+    let mut data_stream = Vec::new();
+    let huge_at = |data_stream: &mut Vec<u8>, real: Vec<u8>| -> Vec<u8> {
+        let fc = data_stream.len() as u32;
+        data_stream.extend_from_slice(&(real.len() as u16).to_le_bytes());
+        data_stream.extend_from_slice(&real);
+        grpprl(&[(0x6646, &fc.to_le_bytes())])
+    };
+    let ttp_row = |edges: &[i16]| [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), t_def_table(edges)].concat();
+    let in_tbl = grpprl(&[(0x2416, &[0x01])]);
+    // Banner "B" + row-end, then a data row "a".."h" + row-end, then a tail paragraph.
+    let text = "B\u{7}\u{7}a\u{7}b\u{7}c\u{7}d\u{7}e\u{7}f\u{7}g\u{7}h\u{7}\u{7}tail\r";
+    let spec = StructSpec {
+        text,
+        papx_entries: vec![
+            (0, 0, in_tbl.clone()),                                    // "B" cell paragraph
+            (2, 0, huge_at(&mut data_stream, ttp_row(&banner_edges))), // banner row-end para
+            (3, 0, in_tbl.clone()),                                    // "a"
+            (5, 0, in_tbl.clone()),
+            (7, 0, in_tbl.clone()),
+            (9, 0, in_tbl.clone()),
+            (11, 0, in_tbl.clone()),
+            (13, 0, in_tbl.clone()),
+            (15, 0, in_tbl.clone()),
+            (17, 0, in_tbl.clone()),                                  // "h" cell paragraph
+            (19, 0, huge_at(&mut data_stream, ttp_row(&data_edges))), // data row-end para
+            (20, 0, Vec::new()),                                      // "tail"
+        ],
+        data_stream,
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let tbl = doc.body.iter().find_map(|b| b.as_table()).expect("table");
+    assert_eq!(tbl.rows.len(), 2, "rows: {}", tbl.rows.len());
+    // Banner: one cell spanning the whole (8-column union) grid.
+    assert_eq!(tbl.rows[0].cells.len(), 1, "banner cells: {:?}", tbl.rows[0].cells.len());
+    assert_eq!(tbl.rows[0].cells[0].props.span, 8);
+    assert_eq!(tbl.rows[0].cells[0].props.width, Some(9639.0 / 20.0));
+    // Data row: exactly the TDefTable's 8 cells, each with its own width (computed with
+    // the reader's per-edge i16→pt arithmetic, so the assertion is bit-exact).
+    assert_eq!(tbl.rows[1].cells.len(), 8, "data cells: {}", tbl.rows[1].cells.len());
+    let pts: Vec<f32> = data_edges.iter().map(|&t| t as f32 / 20.0).collect();
+    let want: Vec<Option<f32>> = pts.windows(2).map(|w| Some(w[1] - w[0])).collect();
+    let got: Vec<Option<f32>> = tbl.rows[1].cells.iter().map(|c| c.props.width).collect();
+    assert_eq!(got, want, "data widths");
+    assert!(tbl.rows[1].cells.iter().all(|c| c.props.span == 1), "data spans");
+    let last = doc.body.last().and_then(|b| b.as_para()).expect("tail para");
+    assert_eq!(last.text, "tail");
+}
+
+/// #880 fix round 4, defect 2: the table-level props accumulator was never reset between
+/// tables, so the first table's `sprmTDxaGapHalf` (108 twips = Word's default, written
+/// explicitly) leaked into every later table and the change-history table's own 40-twip
+/// gap lost the first-wins pick — its cells got 5.4 pt side margins instead of 2.0.
+/// Props are per-table: the first row that carries the sprm wins within its own table.
+#[test]
+fn table_props_reset_between_tables() {
+    let in_tbl = grpprl(&[(0x2416, &[0x01])]);
+    let ttp = |gap_tw: i16, align: bool| {
+        let gap = gap_tw.to_le_bytes();
+        let mut prls = vec![(0x2416u16, &[0x01u8][..]), (0x2417, &[0x01][..]), (0x9602, gap.as_slice())];
+        if align {
+            prls.push((0x5400, &[0x01, 0x00][..])); // sprmTJc: center
+        }
+        grpprl(&prls)
+    };
+    let text = "a\u{7}b\u{7}mid\rc\u{7}d\u{7}";
+    let spec = StructSpec {
+        text,
+        papx_entries: vec![
+            (0, 0, in_tbl.clone()),  // "a"
+            (2, 0, ttp(108, true)),  // "b": table 1's row end, 108-twip gap
+            (4, 0, Vec::new()),      // "mid": closes table 1
+            (8, 0, in_tbl),          // "c"
+            (10, 0, ttp(40, false)), // "d": table 2's row end, 40-twip gap
+        ],
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let tables: Vec<&wordcraft_doc::table::Table> = doc.body.iter().filter_map(|b| b.as_table()).collect();
+    assert_eq!(tables.len(), 2, "tables: {}", tables.len());
+    assert_eq!(tables[0].props.cell_margins, Some([0.0, 5.4, 0.0, 5.4]), "table 1 margins");
+    assert_eq!(tables[0].props.align, Some(wordcraft_doc::props::Align::Center), "table 1 align");
+    assert_eq!(tables[1].props.cell_margins, Some([0.0, 2.0, 0.0, 2.0]), "table 2 margins: {:?}", tables[1].props);
+    assert_eq!(tables[1].props.align, None, "table 1's align must not leak");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1169,6 +1611,7 @@ fn list_numbering_parsed() {
     };
     let spec = StructSpec {
         text,
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(text.chars().count() as u32, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],
@@ -1209,6 +1652,7 @@ fn structured_doc() -> Vec<u8> {
     let levels: Vec<Vec<u8>> = (0..9).map(|_| lvl(1, 0x00, &[0x0000, 0x002E], true)).collect();
     let spec = StructSpec {
         text,
+        styles: Vec::new(),
         header_stories: vec!["Running head\r\r"],
         sections: vec![
             (6, Vec::new()), // section 1: the intro paragraph; its header story is the odd header
@@ -1353,6 +1797,66 @@ fn fields_and_hyperlinks() {
 }
 
 #[test]
+fn toc_field_result_becomes_paragraphs() {
+    // "Contents\r" + field begin (\u{13}) " TOC \o "1-3" " sep (\u{14}) + "Foreword\t16\r"
+    // + "Scope\t17\r" + end (\u{15}) + trailing paragraph: the cached entries are content.
+    let raw = "Contents\r\u{13} TOC \\o \"1-3\" \u{14}Foreword\t16\rScope\t17\r\u{15}Tail\r";
+    let f = text_doc(&[Piece { compressed: false, text: raw.into() }], &[], 0);
+    let doc = read(&f).expect("opens");
+    // The entries become real paragraphs (tab preserved), not one field result that
+    // collapses onto the last of them.
+    assert_eq!(body_texts(&doc), ["Contents", "\u{FFFC}Foreword\t16", "Scope\t17", "Tail"]);
+    // One field anchor with an empty result sits on the paragraph that held the begin
+    // character, the way the docx reader anchors a TOC on its heading paragraph.
+    let p1 = doc.body.get(1).and_then(|b| b.as_para()).expect("entry para");
+    assert_eq!(p1.objects.len(), 1, "one anchor for the whole TOC: {:?}", p1.objects);
+    assert!(
+        matches!(p1.objects.first(), Some(wordcraft_doc::para::InlineObject::Field { instr, result, .. }) if instr == "TOC \\o \"1-3\"" && result.is_empty()),
+        "objects: {:?}",
+        p1.objects
+    );
+}
+
+#[test]
+fn truncated_field_keeps_text() {
+    // begin + instr + separator + "partial" with no end character: the walk finishes
+    // the still-open field at the end of its range, so the collected characters are
+    // not lost.
+    let raw = "Head\r\u{13}PAGE\u{14}partial";
+    let f = text_doc(&[Piece { compressed: false, text: raw.into() }], &[], 0);
+    let doc = read(&f).expect("opens");
+    assert_eq!(body_texts(&doc), ["Head", "\u{FFFC}"]);
+    let p1 = doc.body.get(1).and_then(|b| b.as_para()).expect("field para");
+    assert!(
+        matches!(p1.objects.first(), Some(wordcraft_doc::para::InlineObject::Field { instr, result, .. }) if instr == "PAGE" && result == "partial"),
+        "objects: {:?}",
+        p1.objects
+    );
+}
+
+#[test]
+fn nested_field_in_toc_result_keeps_own_anchor() {
+    // A TOC entry's page number is a nested PAGE field: with the TOC spilled, the
+    // inner field keeps today's single-anchor behaviour, its finish_field pushing the
+    // anchor straight into the entry paragraph.
+    let raw = "Contents\r\u{13} TOC \\o \"1-3\" \u{14}Foreword\t\u{13}PAGE\u{14}16\u{15}\r\u{15}Tail\r";
+    let f = text_doc(&[Piece { compressed: false, text: raw.into() }], &[], 0);
+    let doc = read(&f).expect("opens");
+    assert_eq!(body_texts(&doc), ["Contents", "\u{FFFC}Foreword\t\u{FFFC}", "Tail"]);
+    let p1 = doc.body.get(1).and_then(|b| b.as_para()).expect("entry para");
+    let objs = &p1.objects;
+    assert_eq!(objs.len(), 2, "objects: {objs:?}");
+    assert!(
+        matches!(objs.first(), Some(wordcraft_doc::para::InlineObject::Field { instr, result, .. }) if instr == "TOC \\o \"1-3\"" && result.is_empty()),
+        "objects: {objs:?}"
+    );
+    assert!(
+        matches!(objs.get(1), Some(wordcraft_doc::para::InlineObject::Field { instr, result, .. }) if instr == "PAGE" && result == "16"),
+        "objects: {objs:?}"
+    );
+}
+
+#[test]
 fn bookmarks_become_objects() {
     let text = "Hello world\r";
     let ccp = text.chars().count() as u32;
@@ -1434,6 +1938,7 @@ fn extras_doc() -> Vec<u8> {
 fn structured_spec(text: &'static str, ccp: u32) -> StructSpec {
     StructSpec {
         text,
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(ccp, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],
@@ -1477,6 +1982,7 @@ fn huge_story_ranges_are_clamped_to_their_subdocument() {
     let spec = StructSpec {
         text,
         note_stories: vec!["Note body\r"],
+        styles: Vec::new(),
         header_stories: vec!["Head\r"],
         endnote_stories: vec!["End\r"],
         extra_pairs: vec![
@@ -1685,6 +2191,7 @@ fn list_and_lfo_offsets_near_u32_max_are_safe() {
 fn one_section(text: &'static str, sepx: Vec<u8>, papx_entries: Vec<(u32, u16, Vec<u8>)>) -> StructSpec {
     StructSpec {
         text,
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(text.chars().count() as u32, sepx)],
         chpx_runs: vec![(0, Vec::new())],
@@ -1829,19 +2336,454 @@ fn alternate_font_name_keeps_later_entries() {
     }
 }
 
-/// PChgTabsPapxOperand bytes: cb, removed stops, added stops with their TBDs.
-fn tabs_papx(del: &[i16], add: &[(i16, u8)]) -> Vec<u8> {
-    let mut v = vec![0u8, del.len() as u8];
-    for d in del {
-        v.extend_from_slice(&d.to_le_bytes());
+// ---------------------------------------------------------------------------------------------
+// Paragraph text frames ([MS-DOC] §2.6.13): framed paragraph groups become floating parts.
+
+use wordcraft_doc::para::{Anchor, FloatAlign, InlineObject, Wrap};
+
+/// A frame grpprl: PPc 0x50 (page-top / left-margin anchors), PDyaAbs `dya` (plus-one encoded),
+/// PDxaWidth 10206 tw, PWHeightAbs 794 tw, PWr notBeside — the repro title frame's shape.
+fn frame_props(dya: i16) -> Vec<u8> {
+    grpprl(&[(0x261B, &[0x50]), (0x8419, &dya.to_le_bytes()), (0x841A, &10206u16.to_le_bytes()), (0x442B, &794u16.to_le_bytes()), (0x2423, &[0x01])])
+}
+
+/// The (float, w, h, story id) of a body paragraph's single anchor object.
+fn anchor_shape(doc: &wordcraft_doc::Document, at: usize) -> (wordcraft_doc::para::Float, f32, f32, u32) {
+    let p = doc.body.get(at).and_then(|b| b.as_para()).expect("anchor para");
+    match p.objects.first() {
+        Some(InlineObject::Shape { float, w, h, story, .. }) => (float.clone(), *w, *h, story.expect("story")),
+        o => panic!("object at {at}: {o:?}"),
     }
-    v.push(add.len() as u8);
-    for (x, _) in add {
-        v.extend_from_slice(&x.to_le_bytes());
+}
+
+#[test]
+fn framed_paragraphs_become_floating_parts() {
+    // Two consecutive framed paragraphs with equal frame properties: one floating text box
+    // part holding both, one anchor paragraph in the body.
+    let spec = StructSpec {
+        text: "Frame one line A\rFrame one line B\rplain\r",
+        styles: Vec::new(),
+        header_stories: vec![],
+        sections: vec![(40, Vec::new())],
+        chpx_runs: vec![(0, Vec::new())],
+        papx_entries: vec![(0, 0, frame_props(1135)), (17, 0, frame_props(1135)), (34, 0, Vec::new())],
+        plf_lst: Vec::new(),
+        plf_lfo: Vec::new(),
+        note_stories: vec![],
+        endnote_stories: vec![],
+        extra_pairs: Vec::new(),
+        data_stream: Vec::new(),
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    // Body: the anchor paragraph, then the plain one.
+    let texts: Vec<String> = doc.body.iter().filter_map(|b| b.as_para().map(|p| p.text.clone())).collect();
+    assert_eq!(texts, ["\u{FFFC}".to_string(), "plain".to_string()], "body: {texts:?}");
+    let (float, w, h, story) = anchor_shape(&doc, 0);
+    assert_eq!(float.v_rel, Anchor::Page, "PPc 0x50: page-top vertical anchor");
+    assert_eq!(float.h_rel, Anchor::Margin, "PPc 0x50: left-margin horizontal anchor");
+    assert!((float.y - 56.7).abs() < 0.01, "PDyaAbs 1135 minus one = 56.7 pt: {}", float.y);
+    assert!(float.x.abs() < 0.01, "no PDxaAbs: x 0");
+    // The shape box carries the frame size grown by the text box insets the layout adds.
+    assert!((w - 524.7).abs() < 0.01, "PDxaWidth 10206 tw + insets: {w}");
+    assert!((h - 46.9).abs() < 0.01, "PWHeightAbs 794 tw + insets: {h}");
+    assert_eq!(float.wrap, Wrap::TopAndBottom, "PWr 1 = notBeside");
+    assert_eq!(float.h_align, None);
+    assert_eq!(float.v_align, None);
+    // The part holds both framed paragraphs.
+    let part = doc.parts.get(&story).expect("part");
+    assert!(matches!(part.kind, wordcraft_doc::PartKind::TextBox));
+    let in_frame: Vec<&str> = part.blocks.iter().filter_map(|b| b.as_para().map(|p| p.text.as_str())).collect();
+    assert_eq!(in_frame, ["Frame one line A", "Frame one line B"]);
+}
+
+#[test]
+fn framed_table_joins_frame() {
+    // A framed paragraph, then a table whose row-end mark carries the same frame sprms (the
+    // cell-content mark carries none): the whole table joins the paragraph's frame.
+    let p = frame_props(6238);
+    let spec = StructSpec {
+        text: "p\rA\u{7}B\u{7}q\r",
+        styles: Vec::new(),
+        header_stories: vec![],
+        sections: vec![(8, Vec::new())],
+        chpx_runs: vec![(0, Vec::new())],
+        papx_entries: vec![
+            (0, 0, p.clone()),
+            (2, 0, grpprl(&[(0x2416, &[0x01])])),
+            (4, 0, [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01])]), t_def_table(&[0, 2880, 5760]), p].concat()),
+            (6, 0, Vec::new()),
+        ],
+        plf_lst: Vec::new(),
+        plf_lfo: Vec::new(),
+        note_stories: vec![],
+        endnote_stories: vec![],
+        extra_pairs: Vec::new(),
+        data_stream: Vec::new(),
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let texts: Vec<String> = doc.body.iter().filter_map(|b| b.as_para().map(|p| p.text.clone())).collect();
+    assert_eq!(texts, ["\u{FFFC}".to_string(), "q".to_string()], "body: {texts:?}");
+    let (_, _, _, story) = anchor_shape(&doc, 0);
+    let part = doc.parts.get(&story).expect("part");
+    // The part holds the framed paragraph and the table.
+    assert!(part.blocks.iter().any(|b| b.as_para().is_some_and(|p| p.text == "p")));
+    assert!(part.blocks.iter().any(|b| b.as_table().is_some_and(|t| t.rows.len() == 1 && t.rows[0].cells.len() == 2)), "table in part");
+}
+
+#[test]
+fn distinct_frames_do_not_merge() {
+    // Different frame properties (offset and alignment code) keep the paragraphs in two
+    // separate frames: two anchors, two parts.
+    let p1 = grpprl(&[(0x261B, &[0x50]), (0x8418, &(-4i16).to_le_bytes()), (0x442B, &800u16.to_le_bytes())]);
+    let p2 = grpprl(&[(0x261B, &[0x50]), (0x8419, &200i16.to_le_bytes()), (0x442B, &800u16.to_le_bytes())]);
+    let spec = StructSpec {
+        text: "One\rTwo\rThree\r",
+        styles: Vec::new(),
+        header_stories: vec![],
+        sections: vec![(14, Vec::new())],
+        chpx_runs: vec![(0, Vec::new())],
+        papx_entries: vec![(0, 0, p1), (4, 0, p2), (8, 0, Vec::new())],
+        plf_lst: Vec::new(),
+        plf_lfo: Vec::new(),
+        note_stories: vec![],
+        endnote_stories: vec![],
+        extra_pairs: Vec::new(),
+        data_stream: Vec::new(),
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let texts: Vec<String> = doc.body.iter().filter_map(|b| b.as_para().map(|p| p.text.clone())).collect();
+    assert_eq!(texts, ["\u{FFFC}", "\u{FFFC}", "Three"].map(String::from), "body: {texts:?}");
+    let (f1, _, h1, s1) = anchor_shape(&doc, 0);
+    let (f2, _, h2, s2) = anchor_shape(&doc, 1);
+    assert_eq!(f1.h_align, Some(FloatAlign::Center), "PDxaAbs 0xFFFC = center");
+    assert_eq!(f2.h_align, None);
+    assert!((f2.y - 9.95).abs() < 0.01, "PDyaAbs 200 minus one: {}", f2.y);
+    assert!((h1 - 47.2).abs() < 0.01 && (h2 - 47.2).abs() < 0.01, "800 tw + insets");
+    assert_ne!(s1, s2, "two parts");
+    assert!(doc.parts.len() >= 2);
+}
+
+#[test]
+fn framed_style_props_and_direct_override() {
+    // Frame properties may come from the paragraph style's PAPX (the repro's cover), with
+    // direct sprms overriding per property.
+    let style_props = frame_props(1135);
+    let spec = StructSpec {
+        text: "A\rB\r",
+        styles: vec![(1, 0, "ZF", style_props, Vec::new())],
+        header_stories: vec![],
+        sections: vec![(4, Vec::new())],
+        chpx_runs: vec![(0, Vec::new())],
+        papx_entries: vec![(0, 1, Vec::new()), (2, 1, grpprl(&[(0x8419, &2000i16.to_le_bytes())]))],
+        plf_lst: Vec::new(),
+        plf_lfo: Vec::new(),
+        note_stories: vec![],
+        endnote_stories: vec![],
+        extra_pairs: Vec::new(),
+        data_stream: Vec::new(),
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let texts: Vec<String> = doc.body.iter().filter_map(|b| b.as_para().map(|p| p.text.clone())).collect();
+    assert_eq!(texts, ["\u{FFFC}", "\u{FFFC}"].map(String::from), "body: {texts:?}");
+    let (fa, _, _, sa) = anchor_shape(&doc, 0);
+    let (fb, _, _, sb) = anchor_shape(&doc, 1);
+    assert!((fa.y - 56.7).abs() < 0.01, "style y: {}", fa.y);
+    assert!((fb.y - 99.95).abs() < 0.01, "direct PDyaAbs overrides the style's: {}", fb.y);
+    assert_ne!(sa, sb);
+    let text_of = |id: u32| doc.parts.get(&id).expect("part").blocks.iter().find_map(|b| b.as_para()).map(|p| p.text.clone());
+    assert_eq!(text_of(sa).as_deref(), Some("A"));
+    assert_eq!(text_of(sb).as_deref(), Some("B"));
+}
+
+#[test]
+fn framed_junk_values_lenient() {
+    // Junk PC codes, extreme offsets, width-only/height-only frames and a framed last
+    // paragraph: no panic, clamped or defaulted geometry, and a PPc of "not positioned"
+    // (both codes 3) leaving the paragraph in the body.
+    let spec = StructSpec {
+        text: "plain\rppcff\roff\rwonly\rhonly\rlast\r",
+        styles: Vec::new(),
+        header_stories: vec![],
+        sections: vec![(33, Vec::new())],
+        chpx_runs: vec![(0, Vec::new())],
+        papx_entries: vec![
+            (0, 0, Vec::new()),
+            (6, 0, grpprl(&[(0x261B, &[0xFF])])), // both codes 3: not positioned
+            (12, 0, grpprl(&[(0x261B, &[0x50]), (0x8419, &(-32767i16).to_le_bytes()), (0x8418, &32767i16.to_le_bytes()), (0x2423, &[0x99])])),
+            (16, 0, grpprl(&[(0x261B, &[0x50]), (0x841A, &5000u16.to_le_bytes())])),
+            (22, 0, grpprl(&[(0x261B, &[0x30]), (0x442B, &800u16.to_le_bytes())])),
+            (28, 0, grpprl(&[(0x261B, &[0x40]), (0x8419, &(-8i16).to_le_bytes())])),
+        ],
+        plf_lst: Vec::new(),
+        plf_lfo: Vec::new(),
+        note_stories: vec![],
+        endnote_stories: vec![],
+        extra_pairs: Vec::new(),
+        data_stream: Vec::new(),
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    // The 0xFF paragraph stays ordinary body text.
+    assert!(doc.body.iter().any(|b| b.as_para().is_some_and(|p| p.text == "ppcff")), "PPc 3/3 not framed");
+    // The rest become anchors with sane geometry.
+    let mut anchors = 0;
+    for b in &doc.body {
+        let Some(p) = b.as_para() else { continue };
+        for o in &p.objects {
+            let InlineObject::Shape { float, w, h, story, .. } = o else { panic!("{o:?}") };
+            anchors += 1;
+            assert!(w.is_finite() && *w > 0.0 && *w <= 1584.0, "w {w}");
+            assert!(h.is_finite() && *h > 0.0 && *h <= 1584.0, "h {h}");
+            assert!(float.x.abs() <= 1584.0 && float.y.abs() <= 1584.0, "{:?}/{:?}", float.x, float.y);
+            let sid = story.unwrap_or(0);
+            assert!(doc.parts.contains_key(&sid), "story part {sid}");
+        }
     }
-    v.extend(add.iter().map(|(_, tbd)| *tbd));
-    v[0] = (v.len() - 1) as u8;
-    v
+    assert_eq!(anchors, 4, "off, wonly, honly and last are framed");
+    let (foff, _, _, _) = anchor_shape(&doc, 2);
+    assert!((foff.x - 1584.0).abs() < 0.01 && (foff.y + 1584.0).abs() < 0.01, "extremes clamped: {:?}", (foff.x, foff.y));
+    assert_eq!(foff.wrap, Wrap::Square, "junk PWr defaults to wrap-around");
+    let (_, ww, hw, _) = anchor_shape(&doc, 3);
+    assert!((ww - 264.4).abs() < 0.01, "width-only 5000 tw + insets: {ww}");
+    assert!(hw >= 12.0, "height estimated, not zero: {hw}");
+    let (fh, wh, hh, _) = anchor_shape(&doc, 4);
+    assert!((hh - 47.2).abs() < 0.01, "height-only 800 tw + insets: {hh}");
+    assert!((wh - 482.4).abs() < 0.01, "a left-offset frame keeps the column (468) + insets: {wh}");
+    assert_eq!(fh.v_rel, Anchor::Margin, "PPc pcVert 3 falls back to the margin");
+    let (fl, _, _, _) = anchor_shape(&doc, 5);
+    assert_eq!(fl.v_align, Some(FloatAlign::Center), "PDyaAbs 0xFFF8 = center");
+    assert_eq!(fl.v_rel, Anchor::Margin, "PPc 0x40: top page margin anchor");
+}
+
+/// #880. The repro's page header is three framed paragraphs — left, centre and right on one
+/// line, the classic pre-tab header layout — carried by the header subdocument. Frames were
+/// only extracted from the body, so the three stacked as ordinary lines.
+#[test]
+fn header_frame_paragraphs_float() {
+    let frame = |x: Option<i16>| {
+        let mut prls = vec![(0x261B, vec![0x60])]; // column/margin anchors, paragraph-anchored
+        if let Some(x) = x {
+            prls.push((0x8418, x.to_le_bytes().to_vec()));
+        }
+        prls.push((0x8419, 7i16.to_le_bytes().to_vec()));
+        prls.push((0x442B, 284u16.to_le_bytes().to_vec()));
+        grpprl(&prls.iter().map(|(op, o)| (*op, o.as_slice())).collect::<Vec<_>>())
+    };
+    let spec = StructSpec {
+        text: "body\r",
+        header_stories: vec!["One\rTwo\rThree\r\r"],
+        // Paragraphs start at CPs 5/9/13 (main text is 5 chars); the PAPX key is the CP
+        // the paragraph starts at (queried with its mark's FC).
+        papx_entries: vec![(0, 0, Vec::new()), (5, 0, frame(Some(-8))), (9, 0, frame(Some(-4))), (13, 0, frame(None))],
+        ..structured_spec("body\r", 5)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let id = doc.last_section.headers.default.expect("header part");
+    let part = doc.parts.get(&id).expect("part");
+    let paras: Vec<_> = part.blocks.iter().filter_map(|b| b.as_para()).collect();
+    assert_eq!(paras.len(), 3, "three anchors: {:?}", paras.iter().map(|p| p.text.clone()).collect::<Vec<_>>());
+    let text_of = |p: &wordcraft_doc::Paragraph| -> String {
+        p.objects
+            .iter()
+            .find_map(|o| match o {
+                InlineObject::Shape { story, .. } => doc
+                    .parts
+                    .get(&story.unwrap_or(0))
+                    .map(|part| part.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.text.clone()).collect::<Vec<_>>().join("\u{1}")),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    let aligns: Vec<Option<FloatAlign>> = paras
+        .iter()
+        .map(|p| {
+            p.objects
+                .iter()
+                .find_map(|o| match o {
+                    InlineObject::Shape { float, .. } => Some(float.h_align),
+                    _ => None,
+                })
+                .flatten()
+        })
+        .collect();
+    assert_eq!(aligns, [Some(FloatAlign::End), Some(FloatAlign::Center), None], "right, centre, left");
+    assert_eq!(text_of(paras[0]), "One");
+    assert_eq!(text_of(paras[1]), "Two");
+    assert_eq!(text_of(paras[2]), "Three\u{1}");
+    for (i, p) in paras.iter().enumerate() {
+        let InlineObject::Shape { float, w, h, .. } = p.objects.first().expect("shape") else { panic!() };
+        assert_eq!(float.v_rel, Anchor::Paragraph);
+        assert!((h - 21.4).abs() < 0.01, "284 tw + insets: {h}");
+        // The aligned frames' boxes hug their content (so the three share one line); the
+        // left-offset one keeps the column.
+        if i < 2 {
+            assert!(*w > 12.0 && *w < 80.0, "content-width box: {w}");
+        } else {
+            assert!(*w > 400.0, "left-offset frame keeps the column: {w}");
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------
+// Tab stops: sprmPChgTabsPapx (0xC60D) and sprmPChgTabs (0xC615) — TOC dot leaders and
+// tabbed header lines (#880).
+
+use wordcraft_doc::props::{TabAlign, TabLeader, TabStop};
+
+/// A PChgTabsPapxOperand: cb, the deleted positions, then (position, descriptor) adds.
+fn tabs_papx(dels: &[i16], adds: &[(i16, u8)]) -> Vec<u8> {
+    let mut v = vec![dels.len() as u8];
+    v.extend(dels.iter().flat_map(|d| d.to_le_bytes()));
+    v.push(adds.len() as u8);
+    v.extend(adds.iter().flat_map(|(p, _)| p.to_le_bytes()));
+    v.extend(adds.iter().map(|(_, t)| *t));
+    let mut out = vec![v.len() as u8];
+    out.extend(v);
+    out
+}
+
+/// A PChgTabsOperand (sprmPChgTabs): like [`tabs_papx`] with a rgdxaClose i16 per delete.
+fn tabs_close(dels: &[i16], adds: &[(i16, u8)]) -> Vec<u8> {
+    let mut v = vec![dels.len() as u8];
+    v.extend(dels.iter().flat_map(|d| d.to_le_bytes()));
+    v.extend(dels.iter().flat_map(|_| 25i16.to_le_bytes()));
+    v.push(adds.len() as u8);
+    v.extend(adds.iter().flat_map(|(p, _)| p.to_le_bytes()));
+    v.extend(adds.iter().map(|(_, t)| *t));
+    let mut out = vec![v.len() as u8];
+    out.extend(v);
+    out
+}
+
+/// One paragraph with `grpprl` as its whole PAPX, body style Normal.
+fn one_para_doc(papx: Vec<u8>) -> wordcraft_doc::Document {
+    let text = "Entry\t12\r";
+    let spec = StructSpec { papx_entries: vec![(0, 0, papx)], ..structured_spec(text, 9) };
+    read(&struct_doc(&spec)).expect("opens")
+}
+
+#[test]
+fn tab_stops_decode_from_papx() {
+    // The repro's own "toc 1" operand: one right tab at 9639 twips (17 cm, the column
+    // width) with a dot leader — TBD 0x0A is jc 2 (right), tlc 1 (dot).
+    let doc = one_para_doc(grpprl(&[(0xC60D, &[0x05, 0x00, 0x01, 0xA7, 0x25, 0x0A])]));
+    assert_eq!(para0(&doc).props.tabs, Some(vec![TabStop { pos: 481.95, align: TabAlign::Right, leader: TabLeader::Dot }]));
+}
+
+#[test]
+fn tabs_from_style_chain() {
+    // "toc 2" is based on "toc 1", which carries the tab; a plain "toc 2" paragraph
+    // inherits it through the chain.
+    let toc1 = grpprl(&[(0xC60D, &[0x05, 0x00, 0x01, 0xA7, 0x25, 0x0A])]);
+    let text = "5.9\tCore network security\t35\r";
+    let spec = StructSpec {
+        styles: vec![(1, 0x0FFF, "toc 1", toc1, Vec::new()), (1, 1, "toc 2", Vec::new(), Vec::new())],
+        papx_entries: vec![(0, 2, Vec::new())],
+        ..structured_spec(text, 29)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let p = para0(&doc);
+    assert_eq!(p.props.style.as_deref(), Some("Toc 2"));
+    assert_eq!(p.props.tabs, None, "the stops live on the style, not the paragraph");
+    assert_eq!(doc.styles.resolve_para(&p.props).tabs, vec![TabStop { pos: 481.95, align: TabAlign::Right, leader: TabLeader::Dot }]);
+}
+
+#[test]
+fn tab_delete_removes_stop() {
+    // The style sets a left stop at 2840 twips; the paragraph deletes it (a Clear stop)
+    // and adds a right stop at 5000. Effective tabs: the style's other stop plus the add.
+    let style = grpprl(&[(0xC60D, &tabs_papx(&[], &[(2840, 0x00), (9639, 0x0A)]))]);
+    let text = "x\ty\r";
+    let spec = StructSpec {
+        styles: vec![(1, 0x0FFF, "Base", style, Vec::new())],
+        papx_entries: vec![(0, 1, grpprl(&[(0xC60D, &tabs_papx(&[2840], &[(5000, 0x02)]))]))],
+        ..structured_spec(text, 4)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let p = para0(&doc);
+    // Direct formatting: the delete as a Clear stop, the add as-is.
+    assert_eq!(
+        p.props.tabs,
+        Some(vec![
+            TabStop { pos: 142.0, align: TabAlign::Clear, leader: TabLeader::None },
+            TabStop { pos: 250.0, align: TabAlign::Right, leader: TabLeader::None }
+        ])
+    );
+    let resolved = doc.styles.resolve_para(&p.props).tabs;
+    assert_eq!(
+        resolved,
+        vec![
+            TabStop { pos: 250.0, align: TabAlign::Right, leader: TabLeader::None },
+            TabStop { pos: 481.95, align: TabAlign::Right, leader: TabLeader::Dot }
+        ]
+    );
+}
+
+#[test]
+fn tabbed_header_line() {
+    // A header paragraph with centre and right tabs decodes both, in its own story.
+    let spec = StructSpec {
+        text: "body\r",
+        header_stories: vec!["Head\t18\t3GPP\r\r"],
+        // The header paragraph starts at CP 5 (main text is 5 chars); the PAPX key is that CP.
+        papx_entries: vec![(0, 0, Vec::new()), (5, 0, grpprl(&[(0xC60D, &tabs_papx(&[], &[(4820, 0x01), (9639, 0x02)]))]))],
+        ..structured_spec("body\r", 5)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let id = doc.last_section.headers.default.expect("header part");
+    let part = doc.parts.get(&id).expect("part");
+    let p = part.blocks.iter().find_map(|b| b.as_para()).expect("header para");
+    assert!(p.text.contains('\t'), "{}", p.text);
+    assert_eq!(
+        p.props.tabs,
+        Some(vec![
+            TabStop { pos: 241.0, align: TabAlign::Center, leader: TabLeader::None },
+            TabStop { pos: 481.95, align: TabAlign::Right, leader: TabLeader::None }
+        ])
+    );
+}
+
+#[test]
+fn tab_chg_tabs_sprm_and_iter_stays_aligned() {
+    // sprmPChgTabs (piece-table form): deletes carry a rgdxaClose i16 each. Its operand
+    // length must come from the one-byte cb, or the grpprl's later sprms are lost.
+    let doc = one_para_doc(grpprl(&[(0xC615, &tabs_close(&[1420], &[(2500, 0x0A)])), (0x2461, &[0x01])]));
+    let p = para0(&doc);
+    assert_eq!(
+        p.props.tabs,
+        Some(vec![
+            TabStop { pos: 71.0, align: TabAlign::Clear, leader: TabLeader::None },
+            TabStop { pos: 125.0, align: TabAlign::Right, leader: TabLeader::Dot }
+        ])
+    );
+    assert_eq!(p.props.align, Some(wordcraft_doc::props::Align::Center), "the sprm after it still applies");
+}
+
+#[test]
+fn tabs_lenient_under_hostile_operands() {
+    // A zero cb, a cb claiming far more than the grpprl holds (the Prl is dropped whole),
+    // counts that lie about the payload, junk descriptor bits and extreme positions:
+    // no panic, lenient decodes, everything clamped.
+    let doc = one_para_doc(grpprl(&[(0xC60D, &[0x00])]));
+    assert_eq!(para0(&doc).props.tabs, None);
+    let doc = one_para_doc(grpprl(&[(0xC60D, &[0xFF, 0x00, 0x01, 0xA7, 0x25, 0x0A])]));
+    assert_eq!(para0(&doc).props.tabs, None, "cb beyond the grpprl drops the sprm");
+    // cDel claims 50 deletes; only two i16s are really there.
+    let doc = one_para_doc(grpprl(&[(0xC60D, &[0x05, 0x32, 0x01, 0x18, 0x0B, 0x9A])]));
+    assert_eq!(
+        para0(&doc).props.tabs,
+        Some(vec![
+            TabStop { pos: 307.25, align: TabAlign::Clear, leader: TabLeader::None },
+            TabStop { pos: -1305.05, align: TabAlign::Clear, leader: TabLeader::None }
+        ])
+    );
+    // Junk descriptor: unknown jc and tlc codes fall back to left with no leader.
+    let doc = one_para_doc(grpprl(&[(0xC60D, &[0x05, 0x00, 0x01, 0x0F, 0x27, 0xFF])]));
+    assert_eq!(para0(&doc).props.tabs, Some(vec![TabStop { pos: 499.95, align: TabAlign::Left, leader: TabLeader::None }]));
+    // Extreme positions clamp to ±22".
+    let doc = one_para_doc(grpprl(&[(0xC60D, &[0x05, 0x00, 0x01, 0xFF, 0x7F, 0x00])]));
+    assert_eq!(para0(&doc).props.tabs, Some(vec![TabStop { pos: 1584.0, align: TabAlign::Left, leader: TabLeader::None }]));
+    let doc = one_para_doc(grpprl(&[(0xC60D, &[0x05, 0x00, 0x01, 0x00, 0x80, 0x00])]));
+    assert_eq!(para0(&doc).props.tabs, Some(vec![TabStop { pos: -1584.0, align: TabAlign::Left, leader: TabLeader::None }]));
 }
 
 /// Custom tab stops ([MS-DOC] sprmPChgTabsPapx, sprmPChgTabs) were skipped, so tab-aligned text
@@ -1911,6 +2853,7 @@ fn section_marks_end_paragraphs() {
     use wordcraft_doc::section::SectionStart;
     let spec = StructSpec {
         text: "first\u{C}second\r",
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(6, grpprl(&[(0x3009, &[0x00])])), (13, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],
@@ -1972,6 +2915,7 @@ fn word_table_doc(row1: Vec<u8>, row2: Vec<u8>, row3: Vec<u8>) -> wordcraft_doc:
     let ttp = |extra: Vec<u8>| [grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01]), (0x6649, &[1, 0, 0, 0])]), extra].concat();
     let spec = StructSpec {
         text,
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(text.chars().count() as u32, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],
@@ -2168,6 +3112,7 @@ fn second_table_gets_its_own_grid() {
     };
     let spec = StructSpec {
         text,
+        styles: Vec::new(),
         header_stories: vec![],
         sections: vec![(text.chars().count() as u32, Vec::new())],
         chpx_runs: vec![(0, Vec::new())],

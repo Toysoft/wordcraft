@@ -4,7 +4,7 @@
 
 use crate::dib::Rgba;
 use crate::geom::{Op, P};
-use crate::{MAX_BYTES, MAX_ITEMS, MAX_OBJECTS, MAX_PATH_OPS, MAX_STACK};
+use crate::{MAX_BYTES, MAX_ITEMS, MAX_OBJECTS, MAX_PATH_OPS, MAX_STACK, TextHAlign, TextVAlign};
 
 pub(crate) const MM_TEXT: u32 = 1;
 const MM_ISOTROPIC: u32 = 7;
@@ -16,6 +16,9 @@ pub(crate) const PS_STYLE_MASK: u32 = 0x0F;
 const BS_SOLID: u32 = 0;
 pub(crate) const BS_NULL: u32 = 1;
 const WINDING: u32 = 2;
+/// SETTEXTALIGN's TA_UPDATECP: text records draw at the current position, which the run's extent
+/// then advances (MS-EMF §2.1.11).
+const TA_UPDATECP: u32 = 0x01;
 /// SETROP2 mix mode that leaves the destination alone: outlines and fills draw nothing.
 const R2_NOP: u32 = 11;
 const PATCOPY: u32 = 0x00F0_0021;
@@ -54,11 +57,31 @@ pub(crate) struct Brush {
     pub color: [u8; 4],
 }
 
-#[derive(Clone, Copy, Debug)]
+/// A logical font for text records: the facename (empty for GDI's default), the character height
+/// in logical units, and the escapement (lfEscapement in degrees, 0..360) that turns the run
+/// against its baseline. Metafiles carry no font metrics, so the renderers substitute the face by
+/// name.
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct Font {
+    pub name: String,
+    pub height: f64,
+    /// lfEscapement in degrees, normalised to 0..360: 90 reads bottom-to-top.
+    pub escapement: f64,
+}
+
+impl Default for Font {
+    fn default() -> Self {
+        // GDI's default font: no facename, a 12-unit body, upright.
+        Font { name: String::new(), height: 12.0, escapement: 0.0 }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) enum Obj {
     Pen(Pen),
     Brush(Brush),
-    /// Fonts, palettes, pattern brushes and regions: they take a table slot but draw nothing.
+    Font(Font),
+    /// Palettes, pattern brushes and regions: they take a table slot but draw nothing.
     Other,
 }
 
@@ -143,6 +166,15 @@ impl Mapping {
         matches!(self.mode, MM_ISOTROPIC | MM_ANISOTROPIC)
     }
 
+    /// The world transform's rotation in degrees, in the escapement's convention (positive turns a
+    /// run's baseline counterclockwise on screen, so the run reads bottom-to-top at 90). Only the
+    /// rotation is kept: the run is never sheared, and its height already scales by the transform's
+    /// mean factor. A degenerate transform has no rotation.
+    pub fn world_rotation(&self) -> f64 {
+        let w = self.world;
+        (-w[1]).atan2(w[0]).to_degrees()
+    }
+
     pub fn window_ext(&self) -> P {
         self.we
     }
@@ -166,8 +198,45 @@ fn ratio(num: f64, den: f64) -> f64 {
 
 /// Output of drawing, in device units. Path points are already mapped; `lib.rs` normalises them.
 pub(crate) enum Raw {
-    Path { ops: Vec<Op>, fill: Option<[u8; 4]>, stroke: Option<([u8; 4], f64)>, even_odd: bool },
-    Bitmap { rect: [f64; 4], img: Rgba },
+    Path {
+        ops: Vec<Op>,
+        fill: Option<[u8; 4]>,
+        stroke: Option<([u8; 4], f64)>,
+        even_odd: bool,
+    },
+    Bitmap {
+        rect: [f64; 4],
+        img: Rgba,
+    },
+    /// A text run: the reference point and character height in device units, the facename, the
+    /// colour, the anchor modes and the rotation in degrees (90 reads bottom-to-top).
+    Text {
+        at: P,
+        text: String,
+        font: String,
+        h: f64,
+        color: [u8; 4],
+        align_h: TextHAlign,
+        align_v: TextVAlign,
+        rotation: f64,
+    },
+}
+
+/// The anchor modes of a SetTextAlign value ([MS-EMF] §2.1.11): the horizontal bits (mask 6) hold
+/// TA_CENTER (6) and TA_RIGHT (2), the vertical bits (mask 24) TA_BASELINE (24) and TA_BOTTOM (8).
+/// Junk values fall back to the GDI defaults, left and top.
+pub(crate) fn text_anchors(mode: u32) -> (TextHAlign, TextVAlign) {
+    let align_h = match mode & 0x06 {
+        0x06 => TextHAlign::Center,
+        0x02 => TextHAlign::Right,
+        _ => TextHAlign::Left,
+    };
+    let align_v = match mode & 0x18 {
+        0x18 => TextVAlign::Baseline,
+        0x08 => TextVAlign::Bottom,
+        _ => TextVAlign::Top,
+    };
+    (align_h, align_v)
 }
 
 #[derive(Clone)]
@@ -175,6 +244,9 @@ struct Saved {
     map: Mapping,
     pen: Pen,
     brush: Brush,
+    font: Font,
+    text_color: [u8; 4],
+    text_align: u32,
     even_odd: bool,
     nop: bool,
 }
@@ -198,6 +270,11 @@ pub(crate) struct Canvas {
     pub slot_probes: usize,
     pen: Pen,
     brush: Brush,
+    font: Font,
+    /// The colour text records draw in (SETTEXTCOLOR); opaque black by default.
+    text_color: [u8; 4],
+    /// The text alignment (SETTEXTALIGN); 0 is GDI's default, TA_LEFT|TA_TOP|TA_NOUPDATECP.
+    text_align: u32,
     even_odd: bool,
     /// The mix mode is R2_NOP: shapes draw nothing.
     nop: bool,
@@ -222,6 +299,9 @@ impl Canvas {
             slot_probes: 0,
             pen: Pen { style: 0, width: 0.0, color: [0, 0, 0, 255] },
             brush: Brush { style: BS_SOLID, color: [255, 255, 255, 255] },
+            font: Font::default(),
+            text_color: [0, 0, 0, 255],
+            text_align: 0,
             even_odd: true,
             nop: false,
             pos: (0.0, 0.0),
@@ -240,6 +320,7 @@ impl Canvas {
         let cost = match &raw {
             Raw::Path { ops, .. } => ops.len() * std::mem::size_of::<Op>(),
             Raw::Bitmap { img, .. } => img.px.len(),
+            Raw::Text { text, font, .. } => text.len() + font.len(),
         };
         if self.items.len() >= MAX_ITEMS || self.used.saturating_add(cost) > MAX_BYTES {
             self.full = true;
@@ -302,6 +383,49 @@ impl Canvas {
         self.nop = mode == R2_NOP;
     }
 
+    /// EMR_SETTEXTCOLOR: the colour text records draw in.
+    pub fn set_text_color(&mut self, color: [u8; 4]) {
+        self.text_color = color;
+    }
+
+    /// EMR_SETTEXTALIGN: how text records anchor at their reference point.
+    pub fn set_text_align(&mut self, mode: u32) {
+        self.text_align = mode;
+    }
+
+    /// Draws a text run at the logical reference point with the selected font and the text colour.
+    /// The point maps through the DC transform; the height scales by its mean factor, as pen widths
+    /// do. The run anchors per the current text alignment and turns by the font's escapement plus
+    /// the world transform's rotation (only the rotation is kept; the run is never sheared).
+    /// With TA_UPDATECP the run draws at the current position (the EMRTEXT point is ignored) and the
+    /// position advances by the run's extent — the sum of the per-character `dx` advances when the
+    /// record carries them (logical units, GDI's own numbers), else a lenient estimate of half the
+    /// character height per character — along the escapement direction. Per-character positions and
+    /// clipping are out of scope.
+    pub fn text(&mut self, at: P, text: String, dx: &[f64]) {
+        if text.is_empty() || self.nop {
+            return;
+        }
+        let updatecp = self.text_align & TA_UPDATECP != 0;
+        let at = self.map.device(if updatecp { self.pos } else { at });
+        let h = self.font.height * self.map.scale();
+        let font = self.font.name.clone();
+        let color = self.text_color;
+        let (align_h, align_v) = text_anchors(self.text_align);
+        let rotation = (self.font.escapement + self.map.world_rotation()).rem_euclid(360.0);
+        let chars = text.chars().count();
+        self.push(Raw::Text { at, text, font, h, color, align_h, align_v, rotation });
+        if updatecp {
+            // The extent: the record's own Dx sum when it has one, else a lenient half the
+            // character height per character. A hostile sum (huge or non-finite) does not advance.
+            let extent = if dx.is_empty() { chars as f64 * self.font.height * 0.5 } else { dx.iter().sum() };
+            if extent.is_finite() && extent.abs() <= 1e7 {
+                let t = self.font.escapement.to_radians();
+                self.pos = (self.pos.0 + extent * t.cos(), self.pos.1 - extent * t.sin());
+            }
+        }
+    }
+
     /// EMF SETWORLDTRANSFORM (`mode` 4) and MODIFYWORLDTRANSFORM (1 identity, 2 left, 3 right, 4 set).
     /// An unknown mode leaves the world transform as it was.
     pub fn modify_world(&mut self, x: Xform, mode: u32) {
@@ -318,7 +442,16 @@ impl Canvas {
     /// could no longer match the file.
     pub fn save_dc(&mut self) {
         if self.saved.len() < MAX_STACK {
-            self.saved.push(Saved { map: self.map, pen: self.pen, brush: self.brush, even_odd: self.even_odd, nop: self.nop });
+            self.saved.push(Saved {
+                map: self.map,
+                pen: self.pen,
+                brush: self.brush,
+                font: self.font.clone(),
+                text_color: self.text_color,
+                text_align: self.text_align,
+                even_odd: self.even_odd,
+                nop: self.nop,
+            });
         } else {
             self.full = true;
         }
@@ -333,6 +466,9 @@ impl Canvas {
         self.map = s.map;
         self.pen = s.pen;
         self.brush = s.brush;
+        self.font = s.font;
+        self.text_color = s.text_color;
+        self.text_align = s.text_align;
         self.even_odd = s.even_odd;
         self.nop = s.nop;
     }
@@ -381,9 +517,10 @@ impl Canvas {
         if i & STOCK != 0 {
             return self.select_stock(i & !STOCK);
         }
-        match self.objects.get(i as usize).copied().flatten() {
+        match self.objects.get(i as usize).cloned().flatten() {
             Some(Obj::Pen(p)) => self.pen = p,
             Some(Obj::Brush(b)) => self.brush = b,
+            Some(Obj::Font(f)) => self.font = f,
             Some(Obj::Other) | None => {}
         }
     }
@@ -402,6 +539,8 @@ impl Canvas {
             6 => self.pen = Pen { style: 0, width: 0.0, color: white },
             7 | 19 => self.pen = Pen { style: 0, width: 0.0, color: black },
             8 => self.pen = Pen { style: PS_NULL, width: 0.0, color: black },
+            // The stock fonts (OEM_FIXED_FONT, SYSTEM_FONT, DEVICE_DEFAULT_FONT, DEFAULT_GUI_FONT).
+            10 | 12 | 13 | 14 => self.font = Font::default(),
             _ => {}
         }
     }

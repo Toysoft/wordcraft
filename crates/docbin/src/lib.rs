@@ -12,6 +12,7 @@ mod drawing;
 mod fib;
 mod fkp;
 mod fmt;
+mod frame;
 mod list;
 mod media;
 mod notes;
@@ -48,6 +49,12 @@ const C_PIC_LOCATION: u16 = 0x6A03;
 /// `sprmPIlvl` / `sprmPIlfo`: the paragraph's list level and list.
 const P_ILVL: u16 = 0x260A;
 const P_ILFO: u16 = 0x460B;
+/// `sprmPHugePapx`: the PAPX is too large for the FKP, so the grpprl lives in the Data
+/// stream at the fc this sprm's 4-byte operand names ([MS-DOC] §2.6.68).
+const P_HUGE_PAPX: u16 = 0x6646;
+/// Most bytes one huge PAPX occupies in the Data stream: the `cb` u16 plus the grpprl it
+/// counts.
+const MAX_HUGE_PAPX: usize = 65_537;
 
 /// Errors from reading a Word 97-2003 binary file.
 #[derive(Debug, thiserror::Error, Clone, PartialEq)]
@@ -142,7 +149,6 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocbinError> {
         notes: &[],
         marks: &[],
         drawn: &[],
-        sect_ends: &[],
     };
 
     // Drawings: text box stories become parts first, then the floating shapes and pictures
@@ -161,7 +167,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocbinError> {
             if doc.parts.len() >= MAX_PARTS || tb_stories.contains_key(&spid) {
                 continue;
             }
-            let blocks = table::assemble(walk(&ctx, a, b, &mut pics));
+            let blocks = table::assemble(walk(&ctx, a, b, &[], &mut pics));
             tb_stories.insert(spid, doc.add_part(PartKind::TextBox, blocks));
         }
     }
@@ -186,7 +192,13 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocbinError> {
                 0 | 1 | 4 => PartKind::Header,
                 _ => PartKind::Footer,
             };
-            let blocks = table::assemble(walk(&ctx, a, b, &mut pics));
+            // A header/footer story's framed paragraphs float within it like the body's
+            // (the repro's one-line header is three left/centre/right framed paragraphs).
+            // The owning section alone is passed, so a frame's default width uses its own
+            // section's column, not the last one's.
+            let sect = sects.get(si..si + 1).unwrap_or(&sects[..]);
+            let paras = frame::extract(walk(&ctx, a, b, &[], &mut pics), sect, &sheet, &mut doc);
+            let blocks = table::assemble(paras);
             if !blocks.is_empty() {
                 let id = doc.add_part(kind, blocks);
                 hf_ids.push((si, k, id));
@@ -199,7 +211,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocbinError> {
     let mut note_links: Vec<(u32, NoteKind, u32)> = Vec::new();
     for (cp, ab) in notes::parse_notes(&table, &fib, fib::pair::PLCF_FND_REF, fib::pair::PLCF_FND_TXT) {
         let Some((a, b)) = story(ftn_base, fib.ccp.ftn, ab) else { continue };
-        let blocks = table::assemble(walk(&ctx, a, b, &mut pics));
+        let blocks = table::assemble(walk(&ctx, a, b, &[], &mut pics));
         if !blocks.is_empty() && doc.parts.len() < MAX_PARTS {
             let id = doc.add_part(PartKind::Footnote, blocks);
             note_links.push((cp, NoteKind::Footnote, id));
@@ -207,7 +219,7 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocbinError> {
     }
     for (cp, ab) in notes::parse_notes(&table, &fib, fib::pair::PLCF_END_REF, fib::pair::PLCF_END_TXT) {
         let Some((a, b)) = story(edn_base, fib.ccp.edn, ab) else { continue };
-        let blocks = table::assemble(walk(&ctx, a, b, &mut pics));
+        let blocks = table::assemble(walk(&ctx, a, b, &[], &mut pics));
         if !blocks.is_empty() && doc.parts.len() < MAX_PARTS {
             let id = doc.add_part(PartKind::Endnote, blocks);
             note_links.push((cp, NoteKind::Endnote, id));
@@ -216,13 +228,17 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocbinError> {
     // Sorted so the main walk finds each reference by binary search.
     note_links.sort_by_key(|(cp, _, _)| *cp);
     let marks = notes::parse_bookmarks(&table, &fib);
-    let mut sect_ends: Vec<u32> = sects.iter().map(|s| s.end_cp).collect();
-    sect_ends.sort_unstable();
-    let ctx = WalkCtx { notes: &note_links, marks: &marks, sect_ends: &sect_ends, ..ctx };
+    let ctx = WalkCtx { notes: &note_links, marks: &marks, ..ctx };
 
     // Sections: each section's properties attach to the paragraph that ends it (its story of
     // header/footer parts included); the section reaching the end of the text is the final one.
-    let mut paras = walk(&ctx, 0, fib.ccp.text, &mut pics);
+    // A non-final section ends at a 0x0C section-break character, so the walk ends a paragraph
+    // there; the CPs are sorted because the walk binary-searches them.
+    let mut sect_ends: Vec<u32> =
+        sects.iter().enumerate().filter(|&(si, s)| si + 1 < sects.len() && s.end_cp < fib.ccp.text).map(|(_, s)| s.end_cp).collect();
+    sect_ends.sort_unstable();
+    sect_ends.dedup();
+    let mut paras = walk(&ctx, 0, fib.ccp.text, &sect_ends, &mut pics);
     let last = sects.last().map(|s| s.props.clone());
     for (si, sec) in sects.iter().enumerate() {
         let mut props = sec.props.clone();
@@ -233,8 +249,11 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocbinError> {
         if is_final {
             continue; // handled below through `last`
         }
-        for p in paras.iter_mut() {
-            if p.end_cp == sec.end_cp {
+        // The last paragraph ending at or before the section CP carries it: normally the
+        // paragraph the 0x0C ends, and the closest earlier one when a broken file's CP
+        // falls between paragraphs.
+        for p in paras.iter_mut().rev() {
+            if p.end_cp <= sec.end_cp {
                 p.para.section = Some(Box::new(props));
                 break;
             }
@@ -249,6 +268,9 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocbinError> {
     }
 
     doc.media.extend(pics.media);
+    // Paragraph text frames: framed groups leave the body flow for floating parts, each
+    // leaving one anchor paragraph behind.
+    let paras = frame::extract(paras, &sects, &sheet, &mut doc);
     doc.body = table::assemble(paras);
     doc.ensure_nonempty();
     Ok(doc)
@@ -280,9 +302,6 @@ struct WalkCtx<'a> {
     marks: &'a [(u32, notes::Mark)],
     /// Floating shapes and pictures by anchor CP (absolute), sorted.
     drawn: &'a [(u32, InlineObject)],
-    /// Where sections end (main-document CPs, sorted): the section mark (0x0C) just before
-    /// each ends the section's last paragraph, it isn't a page break inside it.
-    sect_ends: &'a [u32],
 }
 
 /// State while assembling one paragraph from per-CP formatting.
@@ -318,14 +337,17 @@ impl ParaBuild {
 
 /// Walk a CP range, splitting paragraphs at 0x0D/0x07 marks, applying the direct character
 /// formatting of each CP and the paragraph formatting of each mark. Works for the main
-/// document and for any subdocument range (headers, footers, notes…). Field characters,
-/// note references, bookmarks and inline pictures become inline objects; pictures go into
-/// `pics`, which shares one media entry per Data-stream location.
+/// document and for any subdocument range (headers, footers, notes…). A 0x0C character ends
+/// its paragraph like a mark when `sect_ends` (the sorted CPs just past the main document's
+/// non-final section breaks, from PlcfSed) lists its CP + 1; every other 0x0C is a plain
+/// page break and stays inline, which is also how subdocument walks see them (`&[]`).
+/// Field characters, note references, bookmarks and inline pictures become inline objects;
+/// pictures go into `pics`, which shares one media entry per Data-stream location.
 ///
 /// The range is clamped to the last piece's CP, and unreadable stretches (gaps, truncated
 /// pieces) are skipped a whole piece at a time, so the work is bounded by the text that
 /// really exists, not by the CP numbers a file claims.
-fn walk(ctx: &WalkCtx, cp_start: u32, cp_end: u32, pics: &mut media::Pictures) -> Vec<ParaOut> {
+fn walk(ctx: &WalkCtx, cp_start: u32, cp_end: u32, sect_ends: &[u32], pics: &mut media::Pictures) -> Vec<ParaOut> {
     let cp_end = cp_end.min(ctx.pieces.cp_end());
     let mut out = Vec::new();
     let mut pb = ParaBuild::default();
@@ -333,6 +355,8 @@ fn walk(ctx: &WalkCtx, cp_start: u32, cp_end: u32, pics: &mut media::Pictures) -
     let mut marks = ctx.marks.iter().peekable();
     // Field assembly state: instruction characters are swallowed, the result is kept until
     // the end character, then emitted as one object (hyperlinks keep their result text).
+    // A range field (TOC) instead anchors itself at the separator and spills its result
+    // into the paragraphs as ordinary content.
     let mut field: Option<FieldBuild> = None;
     while cp < cp_end {
         // Bookmark boundaries at this CP (main-document walks only; subdocument walks get
@@ -356,63 +380,18 @@ fn walk(ctx: &WalkCtx, cp_start: u32, cp_end: u32, pics: &mut media::Pictures) -
                 continue;
             }
         };
-        // A section mark (0x0C) at a section's end is that section's last paragraph mark.
-        let section_mark = c == '\u{C}' && ctx.sect_ends.binary_search(&cp.saturating_add(1)).is_ok();
         match c {
-            '\r' | '\u{7}' | '\u{C}' if c != '\u{C}' || section_mark => {
-                // Paragraph mark: its PAPX covers the FC range of the paragraph it ends, so
-                // querying at the mark's own FC finds that paragraph's properties.
-                let fc_mark = ctx.pieces.fc_of_cp(cp).unwrap_or(0);
-                let (istd, papx) = ctx.papx_bins.papx(ctx.word, fc_mark);
-                if let Some(st) = ctx.raw_styles.get(istd as usize).filter(|s| !s.name.is_empty()) {
-                    pb.props.style = Some(fmt::style_id(&st.name));
-                }
-                let mut row = table::decode(papx);
-                row.cell_mark = c == '\u{7}';
-                let mut ilvl = 0u8;
-                let mut ilfo = 0i32;
-                for prl in sprm::iter(papx) {
-                    if prl.op == P_ILVL {
-                        ilvl = prl.operand.first().copied().unwrap_or(0).min(8);
-                        continue;
-                    }
-                    if prl.op == P_ILFO {
-                        ilfo = match prl.operand {
-                            [b0, b1, ..] => i16::from_le_bytes([*b0, *b1]) as i32,
-                            _ => 0,
-                        };
-                        continue;
-                    }
-                    if prl.sgc() == 1 {
-                        fmt::apply_para(&mut pb.props, &prl);
-                    }
-                }
-                if let Some(num) = num_of(ilfo) {
-                    pb.props.numbering = Some(NumRef { num, level: ilvl });
-                }
-                let fc = ctx.pieces.fc_of_cp(cp).unwrap_or(0);
-                pb.mark = char_props(ctx.chpx_bins.chpx(ctx.word, fc), ctx.fonts, &CharProps::default());
-                let done = std::mem::take(&mut pb);
-                out.push(ParaOut {
-                    para: Paragraph {
-                        text: done.text,
-                        runs: done.runs,
-                        props: done.props,
-                        mark: done.mark,
-                        objects: done.objects,
-                        ..Default::default()
-                    },
-                    end_cp: cp.saturating_add(1),
-                    row,
-                });
-            }
+            '\r' | '\u{7}' => end_paragraph(ctx, cp, c, &mut pb, &mut out),
             // Field begin/separator/end ([MS-DOC] §2.9.84 Plcfld).
             '\u{13}' => {
-                match field.as_mut() {
-                    Some(f) => {
-                        f.depth = f.depth.saturating_add(1);
-                    }
-                    None => field = Some(FieldBuild { depth: 1, instr: String::new(), sep: None }),
+                // A field begun inside a spilled range field's result (a TOC entry's page
+                // number) is its own field: the range field already anchored itself at its
+                // separator, so the inner one starts fresh and its `finish_field` pushes
+                // the anchor straight into the paragraph.
+                if field.as_ref().is_none_or(|f| f.range && f.sep.is_some()) {
+                    field = Some(FieldBuild { depth: 1, instr: String::new(), sep: None, range: false });
+                } else if let Some(f) = field.as_mut() {
+                    f.depth = f.depth.saturating_add(1);
                 }
                 cp = cp.saturating_add(1);
                 continue;
@@ -423,6 +402,16 @@ fn walk(ctx: &WalkCtx, cp_start: u32, cp_end: u32, pics: &mut media::Pictures) -
                     && f.sep.is_none()
                 {
                     f.sep = Some(Vec::new());
+                    f.range = is_range_instr(&f.instr);
+                    if f.range {
+                        // A TOC's cached result is real content that spans paragraphs:
+                        // anchor the field here with an empty result, as the docx reader
+                        // anchors a TOC on its heading paragraph, and let the entries
+                        // spill into the paragraphs below.
+                        let instr = f.instr.trim().to_string();
+                        pb.push('\u{FFFC}', CharProps::default());
+                        pb.objects.push(InlineObject::Field { instr, result: String::new(), locked: false, code: false });
+                    }
                 }
                 cp = cp.saturating_add(1);
                 continue;
@@ -477,6 +466,12 @@ fn walk(ctx: &WalkCtx, cp_start: u32, cp_end: u32, pics: &mut media::Pictures) -
             }
             '\t' => push_formatted(&mut pb, cp, '\t', ctx, field.as_mut()),
             '\u{B}' => push_formatted(&mut pb, cp, '\n', ctx, field.as_mut()),
+            // Section break: the 0x0C whose CP just past it PlcfSed lists ends its
+            // paragraph exactly like a mark, so the section's properties find a paragraph
+            // to attach to in `read`. The character itself is not emitted as text.
+            '\u{C}' if sect_ends.binary_search(&cp.saturating_add(1)).is_ok() => {
+                end_paragraph(ctx, cp, c, &mut pb, &mut out);
+            }
             '\u{C}' => push_formatted(&mut pb, cp, '\u{C}', ctx, field.as_mut()),
             '\u{E}' => push_formatted(&mut pb, cp, '\u{E}', ctx, field.as_mut()),
             '\u{1E}' => push_formatted(&mut pb, cp, '\u{2011}', ctx, field.as_mut()),
@@ -488,28 +483,114 @@ fn walk(ctx: &WalkCtx, cp_start: u32, cp_end: u32, pics: &mut media::Pictures) -
         }
         cp = cp.saturating_add(units);
     }
+    // A field still open at the end of its range (a truncated file, or a subdocument whose
+    // story ends mid-field) is finished here so the characters it collected are not lost;
+    // a range field is a no-op — its anchor went out at the separator and its result is
+    // already in the paragraphs.
+    if let Some(f) = field.take() {
+        finish_field(&mut pb, f);
+    }
     if !pb.text.is_empty() {
         let done = pb;
         out.push(ParaOut {
             para: Paragraph { text: done.text, runs: done.runs, props: done.props, mark: done.mark, objects: done.objects, ..Default::default() },
             end_cp: cp_end,
             row: table::RowInfo::default(),
+            frame: None,
         });
     }
     out
 }
 
+/// End the paragraph at a mark character: 0x0D (paragraph mark), 0x07 (cell/row mark) or a
+/// 0x0C section break listed in PlcfSed. The mark's PAPX covers the FC range of the
+/// paragraph it ends, so querying at the mark's own FC finds that paragraph's properties.
+/// An oversized PAPX is swapped for its Data-stream grpprl in `resolve_papx`. The mark
+/// itself is not emitted as text.
+fn end_paragraph(ctx: &WalkCtx, cp: u32, c: char, pb: &mut ParaBuild, out: &mut Vec<ParaOut>) {
+    let fc_mark = ctx.pieces.fc_of_cp(cp).unwrap_or(0);
+    let (istd, papx) = resolve_papx(ctx.papx_bins, ctx.word, ctx.data, fc_mark);
+    if let Some(st) = ctx.raw_styles.get(istd as usize).filter(|s| !s.name.is_empty()) {
+        pb.props.style = Some(fmt::style_id(&st.name));
+    }
+    let mut row = table::decode(papx);
+    row.cell_mark = c == '\u{7}';
+    // Frame sprms resolve through the style chain too: covers built from frame styles carry
+    // their geometry on the styles, not on the paragraphs (the 3GPP repro).
+    let frame = frame::decode(ctx.raw_styles, istd, papx);
+    let mut ilvl = 0u8;
+    let mut ilfo = 0i32;
+    for prl in sprm::iter(papx) {
+        if prl.op == P_ILVL {
+            ilvl = prl.operand.first().copied().unwrap_or(0).min(8);
+            continue;
+        }
+        if prl.op == P_ILFO {
+            ilfo = match prl.operand {
+                [b0, b1, ..] => i16::from_le_bytes([*b0, *b1]) as i32,
+                _ => 0,
+            };
+            continue;
+        }
+        if prl.sgc() == 1 {
+            fmt::apply_para(&mut pb.props, &prl);
+        }
+    }
+    if let Some(num) = num_of(ilfo) {
+        pb.props.numbering = Some(NumRef { num, level: ilvl });
+    }
+    let fc = ctx.pieces.fc_of_cp(cp).unwrap_or(0);
+    pb.mark = char_props(ctx.chpx_bins.chpx(ctx.word, fc), ctx.fonts, &CharProps::default());
+    let done = std::mem::take(pb);
+    out.push(ParaOut {
+        para: Paragraph { text: done.text, runs: done.runs, props: done.props, mark: done.mark, objects: done.objects, ..Default::default() },
+        end_cp: cp.saturating_add(1),
+        row,
+        frame,
+    });
+}
+
+/// The PAPX of a paragraph mark: the FKP lookup, then the huge-PAPX swap. When the grpprl
+/// is exactly one `sprmPHugePapx` with its 4-byte operand, the real grpprl lives in the
+/// Data stream at that fc as `cb: u16` followed by `cb` bytes; every other grpprl passes
+/// through unchanged. The Data-stream read is clamped to the stream, so a hostile fc or cb
+/// loses the properties, never the paragraph.
+fn resolve_papx<'a>(bins: &Bins, word: &'a [u8], data: &'a [u8], fc: u32) -> (u16, &'a [u8]) {
+    let (istd, papx) = bins.papx(word, fc);
+    // The huge form is the whole grpprl being that one sprm (a trailing pad byte is fine:
+    // PapxInFkp grpprls are odd-sized, so the marker itself may carry one).
+    let mut prls = sprm::iter(papx);
+    let at = match (prls.next(), prls.next()) {
+        (Some(prl), None) if prl.op == P_HUGE_PAPX => match prl.operand {
+            [b0, b1, b2, b3] => u32::from_le_bytes([*b0, *b1, *b2, *b3]) as usize,
+            _ => return (istd, papx),
+        },
+        _ => return (istd, papx),
+    };
+    let blob = data.get(at..at.saturating_add(MAX_HUGE_PAPX).min(data.len())).unwrap_or(&[]);
+    let cb = blob.get(..2).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize).unwrap_or(0);
+    // `cb` is hostile: clamp the grpprl to what the stream really holds.
+    (istd, blob.get(2..(2 + cb).min(blob.len())).unwrap_or(&[]))
+}
+
 /// Field assembly: `instr` collects everything before the separator (nested fields
-/// flattened), `sep` holds the cached result once the separator was seen.
+/// flattened), `sep` holds the cached result once the separator was seen, and `range`
+/// marks a field whose result stays in the document as content (a TOC's entries): its
+/// anchor is emitted at the separator and everything after spills into the paragraphs.
 struct FieldBuild {
     depth: u32,
     instr: String,
     sep: Option<Vec<(char, CharProps)>>,
+    range: bool,
 }
 
 /// Emit a finished field: HYPERLINK keeps its result text as a linked run; every other
-/// field becomes one inline object with its cached result.
+/// field becomes one inline object with its cached result. A range field emits nothing
+/// here — its anchor went out at the separator and its result is ordinary content.
 fn finish_field(pb: &mut ParaBuild, f: FieldBuild) {
+    if f.range {
+        return;
+    }
     let instr = f.instr.trim().to_string();
     let result = f.sep.unwrap_or_default();
     let result_text: String = result.iter().map(|(c, _)| *c).collect();
@@ -522,6 +603,14 @@ fn finish_field(pb: &mut ParaBuild, f: FieldBuild) {
     }
     pb.push('\u{FFFC}', CharProps::default());
     pb.objects.push(InlineObject::Field { instr, result: result_text, locked: false, code: false });
+}
+
+/// Fields kept as ranges: the first whitespace token of the instruction is `TOC`
+/// (case-insensitive), mirroring the docx reader's `is_toc`. Their cached result is
+/// content another program writes back, often spanning paragraphs, so it stays in the
+/// document instead of collapsing onto one anchor.
+fn is_range_instr(instr: &str) -> bool {
+    instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("TOC"))
 }
 
 /// `HYPERLINK "url"` / `HYPERLINK url \l "bookmark"` → the model link target
@@ -580,8 +669,9 @@ fn num_of(ilfo: i32) -> Option<u32> {
 
 /// Resolve the character properties for the character at `cp`: the CHPX grpprl of its FC,
 /// plus the piece's Prm, over the paragraph style's base character props. Inside a field,
-/// the character is recorded into the instruction or the cached result instead of (or as
-/// well as) the visible text.
+/// the character is recorded into the instruction or the cached result instead of the
+/// visible text — except in a spilled range field (a TOC past its separator), where it
+/// becomes ordinary content.
 fn push_formatted(pb: &mut ParaBuild, cp: u32, c: char, ctx: &WalkCtx, field: Option<&mut FieldBuild>) {
     let fc = ctx.pieces.fc_of_cp(cp).unwrap_or(0);
     let grpprl = ctx.chpx_bins.chpx(ctx.word, fc);
@@ -596,6 +686,9 @@ fn push_formatted(pb: &mut ParaBuild, cp: u32, c: char, ctx: &WalkCtx, field: Op
     let mut props = char_props(grpprl, ctx.fonts, base);
     apply_prm(&mut props, ctx.pieces.piece_prm(cp), ctx.fonts, base);
     match field {
+        // A spilled range field (a TOC past its separator): the result is ordinary
+        // content, so the character goes straight into the paragraph.
+        Some(f) if f.range && f.sep.is_some() => pb.push(c, props),
         Some(f) => match f.sep.as_mut() {
             // Inside a field, characters are recorded for the field object instead of shown;
             // `finish_field` emits the visible text (hyperlink runs or one object anchor).
