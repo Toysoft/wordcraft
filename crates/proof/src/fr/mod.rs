@@ -2,7 +2,7 @@
 //!
 //! - **Spelling** against the Hunspell French dictionary installed on the system (found by
 //!   [`crate::hunspell`]: `fr_FR.aff`/`fr_FR.dic`, else `fr` or a regional one, from the OS, a
-//!   package manager or LibreOffice; it isn't bundled — the upstream files are MPL/GPL/LGPL).
+//!   package manager or LibreOffice; it isn't bundled — the upstream files are MPL 2.0).
 //!   Without it French text gets no spelling marks. The dictionary itself knows elisions
 //!   (`l'arbre`, `qu'elle`, `jusqu'à`) and both apostrophes (`’` is read as `'`); hyphenated
 //!   compounds it doesn't list are checked part by part (`va-t-il`); the user dictionary applies
