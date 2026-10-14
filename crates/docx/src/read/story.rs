@@ -7,6 +7,7 @@ use wordcraft_doc::control::{ContentControl, ControlKind, ControlWrap};
 use wordcraft_doc::effects::{Glow, Shadow, ShapeEffects};
 use wordcraft_doc::graphic::{Embedded, Graphic, GraphicItem, GraphicKind};
 use wordcraft_doc::para::{AltText, Anchor, Float, FloatAlign, NoteKind, ShapeKind, Wrap, WrapText, cap_alt};
+use wordcraft_doc::picfx::PicFx;
 use wordcraft_doc::props::{CharProps, NumChange, PropChange, Rgb, TextColor};
 use wordcraft_doc::table::{Cell, MAX_COLS, MAX_ROWS, Row, Table};
 use wordcraft_doc::{Block, Blocks, InlineObject, Paragraph, PartKind, RevisionKind, Run, para_block};
@@ -15,7 +16,7 @@ use super::Reader;
 use super::props::{sectpr, tcpr, trpr};
 use super::shape_style::{preset_kind, shape_paint, vml_color};
 use crate::package::{ContentTypes, Rels, rt};
-use crate::units::{int, measure, u32_of};
+use crate::units::{int, measure, u32_of, vml_fraction};
 use crate::xml::{El, Node};
 use wordcraft_doc::wordart::TextWarp;
 
@@ -1107,7 +1108,7 @@ impl Reader<'_> {
                 }
             }
         }
-        Some(InlineObject::Image { media, w, h, alt, float, crop, ole: None })
+        Some(InlineObject::Image { media, w, h, alt, float, crop, fx: blip_fx(blip), ole: None })
     }
 
     /// A `wpg:wgp` group (`w` × `h`): its pictures, shapes and text boxes, nested groups
@@ -1346,7 +1347,10 @@ impl Reader<'_> {
             let id = img.attr("r:id").or_else(|| img.attr("r:pict"))?;
             let media = self.media_for(rels, id)?;
             let alt = shape.attr("alt").or_else(|| img.attr("o:title")).unwrap_or("").to_string();
-            return Some(InlineObject::Image { media, w, h, alt, float, crop: [0.0; 4], ole: None });
+            // Brightness and contrast (Word's picture watermark "Washout" sets them, #1711).
+            let frac = |k: &str| img.attr(k).and_then(vml_fraction);
+            let fx = PicFx::from_vml(frac("gain").unwrap_or(1.0), frac("blacklevel").unwrap_or(0.0));
+            return Some(InlineObject::Image { media, w, h, alt, float, crop: [0.0; 4], fx, ole: None });
         }
         let on = |name: &str| shape.attr(name).is_none_or(|v| !matches!(v, "f" | "false" | "0"));
         let stroke = on("stroked").then(|| shape.attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
@@ -1830,6 +1834,15 @@ struct Xfrm {
     ext: (f32, f32),
     ch_off: Option<(f32, f32)>,
     ch_ext: Option<(f32, f32)>,
+}
+
+/// A picture's brightness, contrast and transparency: `a:lum` (ECMA-376 §20.1.8.42) and
+/// `a:alphaModFix` (§20.1.8.4) in its `a:blip` (#1766).
+fn blip_fx(blip: &El) -> PicFx {
+    let val = |el: Option<&El>, k: &str| el.and_then(|e| e.attr(k)).and_then(int).map(|v| v.clamp(-1_000_000, 1_000_000) as i32);
+    let lum = blip.child("a:lum");
+    let amt = val(blip.child("a:alphaModFix"), "amt").unwrap_or(100_000).clamp(0, 100_000);
+    PicFx::new(val(lum, "bright").unwrap_or(0), val(lum, "contrast").unwrap_or(0), 100_000 - amt)
 }
 
 /// The rotation and flips of the `a:xfrm` in shape properties `sppr` (ECMA-376 §20.1.7.6:

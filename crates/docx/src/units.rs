@@ -47,6 +47,20 @@ pub fn int(s: &str) -> Option<i64> {
     v.is_finite().then(|| v.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64)
 }
 
+/// A VML fraction (`gain`, `blacklevel`, `opacity`): 16.16 fixed point with an `f` suffix
+/// (`19661f` is 0.3) or a plain decimal (`0.3`). None for anything else or non-finite.
+pub fn vml_fraction(s: &str) -> Option<f64> {
+    let t = s.trim();
+    if t.is_empty() || t.len() > 40 {
+        return None;
+    }
+    let v = match t.strip_suffix('f') {
+        Some(fixed) => fixed.trim().parse::<f64>().ok()? / 65_536.0,
+        None => t.parse::<f64>().ok()?,
+    };
+    v.is_finite().then_some(v)
+}
+
 pub fn u32_of(s: &str) -> Option<u32> {
     int(s).map(|v| v.clamp(0, u32::MAX as i64) as u32)
 }

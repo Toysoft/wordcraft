@@ -58,6 +58,7 @@ fn sample() -> Document {
             alt: "gradient".into(),
             float: Default::default(),
             crop: [0.1, 0.0, 0.0, 0.0],
+            fx: Default::default(),
             ole: None,
         },
         &CharProps::default(),
@@ -194,6 +195,7 @@ fn hostile_documents_export() {
             alt: String::new(),
             float: Default::default(),
             crop: [f32::NAN; 4],
+            fx: Default::default(),
             ole: None,
         },
         &CharProps::default(),
@@ -201,7 +203,16 @@ fn hostile_documents_export() {
     .unwrap();
     p.insert_object(
         0,
-        InlineObject::Image { media: "missing".into(), w: 10.0, h: 10.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media: "missing".into(),
+            w: 10.0,
+            h: 10.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -805,7 +816,16 @@ fn metafile_pictures_are_drawn_as_vector_paths() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: "red".into(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: "red".into(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -824,7 +844,16 @@ fn inline_picture_figure_keeps_its_alt_text() {
         let media = d.add_media(red_right_half_emf(), "emf");
         let mut p = Paragraph::with_text("Figure: ", CharProps::default());
         let n = p.len();
-        let obj = InlineObject::Image { media, w: 70.0, h: 70.0, alt: alt.into(), float: Default::default(), crop: [0.0; 4], ole: None };
+        let obj = InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: alt.into(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        };
         p.insert_object(n, obj, &CharProps::default()).unwrap();
         d.body = vec![para_block(p)];
         String::from_utf8_lossy(&export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap()).into_owned()
@@ -869,7 +898,16 @@ fn metafile_strokes_use_round_caps_and_joins() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -900,7 +938,16 @@ fn metafile_fill_items_carry_no_stroke_state() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -924,7 +971,16 @@ fn cosmetic_metafile_pens_are_thin_but_visible() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -1352,4 +1408,48 @@ fn right_to_left_clusters_are_written_whole_left_to_right() {
     assert_eq!(parts, [2..4, 0..2, 4..8, 4..8, 8..12, 12..14]);
     // Glyph by glyph by x this would be [5, 4, 3, 2, 0, 1]: the lam-alef's glyphs swapped.
     assert_eq!(visual_order(text, &glyphs, &ranges, &parts), [5, 4, 2, 3, 0, 1]);
+}
+
+/// A JPEG with brightness and contrast (#1766) is embedded with its corrected pixels, not passed
+/// through; the same JPEG without them still is, and transparency alone keeps it as it is.
+#[test]
+fn picture_fx_is_baked_into_the_embedded_image() {
+    use wordcraft_doc::picfx::PicFx;
+    let img = image::RgbImage::from_pixel(32, 32, image::Rgb([100, 100, 100]));
+    let mut jpeg = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+    let dct = |fxs: &[PicFx]| {
+        let mut d = Document::new();
+        let media = d.add_media(jpeg.clone(), "jpeg");
+        let mut p = Paragraph::new();
+        for fx in fxs {
+            let pic = InlineObject::Image {
+                media: media.clone(),
+                w: 40.0,
+                h: 40.0,
+                alt: "p".into(),
+                float: Default::default(),
+                crop: [0.0; 4],
+                fx: *fx,
+                ole: None,
+            };
+            p.insert_object(0, pic, &CharProps::default()).unwrap();
+        }
+        d.body = vec![para_block(p)];
+        let pdf = export(&d, &PdfOptions::default()).unwrap();
+        pdf.windows(9).filter(|w| *w == b"DCTDecode").count()
+    };
+    let lum = PicFx::new(80_000, -80_000, 0);
+    assert_eq!(dct(&[PicFx::default()]), 1);
+    assert_eq!(dct(&[lum]), 0);
+    assert_eq!(dct(&[lum, PicFx::default()]), 1);
+    assert_eq!(dct(&[PicFx::new(0, 0, 40_000)]), 1);
+    // The embedded pixels are Word's: grey 100 → 244.
+    let data = Arc::new(jpeg.clone());
+    assert!(load_image(&data, lum).is_some());
+    let mut px = image::load_from_memory(&jpeg).unwrap().to_rgba8().into_raw();
+    lum.apply_rgba(&mut px);
+    assert!(px.chunks(4).all(|p| p[0].abs_diff(244) <= 2 && p[3] == 255));
+    // Hostile corrections export.
+    assert_eq!(dct(&[PicFx { bright: i32::MAX, contrast: i32::MIN, transparency: -7 }]), 0);
 }

@@ -43,6 +43,7 @@ use krilla::tagging::{Artifact, ArtifactType, ContentTag, Identifier, Node, Span
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 use wordcraft_doc::graphic::GraphicKind;
 use wordcraft_doc::para::{InlineObject, ShapeKind};
+use wordcraft_doc::picfx::PicFx;
 use wordcraft_doc::{Document, Path as DocPath, Rgb, StoryRef};
 use wordcraft_fonts::FaceRef;
 use wordcraft_geom::Rect;
@@ -701,15 +702,18 @@ impl Exporter<'_> {
         v
     }
 
-    fn image(&mut self, key: &str) -> Option<Image> {
-        if let Some(i) = self.images.get(key) {
+    fn image(&mut self, key: &str, fx: PicFx) -> Option<Image> {
+        // Corrected pixels are embedded apart from the picture's own (#1711, #1766).
+        let fx = fx.clamped();
+        let cache_key = if fx.changes_pixels() { format!("{key}#fx{},{}", fx.bright, fx.contrast) } else { key.to_string() };
+        if let Some(i) = self.images.get(&cache_key) {
             return i.clone();
         }
-        let img = self.doc.media.get(key).and_then(load_image);
+        let img = self.doc.media.get(key).and_then(|d| load_image(d, fx));
         if img.is_none() {
             log::warn!("PDF: picture `{key}` could not be decoded");
         }
-        self.images.insert(key.to_string(), img.clone());
+        self.images.insert(cache_key, img.clone());
         img
     }
 
@@ -900,7 +904,7 @@ impl Exporter<'_> {
                 }
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
-            Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
+            Draw::Image { rect, media, crop, alpha, fx, .. } => self.picture(s, rect, media, crop, *alpha, *fx),
             Draw::Path { segs, fill: f, stroke, stroke_width } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
@@ -1132,13 +1136,13 @@ impl Exporter<'_> {
         s.set_stroke(None);
     }
 
-    fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32) {
+    fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32, fx: PicFx) {
         let Some(clip) = rect_path(rect) else { return };
         if let Some(v) = self.vector(media) {
             vector_picture(s, &v, rect, crop, &clip, alpha);
             return;
         }
-        let Some(img) = self.image(media) else {
+        let Some(img) = self.image(media, fx) else {
             s.set_stroke(None);
             s.set_fill(Some(fill(Rgb(0xD0, 0xD0, 0xD0), 1.0)));
             s.draw_path(&clip);
@@ -1606,17 +1610,21 @@ fn path_from(b: &kurbo::BezPath) -> Option<Path> {
 
 /// Decode a picture for embedding (validated with the `image` crate first, so a broken file
 /// can't fail the whole export).
-fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
+/// A picture to embed, with its brightness and contrast `fx` applied to the pixels (a JPEG goes
+/// in as it is only when `fx` leaves its pixels alone).
+fn load_image(data: &Arc<Vec<u8>>, fx: PicFx) -> Option<Image> {
     let fmt = image::guess_format(data).ok()?;
     let dec = image::load_from_memory_with_format(data, fmt).ok()?;
     let (w, h) = (dec.width(), dec.height());
     if w == 0 || h == 0 || w > MAX_IMAGE_SIDE || h > MAX_IMAGE_SIDE {
         return None;
     }
-    if fmt == image::ImageFormat::Jpeg && matches!(dec.color(), image::ColorType::L8 | image::ColorType::Rgb8) {
+    if !fx.changes_pixels() && fmt == image::ImageFormat::Jpeg && matches!(dec.color(), image::ColorType::L8 | image::ColorType::Rgb8) {
         return Image::from_jpeg(data.clone().into(), true).ok();
     }
-    Some(Image::from_rgba8(dec.to_rgba8().into_raw(), w, h))
+    let mut px = dec.to_rgba8().into_raw();
+    fx.apply_rgba(&mut px);
+    Some(Image::from_rgba8(px, w, h))
 }
 
 #[cfg(test)]

@@ -67,9 +67,12 @@ pub enum Draw {
         rect: Rect,
         media: String,
         crop: [f32; 4],
+        /// Opacity, the picture's own transparency folded in.
         alpha: f32,
         /// The picture's alt text (empty for a floating or diagram picture, which tag themselves).
         alt: String,
+        /// Brightness and contrast to apply to the pixels (transparency is in `alpha`).
+        fx: wordcraft_doc::picfx::PicFx,
     },
     Shape {
         rect: Rect,
@@ -535,8 +538,9 @@ fn item_in(doc: &Document, it: &Placed, opts: &DisplayOptions, alpha: f32, outer
     match it {
         Placed::Fill { rect, color } => out.push(Draw::Fill { rect: *rect, color: *color, alpha, text_bg: false }),
         Placed::Rule { x0, y0, x1, y1, border } => out.push(rule(*x0, *y0, *x1, *y1, border, alpha)),
-        Placed::Image { rect, media, crop, spin, .. } => {
-            spun(*spin, *rect, vec![Draw::Image { rect: *rect, media: media.clone(), crop: *crop, alpha, alt: String::new() }], out)
+        Placed::Image { rect, media, crop, spin, fx, .. } => {
+            let alpha = alpha * fx.opacity();
+            spun(*spin, *rect, vec![Draw::Image { rect: *rect, media: media.clone(), crop: *crop, alpha, alt: String::new(), fx: *fx }], out)
         }
         Placed::Shape { rect, kind, fill, stroke, stroke_width, effects, freeform, spin, extra } => {
             let mut items = Vec::new();
@@ -1236,7 +1240,7 @@ fn graphic_draws(doc: &Document, g: &Graphic, rect: Rect, alpha: f32) -> Vec<Dra
             }
             GraphicItem::Text { rect: r, .. } => out.extend(text_glyphs(doc, inside(r), it, alpha, k)),
             GraphicItem::Image { rect: r, media } => {
-                out.push(Draw::Image { rect: inside(r), media: media.clone(), crop: [0.0; 4], alpha, alt: String::new() })
+                out.push(Draw::Image { rect: inside(r), media: media.clone(), crop: [0.0; 4], alpha, alt: String::new(), fx: Default::default() })
             }
         }
     }
@@ -1482,8 +1486,9 @@ fn spun(spin: Spin, rect: Rect, items: Vec<Draw>, out: &mut Vec<Draw>) {
 fn object_draws(o: &InlineObject, rect: Rect, outer: Spin, alpha: f32, opts: &DisplayOptions, out: &mut Vec<Draw>) {
     let own = o.frame().map(|(_, _, f)| f.spin()).unwrap_or_default();
     match o {
-        InlineObject::Image { media, crop, alt, .. } => {
-            spun(own, rect, vec![Draw::Image { rect, media: media.clone(), crop: *crop, alpha, alt: alt.clone() }], out)
+        InlineObject::Image { media, crop, alt, fx, .. } => {
+            let alpha = alpha * fx.opacity();
+            spun(own, rect, vec![Draw::Image { rect, media: media.clone(), crop: *crop, alpha, alt: alt.clone(), fx: *fx }], out)
         }
         InlineObject::Shape { kind, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
             let effects = effects_in(*effects, own.within(outer));
