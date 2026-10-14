@@ -416,7 +416,8 @@ fn shape_effects(
 /// Outline of a basic shape in a rectangle (same geometry as the raster renderer); `corner` is a
 /// rounded rectangle's ([`wordcraft_doc::connector::ShapeExtra::corner`]).
 fn shape_path(kind: ShapeKind, r: &Rect, corner: Option<u32>) -> Option<Path> {
-    if !(ok(r.x) && ok(r.y) && ok(r.w) && ok(r.h)) || r.w <= 0.0 || r.h <= 0.0 {
+    let flat_ok = kind.is_open() && r.w.max(r.h) > 0.0 && r.w.min(r.h) >= 0.0;
+    if !(ok(r.x) && ok(r.y) && ok(r.w) && ok(r.h)) || !(flat_ok || r.w > 0.0 && r.h > 0.0) {
         return None;
     }
     let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
