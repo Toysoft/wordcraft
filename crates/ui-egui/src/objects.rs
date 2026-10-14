@@ -201,8 +201,16 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
     // A selected connector's end: drag it to glue it.
     if pressed && let Some((object, which)) = connector_end_at(app, layout, pages, scale, at) {
         let drag = Drag::new(Grab::Move, object.page, object.rect, 0.0, at);
-        app.canvas.obj_drag =
-            Some(ObjectDrag { drag, object, min: 0.0, picture: false, end: Some((which, (0.0, 0.0))), guides: Vec::new(), preview: None, copy: false });
+        app.canvas.obj_drag = Some(ObjectDrag {
+            drag,
+            object,
+            min: 0.0,
+            picture: false,
+            end: Some((which, (0.0, 0.0))),
+            guides: Vec::new(),
+            preview: None,
+            copy: false,
+        });
         return true;
     }
     let Some((object, grab)) = grab_at(app, layout, pages, scale, at) else { return false };
