@@ -2531,3 +2531,60 @@ preview	Title	სათაური
 	Rename	სახელის შეცვლა
 	Rename Document	დოკუმენტის სახელის შეცვლა
 	Copy to	კოპირება სხვა ადგილას
+# Dictionaries folder (#1063)
+	Dictionaries	ლექსიკონები
+	Dictionaries folder:	ლექსიკონების საქაღალდე:
+	Not set: the system's usual places	არ არის მითითებული: სისტემის ჩვეულებრივი მდებარეობები
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	ამ საქაღალდის Hunspell-ის .aff და .dic ფაილები (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) სისტემის ლექსიკონებზე ადრე გამოიყენება.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: ლექსიკონი ვერ მოიძებნა
+# Show only the selected text's comment (#1066)
+	In the margin	ველზე
+	Only for the selected text	მხოლოდ მონიშნული ტექსტისთვის
+# STYLEREF field (#882)
+	Style name:	სტილის სახელი:
+	Text of the nearest paragraph with a given style (running headers)	მითითებული სტილის უახლოესი აბზაცის ტექსტი (ცოცხალი კოლონტიტულები)
+# Mail merge Filter and Sort (#885)
+	Add Condition	პირობის დამატება
+	And	და
+	Ascending	ზრდადობით
+	Compare to	შესადარებელი მნიშვნელობა
+	Comparison	შედარება
+	Contains	შეიცავს
+	Descending	კლებადობით
+	Does not contain	არ შეიცავს
+	Equal to	ტოლია
+	Filter Recipients	მიმღებთა ფილტრაცია
+	Filter and Sort	ფილტრი და სორტირება
+	Greater than	მეტია
+	Greater than or equal	მეტია ან ტოლი
+	Is blank	ცარიელია
+	Is not blank	ცარიელი არ არის
+	Less than	ნაკლებია
+	Less than or equal	ნაკლებია ან ტოლი
+	Not equal to	არ არის ტოლი
+	Or	ან
+	Remove condition	პირობის წაშლა
+	Sort Recipients	მიმღებთა სორტირება
+	Sort by	სორტირება:
+	Then by	შემდეგ:
+	{count} of {total} recipients will be merged.	შეირწყმება მიმღები: {count} / {total}.
+# Backstage › Recover (#586)
+	Recover	აღდგენა
+# STYLEREF switch labels (#1294)
+	Add whether it is above or below	ზემოთ თუ ქვემოთ მდებარეობის დამატება
+	Number only, without the label's words	მხოლოდ ნომერი, იარლიყის სიტყვების გარეშე
+	Show its list number	სიის ნომრის ჩვენება
+	Show its number relative to this field	ნომრის ჩვენება ამ ველთან მიმართებით
+	Show its number with all higher levels	ნომრის ჩვენება ყველა ზედა დონით
+	Take the last match on the page	გვერდზე ბოლო დამთხვევის აღება
+# Bookmark dialog (#1277)
+	Delete Bookmark	სანიშნის წაშლა
+	Hidden bookmarks	დამალული სანიშნეები
+	Sort by:	სორტირება:
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	სარკისებური ველები
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	არსებული ფაილი ან ვებგვერდი
+	Link to:	ბმული:
+	Place in This Document	ადგილი ამ დოკუმენტში
