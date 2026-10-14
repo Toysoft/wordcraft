@@ -476,7 +476,8 @@ fn fields_put_their_shown_text_in_the_text_layer() {
 fn styleref_headers_show_each_page_s_chapter() {
     let mut d = Document::new();
     let mut h = Paragraph::new();
-    let field = InlineObject::Field { instr: r#"STYLEREF "Heading 1""#.into(), result: "Stale".into(), locked: false, code: false };
+    let field =
+        InlineObject::Field { instr: r#"STYLEREF "Heading 1""#.into(), result: "Stale".into(), locked: false, code: false, form: String::new() };
     h.insert_object(0, field, &CharProps::default()).unwrap();
     let id = d.add_part(wordcraft_doc::PartKind::Header, vec![para_block(h)]);
     d.last_section.headers.default = Some(id);

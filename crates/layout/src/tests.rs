@@ -5871,8 +5871,12 @@ fn page_field_doc(before: usize, pieces: &[&str]) -> Document {
         let n = p.len();
         p.insert_text(n, piece, &Default::default()).unwrap();
         let n = p.len();
-        p.insert_object(n, InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false }, &Default::default())
-            .unwrap();
+        p.insert_object(
+            n,
+            InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+            &Default::default(),
+        )
+        .unwrap();
     }
     p.props.page_break_before = Some(before > 0);
     body.push(wordcraft_doc::para_block(p));
@@ -5984,8 +5988,12 @@ fn footnote_page_field_from_a_split_paragraph_shows_its_page() {
         .unwrap();
     let note = d.para_mut(StoryRef::Part(id), &Path::top(0)).unwrap();
     let n = note.len();
-    note.insert_object(n, InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false }, &Default::default())
-        .unwrap();
+    note.insert_object(
+        n,
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        &Default::default(),
+    )
+    .unwrap();
     let l = lay(&d);
     assert_eq!(l.pages.len(), 2, "the paragraph runs onto a second page");
     // The PAGE results drawn in `story`, by page (not the "*" note marks).
@@ -6059,8 +6067,12 @@ fn relaid_paragraphs_keep_their_equation_numbers() {
     let long = "words that fill the page ".repeat(400);
     p2.insert_text(0, &long, &Default::default()).unwrap();
     let n = p2.len();
-    p2.insert_object(n, InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false }, &Default::default())
-        .unwrap();
+    p2.insert_object(
+        n,
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        &Default::default(),
+    )
+    .unwrap();
     let n = p2.len();
     p2.insert_object(n, eq("c=d#"), &Default::default()).unwrap();
     // Paragraph 3: one more.
