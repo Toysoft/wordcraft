@@ -1311,6 +1311,21 @@ fn count_dialog_frame(ctx: &egui::Context, id: egui::Id) {
     }
 }
 
+/// Dims whatever is behind an open dialog by 20% and reports whether the person clicked past its
+/// edge, which closes it the same way the title bar's close button does (#1842).
+fn dialog_backdrop(ctx: &egui::Context) -> bool {
+    egui::Area::new(egui::Id::new("dialog_backdrop"))
+        .order(egui::Order::PanelResizeLine)
+        .fixed_pos(egui::Pos2::ZERO)
+        .interactable(true)
+        .show(ctx, |ui| {
+            let screen = ctx.screen_rect();
+            ui.painter().rect_filled(screen, 0.0, egui::Color32::from_black_alpha((255.0 * 0.2) as u8));
+            ui.allocate_rect(screen, Sense::click()).clicked()
+        })
+        .inner
+}
+
 pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     let Some(mut d) = app.dialog.take() else {
         ctx.data_mut(|d| d.remove::<(egui::Id, u8)>(dialog_top_key()));
@@ -1318,6 +1333,10 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     };
     let mut open = true;
     let mut close = false;
+    // Only the Save Changes prompt dims the screen and closes on an outside click, as in Word:
+    // other dialogs (Font, Paragraph, Insert Table…) and non-modal popups like the mini toolbar
+    // are left alone (#1842).
+    let clicked_outside = matches!(d, Dialog::SaveChanges { .. }) && dialog_backdrop(ctx);
     let title = match &d {
         Dialog::Font { .. } => "Font",
         Dialog::Paragraph { .. } => "Paragraph",
@@ -1376,6 +1395,9 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     });
     if shown.is_some() {
         count_dialog_frame(ctx, id);
+    }
+    if clicked_outside {
+        open = false;
     }
     if open && !close {
         app.dialog = Some(d);
