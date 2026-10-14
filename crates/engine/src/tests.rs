@@ -1831,6 +1831,35 @@ fn reject_one_paragraph_break_and_rejecting_a_typed_paragraph() {
 }
 
 #[test]
+fn reject_all_of_an_inserted_paragraph_keeps_the_next_paragraphs_style() {
+    // A whole paragraph inserted before a heading, in another style: rejecting it removes the
+    // paragraph, and the heading keeps its own style (it used to take the rejected one's).
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Intro"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "Heading"}));
+    run(&mut s, "para.style", json!({"style": "Heading1"}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "text.insert", json!({"text": "Inserted"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "review.trackChanges", json!({"value": false}));
+    run(&mut s, "caret.set", json!({"pos": {"block": 1, "off": 0}}));
+    run(&mut s, "para.style", json!({"style": "Normal"}));
+    assert_eq!(body_texts(&s), ["Intro", "Inserted", "Heading"]);
+    let style = |s: &Session, i: usize| s.doc.para_at(&Pos::body(i, 0)).unwrap().props.style.clone();
+    assert_eq!(style(&s, 2).as_deref(), Some("Heading1"));
+    run(&mut s, "review.rejectAll", json!({}));
+    assert_eq!(body_texts(&s), ["Intro", "Heading"]);
+    assert_eq!(style(&s, 1).as_deref(), Some("Heading1"));
+    // Accepting instead keeps all three, each with its style.
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "review.acceptAll", json!({}));
+    assert_eq!(body_texts(&s), ["Intro", "Inserted", "Heading"]);
+    assert_eq!(style(&s, 2).as_deref(), Some("Heading1"));
+}
+
+#[test]
 fn tracked_backspace_and_delete_mark_a_paragraph_break_deleted() {
     let two = || {
         let mut s = s();
@@ -3387,6 +3416,37 @@ fn zoom_after_one_page_keeps_single_column() {
     run(&mut s, "view.pageWidth", json!({}));
     run(&mut s, "view.sideToSide", json!({}));
     assert!(!s.view.single_column);
+}
+
+/// Issue #995: One Page is saved with the document (`w:zoom`, like Word) and restored when it is
+/// reopened; changing the zoom alone doesn't make the document unsaved.
+#[test]
+fn one_page_is_restored_when_the_document_is_reopened() {
+    let dir = std::env::temp_dir().join(format!("wordcraft-engine-zoom-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("one-page.docx");
+    let path = path.to_string_lossy();
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    run(&mut s, "file.save", json!({"path": path}));
+    run(&mut s, "view.onePage", json!({}));
+    assert!(!s.dirty, "a zoom isn't an edit");
+    run(&mut s, "file.save", json!({}));
+
+    let mut other = Session::new(wordcraft_doc::Document::new());
+    run(&mut other, "file.open", json!({"path": path}));
+    assert_eq!(other.view.fit, "onePage");
+    assert!(other.view.single_column && !other.view.multi_page);
+    assert!(!other.dirty);
+
+    // A percentage is restored as a percentage, the fit mode dropped.
+    run(&mut other, "view.zoom", json!({"value": 80}));
+    run(&mut other, "file.save", json!({}));
+    run(&mut s, "file.open", json!({"path": path}));
+    assert!(s.view.fit.is_empty() && !s.view.single_column);
+    assert!((s.view.zoom - 0.8).abs() < 1e-6);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
