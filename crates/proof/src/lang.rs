@@ -26,10 +26,13 @@ pub enum ProofLang {
     It,
     /// Croatian (`hr`, `hr-HR`)
     Hr,
-    /// French (`fr`, `fr-FR`, `fr-CA`, `fr-BE`, `fr-CH`…): the installed Hunspell dictionary
-    /// (`fr_FR` or a regional one, when there is one), the French grammar rules and the French
-    /// hyphenation patterns.
+    /// French (`fr`, `fr-FR`, `fr-BE`, `fr-CH`…): the installed Hunspell dictionary (`fr_FR` or a
+    /// regional one, when there is one), the French grammar rules and the French hyphenation
+    /// patterns.
     Fr,
+    /// Quebec French (`fr-CA`): [`ProofLang::Fr`]'s dictionary, suggestions and hyphenation, and
+    /// its grammar rules with Quebec typography (no space before `;` `!` `?`).
+    FrCa,
     /// A language without proofing tools here (`de-DE`, `ja-JP`, `x-none`…). Like Word without
     /// the language's proofing tools: no spelling or grammar marks, so its words are never
     /// flagged as English misspellings. Hyphenation keeps using the English patterns, as before
@@ -39,13 +42,16 @@ pub enum ProofLang {
 
 impl ProofLang {
     /// Every language with a spelling dictionary, in display order.
-    pub const PROOFED: [ProofLang; 6] = [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Hr, ProofLang::Fr];
+    pub const PROOFED: [ProofLang; 7] = [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Hr, ProofLang::Fr, ProofLang::FrCa];
 
     /// The proofing language of a BCP 47 tag (`pl-PL`, `en_GB`, `PL`…). Only the primary subtag
-    /// counts. No tag (or an empty one) is English, WordCraft's default editing language.
+    /// counts, except Canada for French (`fr-CA`: Quebec typography). No tag (or an empty one) is
+    /// English, WordCraft's default editing language.
     pub fn from_tag(tag: Option<&str>) -> ProofLang {
         let Some(tag) = tag.map(str::trim).filter(|t| !t.is_empty()) else { return ProofLang::En };
-        let primary = tag.split(['-', '_']).next().unwrap_or("");
+        let mut parts = tag.split(['-', '_', '.']);
+        let primary = parts.next().unwrap_or("");
+        let canada = parts.any(|p| p.eq_ignore_ascii_case("ca"));
         if primary.eq_ignore_ascii_case("en") || primary.eq_ignore_ascii_case("eng") {
             ProofLang::En
         } else if primary.eq_ignore_ascii_case("pl") || primary.eq_ignore_ascii_case("pol") {
@@ -59,7 +65,7 @@ impl ProofLang {
         } else if primary.eq_ignore_ascii_case("hr") || primary.eq_ignore_ascii_case("hrv") {
             ProofLang::Hr
         } else if primary.eq_ignore_ascii_case("fr") || primary.eq_ignore_ascii_case("fra") || primary.eq_ignore_ascii_case("fre") {
-            ProofLang::Fr
+            if canada { ProofLang::FrCa } else { ProofLang::Fr }
         } else {
             ProofLang::Other
         }
@@ -74,7 +80,7 @@ impl ProofLang {
             ProofLang::Pt => "pt",
             ProofLang::It => "it",
             ProofLang::Hr => "hr",
-            ProofLang::Fr => "fr",
+            ProofLang::Fr | ProofLang::FrCa => "fr",
             ProofLang::Other => "",
         }
     }
@@ -160,9 +166,13 @@ mod tests {
         for t in ["bg", "bg-BG", "BG_bg", "bg_BG.UTF-8", "bul"] {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Bg, "{t}");
         }
-        for t in ["fr", "fr-FR", "FR_fr", "fr-CA", "fr-BE", "fr_CH.UTF-8", "fr-LU", "fr-MC", " fr-FR ", "fra", "fre"] {
+        for t in ["fr", "fr-FR", "FR_fr", "fr-BE", "fr_CH.UTF-8", "fr-LU", "fr-MC", " fr-FR ", "fra", "fre"] {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Fr, "{t}");
         }
+        for t in ["fr-CA", "FR_ca", "fr_CA.UTF-8", "fr-Latn-CA"] {
+            assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::FrCa, "{t}");
+        }
+        assert_eq!(ProofLang::from_tag(Some("en-CA")), ProofLang::En, "only French changes in Canada");
         for t in ["de", "de-DE", "x-none", "ja-JP", "plx", "bgx", "frx", "e", "-"] {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Other, "{t}");
         }
@@ -178,8 +188,8 @@ mod tests {
         assert_eq!(ProofLang::Pt.code(), "pt");
         assert!(ProofLang::It.is_proofed());
         assert_eq!(ProofLang::It.code(), "it");
-        assert!(ProofLang::Fr.is_proofed());
-        assert_eq!(ProofLang::Fr.code(), "fr");
+        assert!(ProofLang::Fr.is_proofed() && ProofLang::FrCa.is_proofed());
+        assert_eq!((ProofLang::Fr.code(), ProofLang::FrCa.code()), ("fr", "fr"));
         assert!(ProofLang::PROOFED.contains(&ProofLang::Pt), "every proofed language is listed");
     }
 }

@@ -514,7 +514,7 @@ fn spelling_issue(text: &str, a: usize, b: usize, lang: ProofLang, opts: &Option
         ProofLang::Hr => "Moguća pravopisna pogreška",
         ProofLang::Pt => "Possível erro de ortografia",
         ProofLang::It => "Possibile errore di ortografia",
-        ProofLang::Fr => "Faute d’orthographe possible",
+        ProofLang::Fr | ProofLang::FrCa => "Faute d’orthographe possible",
         _ => "Possible spelling mistake",
     };
     Some(Issue { start: a, end: b, kind: IssueKind::Spelling, message: message.into(), suggestions: Vec::new(), lang })
@@ -533,7 +533,7 @@ pub fn is_correct_in_with(word: &str, lang: ProofLang, opts: &Options) -> bool {
         ProofLang::Hr => accepted_by_options(word, opts) || hr::is_correct(word),
         ProofLang::Pt => accepted_by_options(word, opts) || pt::is_correct(word),
         ProofLang::It => accepted_by_options(word, opts) || it::is_correct(word),
-        ProofLang::Fr => accepted_by_options(word, opts) || fr::is_correct(word),
+        ProofLang::Fr | ProofLang::FrCa => accepted_by_options(word, opts) || fr::is_correct(word),
         ProofLang::Bg | ProofLang::Other => true,
     }
 }
@@ -546,7 +546,7 @@ pub fn suggest_in(word: &str, max: usize, lang: ProofLang) -> Vec<String> {
         ProofLang::Hr => hr::suggest(word, max),
         ProofLang::Pt => pt::suggest(word, max),
         ProofLang::It => it::suggest(word, max),
-        ProofLang::Fr => fr::suggest(word, max),
+        ProofLang::Fr | ProofLang::FrCa => fr::suggest(word, max),
         ProofLang::Bg | ProofLang::Other => Vec::new(),
     }
 }
@@ -561,7 +561,7 @@ pub fn check_grammar_in(text: &str, lang: ProofLang) -> Vec<Issue> {
         ProofLang::Hr => hr::grammar::check(text),
         ProofLang::Pt => pt::grammar::check(text),
         ProofLang::It => it::grammar::check(text),
-        ProofLang::Fr => fr::grammar::check(text),
+        ProofLang::Fr | ProofLang::FrCa => fr::grammar::check_in(text, lang),
         ProofLang::Bg | ProofLang::Other => Vec::new(),
     }
 }
@@ -1081,25 +1081,30 @@ mod tests {
         // A French quotation in an English paragraph: French spelling and typography inside it
         // only, and no English space rule on its `!`.
         fr::test_dict::install();
-        let t = "She wrote «\u{A0}Une maisonn près de Paris !\u{A0}» and left.";
+        let t = "She wrote «\u{A0}Une maisonn près de Paris!\u{A0}» and left!";
         let (a, b) = (t.find('«').unwrap(), t.find('»').unwrap() + '»'.len_utf8());
         let v = check_text(t, &[(a..b, ProofLang::Fr)]);
         assert_eq!(flagged(t, &v), ["maisonn"], "{v:?}");
         let g: Vec<&Issue> = v.iter().filter(|i| i.kind == IssueKind::Grammar).collect();
         assert_eq!(g.len(), 1, "{g:?}");
-        assert_eq!((g[0].lang, t.get(g[0].start..g[0].end)), (ProofLang::Fr, Some(" !")), "{g:?}");
+        assert_eq!((g[0].lang, t.get(g[0].start..g[0].end)), (ProofLang::Fr, Some("!")), "{g:?}");
+        // The same quotation in Quebec French: Quebec typography, no space wanted before `!`.
+        let v = check_text(t, &[(a..b, ProofLang::FrCa)]);
+        assert_eq!(flagged(t, &v), ["maisonn"], "{v:?}");
+        assert!(v.iter().all(|i| i.kind == IssueKind::Spelling && i.lang == ProofLang::FrCa), "{v:?}");
     }
 
     proptest::proptest! {
         #[test]
         fn never_panics(s in "\\PC{0,80}") {
+            fr::test_dict::install();
             let _ = check_spelling(&s);
             let _ = check_grammar(&s);
             let _ = suggest(&s, 3);
             let _ = has_dictionary(Some(&s));
             let _ = is_correct_for(&s, Some(&s));
             let _ = hyphen::hyphen_points(&s, &hyphen::Limits::default());
-            for lang in [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Fr, ProofLang::Other] {
+            for lang in [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Fr, ProofLang::FrCa, ProofLang::Other] {
                 let _ = check_spelling_in(&s, lang);
                 let _ = check_grammar_in(&s, lang);
                 let _ = is_correct_in(&s, lang);
@@ -1121,14 +1126,17 @@ mod tests {
 
         #[test]
         fn french_suggestions_never_panic(s in "[a-zàâäéèêëîïôöùûüçœæA-ZÀÂÉÈÊÎÔÙÛÇŒ'’ «»;:!?-]{0,14}") {
+            fr::test_dict::install();
             let _ = suggest_in(&s, 4, ProofLang::Fr);
             let _ = check_grammar_in(&s, ProofLang::Fr);
+            let _ = check_grammar_in(&s, ProofLang::FrCa);
         }
 
         #[test]
-        fn mixed_spans_never_panic(s in "\\PC{0,60}", cuts in proptest::collection::vec((0usize..80, 0usize..80, 0u8..5), 0..6)) {
-            let langs = [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::Fr, ProofLang::Other];
-            let spans: Vec<(Range<usize>, ProofLang)> = cuts.iter().map(|&(a, b, l)| (a.min(b)..a.max(b), langs[l as usize % 5])).collect();
+        fn mixed_spans_never_panic(s in "\\PC{0,60}", cuts in proptest::collection::vec((0usize..80, 0usize..80, 0u8..6), 0..6)) {
+            fr::test_dict::install();
+            let langs = [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::Fr, ProofLang::FrCa, ProofLang::Other];
+            let spans: Vec<(Range<usize>, ProofLang)> = cuts.iter().map(|&(a, b, l)| (a.min(b)..a.max(b), langs[l as usize % 6])).collect();
             for i in check_text(&s, &spans) {
                 proptest::prop_assert!(i.start <= i.end && i.end <= s.len());
             }

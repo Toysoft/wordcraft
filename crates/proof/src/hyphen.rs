@@ -141,7 +141,7 @@ fn core_breaks(core: &[char], lang: ProofLang) -> (Vec<usize>, Source) {
     match lang {
         ProofLang::Pt => return core_breaks_patterns(core, Patterns::pt()),
         ProofLang::It => return core_breaks_patterns(core, Patterns::it()),
-        ProofLang::Fr => return core_breaks_patterns(core, Patterns::fr()),
+        ProofLang::Fr | ProofLang::FrCa => return core_breaks_patterns(core, Patterns::fr()),
         _ => {}
     }
     let dict = Dictionary::en_us();

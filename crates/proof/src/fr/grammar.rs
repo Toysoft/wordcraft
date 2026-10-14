@@ -2,10 +2,11 @@
 //! (a missed mistake costs less than a wrong mark on correct text). Messages are in French.
 //!
 //! - **Space before `;` `!` `?` `:`**: French typography puts a non-breaking space there — a
-//!   narrow one (U+202F) before `;` `!` `?`, a full one (U+00A0) before `:`. A missing space or
-//!   an ordinary one is flagged; addresses (`https://…`), times (`10:30`) and emoticons (` :)`)
-//!   are left alone.
-//! - **Spaces inside `« »`**: a non-breaking space (U+00A0) after `«` and before `»`.
+//!   narrow one (U+202F) before `;` `!` `?`, a full one (U+00A0) before `:`. Only a missing
+//!   space is flagged (`Bonjour!`): an ordinary one stays quiet until typing turns it into a
+//!   non-breaking one (no French AutoFormat yet). Quebec French (`fr-CA`) has no space before
+//!   `;` `!` `?`, only before `:`. Addresses (`https://…`) and times (`10:30`) are left alone.
+//! - **Space inside `« »`**: a missing one after `«` or before `»` (`«oui»`) → U+00A0.
 //! - **Straight double quotes** around a phrase (`"bonjour"`) → `« bonjour »`; inch marks
 //!   (`27"`) and unbalanced quotes are left alone.
 //! - **Repeated word** (`le le`, `que que`), except repetitions French makes on purpose
@@ -234,10 +235,11 @@ fn quoted(s: &str) -> String {
 }
 
 /// `;` `!` `?` `:` without the non-breaking space French puts before them.
-fn high_punctuation(text: &str, v: &mut Vec<Issue>) {
+/// Quebec typography (`quebec`) puts no space before `;` `!` `?`, only before `:`.
+fn high_punctuation(text: &str, quebec: bool, v: &mut Vec<Issue>) {
     let mut token: Option<(usize, usize, bool)> = None;
     for (i, p) in text.char_indices() {
-        if !matches!(p, ';' | ':' | '!' | '?') {
+        if !matches!(p, ';' | ':' | '!' | '?') || (quebec && p != ':') {
             continue;
         }
         let before = text.get(..i).and_then(|t| t.chars().next_back());
@@ -258,34 +260,17 @@ fn high_punctuation(text: &str, v: &mut Vec<Issue>) {
         let (space, kind) = if p == ':' { (NBSP, "insécable") } else { (NNBSP, "fine insécable") };
         let message = format!("Espace {kind} attendue avant {}", quoted(&p.to_string()));
         let fix = format!("{space}{p}");
-        match before {
-            Some(' ') => {
-                // ` :)`, ` ;-)`, ` :D` are emoticons.
-                if matches!(p, ':' | ';')
-                    && after.is_some_and(|a| matches!(a, ')' | '(' | '-' | 'D' | 'P' | 'p' | 'O' | 'o' | '/' | '|' | '*' | '\''))
-                {
-                    continue;
-                }
-                // The space must end a word: not a line starting with `:`, not `a  :`.
-                let word_end = i.checked_sub(1).and_then(|k| text.get(..k)).and_then(|t| t.chars().next_back());
-                if word_end.is_none_or(char::is_whitespace) {
-                    continue;
-                }
-                if let Some(start) = i.checked_sub(1) {
-                    v.push(issue(start, i + p.len_utf8(), message, vec![fix]));
-                }
+        // Only a missing space is flagged: an ordinary one stays quiet until typing turns it into
+        // a non-breaking one by itself (French AutoFormat).
+        if before.is_some_and(char::is_alphabetic) {
+            // `10:30`, `a:b`, `C:` and `x;y` aren't prose: the mark must end the word.
+            let ends = match p {
+                ':' => after.is_none_or(char::is_whitespace),
+                _ => after.is_none_or(|a| a.is_whitespace() || matches!(a, '!' | '?' | '»' | '"' | '”' | ')')),
+            };
+            if ends {
+                v.push(issue(i, i + p.len_utf8(), message, vec![fix]));
             }
-            Some(c) if c.is_alphabetic() => {
-                // `10:30`, `a:b`, `C:` and `x;y` aren't prose: the mark must end the word.
-                let ends = match p {
-                    ':' => after.is_none_or(char::is_whitespace),
-                    _ => after.is_none_or(|a| a.is_whitespace() || matches!(a, '!' | '?' | '»' | '"' | '”' | ')')),
-                };
-                if ends {
-                    v.push(issue(i, i + p.len_utf8(), message, vec![fix]));
-                }
-            }
-            _ => {}
         }
     }
 }
@@ -298,23 +283,15 @@ fn guillemets(text: &str, v: &mut Vec<Issue>) {
             '«' => {
                 let mut next = text.get(i + len..).unwrap_or("").chars();
                 let message = format!("Espace insécable attendue après {}", quoted("«"));
-                match next.next() {
-                    Some(' ') if next.next().is_some_and(|n| !n.is_whitespace()) => v.push(issue(i, i + len + 1, message, vec![format!("«{NBSP}")])),
-                    Some(n) if n.is_alphanumeric() => v.push(issue(i, i + len, message, vec![format!("«{NBSP}")])),
-                    _ => {}
+                if next.next().is_some_and(char::is_alphanumeric) {
+                    v.push(issue(i, i + len, message, vec![format!("«{NBSP}")]));
                 }
             }
             '»' => {
-                let mut prev = text.get(..i).unwrap_or("").chars().rev();
+                let prev = text.get(..i).unwrap_or("").chars().next_back();
                 let message = format!("Espace insécable attendue avant {}", quoted("»"));
-                match prev.next() {
-                    Some(' ') if prev.next().is_some_and(|n| !n.is_whitespace()) => {
-                        v.push(issue(i.saturating_sub(1), i + len, message, vec![format!("{NBSP}»")]));
-                    }
-                    Some(n) if n.is_alphanumeric() || matches!(n, '.' | '!' | '?' | '…') => {
-                        v.push(issue(i, i + len, message, vec![format!("{NBSP}»")]))
-                    }
-                    _ => {}
+                if prev.is_some_and(|n| n.is_alphanumeric() || matches!(n, '.' | '!' | '?' | '…')) {
+                    v.push(issue(i, i + len, message, vec![format!("{NBSP}»")]));
                 }
             }
             _ => {}
@@ -481,16 +458,25 @@ fn elisions(text: &str, ws: &[(usize, usize)], v: &mut Vec<Issue>) {
     }
 }
 
-/// Grammar issues in a paragraph of French text, in order.
+/// Grammar issues in a paragraph of French text (France's typography), in order.
 pub fn check(text: &str) -> Vec<Issue> {
+    check_in(text, ProofLang::Fr)
+}
+
+/// Grammar issues in a paragraph of `lang` text ([`ProofLang::Fr`], or [`ProofLang::FrCa`] for
+/// Quebec typography), in order.
+pub fn check_in(text: &str, lang: ProofLang) -> Vec<Issue> {
     let ws: Vec<(usize, usize)> = words(text);
     let mut v = Vec::new();
-    high_punctuation(text, &mut v);
+    high_punctuation(text, lang == ProofLang::FrCa, &mut v);
     guillemets(text, &mut v);
     straight_quotes(text, &mut v);
     repeated_words(text, &ws, &mut v);
     sentence_capitals(text, &ws, &mut v);
     elisions(text, &ws, &mut v);
+    for i in &mut v {
+        i.lang = lang;
+    }
     v.sort_by_key(|i| (i.start, i.end));
     v
 }
@@ -517,19 +503,33 @@ mod tests {
     }
 
     #[test]
-    fn missing_or_ordinary_space_before_high_punctuation() {
+    fn missing_space_before_high_punctuation() {
         one("Bonjour!", "!", "\u{202F}!");
         one("Tu viens?", "?", "\u{202F}?");
         one("Il pleut; il vente.", ";", "\u{202F};");
         one("Note: rien.", ":", "\u{A0}:");
-        one("Vraiment ?", " ?", "\u{202F}?");
-        one("Bonjour !", " !", "\u{202F}!");
-        one("Il pleut ; il vente.", " ;", "\u{202F};");
-        one("Note : rien.", " :", "\u{A0}:");
         // `?!`: only the first mark needs the space.
         one("Quoi?!", "?", "\u{202F}?");
         assert!(check("Bonjour!").iter().all(|i| i.lang == ProofLang::Fr && i.message.contains("fine insécable")));
         assert!(check("Note: rien.").iter().all(|i| i.message.contains("insécable") && !i.message.contains("fine")));
+    }
+
+    #[test]
+    fn an_ordinary_space_stays_quiet_until_french_autoformat() {
+        // Typing can't produce a non-breaking space yet, so an ordinary one is accepted.
+        quiet("Vraiment ? Bonjour ! Il pleut ; note : rien.");
+        quiet("Il dit « oui » hier.");
+    }
+
+    #[test]
+    fn quebec_has_no_space_before_semicolon_exclamation_and_question() {
+        let fr_ca = |t: &str| check_in(t, ProofLang::FrCa);
+        assert!(fr_ca("Bonjour! Tu viens? Il pleut; il vente.").is_empty(), "{:?}", fr_ca("Bonjour! Tu viens?"));
+        // The colon and the guillemets still want their space in Quebec.
+        let v = fr_ca("Note: «oui».");
+        assert_eq!(v.len(), 3, "{v:?}");
+        assert!(v.iter().all(|i| i.lang == ProofLang::FrCa), "{v:?}");
+        assert_eq!(check_in("Bonjour!", ProofLang::Fr).len(), 1, "France still wants the space");
     }
 
     #[test]
@@ -545,8 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn spaces_inside_guillemets() {
-        assert_eq!(found("Il dit « oui » hier."), [("« ".to_string(), "«\u{A0}".to_string()), (" »".to_string(), "\u{A0}»".to_string())]);
+    fn missing_space_inside_guillemets() {
         assert_eq!(found("Il dit «oui» hier."), [("«".to_string(), "«\u{A0}".to_string()), ("»".to_string(), "\u{A0}»".to_string())]);
         quiet("Il dit «\u{A0}oui\u{A0}» hier.");
         quiet("Il dit «\u{202F}oui\u{202F}» hier.");
