@@ -478,6 +478,8 @@ struct Key {
 #[derive(Default)]
 pub struct LayoutCache {
     paras: HashMap<Key, Arc<ParaLayout>>,
+    /// Narrowest and widest content of paragraphs measured for table autofit ([`Ctx::para_measured`]).
+    measures: HashMap<Key, (f32, f32)>,
     /// Outlines of pictures' opaque pixels (Tight and Through wrapping), by media key, the
     /// media's bytes (address and length) and crop.
     outlines: HashMap<(String, usize, usize, [u32; 4]), Option<Arc<Vec<(f32, f32)>>>>,
@@ -499,6 +501,7 @@ impl LayoutCache {
     }
     pub fn clear(&mut self) {
         self.paras.clear();
+        self.measures.clear();
         self.outlines.clear();
     }
 }
@@ -625,6 +628,9 @@ struct Ctx<'a> {
     /// Body blocks that are empty paragraphs carrying only a section break before a continuous
     /// section, in order: they take no room (see [`place_para`]).
     quiet_marks: Vec<usize>,
+    /// Cache-key hashes of the table-style text formatting cells were laid out with
+    /// ([`Ctx::table_key`]).
+    table_keys: Vec<(para::CellText, u64)>,
 }
 
 impl Ctx<'_> {
@@ -705,6 +711,51 @@ impl Ctx<'_> {
         exclusions: &[para::Exclusion],
         label: Option<(String, Level)>,
     ) -> Arc<ParaLayout> {
+        let (key, eq_number) = self.para_key(p, width, table, exclusions, label.as_ref());
+        self.cache.used.insert(key.clone());
+        if let Some(pl) = self.cache.paras.get(&key) {
+            self.cache.hits += 1;
+            return pl.clone();
+        }
+        self.cache.misses += 1;
+        let pl = Arc::new(para::layout_para(p, &self.para_env(width, label, table, exclusions, eq_number)));
+        self.cache.paras.insert(key, pl.clone());
+        pl
+    }
+
+    /// What `measure` reads from `p` laid out as [`Ctx::para_labelled`] would, remembering only
+    /// the result: a table's columns measure every cell once at an unbounded width, and keeping
+    /// those layouts would double what a long table holds (and walk them all again on each pass).
+    fn para_measured(
+        &mut self,
+        p: &Paragraph,
+        width: f32,
+        table: Option<&para::CellText>,
+        label: Option<(String, Level)>,
+        measure: impl FnOnce(&ParaLayout) -> (f32, f32),
+    ) -> (f32, f32) {
+        let (key, eq_number) = self.para_key(p, width, table, &[], label.as_ref());
+        self.cache.used.insert(key.clone());
+        if let Some(m) = self.cache.measures.get(&key) {
+            self.cache.hits += 1;
+            return *m;
+        }
+        self.cache.misses += 1;
+        let m = measure(&para::layout_para(p, &self.para_env(width, label, table, &[], eq_number)));
+        self.cache.measures.insert(key, m);
+        m
+    }
+
+    /// The cache key of `p` laid out with these inputs, and its first automatic equation number
+    /// (advancing the count past its equations).
+    fn para_key(
+        &mut self,
+        p: &Paragraph,
+        width: f32,
+        table: Option<&para::CellText>,
+        exclusions: &[para::Exclusion],
+        label: Option<&(String, Level)>,
+    ) -> (Key, u32) {
         let page = if has_page_fields(p) { Some(self.fields.page_key()) } else { None };
         if self.track_totals && !self.uses_totals && has_total_fields(p) {
             self.uses_totals = true;
@@ -723,10 +774,10 @@ impl Ctx<'_> {
         let key = Key {
             rev: p.rev,
             width: width.to_bits(),
-            label: label.as_ref().map(|(t, l)| format!("{t}|{}|{}|{:?}|{:?}|{:?}|{:?}", l.indent, l.hanging, l.suffix, l.align, l.tab, l.chr)),
+            label: label.map(|(t, l)| format!("{t}|{}|{}|{:?}|{:?}|{:?}|{:?}", l.indent, l.hanging, l.suffix, l.align, l.tab, l.chr)),
             page_from: if page.is_some() && !self.fields.page_from.is_empty() { hash_of(&self.fields.page_from) } else { 0 },
             page,
-            table: table.map(|t| hash_of(&format!("{t:?}"))).unwrap_or(0),
+            table: table.map(|t| self.table_key(t)).unwrap_or(0),
             notes: if p.objects.iter().any(|o| matches!(o, InlineObject::NoteRef { .. })) { self.notes_hash } else { 0 },
             excl: if exclusions.is_empty() { 0 } else { hash_of(&format!("{exclusions:?}")) },
             eq: if eq_here > 0 { eq_number } else { 0 },
@@ -735,13 +786,33 @@ impl Ctx<'_> {
             fit: self.boxes.inside(),
             hide_deleted: self.hide_deleted,
         };
-        self.cache.used.insert(key.clone());
-        if let Some(pl) = self.cache.paras.get(&key) {
-            self.cache.hits += 1;
-            return pl.clone();
+        (key, eq_number)
+    }
+
+    /// The cache-key hash of a cell's table-style text formatting. Hashing it means formatting it
+    /// as text, which a long table would otherwise do for each of its paragraphs on every pass; a
+    /// document's tables only give their text a few different formats.
+    fn table_key(&mut self, t: &para::CellText) -> u64 {
+        if let Some((_, h)) = self.table_keys.iter().find(|(c, _)| c == t) {
+            return *h;
         }
-        self.cache.misses += 1;
-        let env = para::ParaEnv {
+        let h = hash_of(&format!("{t:?}"));
+        if self.table_keys.len() >= 64 {
+            self.table_keys.clear();
+        }
+        self.table_keys.push((t.clone(), h));
+        h
+    }
+
+    fn para_env<'b>(
+        &'b self,
+        width: f32,
+        label: Option<(String, Level)>,
+        table: Option<&'b para::CellText>,
+        exclusions: &'b [para::Exclusion],
+        eq_number: u32,
+    ) -> para::ParaEnv<'b> {
+        para::ParaEnv {
             doc: self.doc,
             width,
             label,
@@ -757,10 +828,7 @@ impl Ctx<'_> {
             read_line_spacing: if self.opts.view == ViewMode::Read { self.opts.read_line_spacing } else { None },
             grid: self.grid,
             fit_objects: self.boxes.inside(),
-        };
-        let pl = Arc::new(para::layout_para(p, &env));
-        self.cache.paras.insert(key, pl.clone());
-        pl
+        }
     }
 }
 
@@ -1786,6 +1854,7 @@ fn layout_pass(
     let env = env_hash(doc, opts);
     if env != cache.env {
         cache.paras.clear();
+        cache.measures.clear();
         cache.env = env;
     }
     cache.used.clear();
@@ -1821,6 +1890,7 @@ fn layout_pass(
         uses_totals: false,
         track_totals: true,
         quiet_marks: Vec::new(),
+        table_keys: Vec::new(),
     };
     let sections = doc.sections();
     let web = matches!(opts.view, ViewMode::Web | ViewMode::Draft | ViewMode::Outline);
@@ -2077,9 +2147,10 @@ fn layout_pass(
         }
     }
     // Evict paragraph layouts that weren't used this pass if the cache grew large.
-    if ctx.cache.paras.len() > 4 * ctx.cache.used.len().max(1024) {
+    if ctx.cache.paras.len() + ctx.cache.measures.len() > 4 * ctx.cache.used.len().max(1024) {
         let used = std::mem::take(&mut ctx.cache.used);
         ctx.cache.paras.retain(|k, _| used.contains(k));
+        ctx.cache.measures.retain(|k, _| used.contains(k));
         ctx.cache.used = used;
     }
     let mut index: HashMap<(StoryRef, Path), Vec<(usize, usize)>> = HashMap::new();
@@ -2741,6 +2812,33 @@ fn again<T>(ctx: &mut Ctx, eq_start: u32, f: impl FnOnce(&mut Ctx) -> T) -> T {
     out
 }
 
+/// How many times one body paragraph's lines are broken again for the wrap areas of the later
+/// columns and pages it runs onto (#1374).
+const MAX_WRAP_RELAYS: usize = 64;
+
+#[cfg(test)]
+thread_local! {
+    /// How many wrap relays (#1374) the layouts on this thread made: tests check none happen
+    /// without something new to wrap around.
+    static WRAP_RELAYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The wrap areas for a paragraph laid out against `rel` (relative to its top) whose lines from the
+/// one at `t` (relative to its top) on go into the column starting at `x0`, that line at `y` on
+/// the page, which has the wrap areas `excl` (#1374). The areas the lines before were broken
+/// around end at `t`; the column's start there (one reaching above `t` with an outline keeps its
+/// whole outline, so it may change a line before, and the paragraph is then not broken again).
+/// Areas well clear of the column (outside `-width..2 * width`, room for negative indents) can't
+/// touch its lines and are left out.
+fn continued_exclusions(rel: &[para::Exclusion], excl: &[WrapArea], x0: f32, y: f32, t: f32, width: f32) -> Vec<para::Exclusion> {
+    let before = rel.iter().filter(|e| e.top < t).map(|e| para::Exclusion { bottom: e.bottom.min(t), ..e.clone() });
+    let here = rel_exclusions(excl, x0, y - t)
+        .into_iter()
+        .filter(|e| e.bottom > t && e.right > -width && e.left < 2.0 * width)
+        .map(|e| if e.top < t && e.contour.is_none() { para::Exclusion { top: t, ..e } } else { e });
+    before.chain(here).collect()
+}
+
 /// Run `f` with `map` as the field context's page map (`FieldCtx::page_from`), then take it back.
 fn with_page_map<T>(ctx: &mut Ctx, map: &mut Vec<(usize, u32)>, f: impl FnOnce(&mut Ctx) -> T) -> T {
     ctx.fields.page_from = std::mem::take(map);
@@ -2769,6 +2867,8 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     // page (bounded: a paragraph over hundreds of pages keeps the last number it got).
     let (mut laid_page, mut laid_width) = (pb.number, pb.col_w());
     let mut page_relays = 0usize;
+    // How many times its lines were broken again for the wrap areas of a later column (#1374).
+    let mut wrap_relays = 0usize;
     // The anchor paragraph's top (above its space before) the floats were placed from.
     let mut anchor_y = pb.y;
     let spot = |pb: &PageBuilder| (pb.pages.len(), pb.col);
@@ -2853,6 +2953,33 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let mut after_on_page: Option<f32> = None;
     let mut l0 = 0;
     while l0 < n {
+        // The lines going into a new column (or page) were broken around the wrap areas where the
+        // paragraph started: break them again around this column's (the lines before stay as they
+        // were, and so do the paragraph's own floating objects), when they differ (#1374).
+        if l0 > 0
+            && !pb.web
+            && wrap_relays < MAX_WRAP_RELAYS
+            && let Some((resume, t)) = pl.lines.get(l0).map(|l| (l.start, l.top))
+        {
+            let here = continued_exclusions(&rel, &pb.excl, pb.col_x(), pb.y, t, laid_width);
+            if here != rel {
+                wrap_relays += 1;
+                ctx.fields.page = laid_page;
+                #[cfg(test)]
+                WRAP_RELAYS.with(|c| c.set(c.get() + 1));
+                let relaid =
+                    with_page_map(ctx, &mut page_map, |ctx| again(ctx, eq_start, |ctx| ctx.para_labelled(p, laid_width, None, &here, label.clone())));
+                // Only if the rest still starts at the same line, at the same height (an outline
+                // reaching above it could move the lines before down, and the column's areas with them).
+                if let Some(k) = relaid.lines.iter().position(|l| l.start == resume)
+                    && relaid.lines.get(k).is_some_and(|l| (l.top - t).abs() < 0.01)
+                {
+                    (pl, rel) = (relaid, here);
+                    n = pl.lines.len();
+                    l0 = k;
+                }
+            }
+        }
         // Page fields in the lines going onto a new page show that page's number: lay the
         // paragraph out again with the fields from there on on this page (the lines before stay as
         // they were, so the line the rest starts with is still there), breaking the rest again for
