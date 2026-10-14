@@ -4,13 +4,15 @@
 //! It exercises what the Dicollecte French dictionary uses: two-character flags (`FLAG long`),
 //! stems that need an affix (`NEEDAFFIX`, with an empty suffix for the singular), elisions as
 //! prefixes licensed by a suffix's continuation (`l'arbre` but not `l'arbres`), irregular verbs
-//! through `FULLSTRIP` (`être` → `suis`), `KEEPCASE` (`km`), `ICONV` (`’` read as `'`) and the
+//! through `FULLSTRIP` (`être` → `suis`), `KEEPCASE` (`km`), `NOSUGGEST` (`bah`), `ICONV` (`’`
+//! read as `'`) and the
 //! suggestion tables (`TRY`, `MAP` for accents, `REP` for common confusions).
 
 pub const AFF: &str = "SET UTF-8
 FLAG long
 NEEDAFFIX ()
 KEEPCASE ||
+NOSUGGEST --
 FULLSTRIP
 ICONV 1
 ICONV ’ '
@@ -133,6 +135,7 @@ aujourd'hui/D'
 peut-être
 arc-en-ciel
 km/||
+bah/--
 Paris
 France
 Montréal

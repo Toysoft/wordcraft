@@ -70,11 +70,11 @@ impl Collector<'_> {
         let mut words = Vec::new();
         let mut cost = cost;
         for part in cand.split(' ') {
-            if self.d.contains(part) {
+            if self.d.suggestible(part) {
                 words.push(part.to_string());
             } else {
                 let c = capitalize(part);
-                if !self.d.contains(&c) {
+                if !self.d.suggestible(&c) {
                     return;
                 }
                 words.push(c);
@@ -210,9 +210,9 @@ fn suggest_plain(d: &AffixDict, word: &str, max: usize) -> Vec<String> {
     let chars: Vec<char> = input.chars().collect();
     let mut col = Collector { d, input: input.clone(), tested: HashSet::new(), found: HashMap::new(), seq: 0 };
     // 1. Letter case.
-    if d.contains(&input) && word != input {
+    if d.suggestible(&input) && word != input {
         col.keep(input.clone(), COST_CASE);
-    } else if d.contains(&capitalize(&input)) && word != capitalize(&input) {
+    } else if d.suggestible(&capitalize(&input)) && word != capitalize(&input) {
         col.keep(capitalize(&input), COST_CASE);
     }
     // 2. Accents and other MAP slips.
@@ -360,7 +360,7 @@ fn scan(col: &mut Collector, chars: &[char]) {
                 continue;
             }
             let dist = weighted_distance(&lf, chars, &related, limit);
-            if dist <= limit && lf.as_slice() != chars {
+            if dist <= limit && lf.as_slice() != chars && d.suggestible(&form) {
                 col.keep(form, COST_SCAN + dist * 3);
             }
         }
@@ -447,5 +447,15 @@ mod tests {
         let ms = t.elapsed().as_secs_f64() * 1000.0;
         eprintln!("3 suggestion calls: {ms:.0} ms");
         assert!(ms < 20_000.0, "{ms} ms");
+    }
+
+    #[test]
+    fn no_suggest_words_are_never_offered() {
+        crate::fr::test_dict::install();
+        // `bah` is marked NOSUGGEST: correct, but `bahh` must not be told to become it.
+        assert!(crate::fr::is_correct("bah"));
+        let s = suggest("bahh", 8);
+        assert!(!s.iter().any(|x| x.eq_ignore_ascii_case("bah")), "{s:?}");
+        has("chatt", "chat");
     }
 }

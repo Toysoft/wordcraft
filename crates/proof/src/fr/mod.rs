@@ -21,7 +21,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::affix::AffixDict;
 
-pub use suggest::suggest;
+pub use suggest::{suggest, suggest_in};
 
 /// The French dictionary: `None` until first use, then the installed one (or an empty one).
 static DICT: RwLock<Option<Arc<AffixDict>>> = RwLock::new(None);
@@ -319,5 +319,25 @@ mod tests {
         let first = |w: &str| suggest::suggest_in(&d, w, 5);
         assert!(first("maisonn").contains(&"maison".to_string()), "{:?}", first("maisonn"));
         assert!(first("ecole").contains(&"école".to_string()), "{:?}", first("ecole"));
+    }
+
+    #[test]
+    fn suggestions_on_the_installed_dictionary_are_fast_enough() {
+        let Some(d) = system_dictionary() else { return };
+        let words = ["maisonn", "ecole", "beaucoups", "l'arbrre", "anticonstitutionelement", "xqzvwemotlong", "finisaient", "Parris"];
+        let _ = suggest::suggest_in(&d, "bien", 1);
+        let t = std::time::Instant::now();
+        for w in words {
+            let _ = suggest::suggest_in(&d, w, 6);
+        }
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        eprintln!("fr_FR: {} suggestion calls in {ms:.0} ms ({:.0} ms each)", words.len(), ms / words.len() as f64);
+        assert!(ms < 30_000.0, "{ms} ms");
+        // NOSUGGEST entries of the real dictionary (unit symbols) are correct but stay out.
+        for (typo, unit) in [("dastt", "dast"), ("ergg", "erg"), ("cgrr", "cgr")] {
+            assert!(is_correct_with(&d, unit), "{unit}");
+            let s = suggest::suggest_in(&d, typo, 8);
+            assert!(!s.iter().any(|x| x == unit), "{typo} → {s:?}");
+        }
     }
 }

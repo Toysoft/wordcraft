@@ -16,9 +16,9 @@
 //! with strip, append and condition (`.`, letters, `[abc]`, `[^abc]`), cross products,
 //! continuation classes on suffixes (at most two suffixes in a row, as in Hunspell; a prefix
 //! flag in a suffix's continuation lets that prefix attach to the suffixed form),
-//! `FORBIDDENWORD`, `NEEDAFFIX`, `KEEPCASE`, `FULLSTRIP`, `ICONV`, and the suggestion tables
-//! `TRY`, `MAP` and `REP`. Ignored (they only shape suggestions or output): `OCONV`,
-//! `NOSUGGEST`, `BREAK`, morphological fields. Rejected: compounding, `AF`/`AM` aliases,
+//! `FORBIDDENWORD`, `NEEDAFFIX`, `KEEPCASE`, `FULLSTRIP`, `ICONV`, `NOSUGGEST` (for
+//! [`AffixDict::suggestible`]) and the suggestion tables `TRY`, `MAP` and `REP`. Ignored (they
+//! only shape output or compounding hints): `OCONV`, `BREAK`, morphological fields. Rejected: compounding, `AF`/`AM` aliases,
 //! `CIRCUMFIX` used by a rule, and the other directives that change which words are correct.
 //!
 //! Lookups never panic: stems sit in one string, found through an open-addressing hash table, and
@@ -284,6 +284,9 @@ pub struct AffixDict {
     need_affix: FlagSet,
     /// The `KEEPCASE` flag's bit: a stem carrying it is a word only in its own case.
     keep_case: FlagSet,
+    /// The `NOSUGGEST` flag's bit: a stem carrying it (and its forms) is correct but never
+    /// suggested.
+    no_suggest: FlagSet,
     /// `FULLSTRIP`: a rule may strip the whole stem (`être` → `suis`).
     full_strip: bool,
     /// `ICONV` input conversions, applied before lookup (`’` → `'`).
@@ -369,6 +372,7 @@ struct Rules {
     forbidden: Option<char>,
     need_affix: Option<char>,
     keep_case: Option<char>,
+    no_suggest: Option<char>,
     full_strip: bool,
     iconv: Vec<(String, String)>,
     /// The `CIRCUMFIX` flag, refused when a rule or stem uses it (not implemented).
@@ -402,7 +406,7 @@ fn parse_aff(aff: &str) -> Result<(Rules, FlagReader), String> {
         let line_err = |e: String| format!("line {}: {e}", n + 1);
         match dir {
             "SET" | "LANG" | "NAME" | "VERSION" | "HOME" | "WORDCHARS" | "KEY" | "MAXNGRAMSUGS" | "MAXDIFF" | "ONLYMAXDIFF" | "NOSPLITSUGS"
-            | "SUGSWITHDOTS" | "NOSUGGEST" | "WARN" | "FORBIDWARN" | "MAXCPDSUGS" | "OCONV" | "BREAK" => {}
+            | "SUGSWITHDOTS" | "WARN" | "FORBIDWARN" | "MAXCPDSUGS" | "OCONV" | "BREAK" => {}
             "FLAG" => {
                 flags.mode = match at(1) {
                     "UTF-8" | "DEFAULT" | "utf-8" | "default" | "UTF8" | "" => FlagMode::Char,
@@ -414,6 +418,7 @@ fn parse_aff(aff: &str) -> Result<(Rules, FlagReader), String> {
             "FORBIDDENWORD" => r.forbidden = Some(flags.one(at(1)).map_err(line_err)?),
             "NEEDAFFIX" => r.need_affix = Some(flags.one(at(1)).map_err(line_err)?),
             "KEEPCASE" => r.keep_case = Some(flags.one(at(1)).map_err(line_err)?),
+            "NOSUGGEST" => r.no_suggest = Some(flags.one(at(1)).map_err(line_err)?),
             "CIRCUMFIX" => r.circumfix = Some(flags.one(at(1)).map_err(line_err)?),
             "FULLSTRIP" => r.full_strip = true,
             "ICONV" => {
@@ -523,7 +528,7 @@ impl AffixDict {
         let mut flag_chars: Vec<char> = rules.prefixes.iter().chain(&rules.suffixes).map(|r| r.0).collect();
         flag_chars.extend(rules.prefixes.iter().chain(&rules.suffixes).flat_map(|r| r.4.chars()));
         flag_chars.extend(stems.iter().flat_map(|s| s.1.chars()));
-        flag_chars.extend([rules.forbidden, rules.need_affix, rules.keep_case].into_iter().flatten());
+        flag_chars.extend([rules.forbidden, rules.need_affix, rules.keep_case, rules.no_suggest].into_iter().flatten());
         flag_chars.sort_unstable();
         flag_chars.dedup();
         if flag_chars.len() > MAX_FLAGS {
@@ -533,6 +538,7 @@ impl AffixDict {
         let set_of = |s: &str| s.chars().fold(FlagSet::default(), |m, c| m.union(bit_of(c)));
         let directive = |c: Option<char>| c.map_or(FlagSet::default(), bit_of);
         let (forbidden, need_affix, keep_case) = (directive(rules.forbidden), directive(rules.need_affix), directive(rules.keep_case));
+        let no_suggest = directive(rules.no_suggest);
         // Stems sorted by bytes; homonyms (the same word twice) are merged.
         stems.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
         let mut d = AffixDict {
@@ -542,6 +548,7 @@ impl AffixDict {
             forbidden,
             need_affix,
             keep_case,
+            no_suggest,
             full_strip: rules.full_strip,
             iconv: rules.iconv,
             try_chars: rules.try_chars,
@@ -740,6 +747,12 @@ impl AffixDict {
     /// Is `w` exactly (case and all) a stem or an affixed form of one?
     pub fn contains(&self, w: &str) -> bool {
         self.contains_with(w, self.forbidden)
+    }
+
+    /// May `w` be offered as a suggestion: [`AffixDict::contains`], leaving out the stems marked
+    /// `NOSUGGEST` and their forms (currency codes, unit symbols, interjections)?
+    pub fn suggestible(&self, w: &str) -> bool {
+        self.contains_with(w, self.forbidden.union(self.no_suggest))
     }
 
     /// [`AffixDict::contains`], with stems carrying a flag of `reject` left out.
@@ -972,7 +985,9 @@ impl AffixDict {
         for (a, b) in &self.rep {
             out.push_str(&format!("REP {} {}\n", a.replace(' ', "_"), b.replace(' ', "_")));
         }
-        for (name, set) in [("FORBIDDENWORD", self.forbidden), ("NEEDAFFIX", self.need_affix), ("KEEPCASE", self.keep_case)] {
+        let directives =
+            [("FORBIDDENWORD", self.forbidden), ("NEEDAFFIX", self.need_affix), ("KEEPCASE", self.keep_case), ("NOSUGGEST", self.no_suggest)];
+        for (name, set) in directives {
             if let Some(c) = self.flag_char(set) {
                 out.push_str(&format!("{name} {c}\n"));
             }
@@ -1040,7 +1055,7 @@ impl AffixDict {
                 "TRY" => rules.try_chars = at(1).to_string(),
                 "MAP" => rules.map.push(at(1).chars().collect()),
                 "REP" => rules.rep.push((at(1).replace('_', " "), at(2).replace('_', " "))),
-                name @ ("FORBIDDENWORD" | "NEEDAFFIX" | "KEEPCASE") => {
+                name @ ("FORBIDDENWORD" | "NEEDAFFIX" | "KEEPCASE" | "NOSUGGEST") => {
                     let mut it = at(1).chars();
                     let c = match (it.next(), it.next()) {
                         (Some(c), None) if !c.is_whitespace() => c,
@@ -1049,7 +1064,8 @@ impl AffixDict {
                     match name {
                         "FORBIDDENWORD" => rules.forbidden = Some(c),
                         "NEEDAFFIX" => rules.need_affix = Some(c),
-                        _ => rules.keep_case = Some(c),
+                        "KEEPCASE" => rules.keep_case = Some(c),
+                        _ => rules.no_suggest = Some(c),
                     }
                 }
                 "FULLSTRIP" => rules.full_strip = true,
@@ -1398,6 +1414,33 @@ mod tests {
         assert!(AffixDict::from_hunspell(aff, "1\nchat/S.**\n", &[]).is_err(), "used: not implemented, so refused");
     }
 
+    #[test]
+    fn no_suggest_words_are_correct_but_not_suggestible() {
+        // Dicollecte marks currency codes, unit symbols and interjections NOSUGGEST.
+        let aff = "SET UTF-8\nFLAG long\nNOSUGGEST --\nSFX S. Y 1\nSFX S. 0 s .\n";
+        let d = AffixDict::from_hunspell(aff, "2\nchat/S.\nchf/S.--\n", &[]).unwrap();
+        assert!(d.contains("chf") && d.contains("chfs") && d.check("chf"), "still correct");
+        assert!(!d.suggestible("chf") && !d.suggestible("chfs"), "never suggested, nor its forms");
+        assert!(d.suggestible("chat") && d.suggestible("chats"));
+        let back = AffixDict::from_bytes(&d.to_bytes()).unwrap();
+        assert!(back.contains("chf") && !back.suggestible("chf"), "NOSUGGEST survives a round trip");
+    }
+
+    /// `.aff` text built from random pieces with the features the French dictionary uses.
+    fn random_aff(mode: u8, directives: &[String], rules: &[(String, String, String, String, String)]) -> String {
+        let mode = ["long", "num", "UTF-8"].get(usize::from(mode % 3)).copied().unwrap_or("long");
+        let mut aff = format!("SET UTF-8\nFLAG {mode}\nFULLSTRIP\nICONV 2\nICONV ’ '\n");
+        for d in directives {
+            aff.push_str(d);
+            aff.push('\n');
+        }
+        for (flag, strip, add, cont, cond) in rules {
+            let kind = if strip.len() % 2 == 0 { "SFX" } else { "PFX" };
+            aff.push_str(&format!("{kind} {flag} Y 1\n{kind} {flag} {strip} {add}/{cont} {cond}\n"));
+        }
+        aff
+    }
+
     proptest::proptest! {
         #[test]
         fn lookups_never_panic(s in "\\PC{0,40}", bytes in proptest::collection::vec(proptest::num::u8::ANY, 0..200)) {
@@ -1406,6 +1449,28 @@ mod tests {
             let _ = d.forms(&s);
             let _ = AffixDict::from_bytes(&bytes);
             let _ = AffixDict::from_bytes(&miniz_oxide::deflate::compress_to_vec(&bytes, 1));
+        }
+
+        #[test]
+        fn random_french_style_dictionaries_never_panic(
+            mode in 0u8..3,
+            directives in proptest::collection::vec("(NEEDAFFIX|KEEPCASE|NOSUGGEST|FORBIDDENWORD|ICONV|CIRCUMFIX) [a-c0-9(),.'’]{0,3}", 0..4),
+            rules in proptest::collection::vec(("[A-Ca-c0-9().']{1,2}", "[a-cé0]{1,3}", "[a-cé0']{1,3}", "[A-Ca-c0-9(),.']{0,4}", "[a-cé.\\[\\]^]{1,4}"), 0..8),
+            stems in proptest::collection::vec(("[a-cé'’-]{1,6}", "[A-Ca-c0-9(),.']{0,6}"), 0..8),
+            word in "[a-cé'’ -]{0,10}",
+        ) {
+            let aff = random_aff(mode, &directives, &rules);
+            let dic: String = std::iter::once(format!("{}\n", stems.len())).chain(stems.iter().map(|(w, f)| format!("{w}/{f}\n"))).collect();
+            if let Ok(d) = AffixDict::from_hunspell(&aff, &dic, &[]) {
+                let _ = d.check(&word);
+                let _ = d.suggestible(&word);
+                for stem in d.stems().map(str::to_string).collect::<Vec<_>>() {
+                    let _ = d.forms(&stem);
+                }
+                let _ = crate::fr::suggest_in(&d, &word, 3);
+                let back = AffixDict::from_bytes(&d.to_bytes());
+                proptest::prop_assert!(back.is_ok(), "{aff}\n{dic}");
+            }
         }
     }
 }
