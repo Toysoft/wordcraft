@@ -853,6 +853,16 @@ impl WordApp {
         let document = self.session.document_id();
         let old_path = self.session.path.clone();
         let r = self.session.run(id, &params).map_err(|e| e.to_string());
+        // Copy and Cut put what they took on the system clipboard, whichever control ran them
+        // (the ribbon, a context menu, the native menu, or the Cmd+C/X event). Only the key event
+        // used to write it, so a Cut button deleted the words without copying them.
+        if matches!(id, "edit.copy" | "edit.cut")
+            && let Ok(v) = &r
+            && let Some(ctx) = &ctx
+        {
+            // Its HTML too when it has some (an equation as MathML, #816).
+            crate::system_clipboard::put_result(self, ctx, v);
+        }
         // When the document has been replaced (not when Open only showed its picker), a pending
         // "Save changes?" and AutoSave's go-ahead were both about the old one.
         if self.session.document_id() != document {
@@ -1771,7 +1781,12 @@ impl WordApp {
             self.fonts_system_cjk = system_cjk;
             // Mod with -, = and 0 are Word shortcuts (optional hyphen, subscript, paragraph spacing);
             // egui's keyboard zoom would also scale the whole window on them. Zoom is View › Zoom.
-            ctx.options_mut(|o| o.zoom_with_keyboard = false);
+            // egui quits on Command-Q, which is Ctrl+Q off the Mac: Word's Reset Paragraph
+            // Formatting there (#1218). Keep ⌘Q, which only the Mac sends.
+            ctx.options_mut(|o| {
+                o.zoom_with_keyboard = false;
+                o.quit_shortcuts = vec![egui::KeyboardShortcut::new(egui::Modifiers::MAC_CMD, egui::Key::Q)];
+            });
             self.styled = true;
         }
     }
@@ -2188,7 +2203,7 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "review.combine" if !has("path") && !has("text") => Some("combine"),
         "tools.autocorrect" if params.as_object().is_none_or(|m| m.is_empty()) => Some("autoCorrect"),
         "review.restrict" | "file.protect" if params.as_object().is_none_or(|m| m.is_empty()) => Some("restrictEditing"),
-        "insert.bookmark" if !has("name") => Some("bookmark"),
+        "insert.bookmark" | "insert.deleteBookmark" if !has("name") => Some("bookmark"),
         // Word Count from the keyboard or command search shows its dialog, as the ribbon does.
         "review.wordCount" if params.as_object().is_none_or(|m| m.is_empty()) => Some("wordCount"),
         // Content control Properties without settings shows the dialog.
@@ -2772,6 +2787,72 @@ mod tests {
             frame(&mut a, Vec::new());
         }
         assert!(a.canvas.scale < zoomed, "Ctrl+wheel down zooms out");
+    }
+
+    /// Issue #1223: Ctrl+wheel zoomed around the top of the scroll range, not the pointer, so the
+    /// page slid away under it while zooming; once the pages reflowed into rows the view glided
+    /// back to the caret. The place under the pointer stays put, rows or not. The events are the
+    /// ones egui-winit sends on Linux: Ctrl sets both `ctrl` and `command`.
+    #[test]
+    fn ctrl_wheel_zoom_keeps_the_place_under_the_pointer() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(4000)})).unwrap();
+        a.run("caret.docStart", json!({})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let pointer = a.canvas.canvas_rect.unwrap().center();
+        frame(&mut a, vec![egui::Event::PointerMoved(pointer)]);
+        let wheel = |y: f32, modifiers| egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, y),
+            phase: egui::TouchPhase::Move,
+            modifiers,
+        };
+        // Away from the caret, several pages down.
+        for _ in 0..60 {
+            frame(&mut a, vec![wheel(-1.0, egui::Modifiers::NONE)]);
+        }
+        for _ in 0..60 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(a.canvas.scroll_offset.y > 500.0, "scrolled down: {:?}", a.canvas.scroll_offset);
+        let page = canvas::nearest_page(&a.canvas.page_rects, pointer).unwrap();
+        assert!(page >= 3, "a few pages down: page {page}");
+        let under = |a: &WordApp| (pointer - a.canvas.page_rects[page].min) / a.canvas.scale;
+        let at = under(&a);
+        let linux_ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+        frame(&mut a, vec![egui::Event::ModifiersChanged(linux_ctrl)]);
+        let (cols, before) = (a.canvas.cols, a.canvas.scale);
+        for n in 0..40 {
+            let events = if n % 8 == 0 { vec![wheel(-1.0, linux_ctrl)] } else { Vec::new() };
+            frame(&mut a, events);
+            let now = under(&a);
+            // Across, the place can only be kept while the pages stay one per row: in rows they
+            // fit the window side by side and there is nothing to scroll sideways.
+            // Within a couple of screen pixels.
+            let off = (now - at) * a.canvas.scale;
+            let across = a.canvas.cols > cols || off.x.abs() < 2.0;
+            assert!(
+                across && off.y.abs() < 2.0,
+                "frame {n} at {:.0}%: {now:?} on page {page}, was {at:?}",
+                a.canvas.scale / canvas::PX_PER_PT * 100.0
+            );
+        }
+        assert!(a.canvas.scale < before * 0.6, "zoomed out: {before} -> {}", a.canvas.scale);
+        assert!(a.canvas.cols > cols, "the pages reflowed into rows on the way");
     }
 
     /// Issue #67: View › Zoom In from a fit mode zoomed *out*: Page Width showed 163% but Zoom In
@@ -3569,6 +3650,94 @@ mod tests {
         a.dialog.as_ref().map(|d| d.name())
     }
 
+    /// Cut and Copy reach the system clipboard however they are run — the ribbon, a context menu,
+    /// the native menu or Cmd+C/X — not only the key event, which used to be the sole writer.
+    #[test]
+    fn cut_and_copy_reach_the_system_clipboard() {
+        let copied = |ctx: &egui::Context| -> Vec<String> {
+            ctx.output(|o| {
+                o.commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+        };
+        let ctx = egui::Context::default();
+        let mut a = typed();
+        a.ctx = Some(ctx.clone());
+        a.run("select.all", json!({})).unwrap();
+        let text = a.session.selected_text();
+        assert!(!text.is_empty());
+        a.run("edit.cut", json!({})).unwrap();
+        assert!(body_text(&a).is_empty(), "cut deleted the selection");
+        assert!(copied(&ctx).contains(&text), "cut put {text:?} on the clipboard: {:?}", copied(&ctx));
+
+        a.run("edit.undo", json!({})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("edit.copy", json!({})).unwrap();
+        assert_eq!(body_text(&a), text, "copy kept the text");
+        assert!(copied(&ctx).contains(&text), "copy put {text:?} on the clipboard: {:?}", copied(&ctx));
+    }
+
+    /// #1265: every user entry point publishes Cut to the one clipboard sink — the ribbon's button
+    /// and a real Cmd/Ctrl+X key event, not only the generic command dispatch the sink sits behind.
+    #[test]
+    fn every_cut_entry_point_publishes_to_the_clipboard() {
+        let copied = |ctx: &egui::Context| -> Vec<String> {
+            ctx.output(|o| {
+                o.commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            })
+        };
+
+        // The ribbon's Cut button goes through `run_from_ribbon`, like every ribbon control.
+        let ctx = egui::Context::default();
+        let mut a = typed();
+        a.ctx = Some(ctx.clone());
+        a.run("select.all", json!({})).unwrap();
+        let text = a.session.selected_text();
+        crate::widgets::run_from_ribbon(&mut a, "edit.cut", json!({}));
+        assert!(body_text(&a).is_empty(), "ribbon Cut deleted the selection");
+        assert!(copied(&ctx).contains(&text), "ribbon Cut published {text:?}: {:?}", copied(&ctx));
+
+        // A real Cut key event through the app's key handling.
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            typed(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h.state_mut().canvas.focused = true;
+        h.state_mut().run("select.all", json!({})).unwrap();
+        h.step();
+        h.event(egui::Event::Cut);
+        h.step();
+        let via_key: Vec<String> = h
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(via_key.iter().any(|t| t.contains("My unsaved novel")), "key event Cut: {via_key:?} body={:?}", body_text(h.state()));
+    }
+
     /// A fresh scratch folder for one test.
     fn scratch(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("wordcraft-ui-{name}-{}", std::process::id()));
@@ -4359,6 +4528,45 @@ mod tests {
         h.event(egui::Event::Text("x".into()));
         h.step();
         assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Kilns");
+    }
+
+    /// #1218: Ctrl+Q resets the paragraph formatting and nothing else; it also closed the window
+    /// (asking to save) on Windows and Linux. ⌘Q still quits on the Mac.
+    #[test]
+    fn ctrl_q_resets_the_paragraph_without_closing_the_window() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        let closes = |h: &egui_kittest::Harness<WordApp>| {
+            h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::Close))
+        };
+        let align = |h: &egui_kittest::Harness<WordApp>| h.state().session.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).and_then(|p| p.props.align);
+        h.event(egui::Event::Text("Kilns".into()));
+        h.step();
+        h.state_mut().run("para.alignCenter", json!({})).unwrap();
+        h.step();
+        assert!(align(&h).is_some());
+        // Off the Mac, Ctrl is the command key: egui sets both `ctrl` and `command`.
+        let ctrl_q = if cfg!(target_os = "macos") { egui::Modifiers::CTRL } else { egui::Modifiers::CTRL | egui::Modifiers::COMMAND };
+        h.event(key(egui::Key::Q, ctrl_q));
+        h.step();
+        assert_eq!(align(&h), None, "Ctrl+Q resets the paragraph formatting");
+        // Ctrl+Q as Windows and Linux send it, on any host.
+        h.event(key(egui::Key::Q, egui::Modifiers::CTRL | egui::Modifiers::COMMAND));
+        h.step();
+        assert!(!closes(&h), "Ctrl+Q doesn't close the window");
+        h.event(key(egui::Key::Q, egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND));
+        h.step();
+        assert!(closes(&h), "⌘Q still quits on the Mac");
     }
 
     /// #819: Alt+Q opens Search with its box focused, as in Word: the Q isn't typed into the
