@@ -592,6 +592,25 @@ fn del_col(s: &mut Session, _: &Value) -> CmdResult {
 
 fn del_table(s: &mut Session, _: &Value) -> CmdResult {
     let (tp, _, _) = cell(s)?;
+    delete_table_at(s, &tp)
+}
+
+/// The table the selection covers whole (Select Table, a drag over all of it), if it does (#1744).
+pub(super) fn selected_table(s: &Session) -> Option<Path> {
+    if let Some(r) = s.cell_range()
+        && let Some(t) = s.doc.table(r.story, &r.table)
+        && r.rows == (0, t.rows.len().saturating_sub(1))
+        && r.cols == (0, t.cols().saturating_sub(1))
+    {
+        return Some(r.table.clone());
+    }
+    let (a, b) = s.sel.ordered();
+    s.doc.whole_table(&a, &b)
+}
+
+/// Delete Table for the table at `tp` (in the selection's story): tracked when Track Changes is on.
+pub(super) fn delete_table_at(s: &mut Session, tp: &Path) -> CmdResult {
+    let tp = tp.clone();
     let story = s.sel.focus.story;
     let spans = text_spans(s, story, std::slice::from_ref(&tp.0));
     if let Some(done) = guard_delete(s, &spans)? {

@@ -158,7 +158,11 @@ fn copy(s: &mut Session, _: &Value) -> CmdResult {
     if a == b {
         return Ok(json!({"text": ""}));
     }
-    let f = s.doc.copy_range(&a, &b);
+    // A whole table selected copies the table, even one whose text is a single paragraph (#1744).
+    let f = match super::table::selected_table(s).and_then(|tp| s.doc.copy_block(a.story, &tp)) {
+        Some(f) => f,
+        None => s.doc.copy_range(&a, &b),
+    };
     s.clipboard_text = f.clipboard_text();
     s.clip_history.push(&f, &s.clipboard_text);
     s.clipboard = Some(f);
@@ -177,6 +181,15 @@ pub(crate) fn copy_result(s: &mut Session) -> Value {
 
 fn cut(s: &mut Session, v: &Value) -> CmdResult {
     let r = copy(s, v)?;
+    // A whole table selected: Cut removes the table, as Delete Table does (#1744). With Track
+    // Changes on, the cut below marks its text deleted (a tracked cut may become a move).
+    if !s.doc.settings.track_changes
+        && let Some(tp) = super::table::selected_table(s)
+    {
+        super::table::delete_table_at(s, &tp)?;
+        super::controls::restore_placeholder(s)?;
+        return Ok(r);
+    }
     // A tracked cut of a paragraph or sentence may become a move when pasted.
     if !super::moves::cut_tracked(s)? {
         delete_selection(s)?;

@@ -467,6 +467,41 @@ impl Document {
         Fragment { blocks, parts }
     }
 
+    /// A copy of the block at `path` (a whole table, say) as a fragment, with its text boxes.
+    pub fn copy_block(&self, story: crate::StoryRef, path: &Path) -> Option<Fragment> {
+        let mut blocks = vec![self.block(story, path)?.clone()];
+        crate::control::balance_blocks(&mut blocks);
+        let parts = self.text_box_parts(&blocks);
+        Some(Fragment { blocks, parts })
+    }
+
+    /// The table whose whole text `a..b` covers when the range runs across its cells: from the
+    /// start of its first paragraph to the end of its last (the outermost such table). `None`
+    /// for a range inside one cell, or one that doesn't cover a whole table.
+    pub fn whole_table(&self, a: &Pos, b: &Pos) -> Option<Path> {
+        let (a, b) = order(a, b);
+        if a.story != b.story || a.off != 0 || a.path.parent() == b.path.parent() {
+            return None;
+        }
+        // Table block paths are the prefixes of a cell paragraph's path one block deep, then
+        // every three steps (block, row, cell) deeper.
+        let mut n = 1usize;
+        while n.saturating_add(3) <= a.path.0.len() {
+            let pre = a.path.0.get(..n)?;
+            let tp = Path(pre.to_vec());
+            if b.path.0.starts_with(pre) && self.table(a.story, &tp).is_some() {
+                let paths = self.para_paths(a.story);
+                let mut inside = paths.iter().filter(|p| p.0.starts_with(pre));
+                let first = inside.next()?;
+                let last = inside.next_back().unwrap_or(first);
+                let end = self.para(a.story, last).map_or(0, Paragraph::len);
+                return (*first == a.path && *last == b.path && b.off >= end).then_some(tp);
+            }
+            n = n.saturating_add(3);
+        }
+        None
+    }
+
     /// The whole body as a fragment (with its text boxes), to insert into another document.
     pub fn body_fragment(&self) -> Fragment {
         let blocks: Vec<Block> = self.body.iter().map(|b| (**b).clone()).collect();
@@ -519,6 +554,13 @@ impl Document {
                     Block::Table(t) => out.push(Block::Table(t.clone())),
                 }
             }
+            return out;
+        }
+        // Across the cells of a whole table: the table itself, not its cells' paragraphs (#1744).
+        if let Some(tp) = self.whole_table(&a, &b)
+            && let Some(blk) = self.block(a.story, &tp)
+        {
+            out.push(blk.clone());
             return out;
         }
         for p in self.paths_between(&a, &b) {

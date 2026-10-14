@@ -1266,6 +1266,67 @@ fn tables_commands() {
     assert!(s.run("table.merge", &json!({})).is_err());
 }
 
+/// A 2×2 table "A1 B1 / A2 B2" after an "Intro" paragraph, the caret in its first cell.
+fn table_doc() -> Session {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Intro"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    for (i, t) in ["A1", "B1", "A2", "B2"].iter().enumerate() {
+        if i > 0 {
+            run(&mut s, "text.tab", json!({}));
+        }
+        run(&mut s, "text.insert", json!({"text": t}));
+    }
+    s
+}
+
+fn body_table_cells(s: &Session) -> Vec<Vec<String>> {
+    s.doc
+        .body
+        .iter()
+        .filter_map(|b| b.as_table())
+        .map(|t| {
+            t.rows
+                .iter()
+                .flat_map(|r| r.cells.iter())
+                .map(|c| c.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect::<String>())
+                .collect()
+        })
+        .collect()
+}
+
+/// #1744: Select Table → Copy → Paste outside the table pastes a copy of the whole table.
+#[test]
+fn copy_whole_table_pastes_a_table() {
+    let mut s = table_doc();
+    run(&mut s, "table.selectTable", json!({}));
+    let r = run(&mut s, "edit.copy", json!({}));
+    assert!(r["text"].as_str().unwrap().contains("A1\tB1"), "clipboard text is tab separated: {r}");
+    assert!(matches!(s.clipboard.as_ref().unwrap().blocks.as_slice(), [wordcraft_doc::Block::Table(_)]), "the copy is the table");
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "edit.paste", json!({}));
+    let want = vec!["A1".to_string(), "B1".into(), "A2".into(), "B2".into()];
+    assert_eq!(body_table_cells(&s), vec![want.clone(), want]);
+}
+
+/// #1744: Select Table → Cut removes the whole table, and one Undo brings it back.
+#[test]
+fn cut_whole_table_removes_it_and_undoes() {
+    let mut s = table_doc();
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "edit.cut", json!({}));
+    assert!(body_table_cells(&s).is_empty(), "the table is gone");
+    assert!(s.sel.focus.path.cell().is_none(), "the caret left the table");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(body_table_cells(&s), vec![vec!["A1".to_string(), "B1".into(), "A2".into(), "B2".into()]]);
+    // Paste puts it back as a table.
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "edit.cut", json!({}));
+    run(&mut s, "edit.paste", json!({}));
+    assert_eq!(body_table_cells(&s).len(), 1);
+}
+
 fn cells(s: &Session) -> Option<((usize, usize), (usize, usize))> {
     s.cell_range().map(|x| (x.rows, x.cols))
 }
