@@ -19,6 +19,7 @@ mod file_dialogs;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
 mod logging;
+mod new_window;
 mod print;
 mod region;
 #[cfg(target_os = "macos")]
@@ -250,6 +251,7 @@ fn services(file_dialog: file_dialogs::Hook, ctx: &egui::Context) -> Services {
         set_clipboard_html: Some(Box::new(clipboard::set_html)),
         clipboard_rtf: Some(Box::new(clipboard::rtf)),
         clipboard_formats: Some(Box::new(clipboard::formats)),
+        new_window: Some(new_window::hook()),
         ..Default::default()
     }
 }
@@ -323,6 +325,8 @@ fn main() -> eframe::Result {
     let mut control_port: Option<u16> = std::env::var("WORDCRAFT_CONTROL_PORT").ok().and_then(|p| p.parse().ok());
     let mut files = Vec::new();
     let mut sample = false;
+    // `--new <template>`: a new document, not the Start screen (a window File › New opened).
+    let mut new_template: Option<String> = None;
     let (args, other_files) = text_args();
     let mut bad_control: Option<Option<String>> = None;
     let mut args = args.into_iter().peekable();
@@ -337,6 +341,7 @@ fn main() -> eframe::Result {
                 }
             }
             "--sample" => sample = true,
+            "--new" => new_template = Some(args.next().unwrap_or_else(|| "blank".into())),
             "--version" => {
                 println!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
                 return Ok(());
@@ -456,8 +461,13 @@ fn main() -> eframe::Result {
             // Nothing to open (no files, no sample, no control channel driving the editor): start
             // on File › Home, as Word does (#766), unless the Start screen option is off. Files
             // macOS hands over later open on top of it and close it (`apple_events`).
-            if files.is_empty() && other_files.is_empty() && !sample && control_port.is_none() {
+            if files.is_empty() && other_files.is_empty() && !sample && control_port.is_none() && new_template.is_none() {
                 app.start_screen();
+            }
+            if let Some(template) = &new_template
+                && let Err(e) = app.run("file.new", serde_json::json!({"template": template}))
+            {
+                log::warn!("new {template}: {e}");
             }
             for f in files {
                 if let Err(e) = app.run("file.open", serde_json::json!({"path": f})) {
