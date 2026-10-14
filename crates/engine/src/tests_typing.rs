@@ -6,7 +6,7 @@ use serde_json::json;
 use wordcraft_doc::props::{BorderStyle, VertAlign};
 use wordcraft_doc::{Pos, StoryRef};
 
-use crate::Session;
+use crate::{Selection, Session};
 
 fn s() -> Session {
     Session::new(wordcraft_doc::Document::new())
@@ -176,6 +176,47 @@ fn shift_tab_and_tab_change_list_levels() {
         paras(&s),
         vec![para("One", Some(0)), para("Two", Some(0)), para("Sub a", Some(1)), para("Sub b", Some(1)), para("Three", Some(0)), para("Done", None)]
     );
+}
+
+#[test]
+fn tab_and_shift_tab_select_the_next_and_previous_cell() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    typ(&mut s, "Name\tValue\tAlpha\t1");
+    let back = |s: &mut Session| {
+        run(s, "text.backTab", json!({}));
+        s.selected_text()
+    };
+    assert_eq!(back(&mut s), "Alpha");
+    assert_eq!(back(&mut s), "Value", "from the first column to the end of the row above");
+    assert_eq!(back(&mut s), "Name");
+    assert_eq!(back(&mut s), "Name", "the first cell stays");
+    run(&mut s, "text.tab", json!({}));
+    assert_eq!(s.selected_text(), "Value");
+}
+
+#[test]
+fn up_and_down_leave_a_selection_from_its_start_and_its_end() {
+    let mut s = typed("One\nTwo words here\nThree is a longer line\nFour");
+    let press = |s: &mut Session, sel: Selection, id: &str| {
+        s.sel = sel;
+        s.goal_x = None;
+        run(s, id, json!({}));
+        s.sel.clone()
+    };
+    let caret = Selection::caret;
+    // Shift+Down from the start of "Two…" selects that line, up to the start of "Three…".
+    let line = Selection { anchor: Pos::body(1, 0), focus: Pos::body(2, 0) };
+    assert_eq!(press(&mut s, line.clone(), "caret.up"), caret(Pos::body(0, 0)));
+    let down = press(&mut s, line, "caret.down");
+    assert_eq!(down.focus.path.last(), 2, "Down goes to the line the selection ends at: {down:?}");
+    assert_eq!(down, press(&mut s, caret(Pos::body(1, 14)), "caret.down"));
+    // "words" selected right to left: Down goes from its end.
+    let words = Selection { anchor: Pos::body(1, 9), focus: Pos::body(1, 4) };
+    assert_eq!(press(&mut s, words, "caret.down"), press(&mut s, caret(Pos::body(1, 9)), "caret.down"));
+    // "is a" selected left to right: Up goes from its start.
+    let is_a = Selection { anchor: Pos::body(2, 6), focus: Pos::body(2, 10) };
+    assert_eq!(press(&mut s, is_a, "caret.up"), press(&mut s, caret(Pos::body(2, 6)), "caret.up"));
 }
 
 #[test]
