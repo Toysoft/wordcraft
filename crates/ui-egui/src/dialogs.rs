@@ -1395,10 +1395,12 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     // Keep the Save Changes prompt above its Middle-layer backdrop. Other dialogs
     // retain egui's normal Window layer so their existing stacking is unchanged.
     let window_order = if save_changes_dialog { egui::Order::Foreground } else { egui::Order::Middle };
-    let shown = place_dialog(ctx, id, egui::Window::new(tl!(title)).id(id).order(window_order).collapsible(false).resizable(false)).open(&mut open).show(ctx, |ui| {
-        ui.set_min_width(340.0);
-        close = body(app, ui, &mut d);
-    });
+    let shown = place_dialog(ctx, id, egui::Window::new(tl!(title)).id(id).order(window_order).collapsible(false).resizable(false))
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.set_min_width(340.0);
+            close = body(app, ui, &mut d);
+        });
     if shown.is_some() {
         count_dialog_frame(ctx, id);
     }

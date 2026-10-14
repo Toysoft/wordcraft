@@ -2928,10 +2928,7 @@ mod tests {
         h.run_steps(3);
 
         assert_eq!(prompt(h.state()), None, "Save should close the prompt");
-        assert!(
-            std::fs::read(&path).unwrap() != before,
-            "Save should write the revised document"
-        );
+        assert!(std::fs::read(&path).unwrap() != before, "Save should write the revised document");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
