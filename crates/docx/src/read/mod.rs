@@ -5,7 +5,7 @@ pub(crate) mod diagram;
 mod drawing_color;
 mod embed;
 mod freeform;
-mod math;
+pub(crate) mod math;
 mod props;
 mod sdt;
 mod shape_style;
@@ -22,7 +22,9 @@ use wordcraft_doc::para::OBJ;
 use wordcraft_doc::props::Rgb;
 use wordcraft_doc::section::NumFormat;
 use wordcraft_doc::styles::{Style, StyleKind, StyleSheet, TableStyleParts};
-use wordcraft_doc::{Block, Blocks, Comment, Document, InlineObject, Paragraph, PartKind, Revision, RevisionKind, para_block};
+use wordcraft_doc::{
+    Block, Blocks, Comment, Document, InlineObject, PagePicture, Paragraph, PartKind, Revision, RevisionKind, Zoom, ZoomFit, para_block,
+};
 
 use crate::DocxError;
 use crate::package::{ContentTypes, EMBEDDED_PARTS, EmbeddedManifest, MAX_VBA_RELATED, Package, Rels, VBA_PROJECT_PART, VBA_RELATED, rel_is, rt};
@@ -227,6 +229,17 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
 
     if let Some(bg) = root.child("w:background").and_then(|b| b.attr("w:color")).and_then(Rgb::parse) {
         r.doc.settings.page_color = Some(bg);
+    }
+    // A picture or texture fill: `w:background/v:background/v:fill` with a relationship id.
+    if let Some(fill) = root.child("w:background").and_then(|b| b.child("v:background")).and_then(|b| b.child("v:fill")) {
+        let rid = fill.attr("r:id").or_else(|| fill.attr("r:embed")).or_else(|| fill.attr("o:relid"));
+        if let Some(media) = rid.and_then(|id| r.media_for(&rels, id)) {
+            r.doc.settings.page_picture = Some(PagePicture {
+                media,
+                fill_type: fill.attr("type").unwrap_or("").chars().take(32).collect(),
+                title: fill.attr("o:title").unwrap_or("").chars().take(255).collect(),
+            });
+        }
     }
     if let Some(body) = root.child("w:body") {
         let mut sc = StoryCtx::default();
@@ -981,6 +994,9 @@ impl Reader<'_> {
 
     fn read_settings(&mut self, path: &str) -> Result<(), DocxError> {
         let Some(root) = self.xml(path)? else { return Ok(()) };
+        if let Some(b) = self.pkg.get(path).filter(|b| crate::write::settings_has_unowned(b)) {
+            self.doc.passthrough.insert(crate::package::SETTINGS_ORIG.into(), Arc::new(b.to_vec()));
+        }
         let rels = self.pkg.rels(path);
         let s = &mut self.doc.settings;
         for k in root.els() {
@@ -994,6 +1010,8 @@ impl Reader<'_> {
                         .filter(|t| !t.is_empty() && t.len() <= MAX_TEMPLATE_PATH);
                 }
                 "w:linkStyles" => s.link_styles = on_off(k),
+                "w:removePersonalInformation" => s.remove_personal_info = on_off(k),
+                "w:removeDateAndTime" => s.remove_date_time = on_off(k),
                 "w:compat" => {
                     // Only Word's own setting: another `w:uri` names a different application's.
                     let mode = k
@@ -1047,6 +1065,16 @@ impl Reader<'_> {
                     s.endnote_pr = props::note_pr(k, false);
                 }
                 "w:documentProtection" => read_protection(k, s),
+                "w:zoom" => {
+                    let percent = k.attr("w:percent").and_then(|v| u32_of(v.trim_end_matches('%'))).unwrap_or(100).clamp(10, 500);
+                    let fit = match k.attr("w:val") {
+                        Some("fullPage") => Some(ZoomFit::OnePage),
+                        Some("bestFit") => Some(ZoomFit::PageWidth),
+                        Some("textFit") => Some(ZoomFit::TextWidth),
+                        _ => None,
+                    };
+                    s.zoom = Some(Zoom { percent, fit }).filter(|z| z.percent != 100 || z.fit.is_some());
+                }
                 _ => {}
             }
         }
