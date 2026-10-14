@@ -84,73 +84,30 @@ pub enum Draw {
     },
     /// An ink stroke: a line through `pts` (page points) with round ends and joins, `width`
     /// wide, in `color` at opacity `alpha`.
-    Ink {
-        pts: Vec<(f32, f32)>,
-        color: Rgb,
-        width: f32,
-        alpha: f32,
-    },
+    Ink { pts: Vec<(f32, f32)>, color: Rgb, width: f32, alpha: f32 },
     /// A vector path (a chart's or diagram's polygons, slices, lines): filled, then stroked.
-    Path {
-        segs: Vec<PathSeg>,
-        fill: Option<Rgb>,
-        stroke: Option<Rgb>,
-        stroke_width: f32,
-    },
+    Path { segs: Vec<PathSeg>, fill: Option<Rgb>, stroke: Option<Rgb>, stroke_width: f32 },
     /// An inline chart or diagram's draws, as one figure with its alt text (for tagged PDF).
-    Figure {
-        alt: String,
-        kind: GraphicKind,
-        draws: Vec<Draw>,
-    },
+    Figure { alt: String, kind: GraphicKind, draws: Vec<Draw> },
     /// A formatting mark (¶ · → ↵) in the UI's mark colour, or in `color` (a tracked
     /// paragraph mark in its reviser's colour).
-    Mark {
-        x: f32,
-        baseline: f32,
-        size: f32,
-        ch: char,
-        color: Option<Rgb>,
-    },
+    Mark { x: f32, baseline: f32, size: f32, ch: char, color: Option<Rgb> },
     /// Turned text (a table cell's text direction): `items` are drawn in a frame turned `turn`
     /// whose origin is page point (`x`, `y`) (see [`crate::turn_point`]).
-    Turned {
-        x: f32,
-        y: f32,
-        turn: TextDirection,
-        items: Vec<Draw>,
-    },
+    Turned { x: f32, y: f32, turn: TextDirection, items: Vec<Draw> },
     /// A rotated or flipped picture, shape, chart, group or Drawing Canvas: `items` drawn
     /// turned by `spin` about page point (`cx`, `cy`) (see [`Spin::matrix`]).
-    Rotated {
-        cx: f32,
-        cy: f32,
-        spin: Spin,
-        items: Vec<Draw>,
-    },
+    Rotated { cx: f32, cy: f32, spin: Spin, items: Vec<Draw> },
     /// `items` clipped to `rect` (a Drawing Canvas's members to its frame). Inside a
     /// [`Draw::Rotated`], `rect` is in the turned frame's (unturned) coordinates.
-    Clip {
-        rect: Rect,
-        items: Vec<Draw>,
-    },
+    Clip { rect: Rect, items: Vec<Draw> },
     /// Text drawn from its outlines with WordArt effects (and bent, in a warped text box):
     /// `path` in page coordinates, painted as [`crate::wordart::art_layers`] says. `color` is the
     /// run's own colour, the fill when the effects set none.
-    Art {
-        path: BezPath,
-        fx: Box<wordcraft_doc::wordart::TextEffects>,
-        color: Rgb,
-        alpha: f32,
-    },
+    Art { path: BezPath, fx: Box<wordcraft_doc::wordart::TextEffects>, color: Rgb, alpha: f32 },
     /// A formatting-mark label (a section break's name) in the UI's mark colour, left edge at
     /// `x`, drawn with the same face as [`Draw::Mark`]. Screen only, like every mark.
-    MarkText {
-        x: f32,
-        baseline: f32,
-        size: f32,
-        text: String,
-    },
+    MarkText { x: f32, baseline: f32, size: f32, text: String },
 }
 
 impl Draw {
