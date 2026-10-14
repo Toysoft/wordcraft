@@ -4394,6 +4394,44 @@ mod tests {
         assert!(body_text(h.state()).ends_with(" bold"), "Bold: typing continues in the document");
     }
 
+    #[test]
+    fn the_ribbon_cut_button_puts_the_copy_on_the_system_clipboard() {
+        // #1710: the ribbon's Cut publishes what the command copied, the way Ctrl+X does.
+        let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, String)>::new()));
+        let sink = got.clone();
+        let mut app = crate::WordApp::new(
+            Session::new(wordcraft_doc::Document::new()),
+            crate::Services {
+                set_clipboard_html: Some(Box::new(move |h, t| {
+                    sink.borrow_mut().push((h.to_string(), t.to_string()));
+                    true
+                })),
+                ..Default::default()
+            },
+        );
+        app.run("document.setText", json!({"text": "Speed "})).unwrap();
+        app.run("caret.docEnd", json!({})).unwrap();
+        app.run("insert.equation", json!({"linear": "y=2x_s", "edit": false})).unwrap();
+        app.run("select.all", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Cut").click();
+        h.run_steps(2);
+        let got_now = got.borrow().clone();
+        assert_eq!(got_now.len(), 1, "{got_now:?}");
+        assert!(got_now[0].0.contains("<math") && got_now[0].1.contains("y=2x_s"), "{got_now:?}");
+        assert!(body_text(h.state()).trim().is_empty(), "the selection is deleted");
+    }
+
     /// Types `text` after a click on `what` and checks it reached the document (#1093).
     fn type_after_click(h: &mut egui_kittest::Harness<'_, WordApp>, what: &str, text: &str) {
         h.step();
