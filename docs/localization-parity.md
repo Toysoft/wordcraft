@@ -1,6 +1,6 @@
 # Localization parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (Italian interface reviewed by a native speaker; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Interface languages, script support and proofing per language. How translation works (catalog
 format, adding a language, clean-room rule): `crates/ui-egui/src/i18n/mod.rs`.
@@ -108,6 +108,7 @@ the others plus 51 strings that are wrapped in `tl!` but were in no catalog yet 
 properties, the File › Home greeting, list levels, Equation tab gallery and tooltips). Ribbon tabs,
 groups and command names use the names Italian Word users know (feature names, as `AGENTS.md`
 allows); all other text is written from the meaning of the English. No Italian proofing yet.
+A native speaker reviewed the catalog on 2026-10-14 (wording fixes, consistent terms).
 ## Sorting and numbers in the text's language
 
 Sorts follow the alphabet of the text's language (`w:lang`, else the document default):
@@ -164,12 +165,13 @@ WordCraft keeps 2,54 cm).
 | Mirrored (right-to-left) interface for Arabic and Hebrew | 15–25 | Ribbon, panes, dialogs, rulers |
 | Vertical text, ruby, document grid (Chinese, Japanese, Korean) | counted in [layout-parity.md](layout-parity.md) | |
 | Proofing dictionaries, grammar and hyphenation for the 11 non-English key languages | 20–40 | Open dictionaries only (licence check per dictionary); issues #25, #40, #100. Per-run languages, the Hunspell-style affix engine and the TeX pattern reader landed with Polish, so a language with an open Hunspell dictionary and hyphenation patterns is mostly data plus grammar rules |
-| Native-speaker review of every catalog | human | None reviewed yet |
+| Native-speaker review of every catalog | human | Italian reviewed (2026-10-14); the others not yet |
 
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Italian interface reviewed by a native speaker: Word names for tabs and commands, consistent terms (input penna, Disponi testo, Ombreggiatura), imperatives for commands |
 | 2026-10-12 | minor | Italian proofing: it-IT spelling from the installed Hunspell dictionary (system `it_IT`, never bundled — upstream is GPL), accent-first suggestions, conservative grammar with Italian messages, TeX Italian hyphenation patterns (MIT option); Review › Language already offered Italian; an `it` interface writes it-IT documents |
 | 2026-10-13 | minor | Interface audit back in CI (#1128): Envelopes, Labels and Layout › Size labels go through translated patterns with the region's decimal separator (the old fixed-format paper rows, dead since #838, removed); 20 strings added to all 18 catalogs (status-bar messages, Reading Mode toolbar, Go To, Search's Suggested); citation style names and `bad parameters:` errors exempt; the Read Aloud player no longer draws a speech error before the frame has polled it, the audit's rare failure under load |
 | 2026-10-11 | minor | Turkish interface catalog completed (2,325 entries, the same keys as Russian): equation gallery, built-in style names, watermarks, paper sizes and preview tiles; the interface audit checks Turkish too (#774) |
