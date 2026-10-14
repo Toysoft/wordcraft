@@ -368,12 +368,15 @@ pub fn page_display(doc: &Document, page: &Page, opts: &DisplayOptions) -> Vec<D
         let clips = clipped_cells(items);
         let mut done: Vec<u32> = Vec::new();
         for it in items.iter() {
+            if let Placed::Lines { story, path, .. } = it
+                && let Some(rect) = cell_clip(&clips, *story, &path.0)
+            {
+                let mut inner = Vec::new();
+                item(doc, it, opts, a, &mut inner);
+                out.push(Draw::Clip { rect, items: inner });
+                continue;
+            }
             match it {
-                Placed::Lines { story, path, .. } if let Some(rect) = cell_clip(&clips, *story, &path.0) => {
-                    let mut inner = Vec::new();
-                    item(doc, it, opts, a, &mut inner);
-                    out.push(Draw::Clip { rect, items: inner });
-                }
                 Placed::Lines { story: StoryRef::Part(id), .. } if warps.iter().any(|(w, ..)| w == id) => {
                     // A warped text box's lines are drawn together, bent, where its first one is.
                     if done.contains(id) {
