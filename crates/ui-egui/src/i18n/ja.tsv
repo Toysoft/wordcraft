@@ -2075,3 +2075,53 @@
 	Start-up	起動
 	Show the Start screen when WordCraft starts	WordCraft の起動時にスタート画面を表示する
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	オン: WordCraft は [ファイル] › [ホーム] で開き、白紙の文書、テンプレート、最近使った文書を表示します。オフ: 白紙の文書を開きます。
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Models	モデル
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI はネイティブアプリで動作します — ローカルのモデルランタイムが必要です。
+	Assistant	アシスタント
+	Looking for a local model runtime…	ローカルのモデルランタイムを探しています…
+	No local model runtime found.	ローカルのモデルランタイムが見つかりません。
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI はこのマシン上のモデルランタイム（Ollama、LM Studio、llama.cpp のサーバー）とだけ通信し、クラウドサービスとは決して通信しません。どれかを起動してから「更新」してください。
+	Runtime	ランタイム
+	Task	タスク
+	No model installed yet — see the Models tab.	モデルがまだインストールされていません — 「モデル」タブを参照してください。
+	Ask	質問
+	Thinking… {s}s	考えています… {s}秒
+	This machine: {ram} GB RAM, {disk} GB free	このマシン: RAM {ram} GB、空き {disk} GB
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	1 回のダウンロードで ArtCraft アプリすべてに対応します。モデルは共有フォルダーに置かれ、どのアプリからも読めます。
+	Disk {size}	ディスク {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	このマシンで動作します
+	Needs {ram} GB of RAM	RAM が {ram} GB 必要です
+	Needs {disk} GB of disk	ディスクが {disk} GB 必要です
+	Download with Ollama	Ollama でダウンロード
+	Save model file	モデルファイルを保存
+	Delete file	ファイルを削除
+	Downloading… {pct}% — {note}	ダウンロード中… {pct}% — {note}
+	Saving… {pct}%	保存中… {pct}%
+	Saved in the shared folder	共有フォルダーに保存済み
+	Local and private	ローカルでプライベート
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	Craft AI はこのマシン上でローカルの Gemma モデルを実行します。ここに書いた内容が外に出ることはありません。アカウントもクラウドサービスもテレメトリーもなく、パネルは 127.0.0.1 のモデルランタイムとだけ通信します。
+	Limits	制限
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	ローカルモデルは最先端のクラウドモデルではありません。間違うことがあり、長い回答には CPU で時間がかかります。重要な事柄は必ず確認し、ダウンロード前にモデルのサイズをこのマシンと比べてください。
+	The shared folder:	共有フォルダー:
+	Craft AI	Craft AI
+	Ask anything	何でも質問
+	Polish this text	このテキストを推敲
+	Summarize	要約
+	Check grammar and style	文法とスタイルを確認
+	Structure a document	ドキュメントの構成を考える
+	Change the tone	口調を変える
+	Ask in any language	どの言語でも質問できます
+	Paste the text to tighten and correct	整えて直したいテキストを貼り付けてください
+	Paste the text, say how short	テキストを貼り付けて、どのくらい短くするか教えてください
+	Paste the text to check	確認するテキストを貼り付けてください
+	What the document must cover	ドキュメントで扱う内容
+	Paste the text, name the tone	テキストを貼り付けて、口調を指定してください
+	Best for: everyday help on the lightest machines	最適な用途: 最も軽いマシンでの日常的な助け
+	Best for: a step up in quality, still light	最適な用途: 品質を一段上げたいが、軽さはそのまま
+	Best for: balanced everyday and technical work	最適な用途: 日常と技術的な作業のバランス
+	Best for: near-flagship answers at MoE speed	最適な用途: MoE の速さで旗艦に迫る回答
+	Best for: the deepest reasoning this family has	最適な用途: このファミリーで最も深い推論
+

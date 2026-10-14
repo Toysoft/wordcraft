@@ -2089,3 +2089,52 @@
 	Start-up	Покретање
 	Show the Start screen when WordCraft starts	Прикажи почетни екран при покретању програма WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Укључено: WordCraft се отвара на Фајл › Почетак, са празним документом, шаблонима и недавним документима. Искључено: отвара празан документ.
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Models	Модели
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI ради у изворној апликацији — треба му локално окружење за моделе.
+	Assistant	Асистент
+	Looking for a local model runtime…	Тражење локалног окружења за моделе…
+	No local model runtime found.	Није пронађено локално окружење за моделе.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI разговара са окружењем за моделе на овом рачунару — Ollama, LM Studio или llama.cpp сервером — а никада са услугом у облаку. Покрените један, па освежите.
+	Runtime	Окружење
+	Task	Задатак
+	No model installed yet — see the Models tab.	Још нема инсталираног модела — погледајте картицу „Модели“.
+	Ask	Питај
+	Thinking… {s}s	Размишља… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Овај рачунар: RAM {ram} GB, слободно {disk} GB
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Једно преузимање служи свакој ArtCraft апликацији: модел доспева у дељену фасциклу коју све читају.
+	Disk {size}	Диск {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	Одговара овом рачунару
+	Needs {ram} GB of RAM	Захтева {ram} GB RAM меморије
+	Needs {disk} GB of disk	Захтева {disk} GB на диску
+	Download with Ollama	Преузми помоћу Ollama
+	Save model file	Сачувај фајл модела
+	Delete file	Обриши фајл
+	Downloading… {pct}% — {note}	Преузимање… {pct}% — {note}
+	Saving… {pct}%	Чување… {pct}%
+	Saved in the shared folder	Сачувано у дељеној фасцикли
+	Local and private	Локално и приватно
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	Craft AI покреће локални Gemma модел на овом рачунару. Ништа што овде напишете не напушта рачунар: без налога, без услуге у облаку, без телеметрије — панел разговара са окружењем за моделе на 127.0.0.1.
+	Limits	Ограничења
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Локални модел није најнапреднији облачни модел: може да погреши, а дуг одговор траје на процесору. Проверавајте све што је кључно и пазите на величину модела у односу на овај рачунар пре преузимања.
+	The shared folder:	Дељена фасцикла:
+	Craft AI	Craft AI
+	Ask anything	Питајте било шта
+	Polish this text	Дотерајте овај текст
+	Summarize	Сажмите
+	Check grammar and style	Проверите граматику и стил
+	Structure a document	Испланирајте структуру документа
+	Change the tone	Промените тон
+	Ask in any language	Питајте на било ком језику
+	Paste the text to tighten and correct	Налепите текст који треба сажети и исправити
+	Paste the text, say how short	Налепите текст и реците колико кратко
+	Paste the text to check	Налепите текст за проверу
+	What the document must cover	Шта документ треба да обухвати
+	Paste the text, name the tone	Налепите текст и наведите тон
+	Best for: everyday help on the lightest machines	Најбоље за: свакодневну помоћ на најлакшим рачунарима
+	Best for: a step up in quality, still light	Најбоље за: корак више у квалитету, и даље лак
+	Best for: balanced everyday and technical work	Најбоље за: уравнотежен свакодневни и технички рад
+	Best for: near-flagship answers at MoE speed	Најбоље за: одговори близу врхунских брзином MoE
+	Best for: the deepest reasoning this family has	Најбоље за: најдубље закључивање у овој породици модела

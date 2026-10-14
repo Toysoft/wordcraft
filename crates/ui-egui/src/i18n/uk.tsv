@@ -2087,3 +2087,52 @@
 	Start-up	Запуск
 	Show the Start screen when WordCraft starts	Показувати початковий екран під час запуску WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Увімкнено: WordCraft відкривається на сторінці Файл › Основне з порожнім документом, шаблонами та нещодавніми документами. Вимкнено: відкривається порожній документ.
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Models	Моделі
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI працює в нативній програмі — їй потрібне локальне середовище запуску моделей.
+	Assistant	Асистент
+	Looking for a local model runtime…	Триває пошук локального середовища запуску моделей…
+	No local model runtime found.	Локального середовища запуску моделей не знайдено.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI говорить із середовищем запуску моделей на цій машині — Ollama, LM Studio чи сервером llama.cpp — і ніколи з хмарним сервісом. Запустіть одне з них і натисніть «Оновити».
+	Runtime	Середовище
+	Task	Завдання
+	No model installed yet — see the Models tab.	Ще не встановлено жодної моделі — див. вкладку «Моделі».
+	Ask	Запитати
+	Thinking… {s}s	Думає… {s} с
+	This machine: {ram} GB RAM, {disk} GB free	Ця машина: пам'яті {ram} ГБ, вільно {disk} ГБ
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Одне завантаження слугує всім застосункам ArtCraft: модель потрапляє до спільної теки, яку читають усі.
+	Disk {size}	Диск {size}
+	RAM {gb} GB	Пам'ять {gb} ГБ
+	Fits this machine	Підходить цій машині
+	Needs {ram} GB of RAM	Потрібно {ram} ГБ пам'яті
+	Needs {disk} GB of disk	Потрібно {disk} ГБ на диску
+	Download with Ollama	Завантажити через Ollama
+	Save model file	Зберегти файл моделі
+	Delete file	Видалити файл
+	Downloading… {pct}% — {note}	Завантаження… {pct}% — {note}
+	Saving… {pct}%	Збереження… {pct}%
+	Saved in the shared folder	Збережено в спільній теці
+	Local and private	Локально й приватно
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	Craft AI запускає локальну модель Gemma просто на цій машині. Написане тут нікуди не виходить: ні акаунта, ні хмарного сервісу, ні телеметрії — панель говорить із середовищем запуску моделей на 127.0.0.1.
+	Limits	Обмеження
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Локальна модель — не передова хмарна: вона може помилятися, і довга відповідь на процесорі займає час. Перевіряйте все важливе й співвідносьте розмір моделі з цією машиною до завантаження.
+	The shared folder:	Спільна тека:
+	Craft AI	Craft AI
+	Ask anything	Питайте про що завгодно
+	Polish this text	Відшліфувати цей текст
+	Summarize	Стисло переказати
+	Check grammar and style	Перевірити граматику та стиль
+	Structure a document	Скласти структуру документа
+	Change the tone	Змінити тон
+	Ask in any language	Запитуйте будь-якою мовою
+	Paste the text to tighten and correct	Вставте текст, який треба стиснути й виправити
+	Paste the text, say how short	Вставте текст і вкажіть, наскільки стисло
+	Paste the text to check	Вставте текст для перевірки
+	What the document must cover	Що має охоплювати документ
+	Paste the text, name the tone	Вставте текст і вкажіть тон
+	Best for: everyday help on the lightest machines	Найкращий для: повсякменної допомоги на найлегших машинах
+	Best for: a step up in quality, still light	Найкращий для: якість на сходинку вище, досі легкий
+	Best for: balanced everyday and technical work	Найкращий для: балансу повсякденного й технічного
+	Best for: near-flagship answers at MoE speed	Найкращий для: відповідей майже флагманського рівня зі швидкістю MoE
+	Best for: the deepest reasoning this family has	Найкращий для: найглибшого міркування в цьому сімействі

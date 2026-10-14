@@ -29,6 +29,8 @@ pub mod chrome;
 pub mod colors;
 pub mod content_controls;
 pub mod control;
+/// Craft AI: the ArtCraft family's built-in local assistant (View › Show).
+pub mod craft_ai;
 pub mod credits;
 pub mod desktop_theme;
 pub mod dialogs;

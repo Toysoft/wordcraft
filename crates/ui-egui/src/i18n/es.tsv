@@ -2441,3 +2441,52 @@ preview	Title	Título
 	Start-up	Inicio de la aplicación
 	Show the Start screen when WordCraft starts	Mostrar la pantalla de inicio al abrir WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Activado: WordCraft se abre en Archivo › Inicio, con un documento en blanco, las plantillas y tus documentos recientes. Desactivado: abre un documento en blanco.
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI funciona en la aplicación nativa — necesita un entorno local de modelos.
+	Assistant	Asistente
+	Looking for a local model runtime…	Buscando un entorno local de modelos…
+	No local model runtime found.	No se encontró un entorno local de modelos.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI habla con un entorno de modelos en esta máquina — Ollama, LM Studio o el servidor de llama.cpp — y nunca con un servicio en la nube. Inicie uno y actualice.
+	Runtime	Entorno
+	Task	Tarea
+	No model installed yet — see the Models tab.	Aún no hay ningún modelo instalado — vea la pestaña Modelos.
+	Ask	Preguntar
+	Thinking… {s}s	Pensando… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Esta máquina: {ram} GB de RAM, {disk} GB libres
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Una sola descarga sirve para todas las aplicaciones de ArtCraft: el modelo queda en una carpeta compartida que todas leen.
+	Disk {size}	Disco {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	Encaja en esta máquina
+	Needs {ram} GB of RAM	Necesita {ram} GB de RAM
+	Needs {disk} GB of disk	Necesita {disk} GB de disco
+	Download with Ollama	Descargar con Ollama
+	Save model file	Guardar el archivo del modelo
+	Delete file	Eliminar archivo
+	Downloading… {pct}% — {note}	Descargando… {pct} % — {note}
+	Saving… {pct}%	Guardando… {pct} %
+	Saved in the shared folder	Guardado en la carpeta compartida
+	Local and private	Local y privado
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	Craft AI ejecuta un modelo local de Gemma en esta máquina. Nada de lo que escriba aquí sale de ella: sin cuenta, sin servicio en la nube, sin telemetría — el panel habla con un entorno de modelos en 127.0.0.1.
+	Limits	Límites
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Un modelo local no es un modelo puntero en la nube: puede equivocarse, y una respuesta larga tarda lo suyo en la CPU. Compruebe todo lo crítico y valore el tamaño del modelo frente a esta máquina antes de descargarlo.
+	The shared folder:	La carpeta compartida:
+	Craft AI	Craft AI
+	Ask anything	Pregunte lo que quiera
+	Polish this text	Perfeccionar este texto
+	Summarize	Resumir
+	Check grammar and style	Revisar la gramática y el estilo
+	Structure a document	Estructurar un documento
+	Change the tone	Cambiar el tono
+	Ask in any language	Pregunte en cualquier idioma
+	Paste the text to tighten and correct	Pegue el texto que quiera condensar y corregir
+	Paste the text, say how short	Pegue el texto y diga cuán breve
+	Paste the text to check	Pegue el texto que quiera revisar
+	What the document must cover	Qué debe cubrir el documento
+	Paste the text, name the tone	Pegue el texto e indique el tono
+	Best for: everyday help on the lightest machines	Ideal para: ayuda cotidiana en las máquinas más ligeras
+	Best for: a step up in quality, still light	Ideal para: un escalón más de calidad, sin dejar de ser ligero
+	Best for: balanced everyday and technical work	Ideal para: equilibrar lo cotidiano y lo técnico
+	Best for: near-flagship answers at MoE speed	Ideal para: respuestas casi de gama alta a la velocidad de MoE
+	Best for: the deepest reasoning this family has	Ideal para: el razonamiento más profundo de esta familia
+

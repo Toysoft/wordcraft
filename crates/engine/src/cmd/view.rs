@@ -51,6 +51,8 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(r#"{"value"?: bool}"#)
             .pure(),
         CommandSpec::new("view.navigationPane", "Navigation Pane", "View › Show", |s, v| toggle(s, v, |x| &mut x.nav_pane)).pure(),
+        // The Craft AI pane: the ArtCraft family's built-in local assistant (see `ui-egui/src/craft_ai`).
+        CommandSpec::new("view.craftAiPane", "Craft AI", "View › Show", |s, v| toggle(s, v, |x| &mut x.craft_ai_pane)).pure(),
         CommandSpec::new("view.zoom", "Zoom", "View › Zoom", zoom)
             .params(r#"{"value": percent (10-500) | "pageWidth" | "onePage" | "multiplePages"}"#)
             .pure(),

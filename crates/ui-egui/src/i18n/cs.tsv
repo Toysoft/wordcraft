@@ -2080,3 +2080,53 @@
 	Automatic ({region})	Automaticky ({region})
 	Search	Hledat
 	Title Bar	Záhlaví okna
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Models	Modely
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI běží v nativní aplikaci — potřebuje místní běhové prostředí modelů.
+	Assistant	Asistent
+	Looking for a local model runtime…	Hledá se místní běhové prostředí modelů…
+	No local model runtime found.	Nenašlo se žádné místní běhové prostředí modelů.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI mluví s běhovým prostředím modelů na tomto počítači — s Ollamou, LM Studio nebo serverem llama.cpp — a nikdy s cloudovou službou. Spusťte jedno z nich a obnovte.
+	Runtime	Prostředí
+	Task	Úloha
+	No model installed yet — see the Models tab.	Zatím není nainstalovaný žádný model — viz karta Modely.
+	Ask	Zeptat se
+	Thinking… {s}s	Přemýšlí… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Tento počítač: {ram} GB RAM, volných {disk} GB
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Jedno stažení obslouží všechny aplikace ArtCraft: model přijde do sdílené složky, kterou všechny čtou.
+	Disk {size}	Disk {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	Témuto stroji vyhovuje
+	Needs {ram} GB of RAM	Potřebuje {ram} GB RAM
+	Needs {disk} GB of disk	Potřebuje {disk} GB disku
+	Download with Ollama	Stáhnout přes Ollamu
+	Save model file	Uložit soubor modelu
+	Delete file	Smazat soubor
+	Downloading… {pct}% — {note}	Stahuje se… {pct} % — {note}
+	Saving… {pct}%	Ukládá se… {pct} %
+	Saved in the shared folder	Uloženo ve sdílené složce
+	Local and private	Místní a soukromé
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	Craft AI provozuje místní model Gemma přímo na tomto počítači. Nic, co sem napíšete, ho neopustí: žádný účet, žádná cloudová služba, žádná telemetrie — panel mluví jen s běhovým prostředím modelů na 127.0.0.1.
+	Limits	Meze
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Místní model není špičkový cloudový model: může se mýlit a dlouhá odpověď na procesoru chvíli trvá. Důležité si ověřte a před stažením si uvědomte velikost modelu proti tomuto počítači.
+	The shared folder:	Sdílená složka:
+	Craft AI	Craft AI
+	Ask anything	Zeptejte se na cokoliv
+	Polish this text	Uhladit tento text
+	Summarize	Shrnout
+	Check grammar and style	Zkontrolovat gramatiku a styl
+	Structure a document	Uspořádat dokument
+	Change the tone	Změnit tón
+	Ask in any language	Zeptejte se v jakémkoli jazyce
+	Paste the text to tighten and correct	Vložte text, který chcete zkrátit a opravit
+	Paste the text, say how short	Vložte text a napište, jak má být krátký
+	Paste the text to check	Vložte text ke kontrole
+	What the document must cover	Čím se dokument má zabývat
+	Paste the text, name the tone	Vložte text a uveďte požadovaný tón
+	Best for: everyday help on the lightest machines	Nejlepší pro: všední pomoc na nejlehčích strojích
+	Best for: a step up in quality, still light	Nejlepší pro: o stuňek lepší kvalitu, pořád lehčí
+	Best for: balanced everyday and technical work	Nejlepší pro: vyváženou všední i technickou práci
+	Best for: near-flagship answers at MoE speed	Nejlepší pro: odpovědi těsně pod vlajkovou lodí, rychlostí MoE
+	Best for: the deepest reasoning this family has	Nejlepší pro: nejhlubší uvažování, jaké tato rodina má
+

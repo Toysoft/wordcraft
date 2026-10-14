@@ -1,6 +1,6 @@
 //! Side panes: Navigation (headings, pages, search results), Clipboard, Styles, Style Inspector,
 //! Accessibility and Alt Text (see `a11y_pane`), Restrict Editing ([`crate::dialogs_review`]), Comments,
-//! and the SmartArt Text Pane.
+//! the SmartArt Text Pane, and Craft AI ([`crate::craft_ai`]).
 
 use egui::{Stroke, Ui, vec2};
 use serde_json::{Value, json};
@@ -86,6 +86,19 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
             .show(ui, |ui| comments(app, ui));
+    }
+    if app.session.view.craft_ai_pane {
+        egui::Panel::right(crate::craft_ai::ID)
+            .default_size(320.0)
+            .resizable(true)
+            .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
+            .show(ui, |ui| {
+                if header(ui, "Craft AI") {
+                    let _ = app.run("view.craftAiPane", json!({"value": false}));
+                    return;
+                }
+                crate::craft_ai::show(app, ui);
+            });
     }
 }
 

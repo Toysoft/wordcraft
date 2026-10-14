@@ -25,7 +25,7 @@
 //! - [`location`]: a ribbon location such as `Home › Font`, segment by segment.
 //! - [`fmt`]: fill `{name}` placeholders after a lookup; translators may reorder them.
 
-mod bidi;
+pub(crate) mod bidi;
 mod catalog;
 
 use std::cell::Cell;
@@ -195,6 +195,12 @@ impl Lang {
     /// Is the interface written in CJK script (its own name is), so it needs a CJK face?
     pub fn uses_cjk(self) -> bool {
         self.0.name.chars().any(|c| ('\u{2E80}'..='\u{9FFF}').contains(&c) || ('\u{AC00}'..='\u{D7AF}').contains(&c))
+    }
+
+    /// Does this language's interface read right to left? (Its translations are stored in the
+    /// visual order [`bidi`] hands egui; what a user types keeps its logical order.)
+    pub fn rtl(self) -> bool {
+        self.0.rtl
     }
 
     /// The CJK interface text the fonts must cover with the Chinese (`hans`) or other CJK fallback

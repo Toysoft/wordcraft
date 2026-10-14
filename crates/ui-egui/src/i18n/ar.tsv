@@ -2476,3 +2476,52 @@
 	📂  Browse…	📂  استعراض…
 preview	Title	عنوان
 	Search	بحث
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Craft AI runs in the native app — it needs a local model runtime.	يعمل Craft AI في التطبيق المكتبي — يحتاج مشغّل نماذج محلي.
+	Assistant	المساعد
+	Looking for a local model runtime…	البحث عن مشغّل نماذج محلي…
+	No local model runtime found.	لا يوجد مشغّل نماذج محلي.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	يتحدث Craft AI إلى مشغّل نماذج على هذا الجهاز — Ollama أو LM Studio أو خادم llama.cpp — ولا يتحدث إلى خدمة سحابية أبدًا. شغّل أحدها ثم حدّث.
+	Runtime	المشغّل
+	Task	المهمة
+	No model installed yet — see the Models tab.	لا يوجد نموذج مثبّت بعد — انظر تبويب النماذج.
+	Ask	اسأل
+	Thinking… {s}s	يفكر… {s}ث
+	This machine: {ram} GB RAM, {disk} GB free	هذا الجهاز: ذاكرة {ram} غيغابايت، ومساحة متاحة {disk} غيغابايت
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	تنزيل واحد يكفي كل تطبيقات ArtCraft: يوضع النموذج في مجلد مشترك تقرؤه كلها.
+	Disk {size}	القرص {size}
+	RAM {gb} GB	الذاكرة {gb} غيغابايت
+	Fits this machine	يناسب هذا الجهاز
+	Needs {ram} GB of RAM	يحتاج ذاكرة {ram} غيغابايت
+	Needs {disk} GB of disk	يحتاج مساحة {disk} غيغابايت
+	Download with Ollama	نزّل عبر Ollama
+	Save model file	احفظ ملف النموذج
+	Delete file	احذف الملف
+	Downloading… {pct}% — {note}	ينزّل… {pct}% — {note}
+	Saving… {pct}%	يحفظ… {pct}%
+	Saved in the shared folder	محفوظ في المجلد المشترك
+	Local and private	محلي وخاص
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	يشغّل Craft AI نموذج Gemma محليًا على هذا الجهاز. لا يخرج ما تكتبه هنا منه: لا حساب، ولا خدمة سحابية، ولا قياس عن بُعد — اللوحة تتحدث إلى مشغّل نماذج على 127.0.0.1.
+	Limits	الحدود
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	النموذج المحلي ليس نموذجًا سحابيًا ضخمًا: قد يخطئ، والإجابة الطويلة تأخذ وقتها على المعالج. تحقّق من كل أمر حرج، وانتبه لحجم النموذج مقابل هذا الجهاز قبل تنزيله.
+	The shared folder:	المجلد المشترك:
+	Craft AI	Craft AI
+	Ask anything	اسأل عن أي شيء
+	Polish this text	حسّن صياغة هذا النص
+	Summarize	لخّص
+	Check grammar and style	تحقق من القواعد والأسلوب
+	Structure a document	أنشئ بنية مستند
+	Change the tone	غيّر النبرة
+	Ask in any language	اسأل بأي لغة
+	Paste the text to tighten and correct	الصق النص لتحسينه وتصحيحه
+	Paste the text, say how short	الصق النص وحدّد مقدار الاختصار
+	Paste the text to check	الصق النص للتدقيق
+	What the document must cover	ما يجب أن يغطيه المستند
+	Paste the text, name the tone	الصق النص وحدّد النبرة
+	Best for: everyday help on the lightest machines	الأفضل لـ: العون اليومي على أخفّ الأجهزة
+	Best for: a step up in quality, still light	الأفضل لـ: درجة أعلى في الجودة مع بقائه خفيفًا
+	Best for: balanced everyday and technical work	الأفضل لـ: التوازن بين العمل اليومي والعمل التقني
+	Best for: near-flagship answers at MoE speed	الأفضل لـ: إجابات قريبة من الرائدة بسرعة خليط الخبراء (MoE)
+	Best for: the deepest reasoning this family has	الأفضل لـ: أعمق استدلال تملكه هذه العائلة
+

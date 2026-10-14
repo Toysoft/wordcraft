@@ -2109,3 +2109,52 @@
 	Start-up	Käivitamine
 	Show the Start screen when WordCraft starts	Näita WordCrafti käivitamisel avakuva
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Sees: WordCraft avaneb vaates Fail › Avaleht, kus on tühi dokument, mallid ja hiljutised dokumendid. Väljas: avaneb tühi dokument.
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI töötab natiivrakenduses — ta vajab kohalikku mudelite käituskeskkonda.
+	Assistant	Assistent
+	Looking for a local model runtime…	Kohaliku mudelite käituskeskkonna otsimine…
+	No local model runtime found.	Kohalikku mudelite käituskeskkonda ei leitud.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI suhtleb selle arvuti mudelite käituskeskkonnaga — Ollama, LM Studio või llama.cpp serveriga — ega kunagi pilveteenusega. Käivitage mõni neist ja seejärel värskendage.
+	Runtime	Käituskeskkond
+	Task	Ülesanne
+	No model installed yet — see the Models tab.	Ühtegi mudelit pole veel paigaldatud — vaadake vahekaarti „Mudelid“.
+	Ask	Küsi
+	Thinking… {s}s	Mõtleb… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	See arvuti: {ram} GB RAM, vaba {disk} GB
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Üks allalaadimine teenib kõiki ArtCrafti rakendusi: mudel jõuab jagatud kausta, mida kõik loevad.
+	Disk {size}	Ketas {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	Sobib selle arvutiga
+	Needs {ram} GB of RAM	Vajab {ram} GB RAM-i
+	Needs {disk} GB of disk	Vajab {disk} GB kettaruumi
+	Download with Ollama	Laadi alla Ollamaga
+	Save model file	Salvesta mudeli fail
+	Delete file	Kustuta fail
+	Downloading… {pct}% — {note}	Allalaadimine… {pct}% — {note}
+	Saving… {pct}%	Salvestamine… {pct}%
+	Saved in the shared folder	Salvestatud jagatud kausta
+	Local and private	Kohalik ja privaatne
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	Craft AI käitab sel arvutil kohalikku Gemma mudelit. Mitte miski, mida siin kirjutate, ei lahku arvutist: ei kontot, ei pilveteenust, ei teleanalüüsi — paneel suhtleb mudelite käituskeskkonnaga aadressil 127.0.0.1.
+	Limits	Piirid
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Kohalik mudel ei ole tipptaseme pilvemudel: ta võib eksida ja pikk vastus võtab protsessoriga aega. Kontrollige üle kõik oluline ja võrrelge enne allalaadimist mudeli suurust selle arvutiga.
+	The shared folder:	Jagatud kaust:
+	Craft AI	Craft AI
+	Ask anything	Küsige, mida tahate
+	Polish this text	Viimistlege see tekst
+	Summarize	Tehke kokkuvõte
+	Check grammar and style	Kontrollige grammatikat ja stiili
+	Structure a document	Struktureerige dokument
+	Change the tone	Muutke tooni
+	Ask in any language	Küsige mis tahes keeles
+	Paste the text to tighten and correct	Asetage tekst, mida soovite tihedamaks teha ja parandada
+	Paste the text, say how short	Asetage tekst ja öelge, kui lühidalt
+	Paste the text to check	Asetage tekst, mida kontrollida
+	What the document must cover	Mida dokument peab hõlmama
+	Paste the text, name the tone	Asetage tekst ja nimetage toon
+	Best for: everyday help on the lightest machines	Sobivaim: igapäevaseks abiks kõige kergematel arvutitel
+	Best for: a step up in quality, still light	Sobivaim: samm võrra parem kvaliteet, endiselt kerge
+	Best for: balanced everyday and technical work	Sobivaim: tasakaalustatud igapäeva- ja tehnikatöö
+	Best for: near-flagship answers at MoE speed	Sobivaim: tipptaseme lähedased vastused MoE kiirusega
+	Best for: the deepest reasoning this family has	Sobivaim: selle perekonna kõige sügavam arutelu
+

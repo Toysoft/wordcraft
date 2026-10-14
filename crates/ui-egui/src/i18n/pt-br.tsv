@@ -2087,3 +2087,52 @@
 	Start-up	Inicialização
 	Show the Start screen when WordCraft starts	Mostrar a tela inicial ao abrir o WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Ativado: o WordCraft abre em Arquivo › Início, com um documento em branco, os modelos e seus documentos recentes. Desativado: abre um documento em branco.
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Models	Modelos
+	Craft AI runs in the native app — it needs a local model runtime.	O Craft AI roda no aplicativo nativo — ele precisa de um runtime de modelos local.
+	Assistant	Assistente
+	Looking for a local model runtime…	Procurando um runtime de modelos local…
+	No local model runtime found.	Nenhum runtime de modelos local encontrado.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	O Craft AI conversa com um runtime de modelos nesta máquina — Ollama, LM Studio ou o servidor do llama.cpp — e nunca com um serviço de nuvem. Inicie um deles e clique em Atualizar.
+	Runtime	Runtime
+	Task	Tarefa
+	No model installed yet — see the Models tab.	Nenhum modelo instalado ainda — veja a aba Modelos.
+	Ask	Perguntar
+	Thinking… {s}s	Pensando… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Esta máquina: {ram} GB de RAM, {disk} GB livres
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Um único download serve todos os aplicativos ArtCraft: o modelo vai para uma pasta compartilhada que todos leem.
+	Disk {size}	Disco {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	Cabe nesta máquina
+	Needs {ram} GB of RAM	Precisa de {ram} GB de RAM
+	Needs {disk} GB of disk	Precisa de {disk} GB de disco
+	Download with Ollama	Baixar com o Ollama
+	Save model file	Salvar o arquivo do modelo
+	Delete file	Excluir arquivo
+	Downloading… {pct}% — {note}	Baixando… {pct}% — {note}
+	Saving… {pct}%	Salvando… {pct}%
+	Saved in the shared folder	Salvo na pasta compartilhada
+	Local and private	Local e privado
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	O Craft AI roda um modelo Gemma local nesta máquina. Nada do que você escrever aqui sai dela: sem conta, sem serviço de nuvem, sem telemetria — o painel conversa com um runtime de modelos em 127.0.0.1.
+	Limits	Limites
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Um modelo local não é um modelo de nuvem de ponta: ele pode errar, e uma resposta longa demora na CPU. Confira tudo o que for crítico e observe o tamanho do modelo diante desta máquina antes de baixar.
+	The shared folder:	A pasta compartilhada:
+	Craft AI	Craft AI
+	Ask anything	Pergunte qualquer coisa
+	Polish this text	Aperfeiçoar este texto
+	Summarize	Resumir
+	Check grammar and style	Verificar a gramática e o estilo
+	Structure a document	Estruturar um documento
+	Change the tone	Mudar o tom
+	Ask in any language	Pergunte em qualquer idioma
+	Paste the text to tighten and correct	Cole o texto que deseja enxugar e corrigir
+	Paste the text, say how short	Cole o texto e diga o quão curto
+	Paste the text to check	Cole o texto que deseja verificar
+	What the document must cover	O que o documento deve cobrir
+	Paste the text, name the tone	Cole o texto e informe o tom
+	Best for: everyday help on the lightest machines	Melhor para: ajuda do dia a dia nas máquinas mais leves
+	Best for: a step up in quality, still light	Melhor para: um degrau a mais de qualidade, ainda leve
+	Best for: balanced everyday and technical work	Melhor para: equilibrar o cotidiano e o técnico
+	Best for: near-flagship answers at MoE speed	Melhor para: respostas quase topo de linha na velocidade do MoE
+	Best for: the deepest reasoning this family has	Melhor para: o raciocínio mais profundo que esta família tem

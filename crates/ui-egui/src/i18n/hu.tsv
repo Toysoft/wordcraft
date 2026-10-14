@@ -2473,3 +2473,52 @@
 	Table Properties…	Táblázat tulajdonságai…
 	Search	Keresés
 	Title Bar	Címsor
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Craft AI runs in the native app — it needs a local model runtime.	A Craft AI a natív alkalmazásban fut — helyi modelfuttatóra van szüksége.
+	Assistant	Asszisztens
+	Looking for a local model runtime…	Helyi modelfuttató keresése…
+	No local model runtime found.	Nem található helyi modelfuttató.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	A Craft AI a gépen futó modelfuttatóval beszél — Ollamával, LM Studioval vagy a llama.cpp szerverével —, és soha felhőszolgáltatással. Indítson el egyet, majd kattintson a Frissítés gombra.
+	Runtime	Futtató
+	Task	Feladat
+	No model installed yet — see the Models tab.	Még nincs telepítve modell — lásd a Modellek lapot.
+	Ask	Kérdezés
+	Thinking… {s}s	Gondolkodik… {s} mp
+	This machine: {ram} GB RAM, {disk} GB free	Ez a gép: {ram} GB RAM, {disk} GB szabad
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Egy letöltés az összes ArtCraft-alkalmazásnak elég: a modell egy közös mappába kerül, amelyet mind olvas.
+	Disk {size}	Lemez {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	Belefér ebbe a gépbe
+	Needs {ram} GB of RAM	{ram} GB RAM kell neki
+	Needs {disk} GB of disk	{disk} GB lemezterület kell neki
+	Download with Ollama	Letöltés Ollamával
+	Save model file	Modellfájl mentése
+	Delete file	Fájl törlése
+	Downloading… {pct}% — {note}	Letöltés… {pct}% — {note}
+	Saving… {pct}%	Mentés… {pct}%
+	Saved in the shared folder	Elmentve a közös mappába
+	Local and private	Helyi és privát
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	A Craft AI egy helyi Gemma modellt futtat ezen a gépen. Amit ide ír, az nem hagyja el a gépet: nincs fiók, nincs felhőszolgáltatás, nincs telemetria — a panel a 127.0.0.1-en futó modelfuttatóval beszél.
+	Limits	Határok
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	A helyi modell nem élvonalbeli felhőmodell: tévedhet, és egy hosszú válasz a processzoron időbe telik. Minden kritikus dolgot ellenőrizzen, és a letöltés előtt mérlegelje a modell méretét e géphez képest.
+	The shared folder:	A közös mappa:
+	Craft AI	Craft AI
+	Ask anything	Kérdezzen bármit
+	Polish this text	E szöveg csiszolása
+	Summarize	Összefoglalás
+	Check grammar and style	Nyelvtan és stílus ellenőrzése
+	Structure a document	Egy dokumentum felépítése
+	Change the tone	A hangnem megváltoztatása
+	Ask in any language	Kérdezzen bármilyen nyelven
+	Paste the text to tighten and correct	Illessze be a szöveget, amelyet tömöríteni és javítani szeretne
+	Paste the text, say how short	Illessze be a szöveget, és mondja meg, mennyire legyen rövid
+	Paste the text to check	Illessze be az ellenőrizendő szöveget
+	What the document must cover	Mivel kell foglalkoznia a dokumentumnak
+	Paste the text, name the tone	Illessze be a szöveget, és nevezze meg a hangnemet
+	Best for: everyday help on the lightest machines	Erre való a leginkább: hétköznapi segítség a legkönnyebb gépeken
+	Best for: a step up in quality, still light	Erre való a leginkább: egy fokkal jobb minőség, még mindig könnyű
+	Best for: balanced everyday and technical work	Erre való a leginkább: hétköznapi és szakmai munka egyensúlyban
+	Best for: near-flagship answers at MoE speed	Erre való a leginkább: zászlóshajó közeli válaszok MoE-sebességgel
+	Best for: the deepest reasoning this family has	Erre való a leginkább: a legmélyebb gondolkodás ebben a családban
+

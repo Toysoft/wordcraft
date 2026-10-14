@@ -132,6 +132,9 @@ pub struct ViewState {
     /// The Alt Text pane (Picture/Shape Format › Alt Text): the selected object's or table's alt text.
     #[serde(default)]
     pub alt_text_pane: bool,
+    /// The Craft AI pane (View › Show): the ArtCraft family's built-in local assistant.
+    #[serde(default)]
+    pub craft_ai_pane: bool,
     pub multi_page: bool,
     /// One Page or Page Width was chosen last: keep one page per row when a typed or wheel zoom replaces the fit mode.
     #[serde(default)]
@@ -217,6 +220,7 @@ impl Default for ViewState {
             smart_art_pane: false,
             accessibility_pane: false,
             alt_text_pane: false,
+            craft_ai_pane: false,
             multi_page: false,
             single_column: false,
             fit: String::new(),

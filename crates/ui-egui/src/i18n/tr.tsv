@@ -2473,3 +2473,51 @@ preview	Title	Örnek
 	Level 7	Düzey 7
 	Level 8	Düzey 8
 	Level 9	Düzey 9
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI yerel uygulamada çalışır — yerel bir model çalışma ortamına ihtiyaç duyar.
+	Assistant	Yardımcı
+	Looking for a local model runtime…	Yerel bir model çalışma ortamı aranıyor…
+	No local model runtime found.	Yerel bir model çalışma ortamı bulunamadı.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI bu makinedeki bir model çalışma ortamıyla konuşur — Ollama, LM Studio veya llama.cpp sunucusu — ve asla bir bulut hizmetiyle konuşmaz. Birini başlatın, sonra yenileyin.
+	Runtime	Çalışma ortamı
+	Task	Görev
+	No model installed yet — see the Models tab.	Henüz kurulmuş bir model yok — Modeller sekmesine bakın.
+	Ask	Sor
+	Thinking… {s}s	Düşünüyor… {s} sn
+	This machine: {ram} GB RAM, {disk} GB free	Bu makine: {ram} GB RAM, {disk} GB boş
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Tek bir indirme her ArtCraft uygulamasına hizmet eder: model, hepsinin okuduğu paylaşılan bir klasöre iner.
+	Disk {size}	Disk {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	Bu makineye uyar
+	Needs {ram} GB of RAM	{ram} GB RAM gerektirir
+	Needs {disk} GB of disk	{disk} GB disk alanı gerektirir
+	Download with Ollama	Ollama ile indir
+	Save model file	Model dosyasını kaydet
+	Delete file	Dosyayı sil
+	Downloading… {pct}% — {note}	İndiriliyor… %{pct} — {note}
+	Saving… {pct}%	Kaydediliyor… %{pct}
+	Saved in the shared folder	Paylaşılan klasöre kaydedildi
+	Local and private	Yerel ve özel
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	Craft AI bu makinede yerel bir Gemma modeli çalıştırır. Buraya yazdığınız hiçbir şey makineden çıkmaz: hesap yok, bulut hizmeti yok, telemetri yok — panel, 127.0.0.1 adresindeki bir model çalışma ortamıyla konuşur.
+	Limits	Sınırlar
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Yerel bir model, en gelişmiş bulut modeli değildir: yanılabilir ve uzun bir yanıt işlemcide zaman alır. Kritik her şeyi denetleyin ve indirmeden önce modelin boyutunu bu makineyle karşılaştırın.
+	The shared folder:	Paylaşılan klasör:
+	Craft AI	Craft AI
+	Ask anything	İstediğinizi sorun
+	Polish this text	Bu metni iyileştirin
+	Summarize	Özetleyin
+	Check grammar and style	Dilbilgisini ve üslubu denetleyin
+	Structure a document	Bir belgeyi yapılandırın
+	Change the tone	Tonu değiştirin
+	Ask in any language	Herhangi bir dilde sorun
+	Paste the text to tighten and correct	Sıkılaştırıp düzeltmek istediğiniz metni yapıştırın
+	Paste the text, say how short	Metni yapıştırın ve ne kadar kısa olacağını söyleyin
+	Paste the text to check	Denetlenecek metni yapıştırın
+	What the document must cover	Belgenin neleri kapsaması gerektiği
+	Paste the text, name the tone	Metni yapıştırın ve tonu belirtin
+	Best for: everyday help on the lightest machines	Şunlar için ideal: en hafif makinelerde günlük yardım
+	Best for: a step up in quality, still light	Şunlar için ideal: bir adım daha iyi kalite, yine de hafif
+	Best for: balanced everyday and technical work	Şunlar için ideal: dengeli günlük ve teknik işler
+	Best for: near-flagship answers at MoE speed	Şunlar için ideal: MoE hızıyla amiral gemisi düzeyine yakın yanıtlar
+	Best for: the deepest reasoning this family has	Şunlar için ideal: bu ailenin en derin akıl yürütmesi

@@ -1641,6 +1641,11 @@ fn view(app: &mut WordApp, ui: &mut Ui) {
             if ui.checkbox(&mut w, tl!("Hide White Space")).changed() {
                 let _ = app.run("view.hideWhiteSpace", json!({"value": w}));
             }
+            // The family's local assistant as a side pane (View › Show, like the Navigation Pane).
+            let mut c = v.craft_ai_pane;
+            if ui.checkbox(&mut c, tl!("Craft AI")).changed() {
+                let _ = app.run("view.craftAiPane", json!({"value": c}));
+            }
         });
     });
     group(ui, "Zoom", None, app, |ui, app| {

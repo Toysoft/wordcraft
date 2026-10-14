@@ -2459,3 +2459,52 @@ preview	Title	Esempio
 	Automatic ({region})	Automatico ({region})
 	Search	Cerca
 	Title Bar	Barra del titolo
+
+# Craft AI: the built-in local assistant pane, its models and tasks.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI funziona nell'app nativa — gli serve un ambiente di modelli locale.
+	Assistant	Assistente
+	Looking for a local model runtime…	Ricerca di un ambiente di modelli locale…
+	No local model runtime found.	Nessun ambiente di modelli locale trovato.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI parla con un ambiente di modelli su questa macchina — Ollama, LM Studio o il server di llama.cpp — e mai con un servizio cloud. Avviamene uno e poi Aggiorna.
+	Runtime	Ambiente
+	Task	Attività
+	No model installed yet — see the Models tab.	Ancora nessun modello installato — vedi la scheda Modelli.
+	Ask	Chiedi
+	Thinking… {s}s	Sta pensando… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Questa macchina: {ram} GB di RAM, {disk} GB liberi
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Un solo download serve tutte le app ArtCraft: il modello finisce in una cartella condivisa che tutte leggono.
+	Disk {size}	Disco {size}
+	RAM {gb} GB	RAM {gb} GB
+	Fits this machine	Adatto a questa macchina
+	Needs {ram} GB of RAM	Serve {ram} GB di RAM
+	Needs {disk} GB of disk	Serve {disk} GB di disco
+	Download with Ollama	Scarica con Ollama
+	Save model file	Salva il file del modello
+	Delete file	Elimina file
+	Downloading… {pct}% — {note}	Scaricamento… {pct}% — {note}
+	Saving… {pct}%	Salvataggio… {pct}%
+	Saved in the shared folder	Salvato nella cartella condivisa
+	Local and private	Locale e privato
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the panel talks to a model runtime on 127.0.0.1.	Craft AI esegue un modello Gemma locale su questa macchina. Nulla di ciò che scrivi qui la lascia: nessun account, nessun servizio cloud, nessuna telemetria — il pannello parla con un ambiente di modelli su 127.0.0.1.
+	Limits	Limiti
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Un modello locale non è un modello cloud d'avanguardia: può sbagliare, e una risposta lunga richiede il suo tempo sulla CPU. Verifica tutto ciò che è critico e valuta la dimensione del modello rispetto a questa macchina prima di scaricarlo.
+	The shared folder:	La cartella condivisa:
+	Craft AI	Craft AI
+	Ask anything	Chiedi qualsiasi cosa
+	Polish this text	Rifinisci questo testo
+	Summarize	Riassumi
+	Check grammar and style	Controlla grammatica e stile
+	Structure a document	Struttura un documento
+	Change the tone	Cambia il tono
+	Ask in any language	Chiedi in qualsiasi lingua
+	Paste the text to tighten and correct	Incolla il testo da stringere e correggere
+	Paste the text, say how short	Incolla il testo e indica quanto breve
+	Paste the text to check	Incolla il testo da controllare
+	What the document must cover	Cosa deve trattare il documento
+	Paste the text, name the tone	Incolla il testo e indica il tono
+	Best for: everyday help on the lightest machines	Ideale per: l'aiuto quotidiano sulle macchine più leggere
+	Best for: a step up in quality, still light	Ideale per: un gradino di qualità in più, ancora leggero
+	Best for: balanced everyday and technical work	Ideale per: equilibrare il quotidiano e il tecnico
+	Best for: near-flagship answers at MoE speed	Ideale per: risposte quasi di punta alla velocità MoE
+	Best for: the deepest reasoning this family has	Ideale per: il ragionamento più profondo di questa famiglia
+
