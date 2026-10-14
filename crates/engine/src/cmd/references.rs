@@ -783,7 +783,8 @@ pub fn update_seq(s: &mut Session) -> Result<(), CmdError> {
     Ok(())
 }
 
-/// Update fields in the body: dates, SEQ numbering, cross-references, TOC.
+/// Update fields: dates, REF/PAGEREF, TITLE, AUTHOR and NUMWORDS in every story (body, headers,
+/// footers, notes, text boxes); SEQ numbering and TOC in the body.
 pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
     update_seq(s)?;
     let mut pages: std::collections::HashMap<String, u32> = Default::default();
@@ -1038,6 +1039,11 @@ mod tests {
         p.insert_object(0, field("AUTHOR"), &CharProps::default()).unwrap();
         let off = p.len();
         p.insert_object(off, field("NUMWORDS"), &CharProps::default()).unwrap();
+        let off = p.len();
+        let locked = InlineObject::Field { instr: "TITLE".into(), result: "stale".into(), locked: true, code: false };
+        p.insert_object(off, locked, &CharProps::default()).unwrap();
+        let body_path = doc.para_paths(StoryRef::Body).remove(0);
+        doc.para_mut(StoryRef::Body, &body_path).unwrap().insert_object(0, field("AUTHOR"), &CharProps::default()).unwrap();
         let hdr = doc.add_part(PartKind::Header, vec![std::sync::Arc::new(wordcraft_doc::Block::Para(p))]);
         let mut s = Session::new(doc);
         s.run("references.updateFields", &json!({})).unwrap();
@@ -1049,8 +1055,10 @@ mod tests {
                 }
             }
         }
-        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(got.len(), 3, "{got:?}");
         assert_eq!(got[0].1, "Ada");
         assert_eq!(got[1].1, s.doc.word_count().to_string());
+        assert_eq!(got[2].1, "stale", "a locked field stays as it was");
+        assert_eq!(fields(&s)[0], ("AUTHOR".to_string(), "Ada".to_string()), "the body field still updates");
     }
 }
