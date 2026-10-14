@@ -1195,6 +1195,31 @@ fn attached_template_and_link_styles_round_trip() {
     assert!(!plain.settings.link_styles);
 }
 
+/// #995: the zoom a document was saved at (`w:zoom`), One Page (`fullPage`) included, is read
+/// and written back.
+#[test]
+fn zoom_round_trips() {
+    let settings = |bytes: &[u8]| {
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut xml = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("word/settings.xml").unwrap(), &mut xml).unwrap();
+        xml
+    };
+    let plain = wordcraft_docx::write(&Document::new()).unwrap();
+    let xml = settings(&plain);
+    assert!(xml.contains(r#"<w:zoom w:percent="100"/>"#), "{xml}");
+    for (zoom, written) in [
+        (r#"<w:zoom w:val="fullPage" w:percent="62"/>"#, r#"<w:zoom w:val="fullPage" w:percent="62"/>"#),
+        (r#"<w:zoom w:percent="75%"/>"#, r#"<w:zoom w:percent="75"/>"#),
+        (r#"<w:zoom w:val="bestFit" w:percent="99999"/>"#, r#"<w:zoom w:val="bestFit" w:percent="500"/>"#),
+        (r#"<w:zoom w:val="sideways" w:percent="80"/>"#, r#"<w:zoom w:percent="80"/>"#),
+    ] {
+        let file = replace_part(&plain, "word/settings.xml", xml.replace(r#"<w:zoom w:percent="100"/>"#, zoom).as_bytes());
+        let back = settings(&wordcraft_docx::write(&wordcraft_docx::read(&file).unwrap()).unwrap());
+        assert!(back.contains(written), "{zoom}: {back}");
+    }
+}
+
 #[test]
 fn settings_core_theme_round_trip() {
     let mut d = Document::new();
@@ -1926,7 +1951,7 @@ fn wrap_polygons_round_trip() {
     let got = paras(&r)[0];
     let floats: Vec<Float> = got.objects.iter().filter_map(|o| o.frame().map(|(_, _, f)| f.clone())).collect();
     assert_eq!(floats[0], edited);
-    let ellipse = WrapPolygon::from_unit(false, &shape_outline(ShapeKind::Ellipse, 80.0, 40.0).unwrap());
+    let ellipse = WrapPolygon::from_unit(false, &shape_outline(ShapeKind::Ellipse, 80.0, 40.0, None).unwrap());
     assert_eq!(floats[1].wrap, Wrap::Through);
     assert_eq!(floats[1].wrap_polygon.as_deref(), ellipse.as_ref());
 }
