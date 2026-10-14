@@ -9,7 +9,7 @@ use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("review.newComment", "New Comment", "Review › Comments", new_comment).key("Mod+Alt+M").params(r#"{"text": string}"#),
+        CommandSpec::new("review.newComment", "New Comment", "Review › Comments", new_comment).key(super::mac_or("Mod+Alt+A / Mod+Alt+M", "Mod+Alt+M")).params(r#"{"text": string}"#),
         CommandSpec::new("review.reply", "Reply", "Review › Comments", reply).params(r#"{"id": n, "text": string}"#).when(comments_change),
         CommandSpec::new("review.editComment", "Edit Comment", "Review › Comments", edit_comment)
             .params(r#"{"id": n, "text": string}"#)
@@ -129,8 +129,8 @@ fn new_comment(s: &mut Session, v: &Value) -> CmdResult {
     } else {
         (a, b)
     };
-    let part = s.doc.add_part(PartKind::Comment, vec![para_block(Paragraph::with_text(&text, Default::default()))]);
-    let id = s.doc.comments.keys().next_back().map(|k| k + 1).unwrap_or(0);
+    let part = s.doc.try_add_part(PartKind::Comment, vec![para_block(Paragraph::with_text(&text, Default::default()))])?;
+    let id = comment_id(s)?;
     let initials = s.user_initials();
     s.doc
         .comments
@@ -148,8 +148,8 @@ fn reply(s: &mut Session, v: &Value) -> CmdResult {
         return Err(CmdError::Params("no such comment".into()));
     }
     let text = p::req_str(v, "text")?;
-    let part = s.doc.add_part(PartKind::Comment, vec![para_block(Paragraph::with_text(text, Default::default()))]);
-    let id = s.doc.comments.keys().next_back().map(|k| k + 1).unwrap_or(0);
+    let part = s.doc.try_add_part(PartKind::Comment, vec![para_block(Paragraph::with_text(text, Default::default()))])?;
+    let id = comment_id(s)?;
     let initials = s.user_initials();
     s.doc.comments.insert(
         id,
@@ -158,7 +158,12 @@ fn reply(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"id": id}))
 }
 
-/// Replace a comment's (or reply's) text; each line becomes a paragraph.
+/// An id no comment has: one past the largest, or the lowest free one once a file used `u32::MAX`.
+fn comment_id(s: &Session) -> Result<u32, CmdError> {
+    let ids = &s.doc.comments;
+    wordcraft_doc::free_id(ids.keys().next_back().copied(), ids.keys().copied(), 0).ok_or_else(|| CmdError::Failed("no free comment id".into()))
+}
+
 /// Comments can't be written or edited in a document protected as read only or for filling in
 /// forms (the comment fields are read-only there, #1348).
 fn comments_change(s: &Session) -> Option<&'static str> {
@@ -168,6 +173,7 @@ fn comments_change(s: &Session) -> Option<&'static str> {
     }
 }
 
+/// Replace a comment's (or reply's) text; each line becomes a paragraph.
 fn edit_comment(s: &mut Session, v: &Value) -> CmdResult {
     let id = p::u64(v, "id").and_then(|x| u32::try_from(x).ok()).ok_or_else(|| CmdError::Params("`id` required".into()))?;
     let text = p::req_str(v, "text")?;

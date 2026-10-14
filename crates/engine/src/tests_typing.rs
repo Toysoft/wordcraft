@@ -52,7 +52,17 @@ fn typed(keys: &str) -> Session {
 #[test]
 fn sample_text_formulas_expand_on_enter() {
     for name in ["rand", "lorem"] {
-        for (args, paragraphs, sentences) in [("", 5, 3), ("2", 2, 3), ("2,4", 2, 4), ("1,1", 1, 1), ("200,1", 200, 1), ("1,200", 1, 200)] {
+        for (args, paragraphs, sentences) in [
+            ("", 5, 3),
+            ("2", 2, 3),
+            (" 2 ", 2, 3),
+            ("2,4", 2, 4),
+            ("2, 4", 2, 4),
+            (" 2 , 4 ", 2, 4),
+            ("1,1", 1, 1),
+            ("200,1", 200, 1),
+            ("1,200", 1, 200),
+        ] {
             let mut s = typed(&format!("={name}({args})"));
             let depth = s.undo_depth();
             typ(&mut s, "\n");
@@ -357,8 +367,8 @@ fn web_addresses_become_links() {
 
 #[test]
 fn dashes() {
-    let s = typed("a -- b and c - d and e--f ");
-    assert_eq!(s.doc.plain_text(StoryRef::Body), "A – b and c – d and e—f ");
+    let s = typed("a -- b and c - d and e--f and café--g ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "A – b and c – d and e—f and café—g ");
 }
 
 #[test]
@@ -1072,12 +1082,23 @@ fn typing_rtl_letters_into_an_empty_paragraph_makes_it_rtl() {
 #[test]
 fn select_all_then_delete_removes_tables() {
     let tables = |s: &Session| s.doc.body.iter().filter(|b| b.as_table().is_some()).count();
+    // With the caret in a table, Select All grows the selection a step at a time (cell, row,
+    // table, document; #1478): press it until the whole document is selected.
+    let select_whole_document = |s: &mut Session| {
+        for _ in 0..6 {
+            let before = s.sel.clone();
+            run(s, "select.all", json!({}));
+            if s.sel == before {
+                break;
+            }
+        }
+    };
     for key in ["text.delete", "text.backspace"] {
         let mut s = typed("");
         run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
         typ(&mut s, "cell");
         assert_eq!(tables(&s), 1);
-        run(&mut s, "select.all", json!({}));
+        select_whole_document(&mut s);
         run(&mut s, key, json!({}));
         assert_eq!(tables(&s), 0, "{key}: a table at the start of the document goes");
         assert_eq!(s.doc.plain_text(StoryRef::Body), "", "{key}");
@@ -1086,7 +1107,7 @@ fn select_all_then_delete_removes_tables() {
         run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
         typ(&mut s, "cell");
         assert_eq!(tables(&s), 1);
-        run(&mut s, "select.all", json!({}));
+        select_whole_document(&mut s);
         run(&mut s, key, json!({}));
         assert_eq!(tables(&s), 0, "{key}: a table after text goes");
         assert_eq!(s.doc.plain_text(StoryRef::Body), "", "{key}");
