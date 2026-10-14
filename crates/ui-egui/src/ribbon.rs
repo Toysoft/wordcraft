@@ -273,31 +273,26 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     resp.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Account avatar.
-                    let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
-                    ui.painter().circle_filled(r.center(), 11.0, t.accent);
-                    let initials: String = app.session.user_initials().chars().take(2).collect();
-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
-                    resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author));
-                    ui.add_space(6.0);
-                    // Search ("Tell me").
-                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 24.0), Sense::click());
-                    ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-                    icons::paint(
-                        ui.painter(),
-                        Rect::from_center_size(pos2(r.min.x + 14.0, r.center().y), vec2(14.0, 14.0)),
-                        "search",
-                        t.text_dim,
-                        t.accent,
-                    );
-                    let ph = tl!("Search commands and help");
-                    ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, ph, regular(11.5), t.text_dim);
-                    if resp.on_hover_text(tl!("Search")).clicked() {
-                        let _ = app.run("tools.search", json!({}));
-                    }
-                    ui.add_space(6.0);
-                    // Document name, beside search.
-                    let title = format!(
+                    // The strip is also the window's top bar, and this right-hand block is
+                    // laid out right-to-left: when it is wider than the space left after
+                    // the tabs, egui lets it spill leftwards OVER the tabs, and its
+                    // buttons then steal the tabs' clicks (the View tab was unclickable
+                    // at 1440 px, #1093). So the block gives way before it can overlap:
+                    // the document title (also the window title) truncates, then hides;
+                    // then the search box collapses to its icon; then Comments hides.
+                    let remaining = ui.available_width();
+                    let share = tl!("Share");
+                    let share_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(share.to_string(), medium(12.0), t.text).size().x);
+                    // Each gap costs its add_space plus the strip's 2 px item_spacing.
+                    let share_full = (share_w + 36.0).max(74.0) + 8.0;
+                    let track = app.session.doc.settings.track_changes;
+                    let mode_text = if track { tl!("Reviewing") } else { tl!("Editing") };
+                    let mode_text_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(mode_text.to_string(), regular(12.0), t.text).size().x);
+                    let pad = ui.spacing().button_padding;
+                    let mode_full = pad.x + 16.0 + 4.0 + mode_text_w + (crate::widgets::DROPDOWN + 4.0) + pad.x + 6.0;
+                    let comments_text_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(tl!("Comments").to_string(), regular(12.0), t.text).size().x);
+                    let comments_full = pad.x + 16.0 + 4.0 + comments_text_w + pad.x;
+                    let title_full = format!(
                         "{} — {}",
                         app.title_stem(),
                         if app.session.dirty {
@@ -308,15 +303,70 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                             tl!("Not saved")
                         }
                     );
-                    ui.label(egui::RichText::new(title).font(semibold(12.0)).color(t.text));
+                    let title_full_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(title_full.clone(), semibold(12.0), t.text).size().x);
+                    let mut search_icon_only = false;
+                    let mut show_comments = true;
+                    let mut title_w = title_full_w;
+                    let mut fixed = 32.0 + 208.0 + share_full + mode_full + comments_full;
+                    if fixed + title_w + 8.0 > remaining {
+                        title_w = (remaining - fixed - 8.0).max(0.0);
+                    }
+                    if title_w < 60.0 {
+                        // Too little room for a useful title: hide it.
+                        title_w = 0.0;
+                    }
+                    if title_w == 0.0 && fixed > remaining {
+                        search_icon_only = true;
+                        fixed -= 174.0;
+                    }
+                    if fixed > remaining {
+                        show_comments = false;
+                    }
+                    // Account avatar.
+                    let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+                    ui.painter().circle_filled(r.center(), 11.0, t.accent);
+                    let initials: String = app.session.user_initials().chars().take(2).collect();
+                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
+                    resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author));
                     ui.add_space(6.0);
+                    // Search ("Tell me"): just its icon when the strip is crowded.
+                    let search_w = if search_icon_only { 26.0 } else { 200.0 };
+                    let (r, resp) = ui.allocate_exact_size(vec2(search_w, 24.0), Sense::click());
+                    ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+                    let icon_x = if search_icon_only { r.center().x } else { r.min.x + 14.0 };
+                    icons::paint(ui.painter(), Rect::from_center_size(pos2(icon_x, r.center().y), vec2(14.0, 14.0)), "search", t.text_dim, t.accent);
+                    if !search_icon_only {
+                        let ph = tl!("Search commands and help");
+                        ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, ph, regular(11.5), t.text_dim);
+                    }
+                    if resp.on_hover_text(tl!("Search")).clicked() {
+                        let _ = app.run("tools.search", json!({}));
+                    }
+                    ui.add_space(6.0);
+                    // Document name, beside search — truncated with an ellipsis to the
+                    // width left for it, hidden when there is none.
+                    if title_w > 0.0 {
+                        let mut title = title_full.clone();
+                        if title_full_w > title_w {
+                            let measure = |s: &str| ui.ctx().fonts_mut(|f| f.layout_no_wrap(s.to_string(), semibold(12.0), t.text).size().x);
+                            let mut kept = String::new();
+                            for ch in title_full.chars() {
+                                let candidate = format!("{kept}{ch}…");
+                                if measure(&candidate) > title_w {
+                                    break;
+                                }
+                                kept.push(ch);
+                            }
+                            title = format!("{kept}…");
+                        }
+                        ui.label(egui::RichText::new(title).font(semibold(12.0)).color(t.text));
+                        ui.add_space(6.0);
+                    }
                     // No document open (#1129): nothing to share, edit or comment on.
                     if !app.has_document() {
                         ui.disable();
                     }
                     // Share, Editing mode, Comments.
-                    let share = tl!("Share");
-                    let share_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(share.to_string(), medium(12.0), t.text).size().x);
                     let (r, resp) = ui.allocate_exact_size(vec2((share_w + 36.0).max(74.0), 24.0), Sense::click());
                     ui.painter().rect_filled(r, 4.0, if resp.hovered() { t.accent_text } else { t.accent });
                     icons::paint(
@@ -331,9 +381,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         let _ = app.run("ui.backstage", json!({"value": true, "page": "export"}));
                     }
                     ui.add_space(6.0);
-                    let track = app.session.doc.settings.track_changes;
-                    let mode =
-                        crate::widgets::icon_text_menu_button(ui, "pencil", if track { tl!("Reviewing") } else { tl!("Editing") }, regular(12.0));
+                    let mode = crate::widgets::icon_text_menu_button(ui, "pencil", mode_text, regular(12.0));
                     egui::Popup::menu(&mode).show(|ui| {
                         if ui.selectable_label(!track, tl!(tl!("Editing — edit the document directly"))).clicked() {
                             let _ = app.run("review.trackChanges", json!({"value": false}));
@@ -345,7 +393,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         }
                     });
                     ui.add_space(4.0);
-                    if crate::widgets::icon_text_button(ui, "comment", tl!("Comments"), regular(12.0)).clicked() {
+                    if show_comments && crate::widgets::icon_text_button(ui, "comment", tl!("Comments"), regular(12.0)).clicked() {
                         let _ = app.run("view.commentsPane", json!({}));
                     }
                 });
