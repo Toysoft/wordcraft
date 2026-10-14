@@ -15,10 +15,12 @@ mod apple_events;
 mod clipboard;
 mod control_server;
 mod default_apps;
+mod document_windows;
 mod file_dialogs;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
 mod logging;
+mod preferences;
 mod print;
 mod region;
 #[cfg(target_os = "macos")]
@@ -38,14 +40,16 @@ struct App(
     Option<WindowGeometry>,
     Option<control_server::KeyFile>,
     file_dialogs::Launcher,
+    document_windows::Launcher,
     #[cfg(target_os = "macos")] fmv_macos_events::Inbox,
 );
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         #[cfg(target_os = "macos")]
-        apple_events::poll(&self.4, &mut self.0, ctx);
+        apple_events::poll(&self.5, &mut self.0, ctx);
         self.0.logic(ctx);
+        self.4.poll();
         self.3.show(frame);
         // A window that doesn't fit on its screen (the default size on a laptop) shrinks to fit
         // there, so all of the scroll bar can be dragged (#1215). Checked on the frame that first
@@ -207,8 +211,10 @@ fn save_prefs(app: &WordApp) {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(bytes) = serde_json::to_vec_pretty(&app.prefs()) {
-            let _ = std::fs::write(&p, bytes);
+        if let Ok(bytes) = serde_json::to_vec_pretty(&app.prefs())
+            && let Err(e) = preferences::write(&p, &bytes)
+        {
+            log::warn!("couldn't save preferences: {e}");
         }
     }
 }
@@ -247,10 +253,11 @@ const USAGE: &str = "\
 wordcraft — the WordCraft desktop app
 
 USAGE:
-  wordcraft [--sample] [--control PORT] [FILE…]
+  wordcraft [--sample] [--template NAME] [--control PORT] [--] [FILE…]
 
 OPTIONS:
   --sample            open the sample document
+  --template NAME     open blank, sample, letter, resume or report without the Start screen
   --control PORT      start the localhost control server on PORT, for agents and scripts
                       (or set WORDCRAFT_CONTROL_PORT); see docs/control-protocol.md
   --version           print the version
@@ -269,11 +276,17 @@ fn main() -> eframe::Result {
     let mut control_port: Option<u16> = std::env::var("WORDCRAFT_CONTROL_PORT").ok().and_then(|p| p.parse().ok());
     let mut files = Vec::new();
     let mut sample = false;
+    let mut template = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
+            "--" => {
+                files.extend(args);
+                break;
+            }
             "--control" => control_port = args.next().and_then(|p| p.parse().ok()),
             "--sample" => sample = true,
+            "--template" => template = Some(args.next().unwrap_or_else(|| "blank".into())),
             "--version" => {
                 println!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
                 return Ok(());
@@ -361,6 +374,11 @@ fn main() -> eframe::Result {
                 let doc = app.session.blank_document();
                 app.session.set_document(doc);
             }
+            if let Some(template) = &template
+                && let Err(e) = app.run("file.new", serde_json::json!({"template": template}))
+            {
+                log::warn!("new document: {e}");
+            }
             app.watch_desktop_theme(&cc.egui_ctx);
             if prefs_enabled()
                 && let Some(dir) = wordcraft_control_key::settings_dir()
@@ -387,20 +405,34 @@ fn main() -> eframe::Result {
             // Nothing to open (no files, no sample, no control channel driving the editor): start
             // on File › Home, as Word does (#766), unless the Start screen option is off. Files
             // macOS hands over later open on top of it and close it (`apple_events`).
-            if files.is_empty() && !sample && control_port.is_none() {
+            if files.is_empty() && !sample && template.is_none() && control_port.is_none() {
                 app.start_screen();
             }
-            for f in files {
+            let windows = document_windows::Launcher::default();
+            for (index, f) in files.into_iter().enumerate() {
+                // The first command-line file belongs in this window, even if the Start screen
+                // preference is off. Every later file gets its own process, including while the
+                // first is waiting for a password or failed to load.
+                if index > 0 {
+                    if let Err(e) = windows.hook()(wordcraft_ui_egui::DocumentWindow::Open { path: f.clone() }) {
+                        log::warn!("{f}: {e}");
+                        app.status(e);
+                    }
+                    continue;
+                }
                 if let Err(e) = app.run("file.open", serde_json::json!({"path": f})) {
                     log::warn!("{f}: {e}");
+                    app.status(format!("Couldn't open {f}: {e}"));
                 }
             }
+            app.services.document_window = Some(windows.hook());
             Ok(Box::new(App(
                 app,
                 // With nothing restored, the window the system placed is checked all the same.
                 Some(restored.unwrap_or_default()),
                 key_file,
                 dialogs,
+                windows,
                 #[cfg(target_os = "macos")]
                 apple_events.connect(&cc.egui_ctx),
             )))
