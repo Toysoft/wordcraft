@@ -454,6 +454,8 @@
 	Labels	Etichette
 	Landscape	Orizzontale
 	Language	Lingua
+	{language} (no dictionary)	{language} (nessun dizionario)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Non è installato alcun dizionario ortografico per {language}, quindi non viene controllata. WordCraft cerca il dizionario Hunspell {name} nella cartella WORDCRAFT_DICTIONARIES e nelle posizioni di sistema abituali.
 	Lasso	Lazo
 	Last Column	Ultima colonna
 	Last commit	Ultimo commit
@@ -2602,3 +2604,11 @@ preview	Title	Esempio
 	Use "an" before a vowel sound	Usa "an" davanti a un suono vocalico
 	➕ New comment	➕ Nuovo commento
 	📂  Browse…	📂  Sfoglia…
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Margini speculari
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	File o pagina Web esistente
+	Link to:	Collega a:
+	Place in This Document	Posizione nel documento
