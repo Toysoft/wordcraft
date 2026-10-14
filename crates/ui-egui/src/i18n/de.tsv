@@ -1351,6 +1351,7 @@
 	Demote	Tiefer stufen
 	Go Back	Zurückspringen
 	Toggle Unicode Character	Unicode-Zeichen umschalten
+	Type Character Code	Zeichencode eingeben
 	Toggle Field Codes	Feldfunktionen ein/aus
 	Edit Field Code	Feldfunktion bearbeiten
 	Unlink Fields	Feldverknüpfungen aufheben
@@ -1436,6 +1437,8 @@
 	No words yet. Add to Dictionary on a misspelled word puts it here.	Noch keine Wörter. „Zum Wörterbuch hinzufügen“ bei einem falsch geschriebenen Wort legt es hier ab.
 	Overtype	Überschreiben
 	Overtype (typing replaces the characters after the caret)	Überschreiben (die Eingabe ersetzt die Zeichen nach der Einfügemarke)
+	Show alignment guides when moving pictures and shapes	Ausrichtungslinien beim Verschieben von Bildern und Formen anzeigen
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Verschobene Objekte rasten an den Rändern und der Mitte der Seite, an den Seitenrändern und an anderen Objekten ein. Mit gedrückter Alt-Taste frei verschieben.
 	Page display	Seitenanzeige
 	Paragraph marks	Absatzmarken
 	Personalize	Personalisieren
@@ -2010,6 +2013,7 @@
 	Hyphenation Options…	Silbentrennungsoptionen…
 	Hyphenation zone:	Silbentrennzone:
 	Italian	Italienisch
+	Croatian	Kroatisch
 	Japanese	Japanisch
 	Korean	Koreanisch
 	Limit consecutive hyphens to:	Aufeinanderfolgende Trennstriche begrenzen auf:
@@ -2084,3 +2088,37 @@
 	Leave out the date and time of comments and tracked changes when saving	Beim Speichern Datum und Uhrzeit von Kommentaren und nachverfolgten Änderungen weglassen
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Das bearbeitete Dokument behält Namen und Daten; nur die gespeicherte Datei lässt sie weg.
 	Privacy Settings	Aktuelle Datenschutzeinstellungen
+	Waiting for the save to finish…	Warten, bis das Speichern abgeschlossen ist…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Das Speichern von {name} wurde abgebrochen. Das Dokument ist weiterhin geöffnet und nichts ist verloren gegangen.
+	Paper	Papier
+	Paper size:	Papierformat:
+	Custom size	Benutzerdefiniertes Format
+	More Paper Sizes…	Weitere Papierformate…
+	The margins don't fit on a page this size; make the margins smaller first.	Die Ränder passen nicht auf eine Seite dieser Größe; verkleinern Sie zuerst die Ränder.
+	Full Screen	Vollbild
+	Full\nScreen	Voll-\nbild
+	Use the browser's full screen (F11)	Verwenden Sie den Vollbildmodus des Browsers (F11)
+
+# #1128: size labels (Mailings, Layout › Size), status-bar messages, Reading Mode and Go To
+	{name}   {height} × {width} in	{name}   {height} × {width} Zoll
+	{name}   {height} × {width} mm	{name}   {height} × {width} mm
+	{width} × {height} mm	{width} × {height} mm
+	{kind}, {columns} × {rows}, {size} ({paper})	{kind}, {columns} × {rows}, {size} ({paper})
+	Researcher needs an online service; WordCraft keeps your documents offline.	Der Recherche-Assistent braucht einen Onlinedienst; WordCraft behält Ihre Dokumente offline.
+	These settings will be used for new documents.	Diese Einstellungen werden für neue Dokumente verwendet.
+	can't split at the first row	die Tabelle kann nicht an der ersten Zeile geteilt werden
+	select two or more cells to merge	wählen Sie zum Verbinden zwei oder mehr Zellen aus
+	there is no ink to replay	es gibt keine Freihandeingabe zum Wiedergeben
+	there's no citation after the caret	nach der Einfügemarke steht kein Zitat
+	this item is already at the top level	dieses Element ist bereits auf der obersten Ebene
+	Envelope #10	Umschlag Nr. 10
+	Envelope DL	Umschlag DL
+	Reading Mode	Lesemodus
+	Column width	Spaltenbreite
+	Text size	Textgröße
+	Edit Document	Dokument bearbeiten
+	Go to what:	Gehe zu:
+	Type +2 or -1 to move from the page you are on.	Geben Sie +2 oder -1 ein, um von der aktuellen Seite aus zu springen.
+	Suggested	Vorschläge
+	Set Proofing Language…	Sprache für die Korrekturhilfen festlegen…
+	Language Preferences…	Spracheinstellungen…

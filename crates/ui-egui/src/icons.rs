@@ -1649,6 +1649,16 @@ fn draw(pen: &Pen, name: &str, c: Color32, a: Color32, green: Color32, red: Colo
             pen.acc(&[(4.5, 13.75), (3.0, 13.75), (3.0, 10.25)]);
             pen.head(3.0, 9.5, -90.0, a);
         }
+        // Full screen: a window with arrows out to its four corners.
+        "fullScreen" => {
+            pen.window(4.5, 4.5, 11.5, 11.5);
+            for (x0, y0, x1, y1, deg) in
+                [(4.0, 4.0, 2.5, 2.5, -135.0), (12.0, 4.0, 13.5, 2.5, -45.0), (12.0, 12.0, 13.5, 13.5, 45.0), (4.0, 12.0, 2.5, 13.5, 135.0)]
+            {
+                pen.acc(&[(x0, y0), (x1, y1)]);
+                pen.head(x1, y1, deg, a);
+            }
+        }
         "macros" => {
             pen.panel(1.5, 1.5, 14.5, 14.5, 1.5);
             pen.fill(&[(6.0, 5.0), (11.0, 8.0), (6.0, 11.0)], a);
@@ -2379,6 +2389,7 @@ pub const NAMES: &[&str] = &[
     "sideBySide",
     "syncScroll",
     "switchWindows",
+    "fullScreen",
     "macros",
     "info",
     "properties",
