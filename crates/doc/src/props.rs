@@ -1067,6 +1067,9 @@ pub enum HeightRule {
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RowProps {
+    /// Table border exceptions for this row (`w:tblPrEx/w:tblBorders`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub borders: Option<Borders>,
     /// Points (meaning depends on `height_rule`).
     pub height: Option<f32>,
     pub height_rule: HeightRule,

@@ -1167,6 +1167,11 @@ impl Writer<'_> {
                 open_rows += 1;
             }
             w.open("w:tr", &[]);
+            if let Some(b) = &r.props.borders {
+                w.open("w:tblPrEx", &[]);
+                borders(w, "w:tblBorders", b, Some("w:insideH"), &[]);
+                w.close("w:tblPrEx");
+            }
             let chg = r.props.fmt_change.as_ref().map(|c| self.change_attrs(c.rev));
             trpr(w, &r.props, chg.as_ref());
             let mut open_cells = 0u32;

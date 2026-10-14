@@ -5741,3 +5741,27 @@ fn space_after_stays_clear_before_a_numbered_paragraph_without_a_label() {
         wordcraft_doc::resolve::AUTO_SPACING,
     );
 }
+
+#[test]
+fn row_borders_stay_on_row() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(2, 2, 200.0);
+    t.props.style = None;
+    t.rows[0].props.borders = Some(Borders::all(Border::single(1.0)));
+    t.rows[0].cells[0].props.borders = Some(Borders { top: Some(Border::single(2.0)), ..Default::default() });
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let rules = rules_on_page0(&lay(&d));
+    assert_eq!(rules.len(), 8);
+    assert_eq!(rules.iter().filter(|w| **w == 2.0).count(), 1);
+    assert_eq!(rules.iter().filter(|w| **w == 1.0).count(), 7);
+}
+
+#[test]
+fn row_nil_borders_hide_table_style() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(1, 1, 200.0);
+    t.rows[0].props.borders = Some(Borders::all(Border { style: BorderStyle::None, width: 0.0, color: None, space: 0.0 }));
+    t.rows[0].cells[0].props.borders = Some(Borders { right: Some(Border::single(2.0)), ..Default::default() });
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    assert_eq!(rules_on_page0(&lay(&d)), vec![2.0]);
+}
