@@ -34,7 +34,7 @@ const NNBSP: char = '\u{202F}';
 /// interjections, onomatopoeia.
 const ALLOWED_REPEATS: &[&str] = &[
     "nous", "vous", "si", "oui", "non", "très", "bon", "vite", "là", "ah", "oh", "eh", "ha", "hé", "ho", "hi", "bla", "chut", "toc", "pan", "bravo",
-    "merci", "allez", "encore", "beaucoup", "fort",
+    "merci", "allez", "encore", "beaucoup", "fort", "tchin", "bye", "couci", "tam", "miam", "glou",
 ];
 
 /// Abbreviations written with a final period after which a sentence goes on in lower case
@@ -56,6 +56,40 @@ const INTERJECTIONS: &[&str] = &[
 /// Pronouns ending an inversion (`dit-il`, `demanda-t-elle`): after one, a `!` or `?` doesn't
 /// end the sentence (`Quoi ? dit-il`).
 const INVERTED: &[&str] = &["-il", "-elle", "-on", "-ils", "-elles", "-je", "-tu", "-nous", "-vous"];
+
+/// Speech verbs of a dialogue tag: after one, a `!` or `?` doesn't end the sentence (`— Tu
+/// viens ? demanda le voisin`).
+const SPEECH_VERBS: &[&str] = &[
+    "dit",
+    "demanda",
+    "répondit",
+    "cria",
+    "murmura",
+    "ajouta",
+    "reprit",
+    "fit",
+    "lança",
+    "souffla",
+    "répliqua",
+    "interrogea",
+    "hurla",
+    "poursuivit",
+    "continua",
+    "déclara",
+    "expliqua",
+    "protesta",
+    "soupira",
+    "chuchota",
+    "insista",
+    "s'écria",
+    "s’écria",
+    "s'exclama",
+    "s’exclama",
+    "objecta",
+    "conclut",
+    "dis",
+    "dit-on",
+];
 
 /// The words that elide before a vowel, and their elided form.
 const ELIDING: &[(&str, &str)] =
@@ -176,10 +210,16 @@ fn is_fixed_space(c: char) -> bool {
     matches!(c, '\u{A0}' | '\u{202F}' | '\u{2007}' | '\u{2009}' | '\u{2060}')
 }
 
+/// The byte range of the whitespace-delimited token around byte `i` of `text`.
+fn token_bounds(text: &str, i: usize) -> (usize, usize) {
+    let start = text.get(..i).and_then(|t| t.char_indices().rev().find(|(_, c)| c.is_whitespace())).map_or(0, |(k, c)| k + c.len_utf8());
+    let end = text.get(i..).and_then(|t| t.find(char::is_whitespace)).map_or(text.len(), |k| i + k);
+    (start, end)
+}
+
 /// The whitespace-delimited token around byte `i` of `text`.
 fn token_at(text: &str, i: usize) -> &str {
-    let start = text.get(..i).and_then(|t| t.rfind(char::is_whitespace)).map_or(0, |k| k + 1);
-    let end = text.get(i..).and_then(|t| t.find(char::is_whitespace)).map_or(text.len(), |k| i + k);
+    let (start, end) = token_bounds(text, i);
     text.get(start..end).unwrap_or("")
 }
 
@@ -195,13 +235,24 @@ fn quoted(s: &str) -> String {
 
 /// `;` `!` `?` `:` without the non-breaking space French puts before them.
 fn high_punctuation(text: &str, v: &mut Vec<Issue>) {
+    let mut token: Option<(usize, usize, bool)> = None;
     for (i, p) in text.char_indices() {
         if !matches!(p, ';' | ':' | '!' | '?') {
             continue;
         }
         let before = text.get(..i).and_then(|t| t.chars().next_back());
         let after = text.get(i + p.len_utf8()..).and_then(|t| t.chars().next());
-        if is_address(token_at(text, i)) {
+        // One look per token, so a long run of marks stays linear.
+        let address = match token {
+            Some((start, end, address)) if start <= i && i < end => address,
+            _ => {
+                let (start, end) = token_bounds(text, i);
+                let address = is_address(text.get(start..end).unwrap_or(""));
+                token = Some((start, end, address));
+                address
+            }
+        };
+        if address {
             continue;
         }
         let (space, kind) = if p == ':' { (NBSP, "insécable") } else { (NNBSP, "fine insécable") };
@@ -302,8 +353,8 @@ fn repeated_words(text: &str, ws: &[(usize, usize)], v: &mut Vec<Issue>) {
             && w0.chars().all(char::is_alphabetic)
             && lower == w1.to_lowercase()
             && !ALLOWED_REPEATS.contains(&lower.as_str())
-            // `de De…`: a proper noun after the same lower-case word.
-            && (starts_upper(w0) || !starts_upper(w1))
+            // `de De…`, `Bora Bora`: a capitalized second word is a name.
+            && !starts_upper(w1)
         {
             v.push(issue(*a0, *b1, format!("Mot répété{NBSP}: {}", quoted(w1)), vec![w0.to_string()]));
         }
@@ -322,9 +373,10 @@ fn abbreviation_or_number(prev: &str) -> bool {
 /// Does `gap`, between the words `prev` and `next`, end a sentence: a `.`, `!` or `?` (French
 /// puts a space before the last two), then a space, with only quotes and brackets around? Not
 /// an ellipsis, not after an abbreviation; for `!` and `?`, not after an interjection, not before
-/// a closing quote (dialogue goes on: `« Tu viens ? » demanda-t-elle`) and not before an
-/// inversion (`Quoi ? dit-il`).
-fn ends_sentence(gap: &str, prev: &str, next: &str) -> bool {
+/// a closing quote (dialogue goes on: `« Tu viens ? » demanda-t-elle`), not before an inversion
+/// or a speech verb (`Quoi ? dit-il`, `— Viens ! cria-t-on`), and never in a `dialogue` line (one
+/// opening with a dash).
+fn ends_sentence(gap: &str, prev: &str, next: &str, dialogue: bool) -> bool {
     let closing = ['"', '”', '’', '\'', ')', '»', ']'];
     let t = gap.trim_start_matches(|c: char| c.is_whitespace() || is_fixed_space(c) || closing.contains(&c));
     let Some(end) = t.chars().next() else { return false };
@@ -336,7 +388,12 @@ fn ends_sentence(gap: &str, prev: &str, next: &str) -> bool {
     }
     let exclamation = end != '.';
     let lower_next = next.to_lowercase();
-    if exclamation && (INTERJECTIONS.contains(&prev.to_lowercase().as_str()) || INVERTED.iter().any(|p| lower_next.ends_with(p))) {
+    if exclamation
+        && (dialogue
+            || INTERJECTIONS.contains(&prev.to_lowercase().as_str())
+            || INVERTED.iter().any(|p| lower_next.ends_with(p))
+            || SPEECH_VERBS.contains(&lower_next.as_str()))
+    {
         return false;
     }
     let rest = t.trim_start_matches(['.', '!', '?']);
@@ -357,11 +414,13 @@ fn ends_sentence_after(rest: &str) -> bool {
 }
 
 fn sentence_capitals(text: &str, ws: &[(usize, usize)], v: &mut Vec<Issue>) {
+    let dialogue = text.trim_start().starts_with(['—', '–']);
     for pair in ws.windows(2) {
         let [(a0, b0), (a1, b1)] = pair else { continue };
         let (Some(prev), Some(gap), Some(w)) = (text.get(*a0..*b0), text.get(*b0..*a1), text.get(*a1..*b1)) else { continue };
         let word_like = w.chars().all(|c| c.is_alphabetic() || matches!(c, '\'' | '’' | '-'));
-        if word_like && w.chars().next().is_some_and(char::is_lowercase) && !is_address(token_at(text, *a1)) && ends_sentence(gap, prev, w) {
+        if word_like && w.chars().next().is_some_and(char::is_lowercase) && ends_sentence(gap, prev, w, dialogue) && !is_address(token_at(text, *a1))
+        {
             let fixed: String = w.chars().next().map(|f| f.to_uppercase().chain(w.chars().skip(1)).collect()).unwrap_or_default();
             v.push(issue(*a1, *b1, "Majuscule attendue en début de phrase".into(), vec![fixed]));
         }
@@ -408,7 +467,9 @@ fn elisions(text: &str, ws: &[(usize, usize)], v: &mut Vec<Issue>) {
         if matches!(lower0.as_str(), "le" | "la") && matches!(lower1.as_str(), "un" | "une") {
             continue;
         }
-        if lower1.chars().count() == 1 && !(lower1 == "y" || (lower1 == "a" && matches!(lower0.as_str(), "ne" | "que"))) {
+        let certain = (lower1 == "y" && matches!(lower0.as_str(), "je" | "me" | "te" | "se" | "ne"))
+            || (lower1 == "a" && matches!(lower0.as_str(), "ne" | "que"));
+        if lower1.chars().count() == 1 && !certain {
             continue;
         }
         if !takes_elision(&lower1) {
@@ -514,6 +575,8 @@ mod tests {
         quiet("Ah ah, bla bla.");
         quiet("Je crois que qu’il viendra.");
         quiet("Le livre de De Gaulle.");
+        quiet("Nous partons à Bora Bora.");
+        quiet("Ils ont dit bye bye. Tchin tchin\u{202F}!");
     }
 
     #[test]
@@ -533,6 +596,9 @@ mod tests {
         quiet("«\u{A0}Tu viens\u{202F}?\u{A0}» demanda-t-elle.");
         quiet("Ah\u{202F}! que c’est beau.");
         quiet("Quoi\u{202F}? dit-il.");
+        quiet("Tu viens\u{202F}? demanda le voisin.");
+        quiet("— Tu viens\u{202F}? reprends-tu, inquiet.");
+        quiet("– Viens\u{202F}! on part.");
         quiet("Voir www.exemple.fr pour la suite.");
         quiet("En 2026. ensuite rien.");
         quiet("il commence en minuscule.");
@@ -580,6 +646,7 @@ mod tests {
         quiet("Le onze de France. À la une du journal.");
         quiet("Il vient de Orléans.");
         quiet("De a à z, le a et le b.");
+        quiet("Le y et le x sont des variables. La dérivée de y.");
         quiet("Je mange de la viande.");
     }
 
@@ -589,5 +656,8 @@ mod tests {
         {
             let _ = check(t);
         }
+        // A long run of marks in one token: linear, not one token scan per mark.
+        let run = format!("mot{}", "?".repeat(200_000));
+        assert_eq!(check(&run).len(), 1);
     }
 }

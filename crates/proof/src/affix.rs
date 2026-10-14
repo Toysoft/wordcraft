@@ -815,7 +815,7 @@ impl AffixDict {
         let mut out = String::with_capacity(w.len());
         let mut rest = w;
         while let Some(c) = rest.chars().next() {
-            let best = self.iconv.iter().filter(|(from, _)| rest.starts_with(from.as_str())).max_by_key(|(from, _)| from.len());
+            let best = self.iconv.iter().filter(|(from, _)| !from.is_empty() && rest.starts_with(from.as_str())).max_by_key(|(from, _)| from.len());
             match best {
                 Some((from, to)) => {
                     out.push_str(to);
@@ -867,8 +867,9 @@ impl AffixDict {
                 continue;
             }
             let Some(base) = stem.strip_suffix(&*r.strip) else { continue };
+            // Stripping the whole stem needs FULLSTRIP, as in the checker.
             let form = format!("{base}{}", r.add);
-            if form.is_empty() {
+            if form.is_empty() || (base.is_empty() && !self.full_strip) {
                 continue;
             }
             if r.cross {
@@ -895,7 +896,7 @@ impl AffixDict {
                     }
                     let Some(base) = form.strip_suffix(&*r.strip) else { continue };
                     let next = format!("{base}{}", r.add);
-                    if next.is_empty() {
+                    if next.is_empty() || (base.is_empty() && !self.full_strip) {
                         continue;
                     }
                     if !r.cont.is_empty() {
@@ -912,6 +913,9 @@ impl AffixDict {
                 continue;
             }
             let Some(rest) = stem.strip_prefix(&*r.strip) else { continue };
+            if rest.is_empty() && !self.full_strip {
+                continue;
+            }
             if !r.needs_affix {
                 out.push(format!("{}{rest}", r.add));
             }
@@ -1049,7 +1053,11 @@ impl AffixDict {
                     }
                 }
                 "FULLSTRIP" => rules.full_strip = true,
-                "ICONV" => rules.iconv.push((at(1).replace('_', " "), at(2).replace('_', " "))),
+                "ICONV" => {
+                    if !at(1).is_empty() {
+                        rules.iconv.push((at(1).replace('_', " "), at(2).replace('_', " ")));
+                    }
+                }
                 kind @ ("PFX" | "SFX") => {
                     let mut fc = at(1).chars();
                     let (Some(flag), None) = (fc.next(), fc.next()) else { return Err(format!("affix dictionary: bad flag in `{line}`")) };
@@ -1367,6 +1375,7 @@ mod tests {
         assert!(AffixDict::from_bytes(&d.to_bytes()).unwrap().contains("suis"), "FULLSTRIP survives a round trip");
         let without = AffixDict::from_hunspell(&aff.replace("FULLSTRIP\n", ""), "1\nêtre/Et\n", &[]).unwrap();
         assert!(!without.contains("suis"), "without FULLSTRIP a rule can't strip the whole stem");
+        assert_eq!(without.forms("être"), ["être"], "nor list such a form");
     }
 
     #[test]
@@ -1376,6 +1385,10 @@ mod tests {
         assert!(d.check("aujourd’hui") && d.check("aujourd'hui") && d.check("ﬁn") && d.check("Aujourd’hui"));
         assert!(!d.check("aujourd’huy"));
         assert!(AffixDict::from_bytes(&d.to_bytes()).unwrap().check("aujourd’hui"), "ICONV survives a round trip");
+        // An ICONV line without operands in compact data must not loop forever.
+        let empty = miniz_oxide::deflate::compress_to_vec(b"WCAFF1\nICONV\nWORDS\n\x00fin\n", 6);
+        let d = AffixDict::from_bytes(&empty).unwrap();
+        assert!(d.check("fin") && !d.check("a"));
     }
 
     #[test]
