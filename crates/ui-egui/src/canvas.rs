@@ -26,9 +26,17 @@ const EDGE_SPEED_MIN: f32 = 45.0;
 const EDGE_SPEED_MAX: f32 = 720.0;
 /// Longest frame time trusted for auto-scroll (a stall shouldn't jump the page).
 const EDGE_MAX_DT: f32 = 0.1;
+/// Page textures are kept for pages within this many viewport heights of the view; farther ones
+/// are rendered again when they come back.
+const TEXTURE_KEEP_SCREENS: f32 = 3.0;
 
 pub struct CanvasState {
     textures: HashMap<usize, (u64, TextureHandle)>,
+    /// Page content fingerprints of the current layout, for the texture cache (#811).
+    pub(crate) page_keys: PageKeys,
+    /// Whether the document has tracked formatting changes, moves and deletions, by document
+    /// revision: finding out walks every paragraph, too slow for every frame (#811).
+    markup_facts: std::cell::Cell<Option<((u64, u64), [bool; 3])>>,
     pub scroll_to_caret: bool,
     /// A heading navigation click aligns its page against the navigation pane, not just visible.
     pub(crate) nav_to_caret: bool,
@@ -45,6 +53,8 @@ pub struct CanvasState {
     /// An animated column-turn destination; intermediate offsets are allowed during the motion.
     read_target_page: Option<usize>,
     pub caret_visible_since: f64,
+    /// The caret's colour and the fingerprint of where it was worked out ([`caret_color_at`]).
+    caret_bg: Option<(u64, Color32)>,
     dragging: bool,
     /// Alt+drag: where the column (block) selection started (page, x, y) and its last end.
     column_drag: Option<((usize, f32, f32), (usize, f32, f32))>,
@@ -66,13 +76,18 @@ pub struct CanvasState {
     pub focused: bool,
     pub render_ms: f64,
     pub ime_preedit: String,
-    /// Document faces added to the interface fonts to draw the input method's composition (#565).
+    /// Document faces added to the interface fonts so the input method's composition (#565) and a
+    /// file name in the window caption can be drawn.
     pub(crate) ime_faces: Vec<std::sync::Arc<wordcraft_fonts::FontFace>>,
     pub want_focus: bool,
     pub context_issue: Option<serde_json::Value>,
     pub context_synonyms: Option<serde_json::Value>,
     /// The right-click context menu is open (the mini toolbar stands down while it is).
     pub context_menu_open: bool,
+    /// Shift+F10 (or `ui.contextMenu`) asked for the context menu at the caret (#821).
+    pub context_menu_from_keys: bool,
+    /// Where the context menu stands: the right-click point, or below the caret.
+    pub context_menu_at: Option<Pos2>,
     /// Screen rect of the selection's first line, for the floating mini toolbar.
     pub mini_anchor: Option<Rect>,
     /// A picture, shape or text box being dragged by its frame.
@@ -85,6 +100,8 @@ pub struct CanvasState {
     pub(crate) ink_ui: crate::ink::InkUi,
     /// Wheel/touchpad scrolling (smooth notches, touchpad momentum).
     pub(crate) wheel: crate::scroll::CanvasScroll,
+    /// Middle-click scrolling (#1065).
+    pub(crate) auto_scroll: crate::autoscroll::AutoScroll,
     /// The scroll offset and its maximum at the end of last frame.
     pub(crate) scroll_offset: egui::Vec2,
     scroll_max: egui::Vec2,
@@ -116,16 +133,24 @@ pub struct CanvasState {
     /// The last key ran an Alt shortcut: the text its key sends (it may arrive a frame later)
     /// isn't typed. The next key press clears it.
     pub(crate) swallow_text: bool,
+    /// Alt+numpad entry in progress: the digits typed while Alt is held (#961).
+    pub(crate) alt_code: String,
+    /// The character an Alt code just typed: if the platform also sends its own composed
+    /// character as text on the Alt release (Windows does), it isn't typed twice.
+    pub(crate) alt_code_echo: Option<crate::keys::AltCodeEcho>,
     /// Create Link is waiting for a click on the text box to link to: the linking box's object.
     pub(crate) link_from: Option<wordcraft_doc::Pos>,
     /// What screen readers were last told about the document (#488).
     pub(crate) a11y: crate::a11y::A11yCache,
+    /// A press on a table's selection area or move handle, held (`table_mouse`).
+    pub(crate) table_drag: Option<crate::table_mouse::TableDrag>,
 }
 
 impl CanvasState {
-    /// The cached rendering of a page.
-    pub(crate) fn page_texture(&self, page: usize) -> Option<&TextureHandle> {
-        self.textures.get(&page).map(|(_, t)| t)
+    /// How many pages have a cached rendering.
+    #[cfg(test)]
+    pub(crate) fn texture_count(&self) -> usize {
+        self.textures.len()
     }
 }
 
@@ -133,6 +158,8 @@ impl Default for CanvasState {
     fn default() -> Self {
         CanvasState {
             textures: HashMap::new(),
+            page_keys: PageKeys::default(),
+            markup_facts: std::cell::Cell::new(None),
             scroll_to_caret: true,
             nav_to_caret: false,
             read_wheel_accum: 0.0,
@@ -142,6 +169,7 @@ impl Default for CanvasState {
             read_first_visible: None,
             read_target_page: None,
             caret_visible_since: 0.0,
+            caret_bg: None,
             dragging: false,
             column_drag: None,
             last_press: None,
@@ -165,10 +193,15 @@ impl Default for CanvasState {
             erasing: None,
             ink_ui: Default::default(),
             context_menu_open: false,
+            context_menu_from_keys: false,
+            context_menu_at: None,
             mini_anchor: None,
             pasted: false,
             swallow_text: false,
+            alt_code: String::new(),
+            alt_code_echo: None,
             wheel: Default::default(),
+            auto_scroll: Default::default(),
             scroll_offset: egui::Vec2::ZERO,
             scroll_max: egui::Vec2::ZERO,
             scroll_request: None,
@@ -184,6 +217,7 @@ impl Default for CanvasState {
             table_resize: None,
             link_from: None,
             a11y: Default::default(),
+            table_drag: None,
         }
     }
 }
@@ -284,11 +318,23 @@ pub fn markup_width(app: &WordApp) -> f32 {
     // Word shows comments either in balloons (contextual) or in the Comments pane (list); Track
     // Changes Options can put every revision inline (`Session::balloons_shown`).
     let s = &app.session;
+    if !s.balloons_shown() {
+        return 0.0;
+    }
     let m = &s.prefs.markup;
     let comments = m.comments && !s.doc.comments.is_empty();
-    let formats = m.formatting && wordcraft_engine::cmd::review::has_format_changes(&s.doc);
-    let moves = m.insertions_deletions && wordcraft_engine::cmd::moves::has_moves(&s.doc);
-    let deletions = s.revisions_in_balloons() && wordcraft_engine::cmd::review::has_deletions(&s.doc);
+    let [has_formats, has_moves, has_deletions] = match app.canvas.markup_facts.get() {
+        Some((rev, facts)) if rev == (s.document_id(), s.rev()) => facts,
+        _ => {
+            use wordcraft_engine::cmd::{moves, review};
+            let facts = [review::has_format_changes(&s.doc), moves::has_moves(&s.doc), review::has_deletions(&s.doc)];
+            app.canvas.markup_facts.set(Some(((s.document_id(), s.rev()), facts)));
+            facts
+        }
+    };
+    let formats = m.formatting && has_formats;
+    let moves = m.insertions_deletions && has_moves;
+    let deletions = s.revisions_in_balloons() && has_deletions;
     if s.balloons_shown() && (comments || formats || moves || deletions) { 216.0 } else { 0.0 }
 }
 
@@ -512,15 +558,24 @@ pub fn sync_fit_zoom(app: &mut WordApp, scale: f32) {
     v.zoom = (scale / PX_PER_PT).clamp(0.1, 5.0);
 }
 
-/// Fingerprint of a page's content for the texture cache.
-fn page_key(app: &WordApp, page: &Page, scale_px: f32, dim_body: bool) -> u64 {
+/// Fingerprint of everything outside the layout that changes how pages render: the view's
+/// marks and markup, dark mode, the page colour and watermark, header/body dimming, the media.
+/// Taken once per frame.
+fn view_key(app: &WordApp, dim_body: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    scale_px.to_bits().hash(&mut h);
     let v = &app.session.view;
     (v.marks, app.session.prefs.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
     app.session.prefs.markup.hash(&mut h);
     dim_body.hash(&mut h);
     format!("{:?}{:?}", app.session.doc.settings.page_color, app.session.doc.settings.watermark).hash(&mut h);
+    app.session.doc.media.len().hash(&mut h);
+    h.finish()
+}
+
+/// Fingerprint of a page's laid-out content. A layout never changes once made, so this is
+/// taken once per page and layout ([`PageKeys`]), not every frame.
+fn page_content_key(page: &Page) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
     (page.w.to_bits(), page.h.to_bits()).hash(&mut h);
     for list in [&page.items, &page.header, &page.footer] {
         list.len().hash(&mut h);
@@ -545,7 +600,44 @@ fn page_key(app: &WordApp, page: &Page, scale_px: f32, dim_body: bool) -> u64 {
             }
         }
     }
-    app.session.doc.media.len().hash(&mut h);
+    h.finish()
+}
+
+/// The content fingerprints of one layout's pages, taken when a page is first needed (#811).
+/// Hashing every item of every page each frame cost tens of milliseconds a frame in a long
+/// table (thousands of cell borders per page), idle or scrolling.
+#[derive(Default)]
+pub(crate) struct PageKeys {
+    /// The layout these are for; held so its address can't be reused by another one.
+    layout: Option<std::sync::Arc<DocLayout>>,
+    keys: Vec<Option<u64>>,
+    /// Pages fingerprinted since the layout last changed.
+    pub(crate) hashed: usize,
+}
+
+impl PageKeys {
+    fn content(&mut self, layout: &std::sync::Arc<DocLayout>, i: usize) -> u64 {
+        if !self.layout.as_ref().is_some_and(|l| std::sync::Arc::ptr_eq(l, layout)) {
+            self.layout = Some(layout.clone());
+            self.keys = vec![None; layout.pages.len()];
+            self.hashed = 0;
+        }
+        if let Some(Some(k)) = self.keys.get(i) {
+            return *k;
+        }
+        let k = layout.pages.get(i).map_or(0, page_content_key);
+        if let Some(slot) = self.keys.get_mut(i) {
+            *slot = Some(k);
+            self.hashed += 1;
+        }
+        k
+    }
+}
+
+/// The texture cache key of page `i`: its content, the view, and the raster scale.
+fn page_key(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, i: usize, view: u64, scale_px: f32) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (view, scale_px.to_bits(), app.canvas.page_keys.content(layout, i)).hash(&mut h);
     h.finish()
 }
 
@@ -638,6 +730,15 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.read_first_visible = None;
         app.canvas.read_target_page = None;
     }
+    // Keys first, so this frame lays out and paints what was typed (handled after painting, a
+    // keystroke showed one frame later). Focus is the canvas's from the last frame.
+    // While "Save changes?" is up, keys answer it rather than edit the document behind it.
+    if app.canvas.focused && !matches!(app.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })) {
+        crate::keys::canvas_events(app, ui.ctx());
+    } else {
+        // Alt+numpad entry doesn't survive the canvas losing the keyboard.
+        app.canvas.alt_code.clear();
+    }
     crate::ink::replay_tick(app, ui.ctx());
     let layout = app.session.layout();
     if let Some(anchor) = reflow_anchor
@@ -647,9 +748,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.read_target_page = None;
         app.canvas.scroll_request = Some(vec2(page as f32 * step, 0.0));
     }
-    // View › Switch Modes: dark paper, inverted document colours, a white caret.
+    // View › Switch Modes: dark paper, inverted document colours.
     let dark_page = app.session.view.dark_mode;
-    let caret_color = if dark_page { Color32::WHITE } else { t.caret };
     let dark_paper = wordcraft_render::DARK_PAPER;
     let show_ruler = app.session.view.ruler && app.session.view.mode == wordcraft_layout::ViewMode::Print && !app.session.view.read_mode;
     let (hruler, vruler, area) = if show_ruler {
@@ -695,10 +795,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             app.canvas.scroll_to_caret = true;
         }
     }
-    let caret = layout.caret_on(&app.session.sel.focus, app.session.page_hint);
+    // Where the selection really ends, also when it took whole table cells.
+    let caret = layout.caret_on(&app.session.sel_ends().focus, app.session.page_hint);
     // Editing a header/footer (or a note) dims the body; once per frame, for every page.
     let dim_body = dims_body(app, &layout);
-    if let Some(c) = caret {
+    if let Some(c) = caret
+        && !app.session.selects_whole_story()
+    {
         app.session.page_hint = c.page;
     }
     let mut scroll_target: Option<Rect> = None;
@@ -781,7 +884,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     } else {
         egui::Vec2::ZERO
     };
-    let delta = wheel_delta + auto_delta;
+    // Middle-click scrolling (#1065): Print Layout and the other editing views, not Read Mode.
+    let middle_delta = if app.session.view.read_mode || app.dialog.is_some() {
+        app.canvas.auto_scroll.cancel();
+        egui::Vec2::ZERO
+    } else {
+        app.canvas.auto_scroll.update(ui, area)
+    };
+    let delta = wheel_delta + auto_delta + middle_delta;
     let mut scroll_area = egui::ScrollArea::both()
         .id_salt("canvas_scroll")
         .auto_shrink([false, false])
@@ -826,37 +936,23 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let t0 = crate::now_ms();
         let mut rects = Vec::with_capacity(geo.rects.len());
         let content_origin = ui.min_rect().min;
+        let view = view_key(app, dim_body);
         for (i, pr) in geo.rects.iter().enumerate() {
             let sr = pr.translate(content_origin.to_vec2());
             let Some(page) = layout.pages.get(i) else { continue };
             let (band_top, band_bot) = geo.bands.get(i).copied().unwrap_or((0.0, sr.height()));
             let scale_px = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05);
-            // Most reading documents have many columns; skip expensive page hashing for offscreen
-            // pages. We still emit their rectangles for hit testing and the control channel.
-            if !sr.intersects(ui.clip_rect().expand(200.0)) {
-                rects.push(sr);
-                continue;
-            }
-            let key = page_key(app, page, scale_px, dim_body);
-            let mut fresh = app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
             // Hide White Space shows only a band of the page; everything below paints into it.
             let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
             let visible = band_of(sr).intersects(ui.clip_rect().expand(200.0));
+            // Only pages on screen or with a texture need their key (#811).
+            let cached = app.canvas.textures.contains_key(&i);
+            let key = if visible || cached { page_key(app, &layout, i, view, scale_px) } else { 0 };
+            let mut fresh = cached && app.canvas.textures.get(&i).is_some_and(|(k, _)| *k == key);
             // Render before placing the page: a page re-rendered in this frame (a zoom step, an
             // edit) then sits on the pixel grid in this frame too, rather than a frame later.
             if visible && !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
-                let mut opts = screen_render_options();
-                opts.display.marks = app.session.view.marks;
-                opts.display.always = app.session.prefs.marks;
-                opts.display.placeholders = true;
-                opts.display.markup = app.session.view.show_markup;
-                // Ink Replay draws the ink itself, stroke by stroke, over pages without it.
-                opts.display.hide_ink = app.session.view.hide_ink || app.session.view.draw.replay;
-                opts.display.revisions = app.session.prefs.markup.clone();
-                opts.dark = dark_page;
-                opts.dark_paper = dark_paper;
-                opts.display.dim_header = !dim_body;
-                opts.display.dim_body = dim_body;
+                let opts = page_render_options(app, dim_body);
                 let img = wordcraft_render::render_page(&app.session.doc, page, scale_px, &opts);
                 let px = img.to_straight();
                 let ci = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &px);
@@ -964,9 +1060,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         if rendered > 0 {
             app.canvas.render_ms = crate::now_ms() - t0;
         }
-        // Drop textures of pages that no longer exist.
+        // Drop textures of pages that no longer exist, and of pages scrolled well out of view
+        // (#811): scrolling through a long document kept every page it had shown in memory.
         let n = layout.pages.len();
-        app.canvas.textures.retain(|k, _| *k < n);
+        let clip = ui.clip_rect();
+        let near = clip.expand2(vec2(clip.width(), clip.height() * TEXTURE_KEEP_SCREENS));
+        app.canvas.textures.retain(|k, _| *k < n && geo.rects.get(*k).is_some_and(|r| r.translate(content_origin.to_vec2()).intersects(near)));
         app.canvas.page_rects = rects.clone();
         balloons(app, ui, &painter, &rects, &layout, geo.scale);
         // Find › Reading Highlight.
@@ -980,31 +1079,35 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
             }
         }
-        // Selection (a selected object shows its frame instead).
-        if !app.session.sel.is_collapsed() && crate::objects::selected(app).is_none() {
-            // A column selection highlights each row's piece.
+        // Selection (a selected object shows its frame instead): whole table cells shade the
+        // cells (an empty one too), a column selection each row's piece.
+        let selected: Vec<_> = if crate::objects::selected(app).is_some() {
+            Vec::new()
+        } else if let Some(range) = app.session.cell_range() {
+            wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range)
+        } else if !app.session.sel.is_collapsed() {
             let pieces: Vec<(Pos, Pos)> = match app.session.column_segments() {
                 Some(segs) => segs.to_vec(),
                 None => vec![app.session.sel.ordered()],
             };
-            let mut first: Option<Rect> = None;
-            for (a, b) in &pieces {
-                for (pi, r) in layout.selection_rects(&app.session.doc, a, b, app.session.page_hint) {
-                    if let Some(pr) = rects.get(pi) {
-                        let scale = layout.pages.get(pi).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
-                        let sr = Rect::from_min_size(pos2(pr.min.x + r.x * scale, pr.min.y + r.y * scale), vec2(r.w * scale, r.h * scale));
-                        painter.rect_filled(sr, 0.0, t.selection);
-                        // Track the topmost rect: the mini toolbar anchors on the selection's first line.
-                        if first.is_none_or(|f| sr.min.y < f.min.y) {
-                            first = Some(sr);
-                        }
-                    }
-                }
-            }
-            app.canvas.mini_anchor = first;
+            pieces.iter().flat_map(|(a, b)| layout.selection_rects(&app.session.doc, a, b, app.session.page_hint)).collect()
         } else {
-            app.canvas.mini_anchor = None;
+            Vec::new()
+        };
+        let visible_clip = ui.clip_rect();
+        let mut screen_rects: Vec<Rect> = Vec::with_capacity(selected.len());
+        for (pi, r) in selected {
+            if let Some(pr) = rects.get(pi) {
+                let scale = layout.pages.get(pi).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
+                let sr = Rect::from_min_size(pos2(pr.min.x + r.x * scale, pr.min.y + r.y * scale), vec2(r.w * scale, r.h * scale));
+                painter.rect_filled(sr, 0.0, t.selection);
+                screen_rects.push(sr);
+            }
         }
+        // Anchor only to visible selection geometry. A selection can span pages, and its
+        // document-first line may be scrolled offscreen; using it would pin the toolbar to an
+        // old screen position unrelated to the visible selection.
+        app.canvas.mini_anchor = crate::mini_toolbar::visible_anchor(screen_rects, visible_clip);
         // Content controls: the frame of the one the caret is in (all of them in Design Mode).
         crate::content_controls::paint(app, &painter, &t, &layout, &rects, geo.scale);
         // Read Aloud: the sentence being spoken.
@@ -1042,7 +1145,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 let on = ((since / 530.0) as u64).is_multiple_of(2);
                 let look = crate::caret_glide::look(app, ui, content_origin, &geo, [pos2(x, y0), pos2(x, y1)], focused, since, on);
                 if look.opacity > 0.0 && focused {
-                    painter.line_segment(look.bar, Stroke::new(1.5, t.caret.gamma_multiply(look.opacity)));
+                    let caret_color = caret_color_at(app, &layout, pi, ex + slot.x, base - slot.y + (slot.d - slot.a) / 2.0, view, dim_body);
+                    painter.line_segment(look.bar, Stroke::new(1.5, caret_color.gamma_multiply(look.opacity)));
                 }
                 if focused {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - (since as u64 % 530)));
@@ -1068,6 +1172,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let y1 = y0 + c.height * scale;
             let since = crate::now_ms() - app.canvas.caret_visible_since;
             let on = ((since / 530.0) as u64).is_multiple_of(2);
+            // The caret contrasts with what lies under it, like Word's inverted caret (#299):
+            // worked out only when something is drawn in it.
+            let caret_color = |app: &mut WordApp| caret_color_at(app, &layout, c.page, c.x + c.width / 2.0, c.top + c.height / 2.0, view, dim_body);
             let bar = if c.width > 0.0 {
                 // Turned text (a table cell's text direction): the caret lies across the page.
                 [pos2(x, y0.round() + 0.5), pos2(x + c.width * scale, y0.round() + 0.5)]
@@ -1078,7 +1185,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let shown = app.session.sel.is_collapsed() && focused;
             let look = crate::caret_glide::look(app, ui, content_origin, &geo, bar, shown, since, on);
             if shown && look.opacity > 0.0 {
-                painter.line_segment(look.bar, Stroke::new(1.5, caret_color.gamma_multiply(look.opacity)));
+                painter.line_segment(look.bar, Stroke::new(1.5, caret_color(app).gamma_multiply(look.opacity)));
             }
             if focused {
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - (since as u64 % 530)));
@@ -1105,6 +1212,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     crate::theme::install_fonts_extra(ui.ctx(), app.fonts_hans, app.fonts_system_cjk, &app.canvas.ime_faces);
                     ui.ctx().request_repaint();
                 }
+                let caret_color = caret_color(app);
                 let g = painter.text(pos2(x, y1), egui::Align2::LEFT_BOTTOM, &app.canvas.ime_preedit, regular(c.height * scale * 0.8), caret_color);
                 painter.line_segment([pos2(g.min.x, g.max.y), pos2(g.max.x, g.max.y)], Stroke::new(1.0, caret_color));
             }
@@ -1113,6 +1221,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         crate::ink::paint(app, &painter, &rects, &layout, geo.scale);
         crate::table_pen::paint(app, &painter, &t, &layout, &rects, geo.scale);
         crate::table_resize::paint(app, &painter, &t, &layout, &rects, geo.scale);
+        crate::table_mouse::paint(app, &painter, &t, &layout, &rects, geo.scale);
         (resp, rects)
     });
     app.canvas.scroll_offset = out.state.offset;
@@ -1129,13 +1238,26 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // the scroll area is built, so it reads last frame's viewport.
     app.canvas.viewport = Some(out.inner_rect);
     let (resp, rects) = out.inner;
-    // A click on the page leaves the selected comment balloon.
-    if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() {
+    // A click on the page leaves the selected comment balloon; a click inside a balloon (its
+    // Delete or Resolve button, say) does not (#1085).
+    let in_balloon = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p)));
+    if app.canvas.balloon.is_some() && ui.input(|i| i.pointer.any_pressed()) && resp.contains_pointer() && !in_balloon {
         deselect_balloon(app, ui.ctx());
     }
-    // Focus: the canvas takes keyboard focus on click and keeps Tab/arrows.
-    if resp.clicked() || resp.drag_started() || app.canvas.want_focus {
+    // Space and Enter also set `Response::clicked` on a focused click-sensing widget
+    // (egui's fake primary click). `request_focus` always interrupts IME; on X11 that
+    // destroys the XIM context and fcitx then drops every later key (#1169). A pointer
+    // click, an accessibility click, or a drag still takes focus, including a click on
+    // a canvas that already has it, so a composition commits. `want_focus` focuses only
+    // while the canvas does not, and does not interrupt an editor that already has it.
+    let keyboard_click = ui.memory(|m| m.has_focus(resp.id)) && ui.input(|i| i.key_pressed(egui::Key::Space) || i.key_pressed(egui::Key::Enter));
+    let pointer_click = resp.clicked_by(egui::PointerButton::Primary);
+    let accesskit_click = resp.clicked() && !pointer_click && !keyboard_click;
+    let focus_click = pointer_click || accesskit_click || resp.drag_started();
+    if focus_click || (app.canvas.want_focus && !resp.has_focus()) {
         resp.request_focus();
+    }
+    if focus_click || app.canvas.want_focus {
         app.canvas.want_focus = false;
     }
     if resp.has_focus() {
@@ -1146,6 +1268,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     app.canvas.focused = resp.has_focus();
     // Screen readers: the document under the canvas, with the caret (#488).
     crate::a11y::expose(app, ui.ctx(), resp.id, &layout, &rects, area);
+    // The buttons that start or stop middle-click scrolling don't also click the page.
+    let middle_gesture = app.canvas.auto_scroll.blocks_input();
     // Double-click the space between two pages (or the line between them) to hide or show it.
     if resp.double_clicked()
         && app.session.view.mode == wordcraft_layout::ViewMode::Print
@@ -1156,14 +1280,31 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let _ = app.run("view.hideWhiteSpace", json!({"value": !app.session.view.hide_white_space}));
     } else
     // Draw Table / Eraser own the mouse while on (no caret moves); else the usual editing.
-    if !crate::table_pen::pointer(app, ui, &resp, &rects, &layout, geo.scale) {
+    if !middle_gesture && !crate::table_pen::pointer(app, ui, &resp, &rects, &layout, geo.scale) {
         mouse(app, ui, &resp, &rects, &layout, geo.scale);
     }
     // A click on a check box ticks it; on a list's button opens the list.
-    crate::content_controls::clicks(app, &resp);
+    if !middle_gesture {
+        crate::content_controls::clicks(app, &resp);
+    }
+    let secondary_clicked = resp.secondary_clicked() && !middle_gesture;
+    // Selected table cells: a right-click off them drops them, even between the selection's ends
+    // (beside a selected column), so the menu acts on the cell clicked.
+    if secondary_clicked
+        && let Some(range) = app.session.cell_range()
+        && let Some(p) = resp.interact_pointer_pos()
+        && let Some((page, x, y)) = page_at(&rects, &layout, geo.scale, p)
+    {
+        let at = wordcraft_geom::Point::new(x, y);
+        let on_cells =
+            wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range).iter().any(|(pi, r)| *pi == page && r.contains(at));
+        if !on_cells && let Some(pos) = layout.hit(page, x, y, app.session.sel.focus.story) {
+            app.session.sel = wordcraft_engine::Selection::caret(pos);
+        }
+    }
     // Right-click: move the caret there (unless inside the selection), then the context menu.
     // Right-click in an equation puts the caret there and opens the equation menu.
-    if resp.secondary_clicked()
+    if secondary_clicked
         && let Some(p) = resp.interact_pointer_pos()
         && let Some((page, x, y)) = page_at(&rects, &layout, geo.scale, p)
     {
@@ -1179,7 +1320,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         }
     }
     // Right-click on a picture, shape or text box selects it (its menu offers Wrap Text).
-    if resp.secondary_clicked()
+    if secondary_clicked
         && app.session.math.is_none()
         && let Some(p) = resp.interact_pointer_pos()
         && let Some((page, x, y)) = page_at(&rects, &layout, geo.scale, p)
@@ -1192,26 +1333,50 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             if !(a <= pos && pos <= b) || app.session.sel.is_collapsed() {
                 app.session.sel = wordcraft_engine::Selection::caret(pos);
             }
-            app.canvas.context_issue = app.session.run("review.suggestions", &json!({})).ok().filter(|v| !v.is_null());
-            app.canvas.context_synonyms = app.session.run("review.thesaurus", &json!({})).ok().and_then(|v| v.get("synonyms").cloned());
+            context_suggestions(app);
         }
     }
-    resp.context_menu(|ui| context_menu(app, ui));
-    // Stand down while the context menu owns the pointer so the two never double up;
-    // `context_menu_opened` also covers the click that dismisses the menu.
-    app.canvas.context_menu_open = resp.context_menu_opened();
+    // Shift+F10 opens the same menu below the caret, for the selection or the word there (#821).
+    let from_keys = std::mem::take(&mut app.canvas.context_menu_from_keys);
+    if from_keys {
+        context_suggestions(app);
+        app.canvas.context_menu_at = caret_screen(app).map(|(p, h)| p + egui::vec2(0.0, h));
+    } else if secondary_clicked {
+        app.canvas.context_menu_at = resp.interact_pointer_pos();
+    }
+    let open = if secondary_clicked || from_keys {
+        Some(egui::SetOpenCommand::Bool(true))
+    } else if resp.clicked() {
+        Some(egui::SetOpenCommand::Bool(false))
+    } else {
+        None
+    };
+    let menu = egui::Popup::menu(&resp).open_memory(open);
+    let menu = match app.canvas.context_menu_at {
+        Some(p) => menu.at_position(p),
+        None => menu.at_pointer_fixed(),
+    };
+    menu.show(|ui| context_menu(app, ui));
+    // Stand down while the context menu owns the pointer so the two never double up; the open
+    // state also covers the click that dismisses the menu.
+    app.canvas.context_menu_open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     if let Some(c) = crate::ink::cursor(app).filter(|_| resp.hovered() || app.canvas.ink.is_some()) {
         ui.ctx().set_cursor_icon(c);
     } else if resp.hovered() || app.canvas.obj_drag.is_some() {
-        let over_object = ui.input(|i| i.pointer.latest_pos()).and_then(|p| crate::objects::cursor(app, &layout, &rects, geo.scale, p));
-        ui.ctx().set_cursor_icon(over_object.unwrap_or(egui::CursorIcon::Text));
+        let latest = ui.input(|i| i.pointer.latest_pos());
+        let over_object = latest.and_then(|p| crate::objects::cursor(app, &layout, &rects, geo.scale, p));
+        // The selection bar: Word shows a right-pointing arrow there; egui has none, so the
+        // plain arrow stands in (#856).
+        let in_bar = app.session.sel.focus.story == StoryRef::Body
+            && (app.canvas.unit_drag.as_ref().is_some_and(|d| d.unit == "line")
+                || latest.and_then(|p| page_at(&rects, &layout, geo.scale, p)).is_some_and(|(pg, x, y)| layout.selection_bar_at(pg, x, y).is_some()));
+        let fallback = if in_bar { egui::CursorIcon::Default } else { egui::CursorIcon::Text };
+        ui.ctx().set_cursor_icon(over_object.unwrap_or(fallback));
     }
     crate::table_resize::cursor(app, ui, &resp, &layout, &rects, geo.scale);
+    crate::table_mouse::cursor(app, ui, &resp, &layout, &rects, geo.scale);
     crate::table_pen::cursor(app, ui, &resp);
-    // While "Save changes?" is up, keys answer it rather than edit the document behind it.
-    if app.canvas.focused && !matches!(app.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })) {
-        crate::keys::canvas_events(app, ui.ctx());
-    }
+    app.canvas.auto_scroll.paint(ui, area);
     let _ = origin;
     if let (Some(h), Some(v)) = (hruler, vruler) {
         rulers(app, ui, h, v, &rects, &layout, geo.scale);
@@ -1219,7 +1384,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if let Some(sel) = app.canvas.mini_anchor
         && app.ui.mini_toolbar
     {
-        crate::mini_toolbar::show(app, ui.ctx(), sel, area);
+        crate::mini_toolbar::show(app, ui.ctx(), sel, out.inner_rect);
     }
     if app.session.view.read_mode {
         // Fixed navigation chrome, independent of the horizontally moving columns.
@@ -1623,6 +1788,10 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     if crate::table_resize::pointer(app, ui, resp, rects, layout, scale) {
         return;
     }
+    // A press on a table's selection area, insert button or move handle.
+    if crate::table_mouse::pointer(app, ui, resp, rects, layout, scale) {
+        return;
+    }
     let Some(p) = pointer else { return };
     // While drag-selecting, the pointer may sit past the viewport's edge (or the window's):
     // hit-test where it would be inside the view, so as the edge auto-scroll moves the content the
@@ -1668,20 +1837,26 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         app.canvas.dragging = false;
         return;
     }
-    // Double-click in the header/footer area edits it; double-click in the body leaves it.
+    // Double-click in the header/footer area edits it (creating it when the page has none, #960);
+    // double-click in the body leaves it. Print Layout only: the other views show no margins.
+    let hf_zone = if app.session.view.mode == wordcraft_layout::ViewMode::Print && !app.session.view.read_mode {
+        layout.header_footer_zone(page, y)
+    } else {
+        None
+    };
     if resp.double_clicked() {
-        if let Some((s, header)) = layout.header_footer_at(page, y)
+        if let Some((_, header)) = hf_zone
             && story == StoryRef::Body
         {
             let id = if header { "insert.editHeader" } else { "insert.editFooter" };
-            let _ = app.run(id, json!({}));
-            let _ = s;
-            if let Some(pos) = app.session.layout().hit(page, x, y, app.session.sel.focus.story) {
+            if app.run(id, json!({ "page": page })).is_ok()
+                && let Some(pos) = app.session.layout().hit(page, x, y, app.session.sel.focus.story)
+            {
                 app.session.sel = wordcraft_engine::Selection::caret(pos);
             }
             return;
         }
-        if matches!(story, StoryRef::Part(_)) && !in_text_box(app) && layout.header_footer_at(page, y).is_none() {
+        if matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none() {
             let _ = app.run("insert.closeHeader", json!({}));
             if let Some(pos) = layout.hit(page, x, y, StoryRef::Body) {
                 app.session.sel = wordcraft_engine::Selection::caret(pos);
@@ -1711,8 +1886,8 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         app.canvas.last_press = Some((now, p, clicks));
         app.canvas.unit_drag = None;
         // A double-click that enters or leaves a header/footer is handled on release.
-        let hf_switch = (layout.header_footer_at(page, y).is_some() && story == StoryRef::Body)
-            || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && layout.header_footer_at(page, y).is_none());
+        let hf_switch =
+            (hf_zone.is_some() && story == StoryRef::Body) || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none());
         // Clicking into a footnote/endnote or a text box edits it; clicking outside a text box goes
         // back to where it is. While editing a header/footer, only its own text boxes are in reach.
         let story = {
@@ -1740,6 +1915,43 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         }
         if app.session.math.is_some() {
             let _ = app.run("equation.exit", json!({}));
+        }
+        // The selection bar (the left margin beside body text, #856): a click selects the line,
+        // a double-click the paragraph, a triple-click or Ctrl/⌘+click the document; Shift+click
+        // extends by lines; dragging grows the selection by the clicked unit.
+        if story == StoryRef::Body
+            && !mods.alt
+            && let Some(line) = layout.selection_bar_at(page, x, y)
+        {
+            app.canvas.column_drag = None;
+            app.session.page_hint = page;
+            let lj = serde_json::to_value(&line).unwrap_or_default();
+            let (unit, start, end) = if mods.shift {
+                let anchor = app.session.sel.anchor.clone();
+                let aj = serde_json::to_value(&anchor).unwrap_or_default();
+                let _ = app.run("select.dragUnit", json!({"unit": "line", "start": aj, "end": aj, "pos": lj}));
+                ("line", anchor.clone(), anchor)
+            } else {
+                let unit = match clicks {
+                    _ if mods.command => "document",
+                    3.. => "document",
+                    2 => "paragraph",
+                    _ => "line",
+                };
+                let _ = app.run("caret.set", json!({"pos": lj}));
+                let id = match unit {
+                    "document" => "select.all",
+                    "paragraph" => "select.paragraph",
+                    _ => "select.line",
+                };
+                let params = if id == "select.all" { json!({"whole": true}) } else { json!({}) };
+                let _ = app.run(id, params);
+                let (start, end) = app.session.sel.ordered();
+                (unit, start, end)
+            };
+            app.canvas.unit_drag = Some(UnitDrag { unit, clicks, start, end, last: line });
+            app.canvas.dragging = true;
+            return;
         }
         let Some(pos) = layout.hit(page, x, y, story) else { return };
         // Ctrl/⌘+click follows a hyperlink.
@@ -1799,7 +2011,13 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         && ui.input(|i| i.pointer.primary_down())
         && let Some(d) = app.canvas.unit_drag.as_mut()
     {
-        if let Some(pos) = layout.hit(page, x, y, story)
+        // Lines grow line by line wherever the pointer is across; the whole document can't grow.
+        let target = match d.unit {
+            "line" => layout.body_line_at(page, y),
+            "document" => None,
+            _ => layout.hit(page, x, y, story),
+        };
+        if let Some(pos) = target
             && pos != d.last
         {
             d.last = pos.clone();
@@ -1809,10 +2027,13 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             app.canvas.caret_visible_since = crate::now_ms();
         }
     } else if app.canvas.dragging && ui.input(|i| i.pointer.primary_down()) {
+        // Through the command, so from one table cell into another the drag takes whole cells
+        // (Word); straight to the session, as the app's `run` would scroll on every frame.
         if let Some(pos) = layout.hit(page, x, y, story)
-            && pos != app.session.sel.focus
+            && pos != app.session.sel_ends().focus
         {
-            app.session.sel.focus = pos;
+            let pj = serde_json::to_value(&pos).unwrap_or_default();
+            let _ = app.session.run("caret.set", &json!({"pos": pj, "extend": true}));
             app.session.page_hint = page;
             app.canvas.caret_visible_since = crate::now_ms();
         }
@@ -1889,14 +2110,19 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
     ] {
         margin_handle(app, ui, edge, zone, |p| (p.x - x0) / scale, &sect);
     }
-    // Indent markers for the caret's paragraph (relative to its column).
-    let col_x = page.body.x;
+    // In a table, its column borders; registered before the indent markers, which keep the
+    // pointer where they overlap.
+    crate::table_ruler::columns(app, ui, layout, pi, bar, x0, scale);
+    // Indent markers for the caret's paragraph (relative to its column, or in a table to the
+    // cell's text).
+    let (col_x, w) = crate::table_ruler::text_area(app, layout, pi).unwrap_or((page.body.x, page.body.w));
+    // Where the paragraph starts, from the page's start edge (the right edge when right-to-left).
+    let start = if rtl { page.w - (col_x + w) } else { col_x };
     if let Some(rp) = rp {
         // Indents and tabs are measured from the paragraph's start edge: the right margin of a
         // right-to-left paragraph, where the start-indent markers sit.
-        let w = page.body.w;
-        let px = |s: f32| sx(origin + s);
-        let dist_at = |x: f32| s_at(x) - origin;
+        let px = |s: f32| sx(start + s);
+        let dist_at = |x: f32| s_at(x) - start;
         let first = px(rp.indent_left + rp.indent_first);
         let left = px(rp.indent_left);
         let right = px(w - rp.indent_right);
@@ -1943,7 +2169,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
-            let pt = dist_at(pp.x).clamp(-col_x, page.body.w - 18.0);
+            let pt = dist_at(pp.x).clamp(-col_x, (w - 18.0).max(-col_x));
             let snapped = (pt / 4.5).round() * 4.5;
             if !r.drag_started() {
                 app.session.join_next_undo();
@@ -1966,7 +2192,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
-            let pt = page.body.w - dist_at(pp.x);
+            let pt = w - dist_at(pp.x);
             if !r.drag_started() {
                 app.session.join_next_undo();
             }
@@ -2008,6 +2234,8 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             break;
         }
     }
+    // In a table, its rows' bottom borders.
+    crate::table_ruler::rows(app, ui, layout, pi, vbar, y0, scale);
 }
 
 /// One mark drawn along a horizontal ruler.
@@ -2190,6 +2418,13 @@ fn dims_body(app: &WordApp, layout: &DocLayout) -> bool {
     }
 }
 
+/// The spelling suggestions and synonyms the context menu offers for the selection or the word
+/// at the caret.
+fn context_suggestions(app: &mut WordApp) {
+    app.canvas.context_issue = app.session.run("review.suggestions", &json!({})).ok().filter(|v| !v.is_null());
+    app.canvas.context_synonyms = app.session.run("review.thesaurus", &json!({})).ok().and_then(|v| v.get("synonyms").cloned());
+}
+
 /// Caret position on screen.
 pub fn caret_screen(app: &mut WordApp) -> Option<(Pos2, f32)> {
     let l = app.session.layout();
@@ -2290,10 +2525,8 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     }
     item(ui, app, "Cut", "edit.cut", json!({}));
     if ui.add(egui::Button::new(tl!("Copy")).shortcut_text(crate::widgets::shortcut_text(app, "edit.copy"))).clicked() {
-        if let Ok(r) = app.run("edit.copy", json!({}))
-            && let Some(t) = r.get("text").and_then(|t| t.as_str())
-        {
-            ui.ctx().copy_text(t.to_string());
+        if let Ok(r) = app.run("edit.copy", json!({})) {
+            crate::system_clipboard::put_result(app, ui.ctx(), &r);
         }
         ui.close();
     }
@@ -2343,19 +2576,76 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         ui.menu_button(tl!("Wrap Text"), |ui| crate::ribbon::wrap_text_items(ui, app));
     }
     if app.session.sel.focus.path.cell().is_some() {
+        // The table's items follow what is selected, as in Word (2019, Windows).
+        let pick = table_pick(&app.session);
         ui.separator();
         ui.menu_button(tl!("Insert"), |ui| {
-            item(ui, app, "Insert Rows Above", "table.insertRowAbove", json!({}));
-            item(ui, app, "Insert Rows Below", "table.insertRowBelow", json!({}));
             item(ui, app, "Insert Columns to the Left", "table.insertColumnLeft", json!({}));
             item(ui, app, "Insert Columns to the Right", "table.insertColumnRight", json!({}));
+            item(ui, app, "Insert Rows Above", "table.insertRowAbove", json!({}));
+            item(ui, app, "Insert Rows Below", "table.insertRowBelow", json!({}));
         });
-        ui.menu_button(tl!("Delete"), |ui| {
-            item(ui, app, "Delete Rows", "table.deleteRow", json!({}));
-            item(ui, app, "Delete Columns", "table.deleteColumn", json!({}));
-            item(ui, app, "Delete Table", "table.deleteTable", json!({}));
-        });
-        item(ui, app, "Merge Cells", "table.merge", json!({}));
+        match pick {
+            TablePick::Cell | TablePick::Cells => item(ui, app, "Delete Cells", "table.deleteCells", json!({})),
+            TablePick::Rows => item(ui, app, "Delete Rows", "table.deleteRow", json!({})),
+            TablePick::Columns => item(ui, app, "Delete Columns", "table.deleteColumn", json!({})),
+            TablePick::Table => item(ui, app, "Delete Table", "table.deleteTable", json!({})),
+        }
+        if pick == TablePick::Cell {
+            item(ui, app, "Split Cells", "table.split", json!({}));
+        }
+        if matches!(pick, TablePick::Cells | TablePick::Rows | TablePick::Columns) {
+            item(ui, app, "Merge Cells", "table.merge", json!({}));
+        }
+        if matches!(pick, TablePick::Rows | TablePick::Columns | TablePick::Table) {
+            item(ui, app, "Distribute Rows", "table.distributeRows", json!({}));
+            item(ui, app, "Distribute Columns", "table.distributeColumns", json!({}));
+        }
+        if pick == TablePick::Table {
+            ui.menu_button(tl!("AutoFit"), |ui| {
+                item(ui, app, "AutoFit Contents", "table.autofit", json!({"mode": "contents"}));
+                item(ui, app, "AutoFit Window", "table.autofit", json!({"mode": "window"}));
+                item(ui, app, "Fixed Column Width", "table.autofit", json!({"mode": "fixed"}));
+            });
+        }
+        item(ui, app, "Text Direction", "table.textDirection", json!({}));
+        if pick == TablePick::Table {
+            item(ui, app, "Insert Caption…", "references.caption", json!({}));
+        }
+        item(ui, app, "Table Properties…", "table.properties", json!({}));
+    }
+}
+
+/// What of a table the selection is: Word's context menu offers different table items for each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TablePick {
+    /// The caret or text in one cell, or that one cell.
+    Cell,
+    /// Cells of more than one row or column, but not whole rows or columns.
+    Cells,
+    Rows,
+    Columns,
+    Table,
+}
+
+fn table_pick(s: &wordcraft_engine::Session) -> TablePick {
+    if let Some(r) = s.cell_range()
+        && let Some(t) = s.doc.table(r.story, &r.table)
+    {
+        let all_rows = r.rows == (0, t.rows.len().saturating_sub(1));
+        let all_cols = r.cols == (0, t.cols().saturating_sub(1));
+        return match (all_rows, all_cols) {
+            (true, true) => TablePick::Table,
+            (true, false) => TablePick::Columns,
+            (false, true) => TablePick::Rows,
+            _ if r.cells(t).len() > 1 => TablePick::Cells,
+            _ => TablePick::Cell,
+        };
+    }
+    // Text running from one cell into another of the same table.
+    match (s.sel.anchor.path.cell(), s.sel.focus.path.cell()) {
+        (Some((ta, ra, ca)), Some((tb, rb, cb))) if ta == tb && (ra, ca) != (rb, cb) => TablePick::Cells,
+        _ => TablePick::Cell,
     }
 }
 
@@ -2370,6 +2660,55 @@ fn field_showing_code(app: &WordApp, pos: &wordcraft_doc::Pos) -> Option<wordcra
         }
         _ => None,
     })
+}
+
+/// Render options for this view's page rasters: marks, markup, dark page, header/body dimming.
+fn page_render_options(app: &WordApp, dim_body: bool) -> wordcraft_render::RenderOptions {
+    let mut opts = screen_render_options();
+    opts.display.marks = app.session.view.marks;
+    opts.display.always = app.session.prefs.marks;
+    opts.display.placeholders = true;
+    opts.display.markup = app.session.view.show_markup;
+    // Ink Replay draws the ink itself, stroke by stroke, over pages without it.
+    opts.display.hide_ink = app.session.view.hide_ink || app.session.view.draw.replay;
+    opts.display.revisions = app.session.prefs.markup.clone();
+    opts.dark = app.session.view.dark_mode;
+    opts.dark_paper = wordcraft_render::DARK_PAPER;
+    opts.display.dim_header = !dim_body;
+    opts.display.dim_body = dim_body;
+    opts
+}
+
+/// The caret colour that shows against `bg`: black or white, whichever contrasts more (WCAG
+/// contrast ratio), as Word's caret inverts what lies under it (#299). A white caret on white
+/// paper, or a black one on a dark page colour or highlight, would vanish.
+pub(crate) fn caret_contrast(bg: wordcraft_doc::props::Rgb) -> Color32 {
+    let lin = |v: u8| {
+        let c = v as f32 / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let l = 0.2126 * lin(bg.0) + 0.7152 * lin(bg.1) + 0.0722 * lin(bg.2);
+    // Contrast with black (l + 0.05) / 0.05 against with white 1.05 / (l + 0.05).
+    if (l + 0.05) * (l + 0.05) >= 0.05 * 1.05 { Color32::BLACK } else { Color32::WHITE }
+}
+
+/// The caret colour at page point (`x`, `y`) of page `page`: [`caret_contrast`] of the paper,
+/// shading or highlight there. Cached until the layout, the view or the point changes, so the
+/// blink doesn't rebuild the page's draw list every frame.
+fn caret_color_at(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, page: usize, x: f32, y: f32, view: u64, dim_body: bool) -> Color32 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (std::sync::Arc::as_ptr(layout) as usize, page, x.to_bits(), y.to_bits(), view).hash(&mut h);
+    let key = h.finish();
+    if let Some((k, c)) = app.canvas.caret_bg
+        && k == key
+    {
+        return c;
+    }
+    let Some(p) = layout.pages.get(page) else { return Color32::BLACK };
+    let bg = wordcraft_render::background_at(&app.session.doc, p, &page_render_options(app, dim_body), x, y);
+    let c = caret_contrast(bg);
+    app.canvas.caret_bg = Some((key, c));
+    c
 }
 
 /// Render options for page rasters shown on screen: on macOS, text is darkened the way the system
@@ -2402,6 +2741,7 @@ fn is_followable_link(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::table_resize::tests::{H, cell, screen, steps, table_window};
 
     #[test]
     fn reading_animation_eases_then_lands_exactly_on_column_start() {
@@ -2436,6 +2776,59 @@ mod tests {
         let last_left = rects.last().unwrap().left();
         assert!((size.x - 1100.0 - (last_left - GAP)).abs() < 1.0, "last column aligns against the pane");
         assert!(reading_size(vec2(1440.0, 750.0), PX_PER_PT, Some(612.0)).0 <= 612.0);
+    }
+
+    /// #299: the caret is black on light backgrounds and white on dark ones, whatever the UI
+    /// theme: on white paper, a dark page colour, a dark page (Switch Modes) and a highlight.
+    #[test]
+    fn caret_contrasts_with_what_lies_under_it() {
+        use wordcraft_doc::props::Rgb;
+        assert_eq!(caret_contrast(Rgb::WHITE), Color32::BLACK);
+        assert_eq!(caret_contrast(Rgb::BLACK), Color32::WHITE);
+        assert_eq!(caret_contrast(Rgb(0xFF, 0xFF, 0x00)), Color32::BLACK, "yellow highlight");
+        assert_eq!(caret_contrast(Rgb(0x00, 0x00, 0x80)), Color32::WHITE, "dark blue");
+        assert_eq!(caret_contrast(Rgb(0x33, 0x33, 0x33)), Color32::WHITE, "dark paper");
+        assert_eq!(caret_contrast(Rgb(0xC0, 0xC0, 0xC0)), Color32::BLACK, "light grey");
+
+        let doc = wordcraft_doc::Document::from_text("Hello WordCraft");
+        let mut a = WordApp::new(wordcraft_engine::Session::new(doc), Default::default());
+        let at = |a: &mut WordApp, off: usize| {
+            let layout = a.session.layout();
+            let c = layout.caret_on(&Pos::body(0, off), 0).unwrap();
+            let view = view_key(a, false);
+            caret_color_at(a, &layout, c.page, c.x, c.top + c.height / 2.0, view, false)
+        };
+        assert_eq!(at(&mut a, 2), Color32::BLACK, "white paper");
+        a.run("design.pageColor", json!({"color": "#102040"})).unwrap();
+        assert_eq!(at(&mut a, 2), Color32::WHITE, "dark page colour");
+        a.run("design.pageColor", json!({})).unwrap();
+        assert_eq!(at(&mut a, 2), Color32::BLACK, "page colour removed");
+        a.session.view.dark_mode = true;
+        assert_eq!(at(&mut a, 2), Color32::WHITE, "dark page");
+        a.session.view.dark_mode = false;
+        a.run("select.text", json!({"text": "Hello"})).unwrap();
+        a.run("format.highlight", json!({"color": "black"})).unwrap();
+        assert_eq!(at(&mut a, 2), Color32::WHITE, "inside a black highlight");
+        assert_eq!(at(&mut a, 9), Color32::BLACK, "past it");
+        assert_eq!(at(&mut a, 2), Color32::WHITE, "again, from the cache");
+    }
+
+    /// #299: the caret's colour is worked out only when the caret is drawn: with text selected
+    /// there is no caret, so the page's draw list isn't built for it.
+    #[test]
+    fn caret_colour_is_not_worked_out_while_the_caret_is_hidden() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Hello WordCraft")), Default::default());
+        a.run("select.text", json!({"text": "Hello"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.state().canvas.caret_bg.is_none(), "no caret, no colour lookup");
     }
 
     /// #167: dragging a ruler's margin edge sets that margin, snapped, never negative, and
@@ -2575,6 +2968,177 @@ mod tests {
         assert_eq!((s, e), (Pos::body(0, 0), Pos::body(0, 6)));
     }
 
+    /// #856: the left margin beside body text is Word's selection bar. A click selects the line,
+    /// a double-click the paragraph, a triple-click (or Ctrl/⌘+click) the document; dragging
+    /// selects whole lines and Shift+click extends by lines.
+    #[test]
+    fn selection_bar_clicks_select_lines() {
+        use egui::{Event, Modifiers, PointerButton};
+        let long = "The quick brown fox jumps over the lazy dog. ".repeat(8);
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": format!("{}\rSecond para\rThird para", long.trim_end())})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        // A point in the left margin beside the line `li` lines below the one holding `pos`.
+        let margin = |h: &mut egui_kittest::Harness<'_, WordApp>, pos: Pos, li: f32| {
+            let c = h.state_mut().session.layout().caret(&pos).expect("caret");
+            page_to_screen(h.state_mut(), c.page, 30.0, c.top + c.height * (li + 0.5)).expect("on screen")
+        };
+        let line_start = |h: &mut egui_kittest::Harness<'_, WordApp>, at: Pos2| {
+            let (rects, scale) = (h.state().canvas.page_rects.clone(), h.state().canvas.scale);
+            let layout = h.state_mut().session.layout();
+            let (pg, x, y) = page_at(&rects, &layout, scale, at).expect("page");
+            layout.selection_bar_at(pg, x, y).expect("in the selection bar")
+        };
+        let span = |h: &mut egui_kittest::Harness<'_, WordApp>, pos: &Pos| h.state_mut().session.layout().line_span(pos, 0).expect("line");
+        let button =
+            |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        let clicks_drag = |h: &mut egui_kittest::Harness<'_, WordApp>, from: Pos2, to: Pos2, clicks: usize| {
+            h.event(Event::PointerMoved(from));
+            for i in 0..clicks {
+                h.event(button(from, true));
+                h.step();
+                if i + 1 < clicks {
+                    h.event(button(from, false));
+                    h.step();
+                }
+            }
+            for k in 1..=4 {
+                h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 4.0)));
+                h.step();
+            }
+            h.event(button(to, false));
+            for _ in 0..3 {
+                h.step();
+            }
+        };
+        let pause = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            for _ in 0..40 {
+                h.step();
+            }
+        };
+        // Click beside the second line: that whole line is selected, not a caret at its start.
+        let at = margin(&mut h, Pos::body(0, 0), 1.0);
+        let l2 = line_start(&mut h, at);
+        assert!(l2.off > 0 && l2.path == wordcraft_doc::Path::top(0));
+        clicks_drag(&mut h, at, at, 1);
+        let (_, l2_end, _) = span(&mut h, &l2);
+        assert_eq!(h.state().session.sel.ordered(), (l2.clone(), l2_end.clone()), "the line");
+        // Double-click: the paragraph, mark included.
+        pause(&mut h);
+        clicks_drag(&mut h, at, at, 2);
+        assert_eq!(h.state().session.sel.ordered(), (Pos::body(0, 0), Pos::body(1, 0)), "the paragraph");
+        // Triple-click: the whole document.
+        pause(&mut h);
+        clicks_drag(&mut h, at, at, 3);
+        assert_eq!(h.state().session.sel.ordered(), (Pos::body(0, 0), Pos::body(2, 10)), "everything");
+        // Drag from beside the first line down past the third: three whole lines.
+        pause(&mut h);
+        let (from, to) = (margin(&mut h, Pos::body(0, 0), 0.0), margin(&mut h, Pos::body(0, 0), 2.0));
+        let l3 = line_start(&mut h, to);
+        clicks_drag(&mut h, from, to, 1);
+        let (_, l3_end, _) = span(&mut h, &l3);
+        let sel = h.state().session.sel.clone();
+        assert_eq!((sel.anchor, sel.focus), (Pos::body(0, 0), l3_end), "three lines");
+        // Shift+click beside "Second para" extends by lines, to that paragraph's mark.
+        pause(&mut h);
+        let second = margin(&mut h, Pos::body(1, 0), 0.0);
+        h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+        h.step();
+        clicks_drag(&mut h, second, second, 1);
+        h.event(Event::ModifiersChanged(Modifiers::default()));
+        h.step();
+        let sel = h.state().session.sel.clone();
+        assert_eq!((sel.anchor, sel.focus), (Pos::body(0, 0), Pos::body(2, 0)), "extended by lines");
+        // Hovering the bar shows the arrow, not the I-beam.
+        h.event(Event::PointerMoved(at));
+        h.step();
+        assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default);
+    }
+
+    /// #1085: a selected balloon's buttons work (pressing them is not a click on the page that
+    /// leaves the balloon): a new comment with no text resolves and deletes from its balloon.
+    #[test]
+    fn an_empty_comment_balloon_deletes() {
+        for body in ["", "Some text here"] {
+            let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+            if !body.is_empty() {
+                a.run("text.insert", json!({"text": body})).unwrap();
+                a.run("select.text", json!({"text": "text"})).unwrap();
+            }
+            let id = a.run("review.newComment", json!({})).unwrap()["id"].as_u64().unwrap() as u32;
+            a.run("view.commentsPane", json!({"value": false})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            for _ in 0..6 {
+                h.step();
+            }
+            let click = |h: &mut egui_kittest::Harness<'_, WordApp>, at: egui::Pos2| {
+                h.event(egui::Event::PointerMoved(at));
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+                h.step();
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+                for _ in 0..3 {
+                    h.step();
+                }
+            };
+            let card = h.state().canvas.balloon_rects.iter().find(|(i, _)| *i == id).map(|(_, r)| *r).expect("the comment has a balloon");
+            click(&mut h, card.left_top() + vec2(30.0, 8.0));
+            assert_eq!(h.state().canvas.balloon, Some(id), "{body:?}: the click selected the balloon");
+            use egui_kittest::kittest::Queryable;
+            let resolve = h.get_by_label("Resolve").rect().center();
+            click(&mut h, resolve);
+            assert!(h.state().session.doc.comments[&id].resolved, "{body:?}: Resolve worked");
+            assert_eq!(h.state().canvas.balloon, Some(id), "{body:?}: the balloon stays selected");
+            let del = h.get_by_label("Delete").rect().center();
+            click(&mut h, del);
+            assert!(h.state().session.doc.comments.is_empty(), "{body:?}: the empty comment was deleted");
+        }
+    }
+
+    /// A typed character is laid out and painted in the frame that delivers the key, not the next
+    /// one: keys are handled before the canvas takes the layout it paints.
+    #[test]
+    fn a_keystroke_is_painted_in_its_own_frame() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Some text"})).unwrap();
+        a.canvas.want_focus = true;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the canvas has the keyboard focus");
+        h.event(egui::Event::Text("x".into()));
+        h.step();
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "Some textx");
+        let latest = h.state_mut().session.layout();
+        let painted = h.state().canvas.page_keys.layout.clone();
+        assert!(painted.is_some_and(|l| std::sync::Arc::ptr_eq(&l, &latest)), "the frame painted the layout with the typed character");
+    }
+
     /// #167: a comment balloon edits in place like Word's: click it, type, leave it, and the
     /// comment has the new text as one undo step.
     #[test]
@@ -2621,6 +3185,77 @@ mod tests {
         assert_eq!(h.state().session.undo_depth(), depth + 1, "one undo step for the edit");
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().session.doc.plain_text(StoryRef::Part(part)), "Original");
+    }
+
+    /// #960: double-clicking the top margin of a document without a header creates one and
+    /// edits it (the bottom margin: a footer), as in Word; typing goes into it, and
+    /// double-clicking the body leaves it. One left empty is taken away again.
+    #[test]
+    fn double_click_margin_creates_header_and_footer() {
+        use egui::{Event, PointerButton};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Body text"})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 2200.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let double_click = |h: &mut egui_kittest::Harness<'_, WordApp>, at: Pos2| {
+            h.event(Event::PointerMoved(at));
+            for _ in 0..2 {
+                h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+                h.step();
+                h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+                h.step();
+            }
+            // Let the double-click time pass before the next one.
+            for _ in 0..40 {
+                h.step();
+            }
+        };
+        let kind = |h: &egui_kittest::Harness<'_, WordApp>| part_kind(h.state(), h.state().session.sel.focus.story);
+        let page = h.state_mut().session.layout().pages[0].clone();
+        assert!(page.header_story.is_none() && page.footer_story.is_none());
+        let (x, top, bottom) = (page.body.x + 20.0, page.body.y / 2.0, (page.body.bottom() + page.h) / 2.0);
+        let body = page_to_screen(h.state_mut(), 0, x, page.body.y + 6.0).expect("body on screen");
+        // Top margin: a new header, the caret in it, typing goes there.
+        let at = page_to_screen(h.state_mut(), 0, x, top).expect("top margin on screen");
+        double_click(&mut h, at);
+        assert_eq!(kind(&h), Some(PartKind::Header), "editing a new header");
+        let header = h.state().session.sel.focus.story;
+        h.event(Event::Text("Running head".into()));
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(h.state().session.doc.plain_text(header), "Running head");
+        assert_eq!(h.state().session.doc.plain_text(StoryRef::Body), "Body text");
+        // Double-click the body: back in it, the header kept.
+        double_click(&mut h, body);
+        assert_eq!(h.state().session.sel.focus.story, StoryRef::Body);
+        assert_eq!(h.state_mut().session.layout().pages[0].header_story.map(StoryRef::Part), Some(header));
+        // Bottom margin: a new footer; left empty, leaving takes it away again.
+        let at = page_to_screen(h.state_mut(), 0, x, bottom).expect("bottom margin on screen");
+        double_click(&mut h, at);
+        assert_eq!(kind(&h), Some(PartKind::Footer), "editing a new footer");
+        double_click(&mut h, body);
+        assert_eq!(h.state().session.sel.focus.story, StoryRef::Body);
+        assert!(h.state().session.doc.last_section.footers.default.is_none(), "the empty footer is gone");
+        // And a written footer stays.
+        double_click(&mut h, at);
+        let footer = h.state().session.sel.focus.story;
+        assert_eq!(kind(&h), Some(PartKind::Footer));
+        h.event(Event::Text("Page foot".into()));
+        h.step();
+        double_click(&mut h, body);
+        assert_eq!(h.state().session.sel.focus.story, StoryRef::Body);
+        assert_eq!(h.state().session.doc.plain_text(footer), "Page foot");
     }
 
     /// #513: right-clicking a picture selects it and offers Wrap Text, as in Word; choosing
@@ -2733,6 +3368,179 @@ mod tests {
         assert_eq!(clamped_scroll(vec2(0.0, 400.0), vec2(0.0, -50.0), max).y, 400.0, "never past the bottom");
         assert_eq!(clamped_scroll(vec2(0.0, 300.0), vec2(0.0, 50.0), max).y, 250.0);
         assert_eq!(clamped_scroll(egui::Vec2::ZERO, vec2(0.0, 50.0), egui::Vec2::ZERO).y, 0.0, "nothing to scroll");
+    }
+
+    /// #1065: a middle click starts scrolling, the pointer below the click scrolls down on its
+    /// own frame after frame, and a second middle click stops it; a primary click stops it without
+    /// moving the caret. Held down and dragged, letting go stops it.
+    #[test]
+    fn middle_click_scrolls_toward_the_pointer_until_clicked_again() {
+        let text = vec!["A line of text in a long document."; 400].join("\n");
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text(&text)), Default::default());
+        a.canvas.auto_scroll.supported = true;
+        let mut h: H = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(6);
+        let anchor = h.state().canvas.viewport.expect("the canvas is shown").center();
+        let button = |h: &mut H, at: Pos2, button, pressed| {
+            h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers: Default::default() });
+            h.step();
+        };
+        let offset = |h: &H| h.state().canvas.scroll_offset.y;
+        let below = anchor + vec2(0.0, 150.0);
+
+        h.event(egui::Event::PointerMoved(anchor));
+        button(&mut h, anchor, egui::PointerButton::Middle, true);
+        button(&mut h, anchor, egui::PointerButton::Middle, false);
+        h.run_steps(3);
+        assert!(h.state().canvas.auto_scroll.active());
+        assert_eq!(offset(&h), 0.0, "the pointer at the click doesn't scroll");
+        h.event(egui::Event::PointerMoved(below));
+        h.run_steps(10);
+        let scrolled = offset(&h);
+        assert!(scrolled > 50.0, "the pointer below the click scrolls down: {scrolled}");
+        button(&mut h, below, egui::PointerButton::Middle, true);
+        button(&mut h, below, egui::PointerButton::Middle, false);
+        let stopped = offset(&h);
+        h.run_steps(10);
+        assert!(!h.state().canvas.auto_scroll.active());
+        assert_eq!(offset(&h), stopped, "a second click stops it");
+
+        // A primary click stops it too, and isn't a click on the page.
+        let caret = h.state().session.sel.clone();
+        button(&mut h, anchor, egui::PointerButton::Middle, true);
+        button(&mut h, anchor, egui::PointerButton::Middle, false);
+        assert!(h.state().canvas.auto_scroll.active());
+        button(&mut h, anchor, egui::PointerButton::Primary, true);
+        button(&mut h, anchor, egui::PointerButton::Primary, false);
+        h.run_steps(2);
+        assert!(!h.state().canvas.auto_scroll.active());
+        assert_eq!(h.state().session.sel, caret, "the stopping click leaves the caret");
+
+        // Held down and dragged: scrolls while held, stops on release.
+        h.event(egui::Event::PointerMoved(anchor));
+        button(&mut h, anchor, egui::PointerButton::Middle, true);
+        h.event(egui::Event::PointerMoved(below));
+        h.run_steps(5);
+        let held = offset(&h);
+        assert!(held > stopped, "scrolls while the wheel is held");
+        button(&mut h, below, egui::PointerButton::Middle, false);
+        let released = offset(&h);
+        h.run_steps(10);
+        assert!(!h.state().canvas.auto_scroll.active());
+        assert_eq!(offset(&h), released, "letting go after a drag stops it");
+    }
+
+    /// A right-click at `at`, the button pressed and released a frame apart.
+    fn right_click(h: &mut H, at: Pos2) {
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        steps(h, 2);
+    }
+
+    /// Where the open context menu's entry holding `label` is (an entry's label also has its
+    /// shortcut or submenu arrow, and the ribbon above the page may show the same name).
+    fn menu_entry(h: &H, label: &str) -> Option<Pos2> {
+        use egui_kittest::kittest::Queryable;
+        let top = h.state().canvas.page_rects.first().map_or(0.0, |r| r.min.y);
+        h.query_all_by_label_contains(label).map(|n| n.rect()).find(|r| r.min.y >= top).map(|r| r.center())
+    }
+
+    /// Picks `path` in the open context menu with the mouse: over each submenu on the way, then a
+    /// click on the last entry.
+    fn pick(h: &mut H, path: &[&str]) {
+        let Some((last, submenus)) = path.split_last() else { return };
+        for label in submenus {
+            let at = menu_entry(h, label).expect(label);
+            h.event(egui::Event::PointerMoved(at));
+            steps(h, 2);
+        }
+        let at = menu_entry(h, last).expect(last);
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        steps(h, 2);
+    }
+
+    /// Whether the open context menu has an entry holding each of `labels` (`true`) or none
+    /// (`false`).
+    fn assert_menu(h: &H, labels: &[&str], there: bool) {
+        for label in labels {
+            assert_eq!(menu_entry(h, label).is_some(), there, "{label} in the menu: {there}");
+        }
+    }
+
+    /// Right-clicking a table cell puts the caret there, and the table's items follow what is
+    /// selected, as in Word: with the caret in a cell, Delete Cells and Split Cells; with the
+    /// whole table, Delete Table, Distribute, AutoFit and Insert Caption… (never Select or Cell
+    /// Alignment).
+    #[test]
+    fn the_context_menu_in_a_table_follows_the_selection() {
+        let mut h = table_window();
+        let b = cell(&mut h, 1, 2);
+        let at = screen(&mut h, b.x + b.w / 2.0, b.y + b.h / 2.0);
+        right_click(&mut h, at);
+        assert_eq!(h.state().session.sel.focus.path.cell().map(|(_, r, c)| (r, c)), Some((1, 2)), "the caret moved to the cell");
+        assert_menu(&h, &["Insert", "Delete Cells", "Split Cells", "Text Direction", "Table Properties…"], true);
+        assert_menu(&h, &["Merge Cells", "Distribute Rows", "Delete Table", "AutoFit", "Select", "Cell Alignment"], false);
+        let depth = h.state().session.undo_depth();
+        pick(&mut h, &["Insert", "Insert Rows Below"]);
+        assert_eq!(h.state().session.doc.body.iter().find_map(|b| b.as_table()).map(|t| t.rows.len()), Some(3));
+        assert_eq!(h.state().session.undo_depth(), depth + 1);
+        h.state_mut().run("table.selectTable", json!({})).unwrap();
+        right_click(&mut h, at);
+        assert!(h.state().session.cell_range().is_some(), "a right-click on the selected table keeps it");
+        assert_menu(&h, &["Delete Table", "Distribute Rows", "Distribute Columns", "AutoFit", "Insert Caption…", "Table Properties…"], true);
+        assert_menu(&h, &["Delete Cells", "Split Cells", "Merge Cells"], false);
+        pick(&mut h, &["Delete Table"]);
+        assert!(h.state().session.doc.body.iter().all(|b| b.as_table().is_none()));
+    }
+
+    /// With a column's cells selected, a right-click on one of them keeps them: the menu is a
+    /// column's (Delete Columns, Merge Cells, Distribute) and its Text Direction turns just the
+    /// column, in one undo step; one on a cell beside them drops them, though that cell lies
+    /// between the selection's ends in the text, and the menu is a cell's again.
+    #[test]
+    fn a_right_click_keeps_selected_cells_only_on_them() {
+        use wordcraft_doc::props::TextDirection;
+        let mut h = table_window();
+        h.state_mut().run("table.selectColumn", json!({})).unwrap();
+        assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (0, 0))));
+        let on = cell(&mut h, 1, 0);
+        let at = screen(&mut h, on.x + on.w / 2.0, on.y + on.h / 2.0);
+        right_click(&mut h, at);
+        assert_eq!(h.state().session.cell_range().map(|r| r.cols), Some((0, 0)), "still the column");
+        assert_menu(&h, &["Delete Columns", "Merge Cells", "Distribute Rows", "Distribute Columns", "Text Direction"], true);
+        assert_menu(&h, &["Delete Cells", "Split Cells", "AutoFit"], false);
+        let depth = h.state().session.undo_depth();
+        pick(&mut h, &["Text Direction"]);
+        assert_eq!(h.state().session.undo_depth(), depth + 1);
+        let t = h.state().session.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+        let dir = |r: usize, c: usize| t.rows[r].cells[c].props.text_direction;
+        assert_eq!(
+            [dir(0, 0), dir(1, 0), dir(0, 1), dir(1, 2)],
+            [TextDirection::Down, TextDirection::Down, TextDirection::Horizontal, TextDirection::Horizontal]
+        );
+        let beside = cell(&mut h, 0, 2);
+        let at = screen(&mut h, beside.x + beside.w / 2.0, beside.y + beside.h / 2.0);
+        right_click(&mut h, at);
+        assert!(h.state().session.cell_range().is_none(), "the column is no longer selected");
+        assert_eq!(h.state().session.sel.focus.path.cell().map(|(_, r, c)| (r, c)), Some((0, 2)));
+        assert_menu(&h, &["Split Cells"], true);
+        assert_menu(&h, &["Delete Columns", "Merge Cells"], false);
     }
 
     /// Issue #123: zoomed out, pages sit side by side in rows when the width allows; at 100% a
@@ -2973,6 +3781,52 @@ mod tests {
         // Hostile numbers never panic.
         let _ = collapse_white_space(&rects, &[(f32::NAN, f32::INFINITY), (-1e9, 1e9)], f32::NAN, f32::NAN);
         let _ = collapse_white_space(&[], &[], 1.0, 1.0);
+    }
+
+    /// #1169: Space and Enter count as `Response::clicked` on the focused canvas, and
+    /// `request_focus` always interrupts IME. On X11 that recreates the XIM context and
+    /// fcitx drops every later key. Those keys still type, and they must not set
+    /// `should_interrupt_composition`. A real pointer click still does, so a composition
+    /// commits when the caret moves.
+    #[test]
+    fn space_and_enter_on_the_canvas_do_not_interrupt_ime() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("document.setText", json!({"text": "The"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        assert!(h.state().canvas.focused, "the canvas takes focus when the window opens");
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let ime_interrupted =
+            |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|ime| ime.should_interrupt_composition);
+        h.event(key(egui::Key::Space));
+        h.event(egui::Event::Text(" ".into()));
+        h.step();
+        assert_eq!(ime_interrupted(&h), Some(false), "space must not recreate the XIM context");
+        let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(text.contains("The") && text.contains(' '), "the space is still inserted: {text:?}");
+        assert!(h.state().canvas.focused, "the canvas keeps the keyboard");
+        h.event(key(egui::Key::Enter));
+        h.step();
+        assert_eq!(ime_interrupted(&h), Some(false), "enter must not recreate the XIM context");
+        assert!(h.state().canvas.focused, "enter leaves the canvas focused");
+
+        let at = h.state().canvas.page_rects.first().map(|r| r.center()).expect("a page");
+        h.event(egui::Event::PointerMoved(at));
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.step();
+        }
+        assert_eq!(ime_interrupted(&h), Some(true), "a click still interrupts composition");
     }
 
     fn page_at_index(rects: &[Rect], p: Pos2) -> Option<usize> {

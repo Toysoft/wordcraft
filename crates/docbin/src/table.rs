@@ -30,6 +30,15 @@ const T_TABLE_BORDERS_80: u16 = 0xD605;
 const T_ROW_HEIGHT: u16 = 0x9407;
 const T_DEF_TABLE: u16 = 0xD608;
 const T_DEF_TABLE_SHD_80: u16 = 0xD609;
+/// `sprmTDefTableShd` / `Shd2nd` / `Shd3rd`: 10-byte `Shd`s for cells 0-21, 22-43, 44-62.
+const T_DEF_TABLE_SHD: u16 = 0xD612;
+const T_DEF_TABLE_SHD_2ND: u16 = 0xD616;
+const T_DEF_TABLE_SHD_3RD: u16 = 0xD60C;
+/// `sprmTDefTableShdRaw` / `Raw2nd` / `Raw3rd`: the same `Shd` arrays over the same cell
+/// ranges, which Word 2007+ writes next to the above.
+const T_DEF_TABLE_SHD_RAW: u16 = 0xD670;
+const T_DEF_TABLE_SHD_RAW_2ND: u16 = 0xD671;
+const T_DEF_TABLE_SHD_RAW_3RD: u16 = 0xD672;
 const T_CANT_SPLIT_90: u16 = 0x3403;
 const T_MERGE: u16 = 0x5624;
 const T_VERT_MERGE: u16 = 0xD62B;
@@ -69,7 +78,9 @@ pub(crate) struct RowInfo {
     merges: Vec<(u8, u8)>,
     /// Per-cell overrides keyed by (pre-merge) cell index.
     vmerge: Vec<(u8, VMerge)>,
-    shading: Vec<(u8, Rgb)>,
+    /// Later entries win: the `Shd` arrays override the `Shd80` fallback before them, and an
+    /// automatic `Shd` (`None`) clears it.
+    shading: Vec<(u8, Option<Rgb>)>,
     widths: Vec<(u8, f32)>,
     valign: Vec<(u8, VAlign)>,
 }
@@ -80,6 +91,12 @@ impl RowInfo {
     #[cfg(test)]
     pub(crate) fn height(&self) -> Option<f32> {
         self.height
+    }
+
+    /// The fill cell `i` ends up with (the last shading entry for it wins), for tests.
+    #[cfg(test)]
+    pub(crate) fn shading_of(&self, i: u8) -> Option<Rgb> {
+        self.shading.iter().rfind(|(k, _)| *k == i).and_then(|(_, s)| *s)
     }
 }
 
@@ -148,8 +165,8 @@ pub(crate) fn decode(papx: &[u8]) -> RowInfo {
                 if let Some(rgb) = prl.operand.get(3..).and_then(shd_rgb)
                     && let [a, b, ..] = prl.operand.get(1..3).unwrap_or(&[])
                 {
-                    for c in *a..*b {
-                        r.shading.push((c, rgb));
+                    for c in *a..(*b).min(MAX_COLS as u8) {
+                        r.shading.push((c, Some(rgb)));
                     }
                 }
             }
@@ -157,8 +174,27 @@ pub(crate) fn decode(papx: &[u8]) -> RowInfo {
                 let cells = prl.operand.get(1..).unwrap_or(&[]);
                 for (i, b) in cells.as_chunks::<2>().0.iter().take(MAX_COLS).enumerate() {
                     if let Some(rgb) = shd80_rgb(b) {
-                        r.shading.push((i as u8, rgb));
+                        r.shading.push((i as u8, Some(rgb)));
                     }
+                }
+            }
+            T_DEF_TABLE_SHD | T_DEF_TABLE_SHD_RAW | T_DEF_TABLE_SHD_2ND | T_DEF_TABLE_SHD_RAW_2ND | T_DEF_TABLE_SHD_3RD | T_DEF_TABLE_SHD_RAW_3RD => {
+                // Each array covers its own cell range (0-21, 22-43, 44-62); extra entries
+                // are ignored so an over-long array can't override the next range.
+                let (first, lim) = match prl.op {
+                    T_DEF_TABLE_SHD_2ND | T_DEF_TABLE_SHD_RAW_2ND => (22, 44),
+                    T_DEF_TABLE_SHD_3RD | T_DEF_TABLE_SHD_RAW_3RD => (44, MAX_COLS),
+                    _ => (0, 22),
+                };
+                let cells = prl.operand.get(1..).unwrap_or(&[]);
+                let raw = matches!(prl.op, T_DEF_TABLE_SHD_RAW | T_DEF_TABLE_SHD_RAW_2ND | T_DEF_TABLE_SHD_RAW_3RD);
+                for (i, b) in cells.as_chunks::<10>().0.iter().take(lim - first).enumerate() {
+                    // In the Raw arrays a nil Shd (ipat 0xFFFF) means "as the table style
+                    // shades it", so it leaves any earlier fill alone.
+                    if raw && b.get(8..10) == Some(&[0xFF, 0xFF]) {
+                        continue;
+                    }
+                    r.shading.push(((first + i) as u8, shd_rgb(b)));
                 }
             }
             T_CELL_WIDTH => {
@@ -236,8 +272,8 @@ pub(crate) fn assemble(paras: Vec<ParaOut>) -> Blocks {
             if let Some((_, w)) = info.widths.iter().find(|(k, _)| *k == i) {
                 c.props.width = Some(*w);
             }
-            if let Some((_, s)) = info.shading.iter().find(|(k, _)| *k == i) {
-                c.props.shading = Some(*s);
+            if let Some((_, s)) = info.shading.iter().rfind(|(k, _)| *k == i) {
+                c.props.shading = *s;
             }
             if let Some((_, v)) = info.valign.iter().find(|(k, _)| *k == i) {
                 c.props.valign = *v;
@@ -381,6 +417,8 @@ pub(crate) fn assemble(paras: Vec<ParaOut>) -> Blocks {
             // columns, still ends a real cell (rows without a TDefTable keep today's
             // shape: the count is unknowable, so the mark always flushes).
             let row_end_only = info.ttp && p.para.text.is_empty() && cell.is_empty() && !info.edges.is_empty() && cells.len() + 1 >= info.edges.len();
+            // ...but a row-end mark with no cells before it still makes a (one-cell) row.
+            let row_end_only = row_end_only && !cells.is_empty();
             if !p.para.text.is_empty() {
                 cell.push(para_block(p.para));
             }
@@ -421,6 +459,7 @@ fn def_table_edges(operand: &[u8]) -> Vec<f32> {
     }
     edges
 }
+
 
 /// A gap between two union edges, ordered by [`f32::total_cmp`] so it can key a binary
 /// heap (`f32` itself is neither `Ord` nor `Eq`).
@@ -574,7 +613,8 @@ fn brc80(b: &[u8]) -> Option<Border> {
 }
 
 /// Background colour from a 10-byte `Shd`: cvFore, cvBack (COLORREFs), ipat. Solid patterns
-/// show the foreground; other patterns are approximated by their background.
+/// show the foreground; clear (0) and the other patterns show the background (Word writes a
+/// plain cell fill as clear with cvBack); nil (0xFFFF) and automatic colours are no fill.
 fn shd_rgb(b: &[u8]) -> Option<Rgb> {
     let cv = |b: &[u8]| -> Option<Rgb> {
         match b {
@@ -585,19 +625,21 @@ fn shd_rgb(b: &[u8]) -> Option<Rgb> {
     };
     let ipat = b.get(8..10).map(|x| u16::from_le_bytes([x[0], x[1]]))?;
     match ipat {
-        0 | 0xFFFF => None,
+        0xFFFF => None,
         1 => cv(b.get(0..4)?),
         _ => cv(b.get(4..8)?),
     }
 }
 
-/// Background colour from a 2-byte `Shd80` (icoFore, icoBack, ipat bit-fields).
+/// Background colour from a 2-byte `Shd80` (icoFore, icoBack, ipat bit-fields). As in
+/// [`shd_rgb`], solid shows the foreground and clear (0) the background, which is how Word
+/// 97 writes a plain fill; ico 0 is automatic (no fill).
 fn shd80_rgb(b: &[u8]) -> Option<Rgb> {
     let v = u16::from_le_bytes([*b.first()?, *b.get(1)?]);
     let fore = v & 0x1F;
     let back = (v >> 5) & 0x1F;
     let ipat = v >> 10;
-    if ipat == 0 || (fore == 0x1F && back == 0x1F) {
+    if fore == 0x1F && back == 0x1F {
         return None;
     }
     fmt::ico(if ipat == 1 { fore as u8 } else { back as u8 })

@@ -141,6 +141,8 @@ fn every_para_prop_round_trips() {
         indent_first_chars: Some(-1.0),
         space_before: Some(6.0),
         space_after: Some(12.0),
+        space_before_auto: Some(true),
+        space_after_auto: Some(false),
         line_spacing: Some(LineSpacing::Multiple(1.5)),
         contextual_spacing: Some(true),
         mirror_indents: Some(true),
@@ -163,6 +165,20 @@ fn every_para_prop_round_trips() {
         suppress_line_numbers: Some(true),
         bidi: Some(false),
         drop_cap: None,
+        frame: Some(wordcraft_doc::props::TextFrame {
+            w: Some(144.0),
+            h: Some(36.0),
+            h_exact: true,
+            x: 0.0,
+            y: 12.0,
+            x_align: Some("right".into()),
+            y_align: None,
+            h_anchor: "margin".into(),
+            v_anchor: "text".into(),
+            wrap: "around".into(),
+            h_space: 9.0,
+            v_space: 0.0,
+        }),
         kinsoku: Some(false),
         word_wrap: Some(false),
         overflow_punct: Some(false),
@@ -1910,7 +1926,7 @@ fn wrap_polygons_round_trip() {
     let got = paras(&r)[0];
     let floats: Vec<Float> = got.objects.iter().filter_map(|o| o.frame().map(|(_, _, f)| f.clone())).collect();
     assert_eq!(floats[0], edited);
-    let ellipse = WrapPolygon::from_unit(false, &shape_outline(ShapeKind::Ellipse, 80.0, 40.0).unwrap());
+    let ellipse = WrapPolygon::from_unit(false, &shape_outline(ShapeKind::Ellipse, 80.0, 40.0, None).unwrap());
     assert_eq!(floats[1].wrap, Wrap::Through);
     assert_eq!(floats[1].wrap_polygon.as_deref(), ellipse.as_ref());
 }
