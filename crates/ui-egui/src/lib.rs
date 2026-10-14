@@ -108,6 +108,10 @@ pub struct Services {
     pub open_async: Option<Box<dyn Fn(&str)>>,
     /// Web: files (name, bytes) delivered asynchronously (picker, drag and drop).
     pub inbox: Option<Inbox>,
+    /// Web: pictures pasted from the browser's clipboard (the bytes; the name is ignored). Kept
+    /// apart from `inbox` because a paste only lands in the document when the page is the edit
+    /// target (#1349), where a dropped or opened file always lands.
+    pub pasted: Option<Inbox>,
     /// Web: hand bytes to the browser as a download. An error means no download started (the
     /// browser can't tell the page whether the user then kept the file).
     pub download: Option<Box<dyn Fn(&str, &[u8]) -> Result<(), String>>>,
@@ -202,6 +206,14 @@ pub enum DefaultApp {
 
 /// Files delivered asynchronously.
 pub type Inbox = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
+
+/// Whether a pasted picture belongs in the document: the page has keyboard focus, and no
+/// Backstage or dialog is open (#1349). A focused text field (comment, Find box) means the page
+/// does not have focus, so `canvas_focused` already covers it; egui's own "wants keyboard input"
+/// is true for the focused page itself and can't be used.
+fn paste_target(canvas_focused: bool, backstage: bool, dialog: bool) -> bool {
+    canvas_focused && !backstage && !dialog
+}
 
 /// UI state that persists between runs (and that agents can read and set).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -458,6 +470,12 @@ pub struct WordApp {
     pub frame_ms: f64,
     /// The window title last sent; a viewport command schedules a repaint, so only send changes.
     sent_title: String,
+    /// Full screen as last asked of the window, and as the window last reported it (#980).
+    sent_full_screen: bool,
+    seen_full_screen: Option<bool>,
+    /// Nothing else (a dialog, menu, keytips, the File tab) is open to take Escape this frame, so
+    /// Escape may leave full screen. Read before anything handles the frame's keys.
+    escape_free: bool,
     pub quit_requested: bool,
     pub autosave: bool,
     pub word_count: (u64, usize),
@@ -563,6 +581,9 @@ impl WordApp {
             applied_animations: None,
             frame_ms: 0.0,
             sent_title: String::new(),
+            sent_full_screen: false,
+            seen_full_screen: None,
+            escape_free: false,
             quit_requested: false,
             autosave: true,
             word_count: (0, 0),
@@ -1080,7 +1101,9 @@ impl WordApp {
             self.canvas.read_first_visible = None;
         }
         // Drawing leaves the caret where it was: following it would pull the view off the ink.
-        if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") && !id.starts_with("draw.") {
+        if self.session.selects_whole_story() || id == "select.all" {
+            self.canvas.scroll_to_caret = false;
+        } else if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") && !id.starts_with("draw.") {
             self.canvas.scroll_to_caret = true;
         }
         for req in std::mem::take(&mut self.session.ui_requests) {
@@ -1607,6 +1630,7 @@ impl WordApp {
         self.clear_stale_change_picture();
         let _ = self.poll_file_dialog();
         self.drain_inbox();
+        self.drain_pasted();
         self.watch_fonts(ctx);
         self.autosave_tick(now_ms());
         if self.autosaves() && self.session.dirty {
@@ -1751,6 +1775,7 @@ impl WordApp {
             return;
         }
         let t = theme::Tokens::get(&ctx);
+        self.escape_free = self.dialog.is_none() && !self.ui.backstage && self.ui.keytips == keytips::Phase::Off && !egui::Popup::is_any_open(&ctx);
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
         crate::keytips::logic(self, &ctx);
@@ -1793,9 +1818,32 @@ impl WordApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.sent_title = title;
         }
+        self.sync_full_screen(&ctx);
         self.frame_ms = now_ms() - t0;
         // Typing and formatting land here, after `logic` has reported.
         self.report_dirty();
+    }
+
+    /// Carry View › Full Screen (`view.fullScreen`, F11) to the window, and follow the window
+    /// when the system takes it in or out of full screen (the macOS title bar button, the window
+    /// manager). Leaving full screen gives the window back its earlier size and place: the system
+    /// keeps them, and [`window_geometry`] never saves a full-screen size (#980).
+    fn sync_full_screen(&mut self, ctx: &egui::Context) {
+        let seen = ctx.input(|i| i.viewport().fullscreen);
+        if seen != self.seen_full_screen {
+            self.seen_full_screen = seen;
+            if let Some(on) = seen
+                && on != self.session.view.full_screen
+            {
+                self.session.view.full_screen = on;
+                self.sent_full_screen = on;
+            }
+        }
+        let want = self.session.view.full_screen;
+        if want != self.sent_full_screen {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(want));
+            self.sent_full_screen = want;
+        }
     }
 
     /// A click on the window's chrome (ribbon tabs and empty ribbon space, galleries, check
@@ -1820,6 +1868,9 @@ impl WordApp {
         let on_chrome = ctx.layer_id_at(pos).is_none_or(|l| l.order == egui::Order::Background);
         if on_chrome && ctx.memory(|m| m.focused().is_none()) && !egui::Popup::is_any_open(ctx) {
             self.canvas.want_focus = true;
+            // The canvas reads keys before it takes focus back (#1107), so it counts as focused
+            // now: a keystroke in the very next frame reaches the page instead of being dropped.
+            self.canvas.focused = true;
             ctx.request_repaint();
         }
     }
@@ -1851,6 +1902,21 @@ impl WordApp {
             if r.is_ok() {
                 self.ui.backstage = false;
             }
+        }
+    }
+
+    /// Pictures pasted in the browser: inserted once when the page is the edit target, dropped
+    /// otherwise so the focused field's own paste applies (a text field ignores a picture).
+    fn drain_pasted(&mut self) {
+        let Some(pasted) = self.services.pasted.clone() else { return };
+        let pictures = std::mem::take(&mut *pasted.lock().unwrap_or_else(|e| e.into_inner()));
+        let target = paste_target(self.canvas.focused, self.ui.backstage, self.dialog.is_some() || self.file_dialog_open());
+        for (_, bytes) in pictures {
+            if !target {
+                log::debug!("pasted picture ignored: the document is not the edit target");
+                continue;
+            }
+            let _ = self.insert_or_change_picture(json!({"data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}));
         }
     }
 
@@ -3575,6 +3641,53 @@ mod tests {
         }
     }
 
+    /// #1156: the Print page's preview fills the pane beside the settings, zooms from its own
+    /// bar, scrolls both ways once the page outgrows the pane, and One Page fits it again.
+    #[test]
+    fn the_print_preview_fills_the_pane_zooms_and_scrolls_both_ways() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{By, Queryable};
+        let mut a = app();
+        a.run("file.print", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let page = |h: &egui_kittest::Harness<'_, WordApp>| h.get(By::new().role(Role::Image)).rect();
+        let fit = page(&h);
+        assert!(fit.height() > 650.0, "the page fills the pane's height: {fit:?}");
+        assert!(h.query(By::new().role(Role::Label).label("Page 1 of 1")).is_some(), "the page indicator stays");
+
+        for _ in 0..5 {
+            h.get_by_label("Zoom In").click();
+            h.run_steps(2);
+        }
+        let zoomed = page(&h);
+        assert!(zoomed.width() > fit.width() * 1.4 && zoomed.height() > 900.0, "zoomed in: {zoomed:?}");
+
+        h.input_mut().events.push(egui::Event::PointerMoved(zoomed.center()));
+        h.input_mut().events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(-120.0, -120.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(20);
+        let moved = page(&h);
+        assert!(moved.min.x < zoomed.min.x - 50.0, "scrolls sideways: {zoomed:?} -> {moved:?}");
+        assert!(moved.min.y < zoomed.min.y - 50.0, "scrolls down: {zoomed:?} -> {moved:?}");
+
+        h.get_by_label("One Page").click();
+        h.run_steps(4);
+        let again = page(&h);
+        assert!((again.height() - fit.height()).abs() < 1.0, "One Page fits the page again: {fit:?} vs {again:?}");
+    }
+
     /// File › Options shows Make WordCraft the default… only when the host can do it (#295), and
     /// the button runs the host's hook.
     #[test]
@@ -4746,6 +4859,126 @@ mod tests {
         commands
     }
 
+    /// #980: F11 and View › Full Screen (`view.fullScreen`) take the window to full screen; a
+    /// second F11 or Escape brings it back.
+    #[test]
+    fn f11_and_escape_toggle_full_screen() {
+        use egui::ViewportCommand::Fullscreen;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        // Run frames and return the full-screen requests the window got.
+        let sent = |h: &mut egui_kittest::Harness<WordApp>| {
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                h.step();
+                out.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).filter(|c| matches!(c, Fullscreen(_))).cloned());
+            }
+            out
+        };
+        assert_eq!(sent(&mut h), vec![], "a normal window to start with");
+        h.event(key(egui::Key::F11));
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)], "F11");
+        assert!(h.state().session.view.full_screen);
+        h.event(key(egui::Key::F11));
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "F11 again");
+        assert!(!h.state().session.view.full_screen);
+        // The command (ribbon, command search, agents), then Escape.
+        assert_eq!(h.state_mut().run("view.fullScreen", json!({})).unwrap(), json!({"value": true}));
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)], "the command");
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "Escape");
+        // Escape in a normal window doesn't touch the window.
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![]);
+        // Escape closing a dialog leaves full screen alone.
+        h.state_mut().run("view.fullScreen", json!({"value": true})).unwrap();
+        h.state_mut().run("ui.dialog", json!({"name": "zoom"})).unwrap();
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)]);
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![]);
+        assert!(h.state().dialog.is_none(), "Escape closed the dialog");
+        assert!(h.state().session.view.full_screen, "and only that");
+    }
+
+    /// #980: in full screen, Escape with text selected collapses the selection (as in a normal
+    /// window) and leaves full screen alone; the next Escape, with nothing selected, leaves it.
+    #[test]
+    fn escape_collapses_a_selection_before_leaving_full_screen() {
+        use egui::ViewportCommand::Fullscreen;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let sent = |h: &mut egui_kittest::Harness<WordApp>| {
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                h.step();
+                out.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).filter(|c| matches!(c, Fullscreen(_))).cloned());
+            }
+            out
+        };
+        h.state_mut().canvas.focused = true;
+        h.state_mut().run("text.insert", json!({"text": "Hello world"})).unwrap();
+        h.state_mut().run("select.all", json!({})).unwrap();
+        h.state_mut().run("view.fullScreen", json!({"value": true})).unwrap();
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)]);
+        assert!(!h.state().session.sel.is_collapsed());
+        h.event(esc.clone());
+        assert_eq!(sent(&mut h), vec![], "Escape with a selection stays in full screen");
+        assert!(h.state().session.sel.is_collapsed(), "and collapses the selection");
+        assert!(h.state().session.view.full_screen);
+        h.event(esc);
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "Escape with nothing selected leaves");
+        assert!(!h.state().session.view.full_screen);
+    }
+
+    /// #980: the window leaving full screen by other means (the window manager, the macOS title
+    /// bar button) turns View › Full Screen off, and entering it turns it on.
+    #[test]
+    fn full_screen_follows_the_window() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        let frame = |a: &mut WordApp, fullscreen: Option<bool>| {
+            let mut input = egui::RawInput::default();
+            input.viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = fullscreen;
+            let mut out = ctx.run_ui(input, |ui| a.sync_full_screen(ui.ctx()));
+            let sent = out.viewport_output.remove(&egui::ViewportId::ROOT).map(|v| v.commands).unwrap_or_default();
+            out.drop_without_applying_deltas();
+            sent.into_iter().filter(|c| matches!(c, egui::ViewportCommand::Fullscreen(_))).collect::<Vec<_>>()
+        };
+        assert!(frame(&mut a, Some(false)).is_empty());
+        let sent = frame(&mut a, Some(true));
+        assert!(sent.is_empty(), "the window went full screen: nothing to ask: {sent:?}");
+        assert!(a.session.view.full_screen);
+        assert!(frame(&mut a, Some(false)).is_empty());
+        assert!(!a.session.view.full_screen, "and came back");
+        // Asked for: sent once; the window is slow to report it, which doesn't undo the request.
+        a.run("view.fullScreen", json!({})).unwrap();
+        assert_eq!(frame(&mut a, Some(false)), vec![egui::ViewportCommand::Fullscreen(true)]);
+        assert!(frame(&mut a, Some(false)).is_empty());
+        assert!(a.session.view.full_screen);
+        assert!(frame(&mut a, Some(true)).is_empty());
+        assert!(a.session.view.full_screen);
+    }
+
     /// #311: with System, egui's theme preference stays System, so the native window is never
     /// pinned to a concrete appearance (macOS would stop reporting OS changes), and our palette
     /// follows each OS appearance egui reports.
@@ -4829,6 +5062,121 @@ mod tests {
 
     fn object_count(a: &mut WordApp) -> usize {
         a.session.run("arrange.selectionPane", &json!({})).unwrap().as_array().map(|x| x.len()).unwrap_or(0)
+    }
+
+    /// A picture pasted in the browser lands only when the page is the edit target (#1349);
+    /// dropped or opened files always land.
+    #[test]
+    fn pasted_picture_inserts_only_when_the_page_is_the_edit_target() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        let push = |a: &mut WordApp, c| {
+            // Collapse after the last picture so an insertion adds one instead of replacing it.
+            a.session.run("select.collapse", &json!({"end": true})).unwrap();
+            q.lock().unwrap().push(("pasted.png".into(), png_bytes(c)));
+        };
+        // The page has focus: inserted once.
+        a.canvas.focused = true;
+        push(&mut a, [200, 30, 30, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        assert!(q.lock().unwrap().is_empty(), "the queue is drained, so no second insertion");
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        // A dialog is open.
+        a.run("ui.dialog", json!({"name": "find"})).unwrap();
+        assert!(a.dialog.is_some());
+        push(&mut a, [1, 2, 3, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        a.dialog = None;
+        // The Backstage is open.
+        a.ui.backstage = true;
+        push(&mut a, [1, 2, 3, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        assert!(q.lock().unwrap().is_empty(), "ignored pictures are dropped, not kept for later");
+        a.ui.backstage = false;
+        // A dropped file still inserts with the page unfocused.
+        a.canvas.focused = false;
+        a.session.run("select.collapse", &json!({"end": true})).unwrap();
+        a.services.inbox = Some(Inbox::default());
+        a.services.inbox.as_ref().unwrap().lock().unwrap().push(("drop.png".into(), png_bytes([5, 5, 5, 255])));
+        a.drain_inbox();
+        assert_eq!(object_count(&mut a), 2);
+    }
+
+    fn paste_harness(a: WordApp) -> egui_kittest::Harness<'static, WordApp> {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h
+    }
+
+    /// Through the real frame loop (#1349): a paste onto the focused page inserts once; the
+    /// focused page must not look like a text field to the guard.
+    #[test]
+    fn a_paste_onto_the_focused_page_inserts_one_picture() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        let mut h = paste_harness(a);
+        assert!(h.state().canvas.focused);
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 1);
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 1, "once");
+    }
+
+    /// A real text field with focus (the Find box) takes the input: the picture is dropped.
+    #[test]
+    fn a_paste_with_the_find_dialog_open_is_ignored() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        a.run("ui.dialog", json!({"name": "find"})).unwrap();
+        let mut h = paste_harness(a);
+        h.ctx.memory_mut(|m| m.request_focus(egui::Id::new("find_what")));
+        h.step();
+        h.step();
+        assert!(!h.state().canvas.focused);
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 0);
+        assert!(q.lock().unwrap().is_empty());
+    }
+
+    /// A text field outside any dialog (the Navigation pane's search) with focus takes the input:
+    /// the page is not focused, and the picture is dropped (#1349).
+    #[test]
+    fn a_paste_with_a_pane_text_field_focused_is_ignored() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        a.run("view.navigationPane", json!({"value": true})).unwrap();
+        let mut h = paste_harness(a);
+        // Focus the search box for real (as Ctrl+F does), once the page has settled.
+        h.state_mut().canvas.want_focus = false;
+        h.state_mut().nav_search_focus = true;
+        h.step();
+        h.step();
+        let app = h.state();
+        assert!(app.dialog.is_none() && !app.ui.backstage, "no dialog, no Backstage");
+        assert!(!app.canvas.focused, "the search box has the focus, not the page");
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 0);
+        assert!(q.lock().unwrap().is_empty());
     }
 
     /// A pending Change Picture replaces the selected image instead of inserting (#147).
@@ -5098,6 +5446,20 @@ mod tests {
         keeps_view(&mut a, "draw.stroke", json!({"page": 0, "points": [[300, 500], [400, 500]], "tool": "pencil"}));
         keeps_view(&mut a, "draw.erase", json!({"page": 0, "x": 350, "y": 500}));
         a.canvas.scroll_to_caret = false;
+        a.run("text.insert", json!({"text": "x"})).unwrap();
+        assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
+    }
+
+    #[test]
+    fn select_all_does_not_scroll_to_the_end() {
+        let mut a = typed();
+        a.canvas.scroll_to_caret = true;
+        a.run("select.all", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
+        a.run("format.bold", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
+        a.run("edit.copy", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
         a.run("text.insert", json!({"text": "x"})).unwrap();
         assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
     }

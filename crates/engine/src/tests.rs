@@ -912,6 +912,64 @@ fn paste_special_lists_formats_and_pastes_text_without_formatting() {
 }
 
 #[test]
+fn pasted_rtf_sections_link_their_headers_to_the_previous() {
+    // #1378: the RTF's own header part ids mean nothing in this document; a pasted section
+    // break keeps its page but links its headers and footers to the previous section.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    let note = s.doc.add_part(wordcraft_doc::PartKind::Footnote, Vec::new());
+    let _comment = s.doc.add_part(wordcraft_doc::PartKind::Comment, Vec::new());
+    run(&mut s, "caret.docEnd", json!({}));
+    let rtf = r"{\rtf1\ansi\sectd\lndscpsxn\titlepg{\header Head\par}{\footer Foot\par}{\headerf First\par} a\par\sect\sectd{\header Two\par} b\par}";
+    run(&mut s, "edit.pasteSpecial", json!({"as": "rtf", "rtf": rtf}));
+    let secs = s.doc.sections();
+    assert_eq!(secs.len(), 2, "the pasted section break is kept");
+    assert!(secs[0].1.landscape, "with its page settings");
+    for (_, sp) in &secs {
+        for (set, kind) in [(sp.headers, wordcraft_doc::PartKind::Header), (sp.footers, wordcraft_doc::PartKind::Footer)] {
+            for id in [set.default, set.first, set.even].into_iter().flatten() {
+                assert_eq!(s.doc.parts.get(&id).map(|p| p.kind), Some(kind), "section refers to part {id} (footnote is {note})");
+            }
+        }
+    }
+    assert_unlinked(&s);
+}
+
+/// Every section break in the body has no headers, footers or first-page setting of its own.
+fn assert_unlinked(s: &Session) {
+    for (i, sp) in s.doc.sections() {
+        assert_eq!((sp.headers, sp.footers, sp.title_page), Default::default(), "section ending at block {i}");
+    }
+}
+
+#[test]
+fn text_from_file_unlinks_inserted_sections_headers() {
+    // #1378: Insert › Text from File brings the file's section breaks with their pages, but
+    // the file's header and footer ids are its own: they link to the previous section's.
+    let dir = std::env::temp_dir().join(format!("wordcraft-text-from-file-sections-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let rtf = r"{\rtf1\ansi\sectd\lndscpsxn\titlepg{\header Head\par}{\footer Foot\par}{\headerf First\par} a\par\sect\sectd{\header Two\par} b\par}";
+    let rtf_path = dir.join("sections.rtf");
+    std::fs::write(&rtf_path, rtf).unwrap();
+    // The same document as DOCX.
+    let docx_path = dir.join("sections.docx");
+    let src = crate::io::open_bytes("sections.rtf", rtf.as_bytes()).unwrap();
+    std::fs::write(&docx_path, crate::io::save_bytes("sections.docx", &src).unwrap()).unwrap();
+    for path in [&rtf_path, &docx_path] {
+        let mut s = s();
+        run(&mut s, "document.setText", json!({"text": "x"}));
+        s.doc.add_part(wordcraft_doc::PartKind::Footnote, Vec::new());
+        run(&mut s, "caret.docEnd", json!({}));
+        run(&mut s, "insert.textFromFile", json!({"path": path.to_str().unwrap()}));
+        let secs = s.doc.sections();
+        assert!(secs.len() >= 2, "{path:?}: the inserted section break is kept");
+        assert!(secs[0].1.landscape, "{path:?}: with its page settings");
+        assert_unlinked(&s);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn paste_special_html_and_rtf_keep_bold() {
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "x"}));
@@ -1125,6 +1183,82 @@ fn tables_commands() {
     run(&mut s, "table.deleteTable", json!({}));
     assert!(s.doc.body.iter().all(|b| b.as_table().is_none()));
     assert!(s.run("table.merge", &json!({})).is_err());
+}
+
+fn cells(s: &Session) -> Option<((usize, usize), (usize, usize))> {
+    s.cell_range().map(|x| (x.rows, x.cols))
+}
+
+#[test]
+fn select_all_grows_cell_then_row_then_table_then_document() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Before"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "A1"}));
+    assert_eq!(s.sel.focus.path.cell().map(|(_, r, c)| (r, c)), Some((0, 0)));
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 0), (0, 0))), "first Ctrl+A selects the cell");
+    assert_eq!(s.selected_text(), "A1");
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 0), (0, 1))), "second Ctrl+A selects the row");
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 1))), "third Ctrl+A selects the table");
+
+    run(&mut s, "select.all", json!({}));
+    assert!(s.column.is_none());
+    let (a, b) = s.sel.ordered();
+    assert_eq!(a, s.doc.start_of(StoryRef::Body));
+    assert_eq!(b, s.doc.end_of(StoryRef::Body));
+    assert!(s.selected_text().starts_with("Before"));
+
+    run(&mut s, "select.all", json!({}));
+    let (a, b) = s.sel.ordered();
+    assert_eq!((a, b), (s.doc.start_of(StoryRef::Body), s.doc.end_of(StoryRef::Body)));
+}
+
+#[test]
+fn select_all_from_a_column_grows_to_the_table() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "table.selectColumn", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 0))));
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 1))), "Ctrl+A on a column selects the table");
+}
+
+#[test]
+fn select_all_keeps_the_whole_story_when_it_ends_in_a_table() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "A1"}));
+    s.doc.body.pop();
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    let whole = (s.doc.start_of(StoryRef::Body), s.doc.end_of(StoryRef::Body));
+    assert!(s.doc.end_of(StoryRef::Body).path.cell().is_some());
+    assert_eq!(s.sel.ordered(), whole);
+    run(&mut s, "select.all", json!({}));
+    assert!(s.column.is_none());
+    assert_eq!(s.sel.ordered(), whole);
+}
+
+#[test]
+fn select_extend_from_a_table_paragraph_selects_the_document() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "Hello world"}));
+    run(&mut s, "select.paragraph", json!({}));
+    run(&mut s, "select.extend", json!({}));
+    assert!(s.column.is_none());
+    let (a, b) = s.sel.ordered();
+    assert_eq!(a, s.doc.start_of(StoryRef::Body));
+    assert_eq!(b, s.doc.end_of(StoryRef::Body));
 }
 
 /// AutoFit Contents (#44) measures the text: a column of short words narrows, a column with a
@@ -1376,6 +1510,71 @@ fn page_setup_and_breaks() {
     assert_eq!(s.doc.sections().len(), 2);
     assert_eq!(s.layout().pages.len(), 2);
     assert!(s.run("layout.margins", &json!({"left": 1000.0})).is_err());
+}
+
+/// #1433: a custom page size (More Paper Sizes…) sets the section in its orientation, and
+/// out-of-range sizes clamp to Word's 0.1"–22" instead of failing or reaching the layout.
+#[test]
+fn layout_size_takes_a_custom_size_and_clamps_it() {
+    let mut s = s();
+    let size = |s: &Session| (s.doc.last_section.page_w, s.doc.last_section.page_h);
+    run(&mut s, "layout.size", json!({"width": 300.0, "height": 500.0}));
+    assert_eq!(size(&s), (300.0, 500.0));
+    run(&mut s, "layout.margins", json!({"top": 0.0, "bottom": 0.0, "left": 0.0, "right": 0.0}));
+    run(&mut s, "layout.size", json!({"width": 40.0, "height": 5000.0}));
+    assert_eq!(size(&s), (40.0, 1584.0), "clamped to 22\"");
+    for junk in [
+        json!({"width": 1e300, "height": 400.0}),
+        json!({"width": "NaN", "height": 400.0}),
+        json!({"width": null}),
+        json!({}),
+        // Clamped to 0.1", still less than the 36 pt of text room the margins need.
+        json!({"width": -50.0, "height": 400.0}),
+        json!({"width": 1.0, "height": 400.0}),
+    ] {
+        assert!(s.run("layout.size", &junk).is_err(), "{junk}");
+        assert_eq!(size(&s), (40.0, 1584.0), "{junk} leaves the size alone");
+    }
+    // A landscape section keeps its orientation: the long side goes across.
+    run(&mut s, "layout.orientation", json!({"value": "landscape"}));
+    run(&mut s, "layout.size", json!({"width": 300.0, "height": 500.0}));
+    assert_eq!(size(&s), (500.0, 300.0));
+    assert!(s.doc.last_section.landscape);
+}
+
+/// #1433: `layout.size` refuses a page its margins don't fit, by the rule `layout.margins` uses
+/// (36 pt of text room each way), and changes nothing.
+#[test]
+fn layout_size_refuses_a_page_its_margins_dont_fit() {
+    let mut s = s();
+    run(&mut s, "layout.margins", json!({"preset": "normal"}));
+    let before = s.doc.last_section.clone();
+    for (w, h) in [(100.0, 500.0), (500.0, 100.0), (179.0, 500.0)] {
+        let e = s.run("layout.size", &json!({"width": w, "height": h})).unwrap_err().to_string();
+        assert!(e.contains("margins don't fit"), "{w}×{h}: {e}");
+        assert_eq!(s.doc.last_section, before, "{w}×{h} changes nothing");
+    }
+    run(&mut s, "layout.size", json!({"width": 180.0, "height": 180.0}));
+    assert_eq!((s.doc.last_section.page_w, s.doc.last_section.page_h), (180.0, 180.0), "exactly 36 pt of room is enough");
+}
+
+/// #1433: the smallest page there can be (0.1" wide, no margins, set straight through Page
+/// Setup's section) still lays out and exports text, a table and two columns.
+#[test]
+fn a_tiny_page_lays_out_and_exports() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "A paragraph of text that cannot fit on so small a page."}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 3}));
+    run(&mut s, "text.insert", json!({"text": "cell"}));
+    run(&mut s, "layout.columns", json!({"count": 2}));
+    let mut sect = s.doc.last_section.clone();
+    (sect.page_w, sect.page_h) = (7.2, 40.0);
+    (sect.margin_top, sect.margin_bottom, sect.margin_left, sect.margin_right, sect.gutter) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    run(&mut s, "layout.pageSetup", json!({"section": serde_json::to_value(&sect).unwrap()}));
+    assert_eq!((s.doc.last_section.page_w, s.doc.last_section.page_h), (7.2, 40.0));
+    assert!(!s.layout().pages.is_empty());
+    let pdf = crate::io::save_bytes("tiny.pdf", &s.doc).unwrap();
+    assert!(pdf.starts_with(b"%PDF"));
 }
 
 #[test]
@@ -1938,6 +2137,32 @@ fn toc_page_numbers_follow_headings() {
     }
 }
 
+/// Headings numbered through a list carry their numbers, and the level's separator, into the
+/// TOC entries.
+#[test]
+fn toc_entries_carry_heading_numbers() {
+    let mut s = s();
+    run(&mut s, "references.toc", json!({}));
+    run(&mut s, "caret.docEnd", json!({}));
+    for name in ["Alpha", "Bravo"] {
+        run(&mut s, "text.pageBreak", json!({}));
+        run(&mut s, "text.insert", json!({"text": name}));
+        run(&mut s, "para.heading1", json!({}));
+        run(&mut s, "text.newParagraph", json!({}));
+    }
+    let num = s.doc.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    for b in s.doc.body.iter_mut() {
+        if let wordcraft_doc::Block::Para(p) = std::sync::Arc::make_mut(b)
+            && p.props.style.as_deref() == Some("Heading1")
+        {
+            p.props.numbering = Some(wordcraft_doc::props::NumRef { num, level: 0 });
+        }
+    }
+    run(&mut s, "references.updateToc", json!({}));
+    let t = text(&s);
+    assert!(t.contains("1.\tAlpha\t2") && t.contains("2.\tBravo\t3"), "{t}");
+}
+
 /// A heading above the TOC keeps its index when the entries go in below it, so its page is read
 /// where it is, not `entries` blocks further down.
 #[test]
@@ -1981,6 +2206,7 @@ fn hostile_params_never_panic() {
         json!({}),
         json!({"text": 5, "size": "x", "path": [], "pos": {"block": 9999, "off": 99999}}),
         json!({"value": -1e308, "rows": 1e9}),
+        json!({"width": 1e-9, "height": 1e30, "top": -1e9, "left": 1e9}),
     ];
     for spec in reg.all() {
         // These reach outside the session (files). Read Aloud (`review.readAloud`, `readAloud.*`)
@@ -5227,6 +5453,111 @@ fn insert_picture_takes_a_windows_metafile() {
     let err = s.run("insert.picture", &json!({"path": path.to_string_lossy()})).unwrap_err();
     assert!(err.to_string().contains("WMF, EMF"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #1381: the reporter's sample HTML (synthetic, 1.7 KB).
+const SAMPLE_1381: &str = r##"<html><head><meta charset="utf-8"><title>Testo iniziale</title></head><body>
+<h2 style="color:#1c3a70;">Premessa</h2>
+<p>Il presente documento descrive l&rsquo;organizzazione della <strong>struttura sanitaria di prova</strong> e le misure
+adottate per la <em>gestione del rischio clinico</em>. I contenuti sono <span style="color:#c00000;">sintetici</span>
+e servono solo a verificare la resa della conversione.</p>
+<p style="text-align:justify;">Le attività sono svolte secondo le raccomandazioni ministeriali vigenti e sono oggetto
+di revisione annuale da parte del comitato per la valutazione dei sinistri.</p>
+<ul>
+<li>Identificazione dei rischi per reparto</li>
+<li>Analisi degli eventi avversi e dei <em>near miss</em>
+<ul><li>segnalazione spontanea</li><li>revisione delle cartelle cliniche</li></ul></li>
+<li>Piano annuale di miglioramento</li>
+</ul>
+<ol>
+<li>Raccolta delle segnalazioni</li>
+<li>Classificazione dell&rsquo;evento</li>
+<li>Azioni correttive</li>
+</ol>
+<table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;">
+<thead><tr style="background-color:#e8f0fa;"><th>Indicatore</th><th>Valore atteso</th><th>Valore rilevato</th></tr></thead>
+<tbody>
+<tr><td>Segnalazioni analizzate entro 30 giorni</td><td style="text-align:right;">&ge; 90%</td><td style="text-align:right;">93%</td></tr>
+<tr><td>Audit clinici svolti</td><td style="text-align:right;">4</td><td style="text-align:right;">5</td></tr>
+<tr><td colspan="2">Totale azioni correttive aperte</td><td style="text-align:right;">12</td></tr>
+</tbody></table>
+<p style="font-size:9pt;color:#595959;">Fonte: elaborazione interna su dati sintetici.</p>
+</body></html>"##;
+
+/// The first table's grid width in points.
+fn first_table_width(doc: &wordcraft_doc::Document) -> f32 {
+    doc.body.iter().find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t.grid.iter().sum::<f32>()) } else { None }).unwrap()
+}
+
+#[test]
+fn opened_html_text_and_markdown_get_the_region_paper() {
+    // #1381: a file that gives no page size opens on the region's paper, as a new blank document
+    // does (#838): A4 in Italy, Letter in the US. Tables fit that page.
+    let dir = std::env::temp_dir().join(format!("wordcraft-region-paper-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let html = dir.join("S05.html");
+    std::fs::write(&html, SAMPLE_1381).unwrap();
+    for (tag, size) in [("it-IT", (595.28, 841.89)), ("en-US", (612.0, 792.0))] {
+        let mut s = s();
+        s.system_region = wordcraft_geom::Region::from_tag(tag);
+        // By path (pictures load from beside the file) and by bytes (the web, MCP).
+        run(&mut s, "file.open", json!({"path": html.to_string_lossy()}));
+        let sp = s.doc.last_section.clone();
+        assert_eq!((sp.page_w, sp.page_h), size, "{tag}: HTML by path");
+        assert!(first_table_width(&s.doc) <= sp.text_width() + 0.5, "{tag}: the table fits the page");
+        for (name, body) in [("S05.html", SAMPLE_1381), ("notes.txt", "Hello"), ("notes.md", "# Title\n\n|a|b|\n|-|-|\n|1|2|\n")] {
+            let data = crate::cmd::insert::base64_encode(body.as_bytes());
+            run(&mut s, "file.open", json!({"path": name, "data": data}));
+            let sp = &s.doc.last_section;
+            assert_eq!((sp.page_w, sp.page_h), size, "{tag}: {name}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn opened_documents_with_their_own_page_size_keep_it() {
+    // #1381: only files without a page size take the region's paper.
+    for (w, h) in [(500.0, 700.0), (612.0, 792.0)] {
+        let mut doc = wordcraft_doc::Document::from_text("Own size");
+        doc.last_section.page_w = w;
+        doc.last_section.page_h = h;
+        for name in ["own.docx", "own.rtf", "own.odt"] {
+            let bytes = crate::io::save_bytes(name, &doc).unwrap();
+            let mut s = s();
+            s.system_region = wordcraft_geom::Region::from_tag("it-IT");
+            run(&mut s, "file.open", json!({"path": name, "data": crate::cmd::insert::base64_encode(&bytes)}));
+            let sp = &s.doc.last_section;
+            assert_eq!((sp.page_w.round(), sp.page_h.round()), (w, h), "{name}");
+        }
+    }
+}
+
+#[test]
+fn html_converted_to_docx_keeps_bold_headers_and_right_aligned_cells() {
+    // #1381: `wordcraft-cli convert S05.html out.docx`: the <th> runs are bold and the
+    // `text-align:right` cells' paragraphs carry `w:jc w:val="right"`.
+    use std::io::Read;
+    let mut s = s();
+    run(&mut s, "file.open", json!({"path": "S05.html", "data": crate::cmd::insert::base64_encode(SAMPLE_1381.as_bytes())}));
+    let bytes = crate::io::save_bytes("out.docx", &s.doc).unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+    let mut xml = String::new();
+    zip.by_name("word/document.xml").unwrap().read_to_string(&mut xml).unwrap();
+    let cell = |text: &str| {
+        let at = xml.find(&format!(">{text}<")).unwrap_or_else(|| panic!("{text} in {xml}"));
+        let start = xml[..at].rfind("<w:tc>").or_else(|| xml[..at].rfind("<w:tc ")).unwrap();
+        let end = at + xml[at..].find("</w:tc>").unwrap();
+        xml[start..end].to_string()
+    };
+    for head in ["Indicatore", "Valore atteso", "Valore rilevato"] {
+        assert!(cell(head).contains("<w:b/>"), "{head}: {}", cell(head));
+    }
+    for right in ["93%", "4", "5", "12"] {
+        assert!(cell(right).contains(r#"<w:jc w:val="right"/>"#), "{right}: {}", cell(right));
+    }
+    let left = cell("Audit clinici svolti");
+    assert!(!left.contains(r#"<w:jc w:val="right"/>"#) && !left.contains("<w:b/>"), "{left}");
 }
 
 #[test]
