@@ -56,9 +56,6 @@ use wordcraft_metafile::{Picture, PlacedItem};
 const MAX_SIDE: f32 = 14_400.0;
 /// Largest picture side we embed (pixels).
 const MAX_IMAGE_SIDE: u32 = 30_000;
-/// Most pixels a picture may have to be decoded for embedding (400 MB of RGBA), checked from its
-/// header before decoding. The `image` crate's own allocation limit (512 MiB) still applies.
-const MAX_IMAGE_PIXELS: u64 = 100_000_000;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum PdfError {
@@ -1614,15 +1611,21 @@ fn path_from(b: &kurbo::BezPath) -> Option<Path> {
 }
 
 /// Decode a picture for embedding (validated with the `image` crate first, so a broken file
-/// can't fail the whole export), with its brightness and contrast `fx` applied to the pixels. A
-/// JPEG goes in as it is only when `fx` leaves its pixels alone; otherwise, like every other
-/// picture, its pixels go in raw and krilla compresses them (Flate). Pictures larger than
-/// [`MAX_IMAGE_SIDE`] or [`MAX_IMAGE_PIXELS`] are refused from their header, before decoding.
+/// can't fail the whole export), with its brightness and contrast `fx` applied to the pixels.
+///
+/// A JPEG goes in as it is unless `fx` changes its pixels; corrected pixels go in raw and krilla
+/// compresses them (Flate), and `Exporter::image` embeds one picture with the same corrections
+/// once. Every picture, corrected or not, is decoded once under the `image` crate's default
+/// limits (512 MiB per allocation), the same decode the screen does (`wordcraft_render::
+/// decode_pixmap`), so a picture never fails here only because it has corrections: one the
+/// limits refuse is refused on screen too. Applying `fx` then needs no allocation of its own
+/// beyond the RGBA copy every raw picture makes. A side past [`MAX_IMAGE_SIDE`] is refused from
+/// the header, before decoding, as it would be after.
 fn load_image(data: &Arc<Vec<u8>>, fx: PicFx) -> Option<Image> {
     let fmt = image::guess_format(data).ok()?;
-    let (hw, hh) = image::ImageReader::with_format(std::io::Cursor::new(data.as_slice()), fmt).into_dimensions().ok()?;
-    if hw > MAX_IMAGE_SIDE || hh > MAX_IMAGE_SIDE || u64::from(hw) * u64::from(hh) > MAX_IMAGE_PIXELS {
-        log::warn!("PDF: a {hw} × {hh} picture is too large to embed");
+    if let Ok((hw, hh)) = image::ImageReader::with_format(std::io::Cursor::new(data.as_slice()), fmt).into_dimensions()
+        && (hw > MAX_IMAGE_SIDE || hh > MAX_IMAGE_SIDE)
+    {
         return None;
     }
     let dec = image::load_from_memory_with_format(data, fmt).ok()?;

@@ -1509,11 +1509,12 @@ fn picture_fx_is_baked_into_the_embedded_image() {
     assert_eq!(pdf_images(&export_with(&jpeg, "jpeg", &[PicFx { bright: i32::MAX, contrast: i32::MIN, transparency: -7 }])).len(), 1);
 }
 
-/// A picture whose header claims more pixels than [`MAX_IMAGE_PIXELS`] (a few bytes asking for
-/// gigabytes once decoded, with corrections forcing the decode) is refused before decoding, and
-/// the export still works.
+/// A hostile header (a few bytes claiming 20 000 × 20 000 RGBA, 1.6 GB decoded) is refused by
+/// the decoder's allocation limit, the one the screen uses too, with corrections or without:
+/// nothing is allocated for it, nothing panics, and the export still works. Corrections never
+/// make a picture fail where it wouldn't without them.
 #[test]
-fn oversized_picture_is_refused_from_its_header() {
+fn hostile_picture_header_is_refused_without_allocating() {
     use wordcraft_doc::picfx::PicFx;
     fn crc32(bytes: &[u8]) -> u32 {
         let mut c = !0u32;
