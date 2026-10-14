@@ -840,36 +840,41 @@ fn normalize_blocks_bijoy(
 }
 
 /// Build the set of style IDs whose resolved character properties include a Bijoy font.
-/// Walks each style's own `chr` and up to 32 `based_on` hops through the style sheet.
+/// Resolves font classification with nearest-style precedence: if a style or an intervening
+/// ancestor explicitly specifies a font, that nearest declaration determines whether the
+/// style is Bijoy (an explicit Latin font overrides an ancestor Bijoy font).
 fn bijoy_style_set(styles: &wordcraft_doc::StyleSheet) -> std::collections::HashSet<String> {
     let mut set = std::collections::HashSet::new();
     let default_is_bijoy = char_props_has_bijoy(&styles.default_chr);
     for st in &styles.styles {
-        if char_props_has_bijoy(&st.chr) {
-            set.insert(st.id.clone());
+        // 1. If the style itself explicitly defines a font, that nearest declaration is decisive.
+        if st.chr.font.is_some() || st.chr.font_cs.is_some() {
+            if char_props_has_bijoy(&st.chr) {
+                set.insert(st.id.clone());
+            }
             continue;
         }
-        // Walk the based_on chain
+
+        // 2. Otherwise walk the based_on chain to find the nearest style with an explicit font.
         let mut base = st.based_on.as_deref();
         let mut hops = 0usize;
-        let mut found_bijoy = false;
-        let mut has_explicit_font = st.chr.font.is_some() || st.chr.font_cs.is_some();
+        let mut resolved_bijoy = None;
         while let Some(b) = base {
             hops += 1;
             if hops > 32 {
                 break;
             }
             let Some(parent) = styles.styles.iter().find(|s| s.id == b) else { break };
-            if char_props_has_bijoy(&parent.chr) {
-                found_bijoy = true;
-                break;
-            }
             if parent.chr.font.is_some() || parent.chr.font_cs.is_some() {
-                has_explicit_font = true;
+                resolved_bijoy = Some(char_props_has_bijoy(&parent.chr));
+                break;
             }
             base = parent.based_on.as_deref();
         }
-        if found_bijoy || (default_is_bijoy && !has_explicit_font) {
+
+        // 3. If found an ancestor with an explicit font, use that; otherwise fall back to doc default.
+        let is_bijoy = resolved_bijoy.unwrap_or(default_is_bijoy);
+        if is_bijoy {
             set.insert(st.id.clone());
         }
     }
@@ -1113,5 +1118,79 @@ mod tests {
         assert_eq!(out_en, "Hello world");
         assert_eq!(out_bn, "আমার সোনার বাংলা");
         assert_eq!(doc.body[1].as_para().and_then(|p| p.mark.font.as_deref()), Some("Kalpurush"));
+    }
+
+    #[test]
+    fn latin_child_style_over_bijoy_ancestor_must_not_convert_plain_text() {
+        let mut doc = Document::default();
+        doc.styles.default_chr = CharProps { font: Some("Calibri".into()), ..Default::default() };
+        // Grandparent/parent style has SutonnyMJ
+        doc.styles.styles.push(wordcraft_doc::Style {
+            id: "BanglaParent".into(),
+            name: "Bangla Parent".into(),
+            chr: CharProps { font: Some("SutonnyMJ".into()), ..Default::default() },
+            ..Default::default()
+        });
+        // Child style explicitly overrides font with Latin Calibri
+        doc.styles.styles.push(wordcraft_doc::Style {
+            id: "LatinChild".into(),
+            name: "Latin Child".into(),
+            based_on: Some("BanglaParent".into()),
+            chr: CharProps { font: Some("Calibri".into()), ..Default::default() },
+            ..Default::default()
+        });
+        let p = Paragraph {
+            text: "Hello world".into(),
+            props: wordcraft_doc::props::ParaProps { style: Some("LatinChild".into()), ..Default::default() },
+            ..Default::default()
+        };
+        doc.body = vec![std::sync::Arc::new(Block::Para(p))];
+
+        normalize_bijoy_fonts(&mut doc);
+
+        let out = doc.body[0].as_para().map(|p| p.text.as_str()).unwrap_or("");
+        assert_eq!(out, "Hello world", "explicit Latin child style must override Bijoy ancestor");
+        // Style font must remain Calibri, NOT converted to Kalpurush
+        let child_style = doc.styles.styles.iter().find(|s| s.id == "LatinChild").unwrap();
+        assert_eq!(child_style.chr.font.as_deref(), Some("Calibri"));
+    }
+
+    #[test]
+    fn intervening_latin_parent_breaks_bijoy_inheritance() {
+        let mut doc = Document::default();
+        doc.styles.default_chr = CharProps { font: Some("Calibri".into()), ..Default::default() };
+        // Grandparent style has SutonnyMJ
+        doc.styles.styles.push(wordcraft_doc::Style {
+            id: "BanglaGrandparent".into(),
+            name: "Bangla Grandparent".into(),
+            chr: CharProps { font: Some("SutonnyMJ".into()), ..Default::default() },
+            ..Default::default()
+        });
+        // Intervening parent style overrides with Latin Calibri
+        doc.styles.styles.push(wordcraft_doc::Style {
+            id: "LatinParent".into(),
+            name: "Latin Parent".into(),
+            based_on: Some("BanglaGrandparent".into()),
+            chr: CharProps { font: Some("Calibri".into()), ..Default::default() },
+            ..Default::default()
+        });
+        // Child style specifies no explicit font, inherits from LatinParent
+        doc.styles.styles.push(wordcraft_doc::Style {
+            id: "ChildStyle".into(),
+            name: "Child Style".into(),
+            based_on: Some("LatinParent".into()),
+            ..Default::default()
+        });
+        let p = Paragraph {
+            text: "Important announcement".into(),
+            props: wordcraft_doc::props::ParaProps { style: Some("ChildStyle".into()), ..Default::default() },
+            ..Default::default()
+        };
+        doc.body = vec![std::sync::Arc::new(Block::Para(p))];
+
+        normalize_bijoy_fonts(&mut doc);
+
+        let out = doc.body[0].as_para().map(|p| p.text.as_str()).unwrap_or("");
+        assert_eq!(out, "Important announcement", "intervening Latin parent must break Bijoy inheritance");
     }
 }
