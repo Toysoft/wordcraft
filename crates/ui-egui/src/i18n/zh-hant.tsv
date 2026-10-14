@@ -95,6 +95,7 @@
 	Ignore web and file addresses	忽略網址和檔案路徑
 	Ignore words in capitals	忽略全部大寫的單字
 	Ignore words with numbers	忽略包含數字的單字
+	In the margin	在頁邊
 	Inches	英寸
 	Formatting exceptions	格式例外
 	Include level number from:	包含的層級編號來自：
@@ -128,6 +129,7 @@
 	Number alignment:	編號對齊方式：
 	Number format	編號格式
 	Number style for this level:	此層級的編號樣式：
+	Only for the selected text	僅針對所選文字
 	Outside border	外側框線
 	Make WordCraft the default for Word documents…	將 WordCraft 設為 Word 文件的預設應用程式…
 	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	今後以 WordCraft 開啟 .docx、.doc、.rtf、.odt 檔案和 Word 範本。
@@ -184,6 +186,9 @@
 	Bold	粗體
 	Bookmark	書籤
 	Bookmark name:	書籤名稱：
+	Delete Bookmark	刪除書籤
+	Hidden bookmarks	隱藏書籤
+	Sort by:	排序依據：
 	Border Painter	框線複製
 	Border\nPainter	框線複製
 	Borders	框線
@@ -509,6 +514,8 @@
 	Labels	標籤
 	Landscape	橫向
 	Language	語言
+	{language} (no dictionary)	{language}（無字典）
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	未安裝{language}的拼字字典，因此不會檢查該語言。WordCraft 會在 WORDCRAFT_DICTIONARIES 資料夾和常見的系統位置尋找 Hunspell 字典 {name}。
 	Lasso	套索
 	Last Column	最後一欄
 	Last commit	最近提交
@@ -2080,6 +2087,39 @@
 	AutoFit Column by Double-Clicking	按兩下自動調整欄寬
 	Region:	地區：
 	Automatic ({region})	自動（{region}）
+	Text of the nearest paragraph with a given style (running headers)	具有指定樣式的最近段落文字（書眉）
+	Style name:	樣式名稱：
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	篩選收件者
+	Sort Recipients	排序收件者
+	Filter and Sort	篩選與排序
+	And	且
+	Or	或
+	Comparison	比較
+	Compare to	比較值
+	Add Condition	新增條件
+	Remove condition	移除條件
+	Sort by	排序依據
+	Then by	次要依據
+	Ascending	遞增
+	Descending	遞減
+	Equal to	等於
+	Not equal to	不等於
+	Less than	小於
+	Greater than	大於
+	Less than or equal	小於或等於
+	Greater than or equal	大於或等於
+	Is blank	空白
+	Is not blank	非空白
+	Contains	包含
+	Does not contain	不包含
+	{count} of {total} recipients will be merged.	將合併 {total} 位收件者中的 {count} 位。
+	Take the last match on the page	取本頁最後一個相符項目
+	Show its list number	顯示其清單編號
+	Show its number relative to this field	顯示相對於此欄位的編號
+	Show its number with all higher levels	顯示含所有上層層級的編號
+	Number only, without the label's words	只要編號，不要標籤中的文字
+	Add whether it is above or below	註明位於上方還是下方
 	Start-up	啟動
 	Show the Start screen when WordCraft starts	啟動 WordCraft 時顯示開始畫面
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	開：WordCraft 開啟時顯示「檔案 › 常用」，其中有空白文件、範本和最近使用的文件。關：直接開啟空白文件。
@@ -2139,3 +2179,14 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	此資料夾中的 Hunspell .aff 與 .dic 檔案 (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) 優先於系統中的檔案。
 	{language}: {file}	{language}：{file}
 	{language}: no dictionary found	{language}：找不到字典
+
+# Backstage › Recover (#586)
+	Recover	復原
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	左右對稱邊界
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	現有的檔案或網頁
+	Link to:	連結至:
+	Place in This Document	這份文件中的位置

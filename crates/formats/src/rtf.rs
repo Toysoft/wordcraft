@@ -173,7 +173,10 @@ impl Writer {
             ctl.push_str(&format!("\\chcbpat{i}"));
         }
         let body = if ctl.is_empty() { esc(t) } else { format!("{{{ctl} {}}}", esc(t)) };
-        match &f.link {
+        // A script, `file:`, UNC or other non-web target is written as plain text, as the HTML and
+        // Markdown exporters do: Word follows a HYPERLINK field's target on click, and a UNC one
+        // leaks the reader's NTLM credentials.
+        match f.link.as_deref().filter(|l| wordcraft_doc::link::is_safe_href(l)) {
             Some(l) => {
                 out.push_str(&format!("{{\\field{{\\*\\fldinst{{HYPERLINK \"{}\"}}}}{{\\fldrslt{{{}}}}}}}", esc(&l.replace('"', "%22")), body));
             }
@@ -186,8 +189,9 @@ impl Writer {
             "png" => (img.data.to_vec(), "\\pngblip"),
             "jpeg" | "jpg" => (img.data.to_vec(), "\\jpegblip"),
             _ => {
-                // Re-encode other formats as PNG.
-                let Ok(dec) = image::load_from_memory(&img.data) else { return };
+                // Re-encode other formats as PNG, bounding the decode so a tiny file declaring
+                // huge dimensions can't exhaust memory on export.
+                let Some(dec) = model::decode_bounded(&img.data) else { return };
                 let mut buf = Vec::new();
                 if dec.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).is_err() {
                     return;
@@ -1477,7 +1481,8 @@ impl Reader {
                 }
                 return;
             }
-            Dest::FontTbl => {
+            // Font names take Unicode escapes (with fallback skipping) like the body.
+            Dest::FontTbl if !matches!(w, "u" | "uc") => {
                 match w {
                     "f" => {
                         self.font_cur = pv;
@@ -1491,6 +1496,7 @@ impl Reader {
                 }
                 return;
             }
+            Dest::FontTbl => {}
             Dest::ColorTbl => {
                 let v = pv.clamp(0, 255) as u8;
                 match w {
@@ -1908,7 +1914,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                         r.info_depth = Some(r.depth());
                     }
                     if r.skip_chars > 0
-                        && matches!(r.st.dest, Dest::Body | Dest::Info(_) | Dest::FldInst | Dest::Bookmark)
+                        && matches!(r.st.dest, Dest::Body | Dest::Info(_) | Dest::FldInst | Dest::Bookmark | Dest::FontTbl)
                         && !matches!(word, "par" | "pard" | "cell" | "row")
                     {
                         r.skip_chars -= 1;
@@ -2242,6 +2248,29 @@ mod tests {
         // No font table: our default stays.
         let d = import(br"{\rtf1\ansi x\par}").unwrap();
         assert_eq!(d.styles.default_chr.font, wordcraft_doc::StyleSheet::builtin().default_chr.font);
+    }
+
+    #[test]
+    fn unicode_escapes_in_font_names() {
+        // Ordinary fallback, hex fallback and \uc0 all give "Café Sans"; the fallback is not kept.
+        for name in [r"Caf\u233? Sans", r"Caf\u233\'e9 Sans", r"\uc0 Caf\u233  Sans", r"\uc2 Caf\u233\'e9\'e9 Sans"] {
+            let rtf = format!(r"{{\rtf1\ansi\deff0{{\fonttbl{{\f0 {name};}}{{\f1 \u923?ambda;}}}}\plain x {{\f1 y}}\par}}");
+            let d = import(rtf.as_bytes()).unwrap();
+            assert_eq!(d.styles.default_chr.font.as_deref(), Some("Café Sans"), "{name}");
+            // A body run in a Unicode-named font keeps that name.
+            let f = parse(rtf.as_bytes()).unwrap();
+            let y_font = f.blocks.iter().find_map(|b| match b {
+                FBlock::Para(p) => p.inlines.iter().find_map(|i| match i {
+                    Inline::Text(t, fmt) if t.trim() == "y" => fmt.font.clone(),
+                    _ => None,
+                }),
+                FBlock::Table(_) => None,
+            });
+            assert_eq!(y_font.as_deref(), Some("Λambda"), "{name}");
+            // Our export writes font names as `\uN?`; reading it back gives the same name.
+            let back = import(export(&d).as_bytes()).unwrap();
+            assert_eq!(back.styles.default_chr.font.as_deref(), Some("Café Sans"), "{name}");
+        }
     }
 
     #[test]

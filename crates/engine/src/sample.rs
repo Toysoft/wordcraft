@@ -211,7 +211,11 @@ pub fn sample_document_in(lang: &str) -> Document {
     // Footer: centred page number.
     let mut f = Paragraph::new().styled("Footer");
     f.props.align = Some(Align::Center);
-    let _ = f.insert_object(0, InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false }, &CharProps::default());
+    let _ = f.insert_object(
+        0,
+        InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+        &CharProps::default(),
+    );
     let fid = d.add_part(PartKind::Footer, vec![para_block(f)]);
     d.last_section.footers.default = Some(fid);
     let mut hd = styled(t.header, "Header");

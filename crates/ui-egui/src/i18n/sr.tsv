@@ -125,6 +125,7 @@
 	Ignore web and file addresses	Занемари веб-адресе и путање датотека
 	Ignore words in capitals	Занемари речи писане великим словима
 	Ignore words with numbers	Занемари речи са бројевима
+	In the margin	На маргини
 	Inches	Инчи
 	Formatting exceptions	Изузеци форматирања
 	Include level number from:	Укључи број нивоа:
@@ -153,6 +154,7 @@
 	Number alignment:	Поравнање броја:
 	Number format	Формат броја
 	Number style for this level:	Стил броја за овај ниво:
+	Only for the selected text	Само за изабрани текст
 	Outside border	Спољна ивица
 	In Default apps, choose WordCraft for the document types you want it to open.	У подразумеваним апликацијама изаберите WordCraft за врсте докумената које желите да отвара.
 	Make WordCraft the default for Word documents…	Постави WordCraft као подразумевану апликацију за Word документе…
@@ -244,6 +246,9 @@
 	Bold	Подебљано
 	Bookmark	Обележивач
 	Bookmark name:	Назив обележивача:
+	Delete Bookmark	Обриши обележивач
+	Hidden bookmarks	Скривени обележивачи
+	Sort by:	Сортирај по:
 	Border Painter	Копирање ивица
 	Border\nPainter	Копирање\nивица
 	Borders	Ивице
@@ -560,6 +565,8 @@
 	Labels	Налепнице
 	Landscape	Положено
 	Language	Језик
+	{language} (no dictionary)	{language} (нема речника)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Правописни речник за {language} није инсталиран, па се текст не проверава. WordCraft тражи Hunspell речник {name} у фасцикли WORDCRAFT_DICTIONARIES и на уобичајеним системским локацијама.
 	Lasso	Ласо
 	Last Column	Задња колона
 	Last commit	Задњи commit
@@ -2093,6 +2100,39 @@
 	AutoFit Column by Double-Clicking	Аутоматско уклапање колоне двоструким кликом
 	Region:	Регион:
 	Automatic ({region})	Аутоматски ({region})
+	Text of the nearest paragraph with a given style (running headers)	Текст најближег пасуса са задатим стилом (текућа заглавља)
+	Style name:	Назив стила:
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Филтрирај примаоце
+	Sort Recipients	Сортирај примаоце
+	Filter and Sort	Филтрирање и сортирање
+	And	И
+	Or	Или
+	Comparison	Поређење
+	Compare to	Упореди са
+	Add Condition	Додај услов
+	Remove condition	Уклони услов
+	Sort by	Сортирај по
+	Then by	Затим по
+	Ascending	Растуће
+	Descending	Опадајуће
+	Equal to	Једнако
+	Not equal to	Није једнако
+	Less than	Мање од
+	Greater than	Веће од
+	Less than or equal	Мање или једнако
+	Greater than or equal	Веће или једнако
+	Is blank	Празно
+	Is not blank	Није празно
+	Contains	Садржи
+	Does not contain	Не садржи
+	{count} of {total} recipients will be merged.	Прималаца за спајање: {count} од {total}.
+	Take the last match on the page	Узми последње подударање на страници
+	Show its list number	Прикажи његов број у листи
+	Show its number relative to this field	Прикажи његов број у односу на ово поље
+	Show its number with all higher levels	Прикажи његов број са свим вишим нивоима
+	Number only, without the label's words	Само број, без речи из ознаке
+	Add whether it is above or below	Додај да ли је изнад или испод
 	Start-up	Покретање
 	Show the Start screen when WordCraft starts	Прикажи почетни екран при покретању програма WordCraft
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Укључено: WordCraft се отвара на Фајл › Почетак, са празним документом, шаблонима и недавним документима. Искључено: отвара празан документ.
@@ -2152,3 +2192,14 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell .aff и .dic датотеке из ове фасцикле (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) користе се пре системских.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: речник није пронађен
+
+# Backstage › Recover (#586)
+	Recover	Опорави
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Пресликане маргине
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Постојећа датотека или веб страница
+	Link to:	Веза ка:
+	Place in This Document	Место у овом документу

@@ -80,6 +80,9 @@
 	Bold	Paks
 	Bookmark	Järjehoidja
 	Bookmark name:	Järjehoidja nimi:
+	Delete Bookmark	Kustuta järjehoidja
+	Hidden bookmarks	Peidetud järjehoidjad
+	Sort by:	Sordi:
 	Book Title	Raamatu pealkiri
 	Border Painter	Äärisepintsel
 	Border\nPainter	Äärise-\npintsel
@@ -337,6 +340,7 @@
 	Immersive	Süvenemine
 	Immersive Reader	Süvaluger
 	Immersive\nReader	Süva-\nluger
+	In the margin	Veerisel
 	Inches	Tollid
 	Increase Font Size	Suurenda fondi suurust
 	Increase Indent	Suurenda taanet
@@ -396,6 +400,8 @@
 	Labels	Sildid
 	Landscape	Rõhtpaigutus
 	Language	Keel
+	{language} (no dictionary)	{language} (sõnastik puudub)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Keele {language} õigekirjasõnastikku pole paigaldatud, seega seda ei kontrollita. WordCraft otsib Hunspelli sõnastikku {name} kaustast WORDCRAFT_DICTIONARIES ja tavalistest süsteemikohtadest.
 	Lasso	Lasso
 	Last Column	Viimane veerg
 	Last commit	Viimane commit
@@ -504,6 +510,7 @@
 	Office 2003 Default	Office 2003 vaikevalik
 	One	Üks
 	One Page	Üks leht
+	Only for the selected text	Ainult valitud teksti jaoks
 	Open	Ava
 	OpenDocument Text (*.odt)	OpenDocumenti tekst (*.odt)
 	Optional Hyphen	Valikuline poolitusmärk
@@ -2113,6 +2120,39 @@
 	AutoFit Column by Double-Clicking	Veeru automaatne sobitus topeltklõpsuga
 	Region:	Piirkond:
 	Automatic ({region})	Automaatne ({region})
+	Text of the nearest paragraph with a given style (running headers)	Antud stiiliga lähima lõigu tekst (jooksvad päised)
+	Style name:	Stiili nimi:
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Filtreeri adressaate
+	Sort Recipients	Sordi adressaate
+	Filter and Sort	Filtreerimine ja sortimine
+	And	Ja
+	Or	Või
+	Comparison	Võrdlus
+	Compare to	Võrdle väärtusega
+	Add Condition	Lisa tingimus
+	Remove condition	Eemalda tingimus
+	Sort by	Sordi välja järgi
+	Then by	Seejärel
+	Ascending	Kasvavalt
+	Descending	Kahanevalt
+	Equal to	Võrdne
+	Not equal to	Ei võrdu
+	Less than	Väiksem kui
+	Greater than	Suurem kui
+	Less than or equal	Väiksem või võrdne
+	Greater than or equal	Suurem või võrdne
+	Is blank	On tühi
+	Is not blank	Pole tühi
+	Contains	Sisaldab
+	Does not contain	Ei sisalda
+	{count} of {total} recipients will be merged.	Ühendatavaid adressaate: {count} / {total}.
+	Take the last match on the page	Võta lehe viimane vaste
+	Show its list number	Näita selle loendinumbrit
+	Show its number relative to this field	Näita selle numbrit selle välja suhtes
+	Show its number with all higher levels	Näita selle numbrit koos kõigi kõrgemate tasemetega
+	Number only, without the label's words	Ainult number, ilma sildi sõnadeta
+	Add whether it is above or below	Lisa, kas see on üleval või all
 	Start-up	Käivitamine
 	Show the Start screen when WordCraft starts	Näita WordCrafti käivitamisel avakuva
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Sees: WordCraft avaneb vaates Fail › Avaleht, kus on tühi dokument, mallid ja hiljutised dokumendid. Väljas: avaneb tühi dokument.
@@ -2172,3 +2212,14 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Selle kausta Hunspelli .aff- ja .dic-failid (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) on eelistatud süsteemi omadele.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: sõnastikku ei leitud
+
+# Backstage › Recover (#586)
+	Recover	Taasta
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Peegelveerised
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Olemasolev fail või veebileht
+	Link to:	Link:
+	Place in This Document	Koht selles dokumendis

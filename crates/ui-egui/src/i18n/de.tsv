@@ -92,6 +92,7 @@
 	Enter formatting for number:	Formatierung für die Nummer eingeben:
 	Follow number with:	Der Nummer folgt:
 	Formatting	Formatierung
+	In the margin	Am Rand
 	Include level number from:	Ebenennummer übernehmen aus:
 	Ink	Freihand
 	Insertions and Deletions	Einfügungen und Löschungen
@@ -110,6 +111,7 @@
 	Number alignment:	Nummernausrichtung:
 	Number format	Nummernformat
 	Number style for this level:	Nummernstil für diese Ebene:
+	Only for the selected text	Nur für den ausgewählten Text
 	Outside border	Äußere Rahmenlinie
 	Reopen	Erneut öffnen
 	Restart list after:	Liste neu starten nach:
@@ -139,6 +141,9 @@
 	Bold	Fett
 	Bookmark	Textmarke
 	Bookmark name:	Textmarkenname:
+	Delete Bookmark	Textmarke löschen
+	Hidden bookmarks	Ausgeblendete Textmarken
+	Sort by:	Sortieren nach:
 	Border Painter	Rahmenlinien-Maler
 	Border\nPainter	Rahmenlinien-\nMaler
 	Borders	Rahmenlinien
@@ -451,6 +456,8 @@
 	Labels	Etiketten
 	Landscape	Querformat
 	Language	Sprache
+	{language} (no dictionary)	{language} (kein Wörterbuch)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Für {language} ist kein Rechtschreibwörterbuch installiert, daher wird die Sprache nicht geprüft. WordCraft sucht das Hunspell-Wörterbuch {name} im Ordner WORDCRAFT_DICTIONARIES und an den üblichen Systemorten.
 	Lasso	Lasso
 	Last Column	Letzte Spalte
 	Last commit	Letzter Commit
@@ -2070,6 +2077,31 @@
 	Hindi	Hindi
 	Context	Kontext
 	System	System
+# Mail merge: filter and sort recipients (#778)
+	Filter Recipients	Empfänger filtern
+	Sort Recipients	Empfänger sortieren
+	Filter and Sort	Filtern und Sortieren
+	And	Und
+	Or	Oder
+	Comparison	Vergleich
+	Compare to	Vergleichen mit
+	Add Condition	Bedingung hinzufügen
+	Remove condition	Bedingung entfernen
+	Sort by	Sortieren nach
+	Then by	Dann nach
+	Ascending	Aufsteigend
+	Descending	Absteigend
+	Equal to	Gleich
+	Not equal to	Ungleich
+	Less than	Kleiner als
+	Greater than	Größer als
+	Less than or equal	Kleiner oder gleich
+	Greater than or equal	Größer oder gleich
+	Is blank	Ist leer
+	Is not blank	Ist nicht leer
+	Contains	Enthält
+	Does not contain	Enthält nicht
+	{count} of {total} recipients will be merged.	{count} von {total} Empfängern werden zusammengeführt.
 	Show KeyTips (Alt or F10)	Zugriffstasten anzeigen (Alt oder F10)
 	Reading	Lesen
 	Reading Column Width	Spaltenbreite beim Lesen
@@ -2079,6 +2111,14 @@
 	Correct accidental usage of cAPS LOCK key	Unbeabsichtigtes Verwenden der fESTSTELLTASTE korrigieren
 	Region:	Region:
 	Automatic ({region})	Automatisch ({region})
+	Text of the nearest paragraph with a given style (running headers)	Text des nächsten Absatzes mit einer bestimmten Formatvorlage (lebende Kolumnentitel)
+	Style name:	Formatvorlagenname:
+	Take the last match on the page	Letzten Treffer auf der Seite nehmen
+	Show its list number	Seine Listennummer zeigen
+	Show its number relative to this field	Seine Nummer bezogen auf dieses Feld zeigen
+	Show its number with all higher levels	Seine Nummer mit allen höheren Ebenen zeigen
+	Number only, without the label's words	Nur die Nummer, ohne die Wörter der Beschriftung
+	Add whether it is above or below	Angeben, ob er darüber oder darunter steht
 	Search	Suchen
 	Title Bar	Titelleiste
 	Copy to	Kopieren nach
@@ -2137,3 +2177,14 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell-Dateien (.aff und .dic) in diesem Ordner (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) haben Vorrang vor denen des Systems.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: kein Wörterbuch gefunden
+
+# Backstage › Recover (#586)
+	Recover	Wiederherstellen
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Gegenüberliegende Seiten
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Datei oder Webseite
+	Link to:	Link zu:
+	Place in This Document	Aktuelles Dokument
