@@ -689,6 +689,15 @@ fn page_break_char_starts_new_page() {
 }
 
 #[test]
+fn page_numbers_can_restart_at_zero() {
+    // `w:pgNumType w:start="0"`: a cover page numbered 0, so the page after it reads 1.
+    let mut d = Document::from_text("Cover\u{000C}Contents");
+    d.last_section.page_num_start = Some(0);
+    let numbers: Vec<u32> = lay(&d).pages.iter().map(|p| p.number).collect();
+    assert_eq!(numbers, [0, 1]);
+}
+
+#[test]
 fn center_and_right_alignment() {
     let mut d = Document::from_text("abc\nabc\nabc");
     d.format_paragraphs(&Pos::body(1, 0), &Pos::body(1, 0), &|p| p.align = Some(Align::Center)).unwrap();
@@ -736,6 +745,37 @@ fn lists_get_labels_and_indent() {
     assert_eq!(labels, vec!["1.", "2.", "3."]);
     let x = l.caret(&Pos::body(0, 0)).unwrap().x;
     assert!((x - 108.0).abs() < 0.5, "{x}");
+}
+
+#[test]
+fn russian_letter_list_labels_draw_cyrillic() {
+    // russianLower labelled items 1, 2, 3 instead of а), б), в).
+    use wordcraft_doc::section::NumFormat;
+    let mut d = Document::from_text("один\nдва\nтри");
+    let id = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    for a in &mut d.numbering.abstracts {
+        if let Some(l) = a.levels.first_mut() {
+            l.format = NumFormat::RussianLower;
+            l.text = "%1)".into();
+        }
+    }
+    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(2, 3), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
+    let l = lay(&d);
+    let labels: Vec<(String, bool)> = l.pages[0]
+        .items
+        .iter()
+        .filter_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None })
+        .filter_map(|pl| {
+            let lab = pl.label.as_ref()?;
+            let drawn = lab.runs.iter().all(|r| {
+                let face = &pl.styles[r.style as usize].face;
+                let gids: Vec<u32> = lab.glyphs[r.glyphs.clone()].iter().map(|g| g.gid).collect();
+                r.text.chars().all(|c| gids.contains(&face.glyph_for(c)) && face.glyph_for(c) != 0)
+            });
+            Some((lab.text.clone(), drawn))
+        })
+        .collect();
+    assert_eq!(labels, [("а)".to_string(), true), ("б)".to_string(), true), ("в)".to_string(), true)]);
 }
 
 #[test]
@@ -4020,6 +4060,23 @@ fn autofit_handles_spanning_cells_long_words_and_empty_tables() {
     }
     let [(x, _, _)] = table_x(t, &[0, 0, 1, 0])[..] else { panic!("second cell missing") };
     assert!(x > 72.0 + 200.0, "the second 50% column starts at {x}");
+}
+
+#[test]
+fn a_percentage_width_past_the_text_column_is_kept() {
+    // `w:tblW w:type="pct" w:w="6564"` (131.28%) with the left margin as a negative indent: a
+    // cover-page footer table that spans the page edge to edge.
+    let mut t = Table::new(1, 2, 234.0);
+    t.props.width_pct = Some(131.28);
+    t.props.indent = Some(-72.0);
+    for (c, s) in t.rows[0].cells.iter_mut().zip(["Left", "Right"]) {
+        c.blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(s, Default::default()))];
+    }
+    let mut d = Document::from_text("After");
+    d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+    let [(x, _, _)] = para_at(&lay(&d), &[0, 0, 1, 0])[..] else { panic!("second cell missing") };
+    // Two equal columns of 614.4 pt from x = 0: the second starts past the middle of the page.
+    assert!(x > 307.0, "the second column starts at {x}");
 }
 
 #[test]
