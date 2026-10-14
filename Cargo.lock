@@ -5305,6 +5305,7 @@ dependencies = [
 name = "wordcraft-law"
 version = "0.7.0"
 dependencies = [
+ "image",
  "log",
  "proptest",
  "serde",
@@ -5314,6 +5315,7 @@ dependencies = [
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-geom",
+ "wordcraft-pdf",
 ]
 
 [[package]]
