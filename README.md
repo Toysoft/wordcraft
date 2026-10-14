@@ -267,6 +267,7 @@ instead, without setting anything. The log file records the choice (lines starti
 | Flatpak | `wordcraft-<ver>-linux-x86_64.flatpak` | `wordcraft-<ver>-linux-aarch64.flatpak` | Sandboxed; `flatpak install --user <file>` |
 | Debian/Ubuntu | `wordcraft-<ver>-linux-x86_64.deb` | `wordcraft-<ver>-linux-aarch64.deb` | |
 | Fedora/RHEL/openSUSE | `wordcraft-<ver>-linux-x86_64.rpm` | `wordcraft-<ver>-linux-aarch64.rpm` | |
+| Arch Linux/Manjaro | `wordcraft-<ver>-linux-x86_64.pkg.tar.zst` | `wordcraft-<ver>-linux-aarch64.pkg.tar.zst` | `sudo pacman -U <file>`; installs as `ai.storyteller.wordcraft`, replacing an AUR package |
 | Tarball | `wordcraft-<ver>-linux-x86_64.tar.gz` | `wordcraft-<ver>-linux-aarch64.tar.gz` | Unpack anywhere |
 
 RISC-V (riscv64): `wordcraft-<ver>-linux-riscv64.tar.gz`, a tarball cross-compiled for glibc 2.39+
