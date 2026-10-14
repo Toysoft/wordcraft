@@ -2131,6 +2131,8 @@
 	Mirror indents	Огледални отстъпи
 	Overtype	Заместване
 	Overtype (typing replaces the characters after the caret)	Заместване (въвежданият текст замества знаците след курсора)
+	Show alignment guides when moving pictures and shapes	Показване на водачи за подравняване при преместване на картини и фигури
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Преместените обекти се прилепват към краищата и центъра на страницата, полетата и другите обекти. Задръжте Alt за свободно преместване.
 	Page display	Показване на страницата
 	Paragraph marks	Знаци за абзац
 	Personalize	Персонализиране
@@ -2467,6 +2469,8 @@
 	Leave out the date and time of comments and tracked changes when saving	Без дата и час на коментарите и проследените промени при запазване
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Документът, който редактирате, запазва имената и датите; само записаният файл ги пропуска.
 	Privacy Settings	Текущи настройки за поверителност
+	Waiting for the save to finish…	Изчакване запазването да приключи…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Запазването на {name} е отменено. Документът остава отворен и нищо не е загубено.
 	Paper	Хартия
 	Paper size:	Размер на хартията:
 	Custom size	Потребителски размер
