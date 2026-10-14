@@ -2192,6 +2192,14 @@
 # Backstage › Recover (#586)
 	Recover	恢复
 
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	对称页边距
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	现有文件或网页
+	Link to:	链接到:
+	Place in This Document	本文档中的位置
+
 # Templates (#1227) and reopen last document (#918)
 	APA paper	APA 论文
 	MLA paper	MLA 论文

@@ -2190,6 +2190,14 @@
 # Backstage › Recover (#586)
 	Recover	Oporavi
 
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Preslikane margine
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Postojeća datoteka ili veb stranica
+	Link to:	Veza ka:
+	Place in This Document	Mesto u ovom dokumentu
+
 # Templates (#1227) and reopen last document (#918)
 	APA paper	APA rad
 	MLA paper	MLA rad

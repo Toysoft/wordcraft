@@ -447,7 +447,9 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("wc-userfonts-{}-{name}", std::process::id()));
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("wc-userfonts-{}-{name}-{id}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }

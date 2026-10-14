@@ -2187,6 +2187,14 @@
 # Backstage › Recover (#586)
 	Recover	Récupérer
 
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Marges en vis-à-vis
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Fichier ou page web existant(e)
+	Link to:	Lier à :
+	Place in This Document	Emplacement dans ce document
+
 # Templates (#1227) and reopen last document (#918)
 	APA paper	Document APA
 	MLA paper	Document MLA

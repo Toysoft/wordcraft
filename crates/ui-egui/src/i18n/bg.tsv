@@ -2567,6 +2567,14 @@
 # Backstage › Recover (#586)
 	Recover	Възстановяване
 
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Огледални полета
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Съществуващ файл или уеб страница
+	Link to:	Връзка към:
+	Place in This Document	Място в този документ
+
 # Templates (#1227) and reopen last document (#918)
 	APA paper	Доклад APA
 	MLA paper	Доклад MLA

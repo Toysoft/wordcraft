@@ -2180,6 +2180,14 @@
 # Backstage › Recover (#586)
 	Recover	回復
 
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	見開きページ
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	既存のファイル/Web ページ
+	Link to:	リンク先:
+	Place in This Document	このドキュメント内
+
 # Templates (#1227) and reopen last document (#918)
 	APA paper	APA 論文
 	MLA paper	MLA 論文

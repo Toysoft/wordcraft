@@ -2588,6 +2588,14 @@ preview	Title	Esempio
 	➕ New comment	➕ Nuovo commento
 	📂  Browse…	📂  Sfoglia…
 
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Margini speculari
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	File o pagina Web esistente
+	Link to:	Collega a:
+	Place in This Document	Posizione nel documento
+
 # Templates (#1227) and reopen last document (#918)
 	APA paper	Documento APA
 	MLA paper	Documento MLA
