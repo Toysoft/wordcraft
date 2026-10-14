@@ -5757,7 +5757,7 @@ fn row_borders_stay_on_row() {
 }
 
 #[test]
-fn row_nil_borders_hide_table_style() {
+fn row_nil_overrides_style() {
     let mut d = Document::from_text("before\nafter");
     let mut t = Table::new(1, 1, 200.0);
     t.rows[0].props.borders = Some(Borders::all(Border { style: BorderStyle::None, width: 0.0, color: None, space: 0.0 }));
