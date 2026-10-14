@@ -567,7 +567,8 @@ fn view_key(app: &WordApp, dim_body: bool) -> u64 {
     (v.marks, app.session.prefs.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
     app.session.prefs.markup.hash(&mut h);
     dim_body.hash(&mut h);
-    format!("{:?}{:?}", app.session.doc.settings.page_color, app.session.doc.settings.watermark).hash(&mut h);
+    format!("{:?}{:?}{:?}", app.session.doc.settings.page_color, app.session.doc.settings.page_picture, app.session.doc.settings.watermark)
+        .hash(&mut h);
     app.session.doc.media.len().hash(&mut h);
     h.finish()
 }
@@ -873,7 +874,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     };
     // Dragging a selection near the viewport's edge scrolls on (#688): from a crawl at the margin
     // to full speed at the edge, through the same offset the wheel writes.
-    let (down, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos(), i.stable_dt));
+    let (down, released, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.latest_pos(), i.stable_dt));
+    // A release `mouse` returned before seeing (double-click paths, off the canvas) ends the drag here (#1019).
+    if app.canvas.dragging && !down && !released {
+        app.canvas.dragging = false;
+        app.canvas.column_drag = None;
+        app.canvas.unit_drag = None;
+    }
     let auto_delta = if !app.session.view.read_mode
         && app.canvas.drag_selecting()
         && down
