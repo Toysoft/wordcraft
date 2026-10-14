@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (progress log: Word's text watermark read from and written to DOCX, #1290; previously trivial: progress log: full screen, #980; previously trivial: progress log: PAGE fields on the pages a paragraph runs onto, #1352; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (progress log: Word's text watermark read from and written to DOCX, #1290; previously trivial: progress log: rounded rectangle corners, #1476; previously trivial: progress log: Save As type list, #1399; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -138,6 +138,9 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 |---|---|
 | 2026-10-13 | Saving to DOCX keeps the watermark: it is written as Word's own text-watermark shape in every header, and a document without headers gains one to hold it (#1290) |
 | 2026-10-13 | DOCX files with Word's text watermark (Design › Watermark, a VML text shape in the headers) show it on every page on screen and in the PDF (#1290) |
+| 2026-10-13 | Rounded rectangles (#1476): a `roundRect` keeps the corner radius its file gives it (`adj`), on screen, in PDF and when saved; all were drawn with a 16% corner |
+| 2026-10-13 | PAGEREF in headers and footers (#1477): "Page X of Y" with Y a page reference to a bookmark at each letter's end shows each letter's own total instead of the result stored in the file |
+| 2026-10-13 | Replace All respects locked content controls with Track Changes on or off; it refuses the entire batch before editing when any match would change locked content or remove a control locked against deletion |
 | 2026-10-12 | Text boxes from older Word files (VML) keep their internal margins, Resize shape to fit text and vertical alignment, so letterhead address blocks and form headers sit where Word puts them instead of 7 pt in and 4 pt down. Hidden drawings stay hidden (they were drawn as empty boxes) and are kept on save |
 | 2026-10-13 | Word's privacy options are kept and honoured when saving .docx (#1062): with Remove personal information, comments and tracked changes are saved by "Author" and the file has no creator or last-modified-by; with Remove date and time, they are saved without dates. The open document keeps the real names and dates; `file.privacyOptions` sets both |
 | 2026-10-13 | A selected comment balloon's Delete, Reply and Resolve buttons work again (#1085): pressing them no longer counts as a click on the page that closes the balloon first, so a new empty comment, or any other, can be deleted from its balloon |
@@ -163,6 +166,8 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-13 | A WMF with a million object records opens in milliseconds instead of a second, and a large polygon or a small crop of a large bitmap no longer builds a second full-size copy while it is read (#1463) |
 | 2026-10-13 | PDF export (#1474): a horizontal or vertical line inside a group (a divider in a grouped box) is drawn, as on screen; it was left out because it has no height |
 | 2026-10-13 | A PAGE field in the body shows the number of the page it is actually on (#1352): after a page break inside its paragraph, or when the paragraph runs over onto the next page, it no longer repeats the first page's number; the rest of the paragraph is broken again for the wider number (page 9 to 10). Only paragraphs with PAGE fields are laid out again |
+| 2026-10-14 | RTF import keeps sections (#1378): a file with portrait and landscape parts, a two-column stretch or a page-numbering restart opens with one section each, as in Word, instead of one landscape section for the whole document. Each keeps its page size and orientation, margins, header/footer distance, columns, break type (continuous, next page, odd/even, column), page-number restart, start and format, title page and its own headers and footers; a section without its own links to the previous one's |
+| 2026-10-14 | The system Save As dialog's file-type list names every format (Word Document, PDF, OpenDocument Text, Rich Text Format…) instead of one "Documents" entry, with the document's own format first (#1399) |
 | 2026-10-12 | RTF import now uses the RTF spec's defaults where a file names none (#902): no space before or after paragraphs, single line spacing, and the `\deff` default font, instead of WordCraft's Normal style; RTF files that relied on the old defaults open tighter, like in Word |
 | 2026-10-11 | Right-clicking a table cell offers the table's commands, and as in Word they follow the selection: with the caret in a cell Insert, Delete Cells, Split Cells, Text Direction and Table Properties…; with several cells Merge Cells instead of Split; with whole columns or rows Delete Columns or Rows, Merge Cells and Distribute Rows and Columns; with the whole table Delete Table, Distribute, AutoFit and Insert Caption…. A right-click beside selected cells moves the caret there instead of keeping them |
 | 2026-10-11 | Drags, Shift+arrows and Shift+click over table cells select whole cells, as in Word: from one cell into another the rectangle between them (bold, alignment and Delete leave the other cells alone), into or out of a table whole rows; extending again goes on from where the selection started |
@@ -170,6 +175,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | AutoCorrect keys its built-in English replacement list by language (#835): Polish, Croatian, Bosnian and Serbian `i` ("and") is no longer turned into `I`; English and untagged text unchanged |
 | 2026-10-12 | Ribbon groups fit above their labels: View › Show splits its four check boxes into two columns (Hide White Space, #645, had pushed the fourth onto the "Show" label), Developer › Controls loses the gaps that ran into its label, and Layout › Paragraph (#654) no longer trips a debug assertion and sits 2.5 pt higher; a test draws every tab in every language and fails on any group taller than the ribbon |
 | 2026-10-12 | Window caption: a non-Latin file name is drawn with a document fallback face (or the CJK UI font), instead of `?` |
+| 2026-10-13 | Word 365 cover pages (#743): shapes placed relative to the page's height now sit where Word puts them (they were at the top of the column), and a freeform drawn back to its start without being closed is filled, so the cover's coloured panel and its white title show |
 | 2026-10-12 | 32-bit Windows starts on OpenGL. DirectX 12 graphics pipeline creation returns "The parameter is incorrect" and the app exited before the window appeared |
 | 2026-10-12 | New documents follow the system region (#838): A4 and centimetres outside the US (Letter in the CLDR Letter territories, inches in the US), lengths written with the region's decimal separator (`2,54 cm`) and typed with either; an explicit Measurement units choice wins; `file.options {"region"}` for agents |
 | 2026-10-12 | Paste from other programs keeps their formatting (#687): Ctrl+V and Home › Paste read the system clipboard's HTML (and RTF on Windows and Wayland); Merge Formatting takes the destination's font and paragraph and keeps bold, italic, underline and strikethrough; Paste Special lists what the system clipboard holds (HTML, RTF, picture, text). Linux: pictures copied in a browser or Spectacle paste on KDE and other Wayland desktops (data-control clipboard), and a paste that finds nothing usable names what the clipboard holds instead of "empty" (#833) |
@@ -305,6 +311,9 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 |---|---|---|
 | 2026-10-13 | trivial | Progress log: the watermark written to DOCX (#1290) |
 | 2026-10-13 | trivial | Progress log: Word's text watermark read from DOCX (#1290) |
+| 2026-10-13 | trivial | Progress log: rounded rectangle corners (#1476) |
+| 2026-10-13 | trivial | Progress log: PAGEREF in headers and footers (#1477) |
+| 2026-10-13 | trivial | Replace All checks content-control locks before editing; a refused batch leaves the document and undo history unchanged; existing deletion-lock rules reused, with tracked/untracked regression coverage |
 | 2026-10-12 | trivial | Progress log: VML text box margins, fit and alignment; hidden drawings |
 | 2026-10-13 | trivial | Progress log: comment balloon buttons work, empty comments can be deleted (#1085) |
 | 2026-10-12 | trivial | Progress log: sample-text formulas on Enter (#1067) |
@@ -322,6 +331,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-13 | trivial | Progress log: a failed save from the close prompt says so (#1445) |
 | 2026-10-13 | trivial | Progress log: lines inside groups in PDF export (#1474) |
 | 2026-10-13 | trivial | Progress log: PAGE fields on the pages a paragraph runs onto (#1352) |
+| 2026-10-14 | trivial | Progress log: RTF import keeps sections (#1378) |
 | 2026-10-12 | trivial | Progress log: Accept All and Reject All keep the right paragraph marks (#864) |
 | 2026-10-13 | trivial | Progress log: equation pictures keep the theme colours on Windows (#1002) |
 | 2026-10-11 | trivial | Progress log: Ctrl, Alt, left-edge and selected-cells table border drags (#711) |
@@ -330,6 +340,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | trivial | Progress log: drags and Shift+arrows over table cells select whole cells |
 | 2026-10-11 | trivial | Progress log: table selection areas, insert buttons, move handle and double-click AutoFit; catalog 484/499 |
 | 2026-10-12 | trivial | Progress log: Undo history list (#701) |
+| 2026-10-14 | trivial | Progress log: Save As type list (#1399) |
 | 2026-10-12 | trivial | Progress log: Start screen at launch (#766) |
 | 2026-10-13 | trivial | Progress log: no document behind the Start screen (#1129) |
 | 2026-10-12 | trivial | Progress log: Alt+Q command search (#819); log table header fixed |
@@ -349,6 +360,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | trivial | Progress log: AutoCorrect replacement list follows the text's language (#835) |
 | 2026-10-11 | trivial | Progress log: German interface (#574) |
 | 2026-10-12 | trivial | Progress log: language-aware sorting and table numbers (#836, #837) |
+| 2026-10-13 | trivial | Progress log: Word 365 cover pages, positions and closed freeforms (#743) |
 | 2026-10-12 | trivial | Progress log: Word 365 cover pages (#743) |
 | 2026-10-11 | trivial | Progress log: tables resize with the mouse (#217) |
 | 2026-10-11 | trivial | Progress log: Animation effects setting |
