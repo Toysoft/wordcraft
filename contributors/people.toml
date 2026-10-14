@@ -75,6 +75,8 @@ sync_github_name = false
 real_name = "Manuel Carmona"
 display_name = "manucarcor"
 [people.odedigo]
+[people.cyril265]
+display_name = "cyril265"
 
 [people.webdevtodayjason]
 display_name = "Jason Brashear"
@@ -85,3 +87,9 @@ real_name = "M S Rana"
 display_name = "Izhaan Intellect"
 sync_github_name = true
 
+[people.benandez]
+real_name = "Martin Ball"
+display_name = "Martin Ball"
+sync_github_name = false
+
+[people.Nghiathan13]
