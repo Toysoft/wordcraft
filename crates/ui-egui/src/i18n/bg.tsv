@@ -2621,3 +2621,11 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Text is checked in the language set for it in Review › Language; text without one is checked in English (United States).	Текстът се проверява на езика, зададен за него в Преглед › Език; текст без език се проверява на английски (САЩ).
+	Download	Изтегляне
+	Downloading…	Изтегляне…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	„Изтегляне“ взема речника от колекцията с речници на LibreOffice и го записва в папката с речници. Всеки запазва собствения си лиценз (GPL, LGPL или MPL) и остава отделен файл, който WordCraft само чете.
+	Downloading the {language} dictionary…	{language}: речникът се изтегля…
+	The {language} dictionary is installed.	{language}: речникът е инсталиран.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: речникът не можа да бъде изтеглен: {error}

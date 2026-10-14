@@ -2628,3 +2628,11 @@
 # Reading Mode column widths (#1040)
 	Narrow	Keskeny
 	Medium	Közepes
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Text is checked in the language set for it in Review › Language; text without one is checked in English (United States).	A szöveg ellenőrzése a Véleményezés › Nyelv alatt beállított nyelven történik; a nyelv nélküli szöveget angol (Egyesült Államok) nyelven ellenőrzi a program.
+	Download	Letöltés
+	Downloading…	Letöltés…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	A Letöltés a LibreOffice szótárgyűjteményéből tölti le a szótárt a szótárak mappájába. Mindegyik megtartja saját licencét (GPL, LGPL vagy MPL), és különálló fájl marad, amelyet a WordCraft csak olvas.
+	Downloading the {language} dictionary…	{language}: a szótár letöltése…
+	The {language} dictionary is installed.	{language}: a szótár telepítve.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: a szótár nem tölthető le: {error}

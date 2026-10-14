@@ -366,7 +366,7 @@ Bundled fonts, icons, images and other assets keep their own open licenses; each
 with its author, source and license in [ATTRIBUTION.md](ATTRIBUTION.md).
 
 The English spelling dictionary and hyphenation come from Grady Ward's public-domain Moby
-Hyphenator II word list. Polish spelling reads the Hunspell `pl_PL` dictionary installed on the system (not bundled) and
+Hyphenator II word list. Polish spelling reads the Hunspell `pl_PL` dictionary installed on the system (not bundled; File › Options › Proofing can download it, and the Portuguese, Italian, Russian and Czech ones, from [LibreOffice's dictionary collection](https://github.com/LibreOffice/dictionaries), where each keeps its own license) and
 Polish hyphenation the TeX patterns by Hanna Kołodziejska, Bogusław Jackowski and Marek Ryćko (MIT
 option). The sample documents and templates are original text written for WordCraft.
 

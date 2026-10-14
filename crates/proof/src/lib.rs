@@ -48,6 +48,7 @@ pub mod hunspell;
 pub mod hyphen;
 pub mod it;
 pub mod lang;
+pub mod libreoffice;
 pub mod patterns;
 pub mod pl;
 pub mod pt;
@@ -146,6 +147,24 @@ pub fn set_dictionaries_folder(dir: Option<std::path::PathBuf>) {
     it::reload_dictionary();
     hr::reload_dictionary();
     tr::reload_dictionary();
+    ru::reload_dictionary();
+    cs::reload_dictionary();
+    DICTIONARY_GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Look for `lang`'s Hunspell dictionary again (after one was downloaded into the dictionaries
+/// folder, [`libreoffice`]), and tell cached proofing results to refresh.
+pub fn reload_dictionary(lang: ProofLang) {
+    match lang {
+        ProofLang::Pl => pl::reload_dictionary(),
+        ProofLang::Pt => pt::reload_dictionary(),
+        ProofLang::It => it::reload_dictionary(),
+        ProofLang::Hr => hr::reload_dictionary(),
+        ProofLang::Tr => tr::reload_dictionary(),
+        ProofLang::Ru => ru::reload_dictionary(),
+        ProofLang::Cs => cs::reload_dictionary(),
+        ProofLang::En | ProofLang::Bg | ProofLang::Other => return,
+    }
     DICTIONARY_GENERATION.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -158,6 +177,8 @@ pub fn installed_dictionaries() -> Vec<(ProofLang, Option<std::path::PathBuf>)> 
         (ProofLang::It, it::installed_path()),
         (ProofLang::Hr, hr::installed_path()),
         (ProofLang::Tr, tr::installed_path()),
+        (ProofLang::Ru, ru::installed_path()),
+        (ProofLang::Cs, cs::installed_path()),
     ]
 }
 
@@ -856,6 +877,8 @@ mod tests {
             ("pt_BR", pt::test_dict::AFF, pt::test_dict::DIC),
             ("it_IT", it::test_dict::AFF, it::test_dict::DIC),
             ("hr_HR", hr::test_dict::AFF, hr::test_dict::DIC),
+            ("ru_RU", ru::test_dict::AFF, ru::test_dict::DIC),
+            ("cs_CZ", cs::test_dict::AFF, cs::test_dict::DIC),
         ] {
             std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
             std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
@@ -863,9 +886,11 @@ mod tests {
         let before = dictionary_generation();
         set_dictionaries_folder(Some(dir.clone()));
         assert!(dictionary_generation() > before, "cached checks are dropped");
-        // Turkish has no test dictionary to put in the folder; it's listed after the others.
+        // Turkish has no test dictionary to put in the folder; it's listed before Russian.
         let found = installed_dictionaries();
-        assert_eq!(found.last().map(|(lang, _)| *lang), Some(ProofLang::Tr));
+        assert_eq!(found.get(4).map(|(lang, _)| *lang), Some(ProofLang::Tr));
+        assert_eq!(found.get(5), Some(&(ProofLang::Ru, Some(dir.join("ru_RU.dic")))));
+        assert_eq!(found.get(6), Some(&(ProofLang::Cs, Some(dir.join("cs_CZ.dic")))));
         assert_eq!(
             found[..4],
             [
