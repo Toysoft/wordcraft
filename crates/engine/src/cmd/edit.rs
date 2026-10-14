@@ -158,11 +158,14 @@ fn copy(s: &mut Session, _: &Value) -> CmdResult {
     if a == b {
         return Ok(json!({"text": ""}));
     }
-    // A whole table selected copies the table, even one whose text is a single paragraph (#1744).
-    let f = match super::table::selected_table(s).and_then(|tp| s.doc.copy_block(a.story, &tp)) {
-        Some(f) => f,
-        None => s.doc.copy_range(&a, &b),
+    // Whole table cells selected copy as a table: the whole table (even one whose text is a
+    // single paragraph), or a table of just the selected rows or cells (#1744).
+    let table = match (super::table::selected_table(s), s.cell_range()) {
+        (Some(tp), _) => s.doc.copy_block(a.story, &tp),
+        (None, Some(r)) => s.doc.copy_table_cells(r.story, &r.table, r.rows, r.cols),
+        (None, None) => None,
     };
+    let f = table.unwrap_or_else(|| s.doc.copy_range(&a, &b));
     s.clipboard_text = f.clipboard_text();
     s.clip_history.push(&f, &s.clipboard_text);
     s.clipboard = Some(f);
@@ -187,6 +190,14 @@ fn cut(s: &mut Session, v: &Value) -> CmdResult {
         && let Some(tp) = super::table::selected_table(s)
     {
         super::table::delete_table_at(s, &tp)?;
+        super::controls::restore_placeholder(s)?;
+        return Ok(r);
+    }
+    // Whole rows or some cells: their text goes, the rows and cells stay, as in Word.
+    if let Some(range) = s.cell_range().cloned()
+        && super::table::selected_table(s).is_none()
+    {
+        super::table::clear_cells(s, &range)?;
         super::controls::restore_placeholder(s)?;
         return Ok(r);
     }

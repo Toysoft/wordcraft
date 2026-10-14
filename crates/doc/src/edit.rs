@@ -469,10 +469,24 @@ impl Document {
 
     /// A copy of the block at `path` (a whole table, say) as a fragment, with its text boxes.
     pub fn copy_block(&self, story: crate::StoryRef, path: &Path) -> Option<Fragment> {
-        let mut blocks = vec![self.block(story, path)?.clone()];
+        Some(self.fragment_of(vec![self.block(story, path)?.clone()]))
+    }
+
+    /// A copy of rows `rows` of the table at `tp`, with the cells of each that reach into grid
+    /// columns `cols` (see [`crate::Table::slice`]), as a fragment holding that table.
+    pub fn copy_table_cells(&self, story: crate::StoryRef, tp: &Path, rows: (usize, usize), cols: (usize, usize)) -> Option<Fragment> {
+        let t = self.table(story, tp)?.slice(rows, cols);
+        if t.rows.is_empty() {
+            return None;
+        }
+        Some(self.fragment_of(vec![Block::Table(t)]))
+    }
+
+    /// `blocks` as a fragment: half content controls dropped, text boxes copied along.
+    fn fragment_of(&self, mut blocks: Vec<Block>) -> Fragment {
         crate::control::balance_blocks(&mut blocks);
         let parts = self.text_box_parts(&blocks);
-        Some(Fragment { blocks, parts })
+        Fragment { blocks, parts }
     }
 
     /// The table whose whole text `a..b` covers when the range runs across its cells: from the

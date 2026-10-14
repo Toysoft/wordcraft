@@ -1327,6 +1327,81 @@ fn cut_whole_table_removes_it_and_undoes() {
     assert_eq!(body_table_cells(&s).len(), 1);
 }
 
+/// A 3×3 table "A1 B1 C1 / A2 B2 C2 / A3 B3 C3" after an "Intro" paragraph (#1744).
+fn table3_doc() -> Session {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Intro"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 3, "cols": 3}));
+    for (i, t) in ["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"].iter().enumerate() {
+        if i > 0 {
+            run(&mut s, "text.tab", json!({}));
+        }
+        run(&mut s, "text.insert", json!({"text": t}));
+    }
+    s
+}
+
+/// Select whole cells of the body's table: rows and grid columns, both inclusive.
+fn select_table_cells(s: &mut Session, rows: (usize, usize), cols: (usize, usize)) {
+    let tp = wordcraft_doc::Path(vec![1]);
+    crate::cmd::table::select_range(s, StoryRef::Body, &tp, rows, cols).unwrap();
+    assert_eq!(s.cell_range().map(|r| (r.rows, r.cols)), Some((rows, cols)));
+}
+
+fn row_cells(texts: &[&str]) -> Vec<String> {
+    texts.iter().map(|t| t.to_string()).collect()
+}
+
+/// #1744 (Word check A): copying whole rows, two cells of a row, or a block of cells over
+/// several rows, then pasting outside the table, pastes a table of just those cells.
+#[test]
+fn copy_rows_and_cells_pastes_a_table_of_them() {
+    let full = row_cells(&["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"]);
+    for (rows, cols, want) in [
+        ((1, 1), (0, 2), row_cells(&["A2", "B2", "C2"])),
+        ((0, 0), (0, 1), row_cells(&["A1", "B1"])),
+        ((1, 2), (1, 2), row_cells(&["B2", "C2", "B3", "C3"])),
+    ] {
+        let mut s = table3_doc();
+        select_table_cells(&mut s, rows, cols);
+        run(&mut s, "edit.copy", json!({}));
+        let Some([wordcraft_doc::Block::Table(t)]) = s.clipboard.as_ref().map(|f| f.blocks.as_slice()) else {
+            panic!("{rows:?} {cols:?}: the copy is a table, not {:?}", s.clipboard_text);
+        };
+        assert_eq!(t.rows.len(), rows.1 - rows.0 + 1, "{rows:?} {cols:?}");
+        assert_eq!(t.grid.len(), cols.1 - cols.0 + 1, "{rows:?} {cols:?}: the grid has the copied columns");
+        run(&mut s, "caret.docStart", json!({}));
+        run(&mut s, "edit.paste", json!({}));
+        assert_eq!(body_table_cells(&s), vec![want, full.clone()], "{rows:?} {cols:?}");
+    }
+}
+
+/// #1744 (Word check A): Cut of whole rows, or of some cells, clears their text and leaves
+/// the rows and cells; the clipboard still gets a table of them. One Undo brings the text back.
+#[test]
+fn cut_rows_and_cells_clears_their_text() {
+    let full = row_cells(&["A1", "B1", "C1", "A2", "B2", "C2", "A3", "B3", "C3"]);
+    for (rows, cols, left, copied) in [
+        ((1, 1), (0, 2), row_cells(&["A1", "B1", "C1", "", "", "", "A3", "B3", "C3"]), row_cells(&["A2", "B2", "C2"])),
+        ((0, 0), (0, 1), row_cells(&["", "", "C1", "A2", "B2", "C2", "A3", "B3", "C3"]), row_cells(&["A1", "B1"])),
+        ((1, 2), (1, 2), row_cells(&["A1", "B1", "C1", "A2", "", "", "A3", "", ""]), row_cells(&["B2", "C2", "B3", "C3"])),
+    ] {
+        let mut s = table3_doc();
+        select_table_cells(&mut s, rows, cols);
+        run(&mut s, "edit.cut", json!({}));
+        assert_eq!(body_table_cells(&s), vec![left.clone()], "{rows:?} {cols:?}: rows and cells stay");
+        assert!(s.sel.is_collapsed(), "{rows:?} {cols:?}");
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(body_table_cells(&s), vec![full.clone()], "{rows:?} {cols:?}: one undo step");
+        select_table_cells(&mut s, rows, cols);
+        run(&mut s, "edit.cut", json!({}));
+        run(&mut s, "caret.docStart", json!({}));
+        run(&mut s, "edit.paste", json!({}));
+        assert_eq!(body_table_cells(&s), vec![copied, left], "{rows:?} {cols:?}: the cut pastes as a table");
+    }
+}
+
 fn cells(s: &Session) -> Option<((usize, usize), (usize, usize))> {
     s.cell_range().map(|x| (x.rows, x.cols))
 }

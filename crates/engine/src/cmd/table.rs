@@ -608,6 +608,27 @@ pub(super) fn selected_table(s: &Session) -> Option<Path> {
     s.doc.whole_table(&a, &b)
 }
 
+/// Clear the text of the cells `range` selects, leaving the cells (Cut of rows or cells, #1744);
+/// tracked when Track Changes is on. The caret goes to the first cell.
+pub(super) fn clear_cells(s: &mut Session, range: &crate::CellRange) -> Result<(), CmdError> {
+    let Some(t) = s.doc.table(range.story, &range.table) else { return Ok(()) };
+    let prefixes: Vec<Vec<u32>> = range.cells(t).into_iter().map(|(r, c)| cell_prefix(&range.table, r, c)).collect();
+    let spans = text_spans(s, range.story, &prefixes);
+    let first = spans.first().map(|(a, _)| a.clone());
+    if guard_delete(s, &spans)?.is_none() {
+        for (a, b) in spans.iter().rev() {
+            if a != b {
+                s.doc.delete_range(a, b)?;
+            }
+        }
+    }
+    s.column = None;
+    if let Some(a) = first {
+        s.sel = Selection::caret(s.doc.clamp(&a));
+    }
+    Ok(())
+}
+
 /// Delete Table for the table at `tp` (in the selection's story): tracked when Track Changes is on.
 pub(super) fn delete_table_at(s: &mut Session, tp: &Path) -> CmdResult {
     let tp = tp.clone();

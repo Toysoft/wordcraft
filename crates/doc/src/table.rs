@@ -60,6 +60,47 @@ pub const MAX_ROWS: usize = 32_767;
 pub const MAX_COLS: usize = 63;
 
 impl Table {
+    /// A copy of rows `rows` of this table holding, of each row, the cells that reach into grid
+    /// columns `cols` (both inclusive): what Copy takes from selected rows or cells. Content
+    /// controls around rows and the table aren't copied (they'd lose their other end); a cell
+    /// that continues a vertical merge from a row left out starts the merge instead.
+    pub fn slice(&self, rows: (usize, usize), cols: (usize, usize)) -> Table {
+        let ((r0, r1), (g0, g1)) = (rows, cols);
+        let (mut lo, mut hi) = (usize::MAX, 0usize);
+        let mut out_rows = Vec::new();
+        for row in self.rows.iter().take(r1.saturating_add(1)).skip(r0) {
+            let mut g = 0usize;
+            let mut cells = Vec::new();
+            for cell in &row.cells {
+                let end = g.saturating_add(cell.span());
+                if g <= g1 && end > g0 {
+                    (lo, hi) = (lo.min(g), hi.max(end));
+                    cells.push(cell.clone());
+                }
+                g = end;
+            }
+            if !cells.is_empty() {
+                out_rows.push(Row { props: row.props.clone(), cells, controls: ControlWrap::default() });
+            }
+        }
+        if let Some(first) = out_rows.first_mut() {
+            for c in &mut first.cells {
+                if c.props.vmerge == VMerge::Continue {
+                    c.props.vmerge = VMerge::Restart;
+                }
+            }
+        }
+        let whole = lo == 0 && hi >= self.grid.len();
+        let grid = if whole { self.grid.clone() } else { self.grid.get(lo..hi.min(self.grid.len())).map(<[f32]>::to_vec).unwrap_or_default() };
+        let mut props = self.props.clone();
+        if !whole {
+            // Part of the columns: as wide as they are, not the whole table's width.
+            props.width = props.width.map(|_| grid.iter().sum());
+            props.width_pct = None;
+        }
+        Table { props, grid, rows: out_rows, controls: ControlWrap::default() }
+    }
+
     /// A `rows × cols` table spanning `width` points, "Table Grid" style.
     pub fn new(rows: usize, cols: usize, width: f32) -> Table {
         let rows = rows.clamp(1, MAX_ROWS);
