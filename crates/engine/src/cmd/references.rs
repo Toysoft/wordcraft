@@ -792,8 +792,9 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
         let page = l.caret(&pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1);
         pages.entry(name).or_insert(page);
     }
-    for path in s.doc.para_paths(StoryRef::Body) {
-        let Some(p) = s.doc.para(StoryRef::Body, &path) else { continue };
+    let stories: Vec<StoryRef> = std::iter::once(StoryRef::Body).chain(s.doc.parts.keys().map(|k| StoryRef::Part(*k))).collect();
+    for (story, path) in stories.into_iter().flat_map(|st| s.doc.para_paths(st).into_iter().map(move |p| (st, p))).collect::<Vec<_>>() {
+        let Some(p) = s.doc.para(story, &path) else { continue };
         if !p.objects.iter().any(|o| matches!(o, InlineObject::Field { .. })) {
             continue;
         }
@@ -822,7 +823,7 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
         if updates.is_empty() {
             continue;
         }
-        let para = s.doc.para_mut(StoryRef::Body, &path)?;
+        let para = s.doc.para_mut(story, &path)?;
         for (k, r) in updates {
             if let Some(InlineObject::Field { result, .. }) = para.objects.get_mut(k) {
                 *result = r;
@@ -1024,5 +1025,32 @@ mod tests {
         s.run("caret.docEnd", &json!({})).unwrap();
         s.run("references.caption", &json!({"label": "Table", "excludeLabel": true, "format": "ROMAN"})).unwrap();
         assert_eq!(s.doc.body.last().unwrap().as_para().unwrap().plain_text(), "I");
+    }
+
+    /// #1706: Update Field refreshes fields in headers and other parts, not just the body.
+    #[test]
+    fn update_fields_reaches_header_parts() {
+        use wordcraft_doc::{CharProps, Paragraph, PartKind};
+        let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: "stale".into(), locked: false, code: false };
+        let mut doc = wordcraft_doc::Document::from_text("one two three");
+        doc.core.creator = "Ada".into();
+        let mut p = Paragraph::new();
+        p.insert_object(0, field("AUTHOR"), &CharProps::default()).unwrap();
+        let off = p.len();
+        p.insert_object(off, field("NUMWORDS"), &CharProps::default()).unwrap();
+        let hdr = doc.add_part(PartKind::Header, vec![std::sync::Arc::new(wordcraft_doc::Block::Para(p))]);
+        let mut s = Session::new(doc);
+        s.run("references.updateFields", &json!({})).unwrap();
+        let mut got = Vec::new();
+        for path in s.doc.para_paths(StoryRef::Part(hdr)) {
+            for o in &s.doc.para(StoryRef::Part(hdr), &path).unwrap().objects {
+                if let InlineObject::Field { instr, result, .. } = o {
+                    got.push((instr.clone(), result.clone()));
+                }
+            }
+        }
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(got[0].1, "Ada");
+        assert_eq!(got[1].1, s.doc.word_count().to_string());
     }
 }
