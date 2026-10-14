@@ -840,7 +840,8 @@
 	A password is required to open this document.	ამ დოკუმენტის გასახსნელად საჭიროა პაროლი.
 	Anyone can open this document. Encrypt it with a password to keep it private.	ამ დოკუმენტის გახსნა ნებისმიერს შეუძლია. დაშიფრეთ პაროლით, რომ დაიცვათ.
 	Interface size:	ინტერფეისის ზომა:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	ზრდის ან ამცირებს ლენტს, მენიუებსა და ფანჯრებს, სისტემის ეკრანის მასშტაბირების გარდა. დოკუმენტის მასშტაბი ცალკე იცვლება.
+	Auto ({percent}%)	ავტომატური ({percent}%)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	ზრდის ან ამცირებს ლენტს, მენიუებსა და ფანჯრებს. „ავტომატური“ მიჰყვება სისტემის ეკრანის მასშტაბირებას; 100% ნიშნავს ეკრანის ერთ პიქსელს ერთ პუნქტზე. დოკუმენტის მასშტაბი ცალკე იცვლება.
 	(no suggestions)	(შეთავაზებები არ არის)
 	Add a comment	კომენტარის დამატება
 	Bottom Margin	ქვედა ველი
@@ -2182,6 +2183,7 @@ preview	Title	სათაური
 	Previous Page	წინა გვერდი
 	Print to PDF	PDF-ად დაბეჭდვა
 	Word XML Document (*.xml)	Word XML დოკუმენტი (*.xml)
+	Word 2003 XML Document (*.xml)	Word 2003 XML დოკუმენტი (*.xml)
 	Use wildcards	შაბლონების გამოყენება
 	Special	სპეციალური
 	Match prefix	პრეფიქსის დამთხვევა
@@ -2498,3 +2500,11 @@ preview	Title	სათაური
 	there is no ink to replay	დასაკრავი მელანი არ არის
 	there's no citation after the caret	კურსორის შემდეგ ციტატა არ არის
 	this item is already at the top level	ეს ელემენტი უკვე ზედა დონეზეა
+	No document is open. Create a document or open one first.	გახსნილი დოკუმენტი არ არის. ჯერ შექმენით ან გახსენით დოკუმენტი.
+	Privacy Options	კონფიდენციალურობის პარამეტრები
+	Trust Center	ნდობის ცენტრი
+	Privacy for this document	ამ დოკუმენტის კონფიდენციალურობა
+	Remove my name from comments, changes and file properties when saving	შენახვისას ჩემი სახელის წაშლა კომენტარებიდან, ცვლილებებიდან და ფაილის თვისებებიდან
+	Leave out the date and time of comments and tracked changes when saving	შენახვისას კომენტარებისა და ჩაწერილი ცვლილებების თარიღისა და დროის გამოტოვება
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	რედაქტირებად დოკუმენტში სახელები და თარიღები რჩება; მათ მხოლოდ შენახული ფაილი არ შეიცავს.
+	Privacy Settings	კონფიდენციალურობის მიმდინარე პარამეტრები
