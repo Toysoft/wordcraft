@@ -27,7 +27,7 @@ font can't match Word's metrics.
 | Colour emoji and colour fonts on screen and in page renders: COLR v0/v1 paint graphs (solid fills, linear, radial and sweep gradients, composite modes) and bitmap strikes (Apple Color Emoji `sbix`, Noto Color Emoji `CBDT`) drawn in the font's colours at the layout's position and size; a dark page doesn't invert them, the same as pictures | 🟡 | `fonts::color` (skrifa), `render::color_glyph`; `render::tests_color_glyphs::emoji_are_drawn_in_colour` and `emoji_keep_their_colours_on_a_dark_page` (system font, skip without one), `render::color_glyph::tests`, `fonts::color::tests` (#1269). CBDT is verified on a real page with Noto Color Emoji; COLR v0/v1 and sbix are implemented to the OpenType spec and tested with synthetic data, but not yet seen on a real font (Segoe UI Emoji, COLRv1 Noto, Apple Color Emoji). PDF export already drew them through krilla | 1–2 |
 | Symbol fonts (Symbol, Wingdings, Wingdings 2/3, Webdings) without the proprietary font: each character, stored as U+F020–U+F0FF or a plain 8-bit code, is drawn as its Unicode equivalent from a face that has it; PDF text and copies read as those symbols | ✅ | `doc::symbol_fonts` tables (Adobe Symbol table and Unicode L2/12-368), `layout::tests::wingdings_text_draws_and_reads_as_its_unicode_symbols` (#776). Shapes come from Noto Sans Symbols / Symbols 2, DejaVu Sans or Segoe UI Symbol, so they differ from Word's; Wingdings 0xFF (not in Unicode) still has no symbol | — |
 | Indents in characters (`w:firstLineChars`, `w:leftChars`…), measured in the paragraph mark's font size | ✅ | #534, `layout::tests::character_indents_use_the_paragraph_mark_size`; spacing in lines (`w:beforeLines`/`w:afterLines`) uses the stored points (needs the document grid) | — |
-| Line spacing (single, 1.5, double, at least, exactly, multiple), spacing before/after, contextual spacing | 🟡 | Contextual spacing measured in body paragraphs and headers (below), with a four-paragraph table-cell regression; other line-spacing combinations remain (#108, #135 open) | 3–5 |
+| Line spacing (single, 1.5, double, at least, exactly, multiple), spacing before/after, contextual spacing | 🟡 | Contextual spacing measured in body paragraphs and headers (below), with a four-paragraph table-cell regression; list-label ascent overflow is unscaled by multiple spacing and uses descent for automatic and at-least spacing (#601); other line-spacing combinations remain (#108, #135 open) | 3–5 |
 | Kerning only where Kerning for fonts asks for it (`w:kern`, at or above its size) | ✅ | Measured in Word for Windows: no `w:kern` or `w:kern="0"` is unkerned; WordCraft kerned every run, so its lines held more text than Word's. `layout::tests::kerning_follows_kerning_for_fonts_like_word` | — |
 | Automatic (HTML-style) paragraph spacing (`w:beforeAutospacing`, `w:afterAutospacing`) | ✅ | Measured in Word for Windows: 14 pt at any size, none at the top of the document or a cell or after a cell's last paragraph, the larger of two neighbouring spaces. `layout::tests::automatic_paragraph_spacing_like_word`, `…_drops_at_cell_edges` | — |
 | Widow/orphan control, keep with next, keep lines together, page break before | ✅ | `lib.rs` keep_next/keep_lines; a line holding only a page break stays at the bottom of a full page instead of leaving a blank page (#534); a paragraph ending with a page break keeps its space after on the old page, so the next page starts at the top (compatibility modes 12 to 15, `layout::tests::space_before_at_the_top_of_a_page_like_word`) | — |
@@ -62,10 +62,64 @@ font can't match Word's metrics.
 | Equations: display layout, numbering, wrapping long display equations | ✅ | #191; long display equations break at top-level operators (`m:brkBin`, `m:brkBinSub`), manual breaks and `m:alnAt`, continuation lines indented by `m:wrapIndent` or set right (`m:wrapRight`) (#326) | — |
 | Hidden text excluded from breaking and hyphenation | ✅ | #173 | — |
 | Fields: PAGE, NUMPAGES, SECTIONPAGES, TOC page numbers | ✅ | #52; totals in the body need a second pass once the page count is known (#451) | — |
-| Fields: STYLEREF in headers and footers (running chapter titles) | ✅ | Evaluated per page at layout time: the page's first (or with `\l` last) paragraph of the style, else the nearest before it; style name, id or heading level; character styles; `\n \r \w \s \t \p` (`\r` treated as `\w`); body STYLEREF updated with the other fields (#775) | — |
+| Compatibility modes (Word 2003/2007/2010 layout for old files: `w:compat` options) | 🟡 | `allowSpaceOfSameStyleInTable` supported in modes 11/12/14; mode 15 retains contextual suppression. Most other legacy compat options remain ignored | 10–20 |
+| Fields: STYLEREF in headers and footers (running chapter titles) | ✅ | Evaluated per page at layout time: the page's first (or with `\l` last) paragraph of the style, else the nearest before it; style name, id or heading level (a level finds the style named `heading N` whatever its id, so localized documents match, #1286); character styles; `\n \r \w \s \t \p` (`\r` treated as `\w`); body STYLEREF updated with the other fields (#775). Header paragraphs are cached on their per-page results, so typing in body text no STYLEREF shows doesn't lay the headers out again (#1286) | — |
 | Fields: PAGE, NUMPAGES, SECTIONPAGES, TOC page numbers, PAGEREF in headers and footers | ✅ | #52; totals in the body need a second pass once the page count is known (#451); a PAGE field in a paragraph that runs onto a later page (a page break inside it, or a natural split) shows that page's number, the rest of the paragraph broken again for the wider result (#1352); PAGEREF in headers and footers shows its bookmark's page, filled in after pagination like their totals (#1477); in the body it keeps its result until fields are updated | — |
-| Compatibility modes (Word 2003/2007/2010 layout for old files: `w:compat` options) | 🟡 | mode 15 behaviour; the ~60 legacy compat options are mostly ignored | 10–20 |
 | Page-by-page comparison harness against Word | ❌ | Run Word locally on our own synthetic documents, export PDF, compare line breaks; Word output stays under `plan/` (never committed) | 8–12 |
+
+## List-label line spacing
+
+Controlled original DOCX probes against Word for Mac 16.113.3 (26092714), macOS 26.6.2,
+compatibility mode 15, zero paragraph gaps, Roboto Regular 12 pt body text: a label's positive
+ascent overflow adds to the text line pitch without being multiplied by automatic spacing.
+Label descent does not enlarge automatic or AtLeast spacing. A label's ascent includes positive
+hhea leading. The original base split text leading across ascent/descent; current main assigns
+its full gap to ascent too, so labels now use that shared metric. The table records the original
+measurements, not a new native comparison of this rebase. These are
+observations of synthetic documents, not a claim about Word's internal implementation.
+
+| Label / spacing | Word baseline gap | Fixed WordCraft | Before fix |
+|---|---:|---:|---:|
+| Roboto 24 pt / single | 25.20 pt | 25.1953 pt | 28.125 pt |
+| Roboto 24 pt / 1.25 | 28.80 pt | 28.7109 pt | 35.1563 pt |
+| Roboto 24 pt / double | 39.36 pt | 39.2578 pt | 56.25 pt |
+| Apple Symbols 12 pt / AtLeast 12 pt | 13.92 pt | 14.0625 pt | 14.6338 pt |
+| Apple Symbols 24 pt / AtLeast 12 pt | 20.88 pt | 20.9297 pt | 24.0 pt |
+
+Actual font metrics and original-input provenance were checked locally; Word-derived exports
+remain uncommitted. Tolerance is 0.25 pt; this evidence covers Latin text with the tested symbol
+and decimal labels, automatic single/1.25/double spacing, AtLeast controls, Exactly 24 pt,
+wrapped paragraphs and save/reopen. Regression tests inject the independently measured metrics
+so CI does not require those installed fonts. Inline pictures retain their existing height floor.
+Picture bullets are not implemented, and the private Linux Symbol substitution report has not
+been reproduced. Absolute baseline-leading placement remains the separate #108 contribution.
+This narrows gap #4 without raising the overall readiness estimate.
+
+## Legacy table contextual spacing
+
+Observed in Word for Mac 16.113.3 (build 26092714) on macOS 26.6.2, using
+original synthetic DOCX files, Roboto Regular 12 pt, exactly 24 pt lines, equal paragraph
+styles, both paragraphs contextual, first paragraph after-space 12 pt and before-space 0 pt.
+The one-cell table had no borders or cell margins. Baseline separation was 36 pt with
+`w:allowSpaceOfSameStyleInTable` enabled in compatibility modes 11, 12 and 14, versus
+24 pt with it disabled. Mode 15 measured 24 pt in either state. Body and header controls
+in modes 14 and 15 measured 24 pt with the flag enabled. Comparison tolerance: 0.25 pt.
+
+The model and DOCX reader/writer preserve the flag. Cell layout bypasses contextual
+suppression only for enabled modes 11/12/14, including cells without table-style formatting.
+Tests: `legacy_table_contextual_spacing_flag_keeps_after_space` and
+`legacy_table_contextual_spacing_flag_is_scoped_to_cells_and_legacy_mode`.
+WordCraft original-open and save/reopen measurements match all 12 controls; reopening
+its saved DOCX files in Word retains the same gaps. Word-derived exports stay local under
+ignored `plan/word/`; no Word-generated fixture is committed.
+
+The [published option](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.allowspaceofsamestyleintable?view=openxml-3.0.1)
+specifies an override inside tables. Its mode 15 exception is not explained by that source;
+the guard follows this observation. [MS-DOCX compatibilityMode](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-docx/90138c4d-eb18-4edc-aa6c-dfb799cb1d0d)
+allows 11, 12, 14 and 15. Mode 13 is invalid and Word rejected its synthetic input.
+Ordinary overlapping before/after space and one-sided contextual spacing remain separate
+work in #108 and #568. Nested tables, rotated cells, other fonts and Word for Windows
+were not reference-tested here. This closes one compatibility-option gap, not table parity.
 
 ## Contextual paragraph spacing
 
@@ -145,6 +199,8 @@ No overall parity estimate changes from these probes.
 | 2026-10-11 | trivial | Right-to-left tables and sections laid out mirrored (#362) |
 | 2026-10-10 | trivial | The document's own note separators and continuation notice are drawn (#352) |
 | 2026-10-11 | trivial | Newspaper columns balance before a continuous section break (#350) |
+| 2026-10-12 | minor | Measured synthetic list-label line height; automatic and AtLeast spacing keep text descent and unscaled label ascent overflow |
+| 2026-10-12 | trivial | Legacy table contextual spacing measured and supported; modes 11/12/14 versus 15 checked with original synthetic documents |
 | 2026-10-11 | minor | Body/header contextual spacing corrected from original Word probes; ordinary overlap remains #108 |
 | 2026-10-11 | trivial | Group and Ungroup keep turned members' orientation and placement (#441, #443); Size resizes a group (#442); the eraser hits turned ink where it is drawn (#445) |
 | 2026-10-10 | trivial | Long footnotes continue onto the next page with a continuation separator (#352) |
@@ -157,5 +213,9 @@ No overall parity estimate changes from these probes.
 | 2026-10-10 | trivial | Long display equations wrap across lines (#326) |
 | 2026-10-10 | trivial | AutoFit Contents measures the text (#44) |
 | 2026-10-10 | major | First version: layout and pagination checklist with evidence from `crates/layout`, PRs and issues |
+
+Maintenance on 2026-10-12 retains current tracked-deletion, endnote, footer-total, text-box
+and balloon layout while supplying explicit cell identity at every box call. The native Word
+probes above are historical; this rebase has no new native or other-platform measurement.
 
 Repeated table-cell control, 12 October 2026: four same-style contextual paragraphs with 6 pt before/after and exactly 24 pt lines retain zero extra gap at every boundary. The body control uses the same fixture. This is an original specification-based regression; no new native Word table comparison was run.

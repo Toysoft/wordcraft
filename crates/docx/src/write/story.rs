@@ -212,7 +212,7 @@ impl Writer<'_> {
             && let Some((instr, locked, props)) = self.toc_field.take()
         {
             self.rev_open(w, &props);
-            self.field_start(w, &instr, locked, false, &props);
+            self.field_start(w, &instr, locked, false, "", &props);
             self.rev_close(w, &props);
         }
         let toc_end = std::mem::take(&mut self.toc_end_here);
@@ -481,10 +481,10 @@ impl Writer<'_> {
                     None => super::math::write_equation(w, linear, *display, math, color),
                 }
             }
-            InlineObject::Field { instr, result, locked, .. } => self.field(w, instr, result, *locked, props),
+            InlineObject::Field { instr, result, locked, form, .. } => self.field(w, instr, result, *locked, form, props),
             InlineObject::FieldStart { instr, locked, dirty } => {
                 self.rev_open(w, props);
-                self.field_start(w, instr, *locked, *dirty, props);
+                self.field_start(w, instr, *locked, *dirty, "", props);
                 self.rev_close(w, props);
             }
             InlineObject::FieldEnd => {
@@ -780,7 +780,7 @@ impl Writer<'_> {
         }
     }
 
-    fn field(&mut self, w: &mut W, instr: &str, result: &str, locked: bool, props: &CharProps) {
+    fn field(&mut self, w: &mut W, instr: &str, result: &str, locked: bool, form: &str, props: &CharProps) {
         if self.toc_hold_end && is_toc(instr) {
             // A TOC heading's field opens in the first entry and closes after the last (see `toc_span`).
             self.toc_hold_end = false;
@@ -801,7 +801,7 @@ impl Writer<'_> {
             w.close("w:r");
         };
         self.rev_open(w, props);
-        self.field_start(w, instr, locked, false, props);
+        self.field_start(w, instr, locked, false, form, props);
         // Field result inherits the field's formatting but not the deletion marking.
         let mut result_props = props.clone();
         result_props.del = None;
@@ -887,8 +887,9 @@ impl Writer<'_> {
         run(w, props, &|w| w.empty("w:fldChar", &[("w:fldCharType", "end")]));
     }
 
-    /// A field's begin, instruction and separate runs.
-    fn field_start(&self, w: &mut W, instr: &str, locked: bool, dirty: bool, props: &CharProps) {
+    /// A field's begin, code and separator; `form` is a legacy form field's `w:ffData`, which
+    /// belongs inside the begin.
+    fn field_start(&self, w: &mut W, instr: &str, locked: bool, dirty: bool, form: &str, props: &CharProps) {
         let del = self.is_del(props);
         let run = |w: &mut W, f: &dyn Fn(&mut W)| {
             w.open("w:r", &[]);
@@ -904,7 +905,13 @@ impl Writer<'_> {
             if dirty {
                 attrs.push(("w:dirty", "true"));
             }
-            w.empty("w:fldChar", &attrs);
+            if form.is_empty() {
+                w.empty("w:fldChar", &attrs);
+            } else {
+                w.open("w:fldChar", &attrs);
+                w.raw(form);
+                w.close("w:fldChar");
+            }
         });
         let instr_text = format!(" {} ", instr.trim());
         run(w, &|w| w.leaf(if del { "w:delInstrText" } else { "w:instrText" }, &[("xml:space", "preserve")], &instr_text));

@@ -319,8 +319,12 @@ impl Writer {
         // Markdown exporters (`is_safe_href`).
         if let Some(l) = f.link.as_deref().filter(|l| wordcraft_doc::link::is_safe_href(l)) {
             s = match l.strip_prefix('#') {
+                // An internal bookmark reference, not a URL.
                 Some(target) => format!("\\hyperlink{{{}}}{{{s}}}", escape_url(target)),
-                None => format!("\\href{{{}}}{{{s}}}", escape_url(l)),
+                // A script, `file:`, UNC or other non-web target becomes plain text: a `\href`
+                // compiles to a PDF `/URI` action the reader would otherwise follow on click.
+                None if wordcraft_doc::link::is_safe_href(l) => format!("\\href{{{}}}{{{s}}}", escape_url(l)),
+                None => s,
             };
         }
         s

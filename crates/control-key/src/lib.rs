@@ -2,7 +2,6 @@
 //! (which reads it): `<settings>/control-key.<instance>`. See `docs/control-protocol.md`, Keys.
 
 use std::path::{Path, PathBuf};
-
 /// Portable mode (#867): a `portable.txt` next to the executable keeps preferences, logs
 /// and key files in a `WordCraftData` folder beside it, like PhotoCraft.
 pub fn portable_dir() -> Option<PathBuf> {
@@ -14,10 +13,15 @@ fn portable_dir_in(dir: &Path) -> Option<PathBuf> {
     std::fs::metadata(dir.join("portable.txt")).is_ok().then(|| dir.join("WordCraftData"))
 }
 
-/// The app's settings folder (preferences, logs, key files): the portable folder when
-/// [`portable_dir`] applies, else macOS `~/Library/Application Support/WordCraft`, Windows
-/// `%APPDATA%\WordCraft`, otherwise `$XDG_CONFIG_HOME/wordcraft` or `~/.config/wordcraft`.
+/// The app's settings folder (preferences, logs, key files): macOS
+/// `~/Library/Application Support/WordCraft`, Windows `%APPDATA%\WordCraft`, otherwise
+/// `$XDG_CONFIG_HOME/wordcraft` or `~/.config/wordcraft`.
+/// `WORDCRAFT_PROFILE_DIR` overrides the entire folder for isolated runs;
+/// [`portable_dir`] applies when `portable.txt` is next to the executable.
 pub fn settings_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("WORDCRAFT_PROFILE_DIR").filter(|p| !p.is_empty()) {
+        return Some(PathBuf::from(path));
+    }
     if let Some(d) = portable_dir() {
         return Some(d);
     }

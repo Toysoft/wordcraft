@@ -123,34 +123,12 @@ pub fn specs() -> Vec<CommandSpec> {
         })),
         t(CommandSpec::new("table.columnWidth", "Table Column Width", "Table Layout › Cell Size", |s, v| {
             let w = p::req_f32(v, "width")?.clamp(6.0, 1584.0);
-            // Resolve the selected grid columns under an immutable borrow first (#1242).
-            let cols: std::collections::BTreeSet<usize> = {
-                let (tp, _, cc) = cell(s)?;
-                let t = s.doc.table(s.sel.focus.story, &tp)
-                    .ok_or_else(|| CmdError::Disabled("the cursor isn't in a table".into()))?;
-                let mut cols = std::collections::BTreeSet::new();
-                for (r, c) in selected_cells(s) {
-                    let g = t.grid_col(r, c);
-                    let span = t.rows.get(r).and_then(|row| row.cells.get(c)).map(|x| x.span()).unwrap_or(1);
-                    cols.extend(g..g.saturating_add(span).min(t.grid.len()));
-                }
-                if cols.is_empty() {
-                    cols.insert(t.grid_col(0, cc).min(t.grid.len().saturating_sub(1)));
-                }
-                cols
-            };
-            with_table(s, |t| {
-                for g in cols.iter().copied() {
-                    if let Some(gw) = t.grid.get_mut(g) {
-                        *gw = w;
-                    }
-                }
-                t.props.width = None;
-                t.props.width_pct = None;
-                sync_cell_widths(t);
-            })
+            let cells = selected_cells(s);
+            with_table(s, |t| set_column_widths(t, &cells, w))
         })
-        .params(r#"{"width": pt} (the caret cell's column; the table's preferred width is cleared so the column gets exactly this)"#)),
+        .params(
+            r#"{"width": pt} (every column the selection covers, the caret cell's without one; the table's preferred width is cleared so the columns get exactly this)"#,
+        )),
         t(CommandSpec::new("table.rowHeight", "Table Row Height", "Table Layout › Cell Size", |s, v| {
             let h = p::req_f32(v, "height")?.clamp(1.0, 1584.0);
             let rule = match p::str(v, "rule") {
@@ -158,28 +136,18 @@ pub fn specs() -> Vec<CommandSpec> {
                 Some("exact") => HeightRule::Exact,
                 Some(x) => return Err(CmdError::Params(format!("unknown height rule `{x}`"))),
             };
-            let cells = selected_cells(s);
-            let rows: std::collections::BTreeSet<usize> = cells.into_iter().map(|x| x.0).collect();
-            if rows.is_empty() {
-                let (_, r, _) = cell(s)?;
-                with_table(s, |t| {
-                    if let Some(row) = t.rows.get_mut(r) {
+            let mut rows: Vec<usize> = selected_cells(s).into_iter().map(|(r, _)| r).collect();
+            rows.dedup();
+            with_table(s, |t| {
+                for r in &rows {
+                    if let Some(row) = t.rows.get_mut(*r) {
                         row.props.height = Some(h);
                         row.props.height_rule = rule;
                     }
-                })
-            } else {
-                with_table(s, |t| {
-                    for r in rows.iter().copied() {
-                        if let Some(row) = t.rows.get_mut(r) {
-                            row.props.height = Some(h);
-                            row.props.height_rule = rule;
-                        }
-                    }
-                })
-            }
+                }
+            })
         })
-        .params(r#"{"height": pt, "rule"?: "atLeast|exact"}"#)),
+        .params(r#"{"height": pt, "rule"?: "atLeast|exact"} (every row the selection covers, the caret's without one)"#)),
         t(CommandSpec::new("table.repeatHeader", "Repeat Header Rows", "Table Layout › Data", |s, v| {
             let (_, r, _) = cell(s)?;
             let on = p::bool(v, "value");
@@ -293,6 +261,25 @@ pub(crate) fn sync_cell_widths(t: &mut Table) {
 
 /// Set the width of the grid column cell `c` of row `r` starts in. The table's preferred width
 /// goes, so the layout doesn't scale the column back.
+/// Give every grid column the `cells` (row, cell) pairs touch the width `w`.
+fn set_column_widths(t: &mut Table, cells: &[(usize, usize)], w: f32) {
+    let mut cols: Vec<usize> = cells.iter().map(|&(r, c)| t.grid_col(r, c)).collect();
+    cols.sort_unstable();
+    cols.dedup();
+    let mut any = false;
+    for g in cols {
+        if let Some(x) = t.grid.get_mut(g) {
+            *x = w;
+            any = true;
+        }
+    }
+    if any {
+        t.props.width = None;
+        t.props.width_pct = None;
+        sync_cell_widths(t);
+    }
+}
+
 fn set_column_width(t: &mut Table, r: usize, c: usize, w: f32) {
     let g = t.grid_col(r, c);
     if let Some(x) = t.grid.get_mut(g) {
@@ -872,7 +859,7 @@ fn formula(s: &mut Session, v: &Value) -> CmdResult {
     let at = s.sel.focus.clone();
     let end = s.doc.insert_object(
         &at,
-        wordcraft_doc::InlineObject::Field { instr: f.clone(), result: text.clone(), locked: false, code: false },
+        wordcraft_doc::InlineObject::Field { instr: f.clone(), result: text.clone(), locked: false, code: false, form: String::new() },
         &props,
     )?;
     s.sel = Selection::caret(end);

@@ -28,6 +28,32 @@ fn doc_extension_dispatches_to_docbin() {
 }
 
 #[test]
+fn encrypted_doc_asks_for_a_password_and_rejects_a_wrong_one() {
+    // #1079: a Word 97-2003 file with the encryption flag and an RC4 header whose verifier does
+    // not match any password asks for one, and a given password is reported as wrong.
+    use std::io::Write;
+    let mut fib = vec![0u8; 0x100];
+    fib[0..2].copy_from_slice(&0xA5ECu16.to_le_bytes());
+    fib[0x0A..0x0C].copy_from_slice(&0x0100u16.to_le_bytes());
+    let mut header = vec![1u8, 0, 1, 0];
+    header.extend_from_slice(&[0x5A; 48]);
+    let mut comp = cfb::CompoundFile::create(std::io::Cursor::new(Vec::new())).unwrap();
+    for (name, data) in [("WordDocument", &fib), ("0Table", &header)] {
+        comp.create_stream(format!("/{name}")).unwrap().write_all(data).unwrap();
+    }
+    let bytes = comp.into_inner().into_inner();
+    for name in ["x.doc", "x.dot"] {
+        let e = crate::io::open_bytes_with(name, &bytes, None).unwrap_err();
+        assert!(crate::io::needs_password(&e), "{e}");
+        let e = crate::io::open_bytes_with(name, &bytes, Some("nope")).unwrap_err();
+        assert!(crate::io::wrong_password(&e), "{e}");
+    }
+    // Opened by content (no extension) it asks the same way.
+    let e = crate::io::open_bytes_with("noext", &bytes, None).unwrap_err();
+    assert!(crate::io::needs_password(&e), "{e}");
+}
+
+#[test]
 fn txt_open_decodes_windows_1252_and_unmarked_utf16() {
     // #433: the TXT open path sniffs encodings like the formats importer.
     let open = |b: &[u8]| crate::io::open_bytes("x.txt", b).unwrap().plain_text(StoryRef::Body);
@@ -1404,24 +1430,40 @@ fn document_text_shows_tracked_changes_as_final() {
     assert_eq!(t, "Signed by Bob Jones, Director.");
 }
 
-/// Whole-table selection (#1242): Height/Width apply to every selected row/column, not just the
-/// caret's.
+/// The Height and Width boxes act on every row and column the selection covers (#1242), not only
+/// on the caret's: the whole table, a row, a column, and the caret alone.
 #[test]
 fn cell_size_boxes_apply_to_the_whole_selection() {
-    use wordcraft_doc::props::HeightRule;
     let mut s = s();
-    run(&mut s, "insert.table", json!({"rows": 2, "cols": 3}));
+    run(&mut s, "insert.table", json!({"rows": 3, "cols": 3}));
     run(&mut s, "table.autofit", json!({"mode": "window"}));
+    let table = |s: &Session| s.doc.body.iter().find_map(|b| b.as_table()).unwrap().clone();
+    let heights = |s: &Session| table(s).rows.iter().map(|r| r.props.height).collect::<Vec<_>>();
+    let widths = |s: &Session| table(s).grid;
+    let before = widths(&s);
+    // The caret alone changes its own row and column.
+    run(&mut s, "table.rowHeight", json!({"height": 20.0}));
+    run(&mut s, "table.columnWidth", json!({"width": 80.0}));
+    assert_eq!(heights(&s), vec![Some(20.0), None, None]);
+    assert_eq!(widths(&s)[0], 80.0);
+    assert_eq!(&widths(&s)[1..], &before[1..]);
+    // A selected column: just that column.
+    run(&mut s, "table.selectColumn", json!({}));
+    run(&mut s, "table.columnWidth", json!({"width": 70.0}));
+    assert_eq!(widths(&s)[0], 70.0);
+    assert_eq!(&widths(&s)[1..], &before[1..]);
+    // The whole table: every row and every column, one Undo per edit.
+    let mid = (heights(&s), widths(&s));
     run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "table.rowHeight", json!({"height": 40.0}));
+    assert_eq!(heights(&s), vec![Some(40.0); 3]);
     run(&mut s, "table.columnWidth", json!({"width": 90.0}));
-    run(&mut s, "table.rowHeight", json!({"height": 25.0, "rule": "exact"}));
-    let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
-    assert!(t.grid.iter().all(|w| *w == 90.0), "{:?}", t.grid);
-    for (r, row) in t.rows.iter().enumerate() {
-        assert_eq!((r, row.props.height, row.props.height_rule), (r, Some(25.0), HeightRule::Exact));
-    }
+    assert_eq!(widths(&s), vec![90.0; 3]);
+    assert!(table(&s).rows.iter().all(|r| r.cells.iter().all(|c| c.props.width == Some(90.0))), "cell widths follow the grid");
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!((heights(&s), widths(&s)), mid);
 }
-
 /// Table Properties (#44): table, row, column and cell settings land as one undo step, and
 /// without settings the command reports the current ones (the dialog's source).
 #[test]

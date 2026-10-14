@@ -8,6 +8,79 @@ fn lay(doc: &Document) -> DocLayout {
     layout(doc, &mut c, &LayoutOptions::default())
 }
 
+#[derive(Clone, Copy)]
+enum SpacingLocation {
+    Cell,
+    Body,
+    Header,
+}
+
+fn legacy_table_gap(mode: u32, allow: bool, location: SpacingLocation) -> f32 {
+    let mut d = Document::new();
+    d.settings.compat_mode = mode;
+    d.settings.allow_space_of_same_style_in_table = allow;
+    let chr = wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() };
+    let mut a = wordcraft_doc::Paragraph::with_text("Alpha probe", chr.clone());
+    a.props = ParaProps {
+        space_before: Some(0.0),
+        space_after: Some(12.0),
+        line_spacing: Some(wordcraft_doc::props::LineSpacing::Exactly(24.0)),
+        contextual_spacing: Some(true),
+        ..Default::default()
+    };
+    let mut b = wordcraft_doc::Paragraph::with_text("Beta probe", chr);
+    b.props = ParaProps { space_after: Some(0.0), ..a.props.clone() };
+    let blocks = vec![wordcraft_doc::para_block(a), wordcraft_doc::para_block(b)];
+    match location {
+        SpacingLocation::Cell => {
+            let mut table = Table::new(1, 1, 468.0);
+            // Cell identity must not depend on whether table-style formatting exists.
+            table.props.style = None;
+            table.props.cell_margins = Some([0.0; 4]);
+            table.rows[0].cells[0].blocks = blocks;
+            d.body = vec![std::sync::Arc::new(wordcraft_doc::Block::Table(table))];
+        }
+        SpacingLocation::Body => d.body = blocks,
+        SpacingLocation::Header => {
+            let id = d.add_part(wordcraft_doc::PartKind::Header, blocks);
+            d.last_section.headers.default = Some(id);
+        }
+    }
+    let l = lay(&d);
+    let items = if matches!(location, SpacingLocation::Header) { &l.pages[0].header } else { &l.pages[0].items };
+    let baselines: Vec<_> = items
+        .iter()
+        .filter_map(|i| match i {
+            Placed::Lines { para, y, .. } => Some(y + para.lines[0].baseline),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(baselines.len(), 2);
+    baselines[1] - baselines[0] - 24.0
+}
+
+#[test]
+fn legacy_table_contextual_spacing_flag_keeps_after_space() {
+    // Original Word for Mac 16.113.3 probe: after 12 pt, before 0 pt, both contextual.
+    // Zero before-space keeps the compatibility rule independent of ordinary overlap.
+    for mode in [11, 12, 14] {
+        let gap = legacy_table_gap(mode, true, SpacingLocation::Cell);
+        assert!((gap - 12.0).abs() < 0.01, "mode={mode}: gap={gap}, expected 12 pt");
+    }
+}
+
+#[test]
+fn legacy_table_contextual_spacing_flag_is_scoped_to_cells_and_legacy_mode() {
+    for (mode, allow) in [(11, false), (12, false), (14, false), (15, false), (15, true)] {
+        assert!(legacy_table_gap(mode, allow, SpacingLocation::Cell).abs() < 0.01);
+    }
+    for mode in [14, 15] {
+        for location in [SpacingLocation::Body, SpacingLocation::Header] {
+            assert!(legacy_table_gap(mode, true, location).abs() < 0.01);
+        }
+    }
+}
+
 fn contextual_gap(after: f32, before: f32, first: bool, second: bool, different_style: bool, header: bool) -> f32 {
     use wordcraft_doc::props::LineSpacing;
     let mut d = Document::new();
@@ -994,8 +1067,12 @@ fn table_without_style_stays_borderless() {
 fn headers_and_page_fields() {
     let mut d = Document::from_text(&"para\n".repeat(120));
     let mut hp = wordcraft_doc::Paragraph::new();
-    hp.insert_object(0, InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false }, &Default::default())
-        .unwrap();
+    hp.insert_object(
+        0,
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        &Default::default(),
+    )
+    .unwrap();
     let id = d.add_part(wordcraft_doc::PartKind::Footer, vec![wordcraft_doc::para_block(hp)]);
     d.last_section.footers.default = Some(id);
     let l = lay(&d);
@@ -2814,6 +2891,26 @@ fn multiple_line_spacing_adds_its_leading_below_the_text() {
 }
 
 #[test]
+fn list_label_does_not_inflate_an_inline_picture_floor() {
+    use wordcraft_doc::props::{LineSpacing, NumRef};
+    for spacing in [LineSpacing::Multiple(1.25), LineSpacing::AtLeast(12.0)] {
+        let mut d = Document::from_text("");
+        let id = d.numbering.add_list(wordcraft_doc::ListKind::Bullet);
+        d.numbering.abstracts[0].levels[0].chr.size = Some(24.0);
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        p.props.line_spacing = Some(spacing);
+        p.props.numbering = Some(NumRef { num: id, level: 0 });
+        p.insert_object(0, picture(144.0, 144.0, Default::default()), &Default::default()).unwrap();
+        let l = lay(&d);
+        let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!() };
+        let line = &para.lines[0];
+        let desc = para.styles[para.clusters[0].style as usize].descent;
+        assert!((line.height - (144.0 + desc)).abs() < 0.01, "{spacing:?}: {}", line.height);
+        assert!((line.baseline - line.top - 144.0).abs() < 0.01);
+    }
+}
+
+#[test]
 fn body_starts_right_below_a_tall_header() {
     let mut d = Document::from_text("Body");
     let mut hp = wordcraft_doc::Paragraph::with_text("", Default::default());
@@ -4324,7 +4421,7 @@ fn enclosed_characters_draw_a_shape_around_the_text() {
         let e = Enclosure { shape, style, text: "A".into() };
         d.insert_object(
             &Pos::body(0, 2),
-            InlineObject::Field { instr: e.instr(), result: "A".into(), locked: false, code: false },
+            InlineObject::Field { instr: e.instr(), result: "A".into(), locked: false, code: false, form: String::new() },
             &Default::default(),
         )
         .unwrap();
@@ -4360,7 +4457,7 @@ fn enclosed_characters_draw_a_shape_around_the_text() {
     let mut d = Document::from_text("x");
     d.insert_object(
         &Pos::body(0, 1),
-        InlineObject::Field { instr: "eq \\o(=,/)".into(), result: String::new(), locked: false, code: false },
+        InlineObject::Field { instr: "eq \\o(=,/)".into(), result: String::new(), locked: false, code: false, form: String::new() },
         &Default::default(),
     )
     .unwrap();
@@ -4814,7 +4911,7 @@ fn unproofed_languages_and_no_proof_runs_are_not_marked() {
 #[test]
 fn body_page_totals_count_every_page() {
     let mut d = Document::from_text("Body-1\nBody-2\nBody-3");
-    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, code: false };
+    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, code: false, form: String::new() };
     for i in 0..3 {
         let p = d.para_mut(StoryRef::Body, &Path::top(i)).unwrap();
         p.props.page_break_before = Some(i > 0);
@@ -4906,7 +5003,7 @@ fn east_asian_text_takes_the_asian_font_and_latin_text_the_latin_font() {
 /// the body lay out a second time; one in the body still does.
 #[test]
 fn footer_page_total_needs_one_body_pass() {
-    let field = || InlineObject::Field { instr: "NUMPAGES".into(), result: "9".into(), locked: false, code: false };
+    let field = || InlineObject::Field { instr: "NUMPAGES".into(), result: "9".into(), locked: false, code: false, form: String::new() };
     let mut d = Document::from_text("Body-1\nBody-2\nBody-3");
     for i in 1..3 {
         d.para_mut(StoryRef::Body, &Path::top(i)).unwrap().props.page_break_before = Some(true);
@@ -5774,8 +5871,12 @@ fn page_field_doc(before: usize, pieces: &[&str]) -> Document {
         let n = p.len();
         p.insert_text(n, piece, &Default::default()).unwrap();
         let n = p.len();
-        p.insert_object(n, InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false }, &Default::default())
-            .unwrap();
+        p.insert_object(
+            n,
+            InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+            &Default::default(),
+        )
+        .unwrap();
     }
     p.props.page_break_before = Some(before > 0);
     body.push(wordcraft_doc::para_block(p));
@@ -5887,8 +5988,12 @@ fn footnote_page_field_from_a_split_paragraph_shows_its_page() {
         .unwrap();
     let note = d.para_mut(StoryRef::Part(id), &Path::top(0)).unwrap();
     let n = note.len();
-    note.insert_object(n, InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false }, &Default::default())
-        .unwrap();
+    note.insert_object(
+        n,
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        &Default::default(),
+    )
+    .unwrap();
     let l = lay(&d);
     assert_eq!(l.pages.len(), 2, "the paragraph runs onto a second page");
     // The PAGE results drawn in `story`, by page (not the "*" note marks).
@@ -5962,8 +6067,12 @@ fn relaid_paragraphs_keep_their_equation_numbers() {
     let long = "words that fill the page ".repeat(400);
     p2.insert_text(0, &long, &Default::default()).unwrap();
     let n = p2.len();
-    p2.insert_object(n, InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false }, &Default::default())
-        .unwrap();
+    p2.insert_object(
+        n,
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        &Default::default(),
+    )
+    .unwrap();
     let n = p2.len();
     p2.insert_object(n, eq("c=d#"), &Default::default()).unwrap();
     // Paragraph 3: one more.

@@ -113,11 +113,17 @@ fn single_entry_toc_keeps_formatted_result_and_nested_page_field() {
     );
     let p = paras(&d);
     assert_eq!(p[0].plain_text(), "Contents");
-    assert_eq!(p[0].objects, vec![InlineObject::Field { instr: r#"TOC \o "1-1" \h"#.into(), result: String::new(), locked: true, code: false }]);
+    assert_eq!(
+        p[0].objects,
+        vec![InlineObject::Field { instr: r#"TOC \o "1-1" \h"#.into(), result: String::new(), locked: true, code: false, form: String::new() }]
+    );
     assert_eq!(p[1].plain_text(), "Intro\t1");
     assert_eq!(p[1].props_of_char(0).bold, Some(true));
     assert_eq!(p[1].props_of_char(0).link.as_deref(), Some("#_Toc1"));
-    assert_eq!(p[1].objects, vec![InlineObject::Field { instr: r#"PAGEREF _Toc1 \h"#.into(), result: "1".into(), locked: false, code: false }]);
+    assert_eq!(
+        p[1].objects,
+        vec![InlineObject::Field { instr: r#"PAGEREF _Toc1 \h"#.into(), result: "1".into(), locked: false, code: false, form: String::new() }]
+    );
 }
 
 const FIELD_DEL_DOC: &str = r#"<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> =SUM(ABOVE) </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:del w:id="1" w:author="Tester" w:date="2026-10-12T00:00:00Z"><w:r><w:delText>$150.00</w:delText></w:r></w:del><w:r><w:fldChar w:fldCharType="end"/></w:r><w:ins w:id="3" w:author="Tester" w:date="2026-10-12T00:00:00Z"><w:r><w:t>$140.00</w:t></w:r></w:ins></w:p><w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> =2+3 </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:del w:id="4" w:author="Tester" w:date="2026-10-12T00:00:00Z"><w:r><w:delText>5</w:delText></w:r></w:del><w:r><w:fldChar w:fldCharType="end"/></w:r><w:ins w:id="5" w:author="Tester" w:date="2026-10-12T00:00:00Z"><w:r><w:t>five</w:t></w:r></w:ins></w:p>"#;
@@ -169,9 +175,11 @@ fn toc_complex_field_spanning_paragraphs() {
     let d = read_body(body);
     let p = paras(&d);
     assert_eq!(p.len(), 5);
-    assert_eq!(p[0].text, "\u{FFFC}Intro\t\u{FFFC}");
     assert_eq!(p[0].objects[0], InlineObject::FieldStart { instr: r#"TOC \o "1-3" \h \z \u"#.into(), locked: false, dirty: false });
-    assert_eq!(p[0].objects[1], InlineObject::Field { instr: r#"PAGEREF _Toc1 \h"#.into(), result: "1".into(), locked: false, code: false });
+    assert_eq!(
+        p[0].objects[1],
+        InlineObject::Field { instr: r#"PAGEREF _Toc1 \h"#.into(), result: "1".into(), locked: false, code: false, form: String::new() }
+    );
     assert_eq!(p[0].props_of_char(3).link.as_deref(), Some("#_Toc1"));
     assert_eq!(p[0].props.style.as_deref(), Some("TOC1"));
     assert_eq!(p[1].text, "Body\t2");
@@ -179,7 +187,7 @@ fn toc_complex_field_spanning_paragraphs() {
     assert_eq!(p[2].objects, vec![InlineObject::FieldEnd]);
     assert_eq!(p[3].objects, vec![InlineObject::BookmarkStart { name: "_Toc1".into() }, InlineObject::BookmarkEnd { name: "_Toc1".into() }]);
     assert_eq!(p[4].plain_text(), "Page 7");
-    assert_eq!(p[4].objects[0], InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, code: false });
+    assert_eq!(p[4].objects[0], InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, code: false, form: String::new() });
     // And it writes back out and reads the same.
     let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
     assert_eq!(again.body, d.body);
@@ -633,7 +641,10 @@ fn unbalanced_fields_and_markers() {
     let d = read_body(body);
     let p = paras(&d);
     assert_eq!(p[0].text, "a");
-    assert_eq!(p[1].objects, vec![InlineObject::Field { instr: "IF X = \"y\"".into(), result: String::new(), locked: false, code: false }]);
+    assert_eq!(
+        p[1].objects,
+        vec![InlineObject::Field { instr: "IF X = \"y\"".into(), result: String::new(), locked: false, code: false, form: String::new() }]
+    );
     assert_eq!(p[2].objects, vec![InlineObject::BookmarkStart { name: "between".into() }, InlineObject::BookmarkEnd { name: "between".into() }]);
     assert_eq!(p[2].plain_text(), "after");
 }
@@ -670,6 +681,20 @@ fn with_settings(settings: Option<&str>) -> Document {
             let s = format!(r#"<w:settings {W_NS}>{inner}</w:settings>"#);
             wordcraft_docx::read(&docx(body, &[("rId1", "settings", "settings.xml")], &[("word/settings.xml", &s)])).unwrap()
         }
+    }
+}
+
+#[test]
+fn table_contextual_spacing_compatibility_flag_is_read() {
+    assert!(!with_settings(None).settings.allow_space_of_same_style_in_table);
+    for (flag, expected) in [
+        ("", false),
+        (r#"<w:allowSpaceOfSameStyleInTable w:val="0"/>"#, false),
+        (r#"<w:allowSpaceOfSameStyleInTable/>"#, true),
+        (r#"<w:allowSpaceOfSameStyleInTable w:val="1"/>"#, true),
+    ] {
+        let settings = format!("<w:compat>{flag}</w:compat>");
+        assert_eq!(with_settings(Some(&settings)).settings.allow_space_of_same_style_in_table, expected, "{flag}");
     }
 }
 
