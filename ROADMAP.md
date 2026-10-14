@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-13 | Cut copies to the system clipboard however it is run (#1265): the ribbon, the context menu and the native menu cut deleted the words without copying them (only the Cmd+X event wrote the clipboard, so Paste re-inserted the previous copy); Copy/Cut publication is centralised in one sink and every entry point is tested |
 | 2026-10-13 | Insert › Bookmark deletes bookmarks (#1236): the dialog is laid out as Word's, with Add, Delete and Go To beside the list, Sort by Name or Location and Hidden bookmarks; it opens on the bookmark around the caret, Delete and Go To keep it open, and Go To selects the bookmark's text. `insert.deleteBookmark {name}` removes both ends of a bookmark, also one across paragraphs (adding a bookmark under a name in use left such a one's end behind) |
 | 2026-10-12 | Password-protected Word 97-2003 `.doc` files open after a password prompt (XOR obfuscation, RC4, RC4 CryptoAPI; wrong passwords are rejected by the stored verifier, #1079); written from the public specs and tested on synthetic files only, AES-encrypted `.doc` files are still refused |
 | 2026-10-12 | Comments can show only for the selected text (#1055): Track Changes Options › Comments › "Only for the selected text" drops the margin column, and the comment under the caret, or the clicked one, floats beside the page (over its edge in a narrow window). The default stays "In the margin", as in Word; `review.trackingOptions {"commentDisplay"}` for agents |
@@ -147,6 +148,8 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-13 | Rounded rectangles (#1476): a `roundRect` keeps the corner radius its file gives it (`adj`), on screen, in PDF and when saved; all were drawn with a 16% corner |
 | 2026-10-13 | PAGEREF in headers and footers (#1477): "Page X of Y" with Y a page reference to a bookmark at each letter's end shows each letter's own total instead of the result stored in the file |
 | 2026-10-13 | Replace All respects locked content controls with Track Changes on or off; it refuses the entire batch before editing when any match would change locked content or remove a control locked against deletion |
+| 2026-10-13 | Windows Magnifier follows the caret onto a new line: after Enter or Shift+Enter the view moves to the empty line at once, instead of staying on the line above until two more letters are typed (#1119) |
+| 2026-10-13 | A window too big for its screen shrinks to fit when it opens (#1215): on a laptop screen the first window reached under the taskbar or past the screen edge, with the end of the scroll bar, so dragging the scroll bar stopped where the pointer met the edge. A window saved that size is fitted on its next launch too |
 | 2026-10-12 | Text boxes from older Word files (VML) keep their internal margins, Resize shape to fit text and vertical alignment, so letterhead address blocks and form headers sit where Word puts them instead of 7 pt in and 4 pt down. Hidden drawings stay hidden (they were drawn as empty boxes) and are kept on save |
 | 2026-10-13 | Word's privacy options are kept and honoured when saving .docx (#1062): with Remove personal information, comments and tracked changes are saved by "Author" and the file has no creator or last-modified-by; with Remove date and time, they are saved without dates. The open document keeps the real names and dates; `file.privacyOptions` sets both |
 | 2026-10-13 | A selected comment balloon's Delete, Reply and Resolve buttons work again (#1085): pressing them no longer counts as a click on the page that closes the balloon first, so a new empty comment, or any other, can be deleted from its balloon |
@@ -193,6 +196,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-14 | Draw: Ink to Shape recognises arrows. A line and a V-shaped head drawn in one stroke (shaft first or head first, any direction) becomes a straight arrow connector with the head at the tip, in the stroke's colour and width; a lone V, a line with one barb and scribbles stay as they are. Our own recogniser: Word for Mac has no Ink to Shape to compare. Two-stroke arrows and arrows with a closed triangle head not yet. |
 | 2026-10-12 | A DOCX hyperlink whose relationship has an empty target (as LibreOffice writes) is no link (#1005): no "Ctrl+Click to follow link" tooltip over the text, which keeps its Hyperlink style |
 | 2026-10-12 | Table eraser beside vertically merged cells (#1039): the border between two cells merged down the same rows merges them into one cell that stays merged down those rows; a border whose two sides can't make one rectangle is hidden on both sides along the whole edge instead of refused |
+| 2026-10-13 | Table Layout › Cell Size: the Height and Width boxes apply to every row and column the selection covers (a selected table changed only its last row and column), and to the caret's row and column without a selection (#1242) |
 | 2026-10-12 | RTF import now uses the RTF spec's defaults where a file names none (#902): no space before or after paragraphs, single line spacing, and the `\deff` default font, instead of WordCraft's Normal style; RTF files that relied on the old defaults open tighter, like in Word |
 | 2026-10-12 | `--help` and `-h` print the usage and exit (#968): `wordcraft --help` lists the app's options without opening a window (it used to try to open a file named `--help`), and `wordcraft-cli <command> --help` works for every command instead of failing with `unknown option --help` |
 | 2026-10-11 | Right-clicking a table cell offers the table's commands, and as in Word they follow the selection: with the caret in a cell Insert, Delete Cells, Split Cells, Text Direction and Table Properties…; with several cells Merge Cells instead of Split; with whole columns or rows Delete Columns or Rows, Merge Cells and Distribute Rows and Columns; with the whole table Delete Table, Distribute, AutoFit and Insert Caption…. A right-click beside selected cells moves the caret there instead of keeping them |
@@ -355,6 +359,8 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-13 | trivial | Progress log: rounded rectangle corners (#1476) |
 | 2026-10-13 | trivial | Progress log: PAGEREF in headers and footers (#1477) |
 | 2026-10-13 | trivial | Replace All checks content-control locks before editing; a refused batch leaves the document and undo history unchanged; existing deletion-lock rules reused, with tracked/untracked regression coverage |
+| 2026-10-13 | trivial | Progress log: Windows Magnifier follows the caret onto a new line (#1119) |
+| 2026-10-13 | trivial | Progress log: a window too big for its screen shrinks to fit (#1215) |
 | 2026-10-12 | trivial | Progress log: VML text box margins, fit and alignment; hidden drawings |
 | 2026-10-13 | trivial | Progress log: comment balloon buttons work, empty comments can be deleted (#1085) |
 | 2026-10-12 | trivial | Progress log: sample-text formulas on Enter (#1067) |
@@ -390,6 +396,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | trivial | Progress log: web picture paste respects the edit target (#1349) |
 | 2026-10-14 | trivial | Progress log: table deletes, Change Case and Unlink Fields respect Track Changes and locked content controls (#1329) |
 | 2026-10-14 | trivial | Progress log: Ink to Shape recognises single-stroke arrows |
+| 2026-10-13 | trivial | Progress log: cell size boxes act on the whole selection (#1242) |
 | 2026-10-12 | trivial | Progress log: Accept All and Reject All keep the right paragraph marks (#864) |
 | 2026-10-12 | trivial | Progress log: `--help` for the app and every CLI subcommand (#968) |
 | 2026-10-12 | trivial | Progress log: Down and Up no longer skip a table (#1007) |
