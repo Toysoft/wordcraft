@@ -326,6 +326,7 @@
 	Immersive	Odaklı
 	Immersive Reader	Odaklı Okuyucu
 	Immersive\nReader	Odaklı\nOkuyucu
+	In the margin	Kenarda
 	Increase Font Size	Yazı Tipi Boyutunu Büyüt
 	Increase Indent	Girintiyi Artır
 	Indent	Girinti
@@ -482,6 +483,7 @@
 	OK	Tamam
 	One	Bir
 	One Page	Bir Sayfa
+	Only for the selected text	Yalnızca seçili metin için
 	Open	Aç
 	OpenDocument Text (*.odt)	OpenDocument Metni (*.odt)
 	Optional Hyphen	İsteğe Bağlı Kısa Çizgi
@@ -2461,6 +2463,14 @@ preview	Title	Örnek
 	AutoFit Column by Double-Clicking	Sütunu Çift Tıklayarak Otomatik Sığdır
 	Region:	Bölge:
 	Automatic ({region})	Otomatik ({region})
+	Text of the nearest paragraph with a given style (running headers)	Belirli bir stile sahip en yakın paragrafın metni (değişken üstbilgiler)
+	Style name:	Stil adı:
+	Search from bottom of page to top	Sayfanın altından üstüne doğru ara
+	Insert paragraph number	Paragraf numarası ekle
+	Insert paragraph number in relative context	Paragraf numarasını göreli bağlamda ekle
+	Insert paragraph number in full context	Paragraf numarasını tam bağlamda ekle
+	Suppress all non-delimiter characters	Ayırıcı olmayan tüm karakterleri gizle
+	Insert position (above or below)	Konum ekle (yukarıda veya aşağıda)
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Alıcıları filtrele
 	Sort Recipients	Alıcıları sırala

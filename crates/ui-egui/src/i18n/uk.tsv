@@ -99,6 +99,7 @@
 	Ignore web and file addresses	Пропускати веб-адреси та шляхи до файлів
 	Ignore words in capitals	Пропускати слова з великих літер
 	Ignore words with numbers	Пропускати слова з цифрами
+	In the margin	На полях
 	Inches	Дюйми
 	Formatting exceptions	Винятки форматування
 	Include level number from:	Додати номер рівня:
@@ -126,6 +127,7 @@
 	Number alignment:	Вирівнювання номера:
 	Number format	Формат номера
 	Number style for this level:	Стиль номера для цього рівня:
+	Only for the selected text	Лише для виділеного тексту
 	Outside border	Зовнішня межа
 	Overtype	Заміна
 	Overtype (typing replaces the characters after the caret)	Заміна (введений текст замінює символи після курсора)
@@ -2091,6 +2093,14 @@
 	AutoFit Column by Double-Clicking	Добір ширини стовпця подвійним клацанням
 	Region:	Регіон:
 	Automatic ({region})	Автоматично ({region})
+	Text of the nearest paragraph with a given style (running headers)	Текст найближчого абзацу із заданим стилем (живі колонтитули)
+	Style name:	Назва стилю:
+	Search from bottom of page to top	Шукати від кінця сторінки до початку
+	Insert paragraph number	Вставляти номер абзацу
+	Insert paragraph number in relative context	Вставляти номер абзацу у відносному контексті
+	Insert paragraph number in full context	Вставляти номер абзацу в повному контексті
+	Suppress all non-delimiter characters	Приховувати всі символи, крім роздільників
+	Insert position (above or below)	Вставляти положення (вище чи нижче)
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Фільтр одержувачів
 	Sort Recipients	Сортування одержувачів

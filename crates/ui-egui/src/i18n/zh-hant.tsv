@@ -95,6 +95,7 @@
 	Ignore web and file addresses	忽略網址和檔案路徑
 	Ignore words in capitals	忽略全部大寫的單字
 	Ignore words with numbers	忽略包含數字的單字
+	In the margin	在頁邊
 	Inches	英寸
 	Formatting exceptions	格式例外
 	Include level number from:	包含的層級編號來自：
@@ -128,6 +129,7 @@
 	Number alignment:	編號對齊方式：
 	Number format	編號格式
 	Number style for this level:	此層級的編號樣式：
+	Only for the selected text	僅針對所選文字
 	Outside border	外側框線
 	Make WordCraft the default for Word documents…	將 WordCraft 設為 Word 文件的預設應用程式…
 	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	今後以 WordCraft 開啟 .docx、.doc、.rtf、.odt 檔案和 Word 範本。
@@ -2080,6 +2082,14 @@
 	AutoFit Column by Double-Clicking	按兩下自動調整欄寬
 	Region:	地區：
 	Automatic ({region})	自動（{region}）
+	Text of the nearest paragraph with a given style (running headers)	具有指定樣式的最近段落文字（書眉）
+	Style name:	樣式名稱：
+	Search from bottom of page to top	從頁面底部往頂端搜尋
+	Insert paragraph number	插入段落編號
+	Insert paragraph number in relative context	以相對內容插入段落編號
+	Insert paragraph number in full context	以完整內容插入段落編號
+	Suppress all non-delimiter characters	隱藏分隔字元以外的所有字元
+	Insert position (above or below)	插入位置（上方或下方）
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	篩選收件者
 	Sort Recipients	排序收件者

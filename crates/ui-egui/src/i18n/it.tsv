@@ -85,6 +85,7 @@
 	Enter formatting for number:	Formato del numero:
 	Follow number with:	Dopo il numero:
 	Formatting	Formattazione
+	In the margin	A margine
 	Include level number from:	Includi numero di livello da:
 	Ink	Penna
 	Insertions and Deletions	Inserimenti ed eliminazioni
@@ -98,6 +99,7 @@
 	Number alignment:	Allineamento numero:
 	Number format	Formato numero
 	Number style for this level:	Stile numero per questo livello:
+	Only for the selected text	Solo per il testo selezionato
 	Outside border	Bordo esterno
 	Restart list after:	Riavvia elenco dopo:
 	Right border	Bordo destro
@@ -2480,6 +2482,14 @@ preview	Title	Esempio
 	Correct accidental usage of cAPS LOCK key	Correggi l'uso accidentale del tasto bLOC mAIUSC
 	Region:	Area geografica:
 	Automatic ({region})	Automatico ({region})
+	Text of the nearest paragraph with a given style (running headers)	Testo del paragrafo più vicino con uno stile specificato (intestazioni correnti)
+	Style name:	Nome stile:
+	Search from bottom of page to top	Cerca dal fondo della pagina verso l'alto
+	Insert paragraph number	Inserisci numero di paragrafo
+	Insert paragraph number in relative context	Inserisci numero di paragrafo in contesto relativo
+	Insert paragraph number in full context	Inserisci numero di paragrafo in contesto completo
+	Suppress all non-delimiter characters	Elimina tutti i caratteri diversi dai delimitatori
+	Insert position (above or below)	Inserisci posizione (sopra o sotto)
 	Search	Cerca
 	Title Bar	Barra del titolo
 	Copy to	Copia in

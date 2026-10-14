@@ -337,6 +337,7 @@
 	Immersive	Süvenemine
 	Immersive Reader	Süvaluger
 	Immersive\nReader	Süva-\nluger
+	In the margin	Veerisel
 	Inches	Tollid
 	Increase Font Size	Suurenda fondi suurust
 	Increase Indent	Suurenda taanet
@@ -504,6 +505,7 @@
 	Office 2003 Default	Office 2003 vaikevalik
 	One	Üks
 	One Page	Üks leht
+	Only for the selected text	Ainult valitud teksti jaoks
 	Open	Ava
 	OpenDocument Text (*.odt)	OpenDocumenti tekst (*.odt)
 	Optional Hyphen	Valikuline poolitusmärk
@@ -2113,6 +2115,14 @@
 	AutoFit Column by Double-Clicking	Veeru automaatne sobitus topeltklõpsuga
 	Region:	Piirkond:
 	Automatic ({region})	Automaatne ({region})
+	Text of the nearest paragraph with a given style (running headers)	Antud stiiliga lähima lõigu tekst (jooksvad päised)
+	Style name:	Stiili nimi:
+	Search from bottom of page to top	Otsi lehe lõpust alguse poole
+	Insert paragraph number	Lisa lõigu number
+	Insert paragraph number in relative context	Lisa lõigu number suhtelises kontekstis
+	Insert paragraph number in full context	Lisa lõigu number täielikus kontekstis
+	Suppress all non-delimiter characters	Jäta välja kõik märgid peale eraldajate
+	Insert position (above or below)	Lisa asukoht (ülal või all)
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Filtreeri adressaate
 	Sort Recipients	Sordi adressaate
