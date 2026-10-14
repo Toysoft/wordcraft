@@ -419,13 +419,14 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 6] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 7] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("pl-PL", "Polish"),
     ("pt-BR", "Portuguese (Brazil)"),
     ("it-IT", "Italian"),
     ("hr-HR", "Croatian"),
+    ("fr-FR", "French"),
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
@@ -440,6 +441,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
         wordcraft_engine::proof::ProofLang::Hr => "Croatian".into(),
         wordcraft_engine::proof::ProofLang::Pt => "Portuguese (Brazil)".into(),
         wordcraft_engine::proof::ProofLang::It => "Italian".into(),
+        wordcraft_engine::proof::ProofLang::Fr => "French".into(),
         wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
         _ => tag.to_string(),
     }
@@ -463,7 +465,8 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
         let on = current.eq_ignore_ascii_case(tag)
             || (tag == "pl-PL" && current.eq_ignore_ascii_case("pl"))
             || (tag == "pt-BR" && current.eq_ignore_ascii_case("pt"))
-            || (tag == "it-IT" && current.eq_ignore_ascii_case("it"));
+            || (tag == "it-IT" && current.eq_ignore_ascii_case("it"))
+            || (tag == "fr-FR" && current.eq_ignore_ascii_case("fr"));
         mi_check(ui, app, name, on, "review.language", json!({"lang": tag}));
     }
     ui.separator();

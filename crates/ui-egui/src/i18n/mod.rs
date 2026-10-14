@@ -131,8 +131,16 @@ pub static LANGUAGES: [LangInfo; 19] = [
     },
     // Hungarian; `hu`, `hu-HU` and `hu_HU.UTF-8` resolve here.
     LangInfo { code: "hu", name: "Magyar", source: include_str!("hu.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
-    // French; `fr`, `fr-FR`, `fr_CA` and other regions resolve here.
-    LangInfo { code: "fr", name: "Français", source: include_str!("fr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // French; `fr`, `fr-FR`, `fr_CA` and other regions resolve here. New documents are written
+    // in French: `wordcraft-proof` checks it (`ProofLang::Fr`).
+    LangInfo {
+        code: "fr",
+        name: "Français",
+        source: include_str!("fr.tsv"),
+        prefer_hans: false,
+        editing_lang: Some("fr-FR"),
+        catalog: OnceLock::new(),
+    },
     // Bulgarian; `bg`, `bg-BG` and `bg_BG.UTF-8` resolve here.
     LangInfo {
         code: "bg", name: "Български", source: include_str!("bg.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new()
