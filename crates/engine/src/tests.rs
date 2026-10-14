@@ -912,6 +912,64 @@ fn paste_special_lists_formats_and_pastes_text_without_formatting() {
 }
 
 #[test]
+fn pasted_rtf_sections_link_their_headers_to_the_previous() {
+    // #1378: the RTF's own header part ids mean nothing in this document; a pasted section
+    // break keeps its page but links its headers and footers to the previous section.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x"}));
+    let note = s.doc.add_part(wordcraft_doc::PartKind::Footnote, Vec::new());
+    let _comment = s.doc.add_part(wordcraft_doc::PartKind::Comment, Vec::new());
+    run(&mut s, "caret.docEnd", json!({}));
+    let rtf = r"{\rtf1\ansi\sectd\lndscpsxn\titlepg{\header Head\par}{\footer Foot\par}{\headerf First\par} a\par\sect\sectd{\header Two\par} b\par}";
+    run(&mut s, "edit.pasteSpecial", json!({"as": "rtf", "rtf": rtf}));
+    let secs = s.doc.sections();
+    assert_eq!(secs.len(), 2, "the pasted section break is kept");
+    assert!(secs[0].1.landscape, "with its page settings");
+    for (_, sp) in &secs {
+        for (set, kind) in [(sp.headers, wordcraft_doc::PartKind::Header), (sp.footers, wordcraft_doc::PartKind::Footer)] {
+            for id in [set.default, set.first, set.even].into_iter().flatten() {
+                assert_eq!(s.doc.parts.get(&id).map(|p| p.kind), Some(kind), "section refers to part {id} (footnote is {note})");
+            }
+        }
+    }
+    assert_unlinked(&s);
+}
+
+/// Every section break in the body has no headers, footers or first-page setting of its own.
+fn assert_unlinked(s: &Session) {
+    for (i, sp) in s.doc.sections() {
+        assert_eq!((sp.headers, sp.footers, sp.title_page), Default::default(), "section ending at block {i}");
+    }
+}
+
+#[test]
+fn text_from_file_unlinks_inserted_sections_headers() {
+    // #1378: Insert › Text from File brings the file's section breaks with their pages, but
+    // the file's header and footer ids are its own: they link to the previous section's.
+    let dir = std::env::temp_dir().join(format!("wordcraft-text-from-file-sections-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let rtf = r"{\rtf1\ansi\sectd\lndscpsxn\titlepg{\header Head\par}{\footer Foot\par}{\headerf First\par} a\par\sect\sectd{\header Two\par} b\par}";
+    let rtf_path = dir.join("sections.rtf");
+    std::fs::write(&rtf_path, rtf).unwrap();
+    // The same document as DOCX.
+    let docx_path = dir.join("sections.docx");
+    let src = crate::io::open_bytes("sections.rtf", rtf.as_bytes()).unwrap();
+    std::fs::write(&docx_path, crate::io::save_bytes("sections.docx", &src).unwrap()).unwrap();
+    for path in [&rtf_path, &docx_path] {
+        let mut s = s();
+        run(&mut s, "document.setText", json!({"text": "x"}));
+        s.doc.add_part(wordcraft_doc::PartKind::Footnote, Vec::new());
+        run(&mut s, "caret.docEnd", json!({}));
+        run(&mut s, "insert.textFromFile", json!({"path": path.to_str().unwrap()}));
+        let secs = s.doc.sections();
+        assert!(secs.len() >= 2, "{path:?}: the inserted section break is kept");
+        assert!(secs[0].1.landscape, "{path:?}: with its page settings");
+        assert_unlinked(&s);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn paste_special_html_and_rtf_keep_bold() {
     let mut s = s();
     run(&mut s, "document.setText", json!({"text": "x"}));
@@ -1125,6 +1183,82 @@ fn tables_commands() {
     run(&mut s, "table.deleteTable", json!({}));
     assert!(s.doc.body.iter().all(|b| b.as_table().is_none()));
     assert!(s.run("table.merge", &json!({})).is_err());
+}
+
+fn cells(s: &Session) -> Option<((usize, usize), (usize, usize))> {
+    s.cell_range().map(|x| (x.rows, x.cols))
+}
+
+#[test]
+fn select_all_grows_cell_then_row_then_table_then_document() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Before"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "A1"}));
+    assert_eq!(s.sel.focus.path.cell().map(|(_, r, c)| (r, c)), Some((0, 0)));
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 0), (0, 0))), "first Ctrl+A selects the cell");
+    assert_eq!(s.selected_text(), "A1");
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 0), (0, 1))), "second Ctrl+A selects the row");
+
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 1))), "third Ctrl+A selects the table");
+
+    run(&mut s, "select.all", json!({}));
+    assert!(s.column.is_none());
+    let (a, b) = s.sel.ordered();
+    assert_eq!(a, s.doc.start_of(StoryRef::Body));
+    assert_eq!(b, s.doc.end_of(StoryRef::Body));
+    assert!(s.selected_text().starts_with("Before"));
+
+    run(&mut s, "select.all", json!({}));
+    let (a, b) = s.sel.ordered();
+    assert_eq!((a, b), (s.doc.start_of(StoryRef::Body), s.doc.end_of(StoryRef::Body)));
+}
+
+#[test]
+fn select_all_from_a_column_grows_to_the_table() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "table.selectColumn", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 0))));
+    run(&mut s, "select.all", json!({}));
+    assert_eq!(cells(&s), Some(((0, 1), (0, 1))), "Ctrl+A on a column selects the table");
+}
+
+#[test]
+fn select_all_keeps_the_whole_story_when_it_ends_in_a_table() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "A1"}));
+    s.doc.body.pop();
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "select.all", json!({}));
+    let whole = (s.doc.start_of(StoryRef::Body), s.doc.end_of(StoryRef::Body));
+    assert!(s.doc.end_of(StoryRef::Body).path.cell().is_some());
+    assert_eq!(s.sel.ordered(), whole);
+    run(&mut s, "select.all", json!({}));
+    assert!(s.column.is_none());
+    assert_eq!(s.sel.ordered(), whole);
+}
+
+#[test]
+fn select_extend_from_a_table_paragraph_selects_the_document() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    run(&mut s, "text.insert", json!({"text": "Hello world"}));
+    run(&mut s, "select.paragraph", json!({}));
+    run(&mut s, "select.extend", json!({}));
+    assert!(s.column.is_none());
+    let (a, b) = s.sel.ordered();
+    assert_eq!(a, s.doc.start_of(StoryRef::Body));
+    assert_eq!(b, s.doc.end_of(StoryRef::Body));
 }
 
 /// AutoFit Contents (#44) measures the text: a column of short words narrows, a column with a
@@ -1936,6 +2070,32 @@ fn toc_page_numbers_follow_headings() {
     for (name, page) in [("Alpha", 2), ("Bravo", 3), ("Charlie", 4)] {
         assert!(t.contains(&format!("{name}\t{page}")), "{name} should be on page {page}: {t}");
     }
+}
+
+/// Headings numbered through a list carry their numbers, and the level's separator, into the
+/// TOC entries.
+#[test]
+fn toc_entries_carry_heading_numbers() {
+    let mut s = s();
+    run(&mut s, "references.toc", json!({}));
+    run(&mut s, "caret.docEnd", json!({}));
+    for name in ["Alpha", "Bravo"] {
+        run(&mut s, "text.pageBreak", json!({}));
+        run(&mut s, "text.insert", json!({"text": name}));
+        run(&mut s, "para.heading1", json!({}));
+        run(&mut s, "text.newParagraph", json!({}));
+    }
+    let num = s.doc.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    for b in s.doc.body.iter_mut() {
+        if let wordcraft_doc::Block::Para(p) = std::sync::Arc::make_mut(b)
+            && p.props.style.as_deref() == Some("Heading1")
+        {
+            p.props.numbering = Some(wordcraft_doc::props::NumRef { num, level: 0 });
+        }
+    }
+    run(&mut s, "references.updateToc", json!({}));
+    let t = text(&s);
+    assert!(t.contains("1.\tAlpha\t2") && t.contains("2.\tBravo\t3"), "{t}");
 }
 
 /// A heading above the TOC keeps its index when the entries go in below it, so its page is read

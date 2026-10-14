@@ -121,6 +121,22 @@ pub fn region_page(region: &wordcraft_geom::Region) -> wordcraft_doc::SectionPro
 /// (see [`region_page`]); a document with its own page size keeps it.
 pub fn open_bytes_in(name: &str, bytes: &[u8], password: Option<&str>, region: &wordcraft_geom::Region) -> Result<(Document, bool), String> {
     let page = region_page(region);
+    let (doc, encrypted) = read_bytes(name, bytes, password, &page)?;
+    load_embedded_fonts(&doc);
+    Ok((doc, encrypted))
+}
+
+/// Load the fonts `doc` embeds (#1171) for this run, in memory only: text set in a font that isn't
+/// installed then lays out and exports with it instead of a fallback. Faces already available
+/// stay as they are.
+fn load_embedded_fonts(doc: &Document) {
+    let files: Vec<Vec<u8>> = wordcraft_docx::embedded_fonts(doc).iter().filter_map(|f| wordcraft_fonts::decode_font_file(f).ok()).collect();
+    if !files.is_empty() {
+        wordcraft_fonts::FontDb::global().add_document_fonts(files);
+    }
+}
+
+fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft_doc::SectionProps) -> Result<(Document, bool), String> {
     let ext = ext_of(name);
     if matches!(ext.as_str(), "docx" | "docm" | "dotx" | "dotm" | "doc" | "dot") && wordcraft_docx::is_encrypted(bytes) {
         let mut doc = wordcraft_docx::read_with_password(bytes, password).map_err(|e| e.to_string())?;
@@ -128,15 +144,15 @@ pub fn open_bytes_in(name: &str, bytes: &[u8], password: Option<&str>, region: &
         return Ok((doc, true));
     }
     if ext.is_empty() || signature_contradicts(&ext, bytes) {
-        return open_by_content(name, &ext, bytes, password, &page);
+        return open_by_content(name, &ext, bytes, password, page);
     }
     let mut doc = match ext.as_str() {
         // Plain text goes through the formats importer: BOMs, unmarked UTF-16, Windows-1252.
-        "txt" | "text" | "" => wordcraft_formats::txt::import_on(bytes, &page),
+        "txt" | "text" | "" => wordcraft_formats::txt::import_on(bytes, page),
         "json" => serde_json::from_slice::<Document>(bytes).map_err(|e| format!("{name}: {e}"))?,
-        other => match crate::io_ext::open(other, bytes, &page) {
+        other => match crate::io_ext::open(other, bytes, page) {
             Some(r) => r?,
-            None => return open_by_content(name, other, bytes, password, &page),
+            None => return open_by_content(name, other, bytes, password, page),
         },
     };
     doc.ensure_nonempty();
@@ -431,6 +447,18 @@ pub fn read_file_capped(path: &str, max: u64, what: &str) -> Result<Vec<u8>, Str
         return Err(format!("{path}: the {what} is larger than {} MB", max >> 20));
     }
     std::fs::read(path).map_err(|e| format!("{path}: {e}"))
+}
+
+/// The first `max` bytes of the file at `path` (fewer when it is shorter), inside the automation
+/// read root when there is one: enough to tell a file's format by its start.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn read_file_head(path: &str, max: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    crate::file_access::check_read(path)?;
+    let f = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut head = Vec::new();
+    f.take(max).read_to_end(&mut head).map_err(|e| format!("{path}: {e}"))?;
+    Ok(head)
 }
 
 /// Write `bytes` to the file at `path`, inside the automation write root when there is one.
