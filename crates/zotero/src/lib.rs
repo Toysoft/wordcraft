@@ -19,10 +19,12 @@ mod bridge;
 pub mod client;
 pub mod fields;
 mod rich;
+mod transaction;
 pub mod wire;
 
 pub use bridge::{Bridge, Headless, Host};
 pub use client::{Command, Outcome};
+pub use transaction::Transaction;
 pub use wire::Call;
 
 /// Errors talking to Zotero.
@@ -37,6 +39,12 @@ pub enum ZoteroError {
     /// Zotero sent something that isn't the protocol.
     #[error("unexpected data from Zotero: {0}")]
     Protocol(String),
+    /// The peer disconnected or cancelled without successfully completing the command.
+    #[error("Zotero ended without completing the operation (cancelled or disconnected)")]
+    Incomplete,
+    /// A callback failed, or the document changed before the edits could be committed.
+    #[error("Zotero operation failed: {0}")]
+    Failed(String),
 }
 
 #[cfg(test)]

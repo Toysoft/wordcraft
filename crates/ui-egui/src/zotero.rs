@@ -10,7 +10,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 
 use serde_json::{Value, json};
-use wordcraft_zotero::{Bridge, Call, Command, Host};
+use wordcraft_zotero::{Bridge, Call, Command, Host, Transaction};
 
 use crate::WordApp;
 
@@ -38,8 +38,8 @@ pub struct ZoteroLink {
     alert: Option<Alert>,
     /// The command in flight.
     pub busy: Option<Command>,
-    /// The document the command in flight started in; its calls are refused once another is open.
-    document: u64,
+    /// Private edits, committed only after successful completion against an unchanged document.
+    transaction: Option<Transaction>,
     /// How the last command ended.
     pub last: Option<Value>,
     /// Zotero's calls in the command in flight (logged when it ends).
@@ -98,7 +98,7 @@ fn start(app: &mut WordApp, cmd: Command, ctx: Option<egui::Context>) -> Result<
     if let Some(b) = app.zotero.busy {
         return Err(format!("Zotero is still working on {}; finish in Zotero's window first", b.wire_name()));
     }
-    let document = app.session.document_id();
+    let transaction = Transaction::new(&app.session, &app.zotero.bridge);
     let (call_tx, call_rx) = channel::<Pending>();
     let (done_tx, done_rx) = channel();
     let wake = ctx.clone();
@@ -126,7 +126,7 @@ fn start(app: &mut WordApp, cmd: Command, ctx: Option<egui::Context>) -> Result<
     z.calls = Some(call_rx);
     z.done = Some(done_rx);
     z.busy = Some(cmd);
-    z.document = document;
+    z.transaction = Some(transaction);
     log::info!("Zotero: {} started", cmd.wire_name());
     app.status(tl!("Waiting for Zotero…"));
     Ok(json!({"started": cmd.wire_name()}))
@@ -156,32 +156,33 @@ pub fn poll(app: &mut WordApp, ctx: &egui::Context) {
     if app.zotero.busy.is_none() {
         return;
     }
-    let mut changed = false;
     // One alert at a time: Zotero sends nothing else while it waits for the answer.
     while app.zotero.alert.is_none() {
         let Some(p) = app.zotero.calls.as_ref().and_then(|rx| rx.try_recv().ok()) else { break };
-        if p.call.method == "Document_displayAlert" && app.session.document_id() == app.zotero.document {
+        app.zotero.methods.push(p.call.method.clone());
+        let current = app
+            .zotero
+            .transaction
+            .as_ref()
+            .ok_or_else(|| "Zotero transaction is missing".to_string())
+            .and_then(|t| t.check_current(&app.session).map_err(|e| e.to_string()));
+        if let Err(e) = current {
+            let _ = p.reply.send(Err(e));
+            continue;
+        }
+        if p.call.method == "Document_displayAlert" {
             let text = p.call.args.get(1).and_then(Value::as_str).unwrap_or("").to_string();
             let buttons = p.call.args.get(3).and_then(Value::as_i64).unwrap_or(0);
-            app.zotero.methods.push(p.call.method.clone());
             app.zotero.alert = Some(Alert { text, buttons, reply: p.reply });
             continue;
         }
-        app.zotero.methods.push(p.call.method.clone());
-        if app.session.document_id() != app.zotero.document {
-            // New or Open replaced the document this command started in: its edits must not land in the new one.
-            let _ = p.reply.send(Err("WordCraft replaced the document this command started in".into()));
-            continue;
-        }
-        let rev = app.session.rev();
         let mut host = AppHost { ctx };
-        let r = app.zotero.bridge.handle(&mut app.session, &mut host, &p.call);
-        changed |= app.session.rev() != rev || p.call.method == "Field_select";
+        let r = app.zotero.transaction.as_mut().ok_or_else(|| "Zotero transaction is missing".to_string()).and_then(|t| t.handle(&mut host, &p.call));
+        if r.is_ok() && app.zotero.transaction.as_mut().is_some_and(|t| t.preview_selection(&mut app.session, &p.call)) {
+            app.canvas.scroll_to_caret = true;
+            app.canvas.caret_visible_since = crate::now_ms();
+        }
         let _ = p.reply.send(r);
-    }
-    if changed {
-        app.canvas.scroll_to_caret = true;
-        app.canvas.caret_visible_since = crate::now_ms();
     }
     let done = app.zotero.done.as_ref().and_then(|rx| rx.try_recv().ok());
     if let Some(r) = done {
@@ -189,6 +190,24 @@ pub fn poll(app: &mut WordApp, ctx: &egui::Context) {
         app.zotero.calls = None;
         app.zotero.done = None;
         app.zotero.alert = None;
+        let transaction = app.zotero.transaction.take();
+        let r = match (r, transaction) {
+            (Ok(out), Some(t)) => t
+                .commit(&mut app.session, &mut app.zotero.bridge, &out)
+                .map(|()| {
+                    app.canvas.scroll_to_caret = true;
+                    app.canvas.caret_visible_since = crate::now_ms();
+                    out
+                })
+                .map_err(|e| e.to_string()),
+            (Err(e), t) => {
+                if let Some(t) = t {
+                    t.discard(&mut app.session);
+                }
+                Err(e)
+            }
+            (Ok(_), None) => Err("Zotero transaction is missing".into()),
+        };
         let name = cmd.map(Command::wire_name).unwrap_or("");
         let methods = std::mem::take(&mut app.zotero.methods).join(", ");
         match &r {
@@ -306,6 +325,9 @@ mod tests {
         assert_eq!(app.run("ui.zotero.addEditCitation", json!({})).unwrap(), json!({"started": "addEditCitation"}));
         assert!(app.run("ui.zotero.refresh", json!({})).is_err(), "one session at a time");
         pump(&mut app, &ctx, |a| a.zotero.alert.is_some());
+        assert_eq!(app.session.doc.plain_text(StoryRef::Body), "Cite: ", "partial fields never reach the live document or autosave");
+        assert!(!app.session.can_undo());
+        assert!(!app.session.dirty);
         let st = app.run("ui.zotero.status", json!({})).unwrap();
         assert_eq!(st["waitingForAnswer"], "Keep going?");
         assert!(app.run("ui.zotero.answer", json!({"button": 7})).is_err());
@@ -341,6 +363,116 @@ mod tests {
         server.join().unwrap();
         assert_eq!(app.session.doc.plain_text(StoryRef::Body), "");
         assert!(!app.session.can_undo(), "the old command left no undo step in the new document");
+    }
+
+    #[test]
+    fn a_cancelled_or_failed_command_discards_its_edits() {
+        for fails in [false, true] {
+            let mut calls = vec![json!(["Application_getActiveDocument", [3]]), json!(["Document_insertText", [1, "partial"]])];
+            if fails {
+                calls.push(json!(["Not_a_method", []]));
+                calls.push(json!(["Document_complete", [1]]));
+            }
+            let (addr, server) = fake_zotero(calls);
+            let mut app = WordApp::new(Session::new(Document::from_text("original")), Services::default());
+            let before = serde_json::to_value(&app.session.doc).unwrap();
+            let sel = app.session.sel.clone();
+            app.zotero.options.addr = addr;
+            let ctx = egui::Context::default();
+            app.run("ui.zotero.refresh", json!({})).unwrap();
+            pump(&mut app, &ctx, |a| a.zotero.busy.is_none());
+            server.join().unwrap();
+            assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+            assert_eq!(app.session.sel, sel);
+            assert!(!app.session.dirty);
+            assert!(!app.session.can_undo());
+            assert!(app.zotero.transaction.is_none());
+            assert!(app.zotero.last.as_ref().unwrap()["error"].is_string());
+        }
+    }
+
+    #[test]
+    fn editing_or_replacing_the_document_during_a_dialog_keeps_the_users_work() {
+        for replace in [false, true] {
+            let (addr, server) = fake_zotero(vec![
+                json!(["Application_getActiveDocument", [3]]),
+                json!(["Document_insertText", [1, "partial"]]),
+                json!(["Document_displayAlert", [1, "Continue?", 1, 1]]),
+                json!(["Document_complete", [1]]),
+            ]);
+            let mut app = WordApp::new(Session::new(Document::from_text("original")), Services::default());
+            app.zotero.options.addr = addr;
+            let ctx = egui::Context::default();
+            app.run("ui.zotero.refresh", json!({})).unwrap();
+            pump(&mut app, &ctx, |a| a.zotero.alert.is_some());
+            if replace {
+                app.run("file.new", json!({"template": "blank"})).unwrap();
+            }
+            app.run("text.insert", json!({"text": "my work"})).unwrap();
+            let before = serde_json::to_value(&app.session.doc).unwrap();
+            let sel = app.session.sel.clone();
+            let undo = app.session.undo_labels();
+            app.run("ui.zotero.answer", json!({"button": 1})).unwrap();
+            pump(&mut app, &ctx, |a| a.zotero.busy.is_none());
+            server.join().unwrap();
+            assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+            assert_eq!(app.session.sel, sel);
+            assert_eq!(app.session.undo_labels(), undo);
+            assert!(app.zotero.last.as_ref().unwrap()["error"].as_str().unwrap().contains("document changed"));
+        }
+    }
+
+    #[test]
+    fn existing_citation_previews_use_original_positions_and_restore_only_their_own_selection() {
+        for ending in ["cancel", "complete", "user-moved"] {
+            let mut session = Session::new(Document::from_text("original"));
+            let mut bridge = wordcraft_zotero::Bridge::new();
+            let mut host = wordcraft_zotero::Headless::default();
+            for call in [
+                wordcraft_zotero::Call::new("Application_getActiveDocument", vec![json!(3)]),
+                wordcraft_zotero::Call::new("Document_insertField", vec![json!(1), json!("ReferenceMark"), json!(0)]),
+                wordcraft_zotero::Call::new("Field_setCode", vec![json!(1), json!(1), json!("ITEM CSL_CITATION {}")]),
+                wordcraft_zotero::Call::new("Document_complete", vec![json!(1)]),
+            ] {
+                bridge.handle(&mut session, &mut host, &call).unwrap();
+            }
+            let original = serde_json::to_value(&session.doc).unwrap();
+            let start_sel = session.sel.clone();
+            let undo = session.undo_labels();
+            let field = wordcraft_zotero::fields::list(&session.doc).remove(0);
+            let expected_preview = wordcraft_engine::Selection { anchor: field.start.clone(), focus: field.after() };
+            let mut calls = vec![
+                json!(["Application_getActiveDocument", [3]]),
+                json!(["Field_setText", [1, 1, "a longer citation", false]]),
+                json!(["Field_select", [1, 1]]),
+                json!(["Document_displayAlert", [1, "Keep this citation?", 1, 1]]),
+            ];
+            if ending == "complete" {
+                calls.push(json!(["Document_complete", [1]]));
+            }
+            let (addr, server) = fake_zotero(calls);
+            let mut app = WordApp::new(session, Services::default());
+            app.zotero.options.addr = addr;
+            let ctx = egui::Context::default();
+            app.run("ui.zotero.refresh", json!({})).unwrap();
+            pump(&mut app, &ctx, |a| a.zotero.alert.is_some());
+            assert_eq!(app.session.sel, expected_preview);
+            assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), original);
+            if ending == "user-moved" {
+                app.session.sel = wordcraft_engine::Selection::caret(app.session.doc.end_of(StoryRef::Body));
+            }
+            let expected = if ending == "user-moved" { app.session.sel.clone() } else { start_sel };
+            app.run("ui.zotero.answer", json!({"button": 1})).unwrap();
+            pump(&mut app, &ctx, |a| a.zotero.busy.is_none());
+            server.join().unwrap();
+            assert_eq!(app.session.sel, expected);
+            if ending != "complete" {
+                assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), original);
+                assert_eq!(app.session.undo_labels(), undo);
+            } else {
+                assert!(app.session.doc.plain_text(StoryRef::Body).contains("a longer citation"));
+            }
+        }
     }
 
     #[test]

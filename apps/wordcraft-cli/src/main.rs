@@ -464,8 +464,9 @@ fn run(args: &[String]) -> Result<(), Failure> {
             let trace = rest.iter().any(|a| a == "--trace");
             let mut bridge = wordcraft_zotero::Bridge::new();
             let mut host = wordcraft_zotero::Headless::default();
+            let mut transaction = wordcraft_zotero::Transaction::new(&s, &bridge);
             let out = wordcraft_zotero::client::run_command(&opts, command, &mut |call| {
-                let r = bridge.handle(&mut s, &mut host, call);
+                let r = transaction.handle(&mut host, call);
                 if trace {
                     eprintln!("← {} {}", call.method, clip(&Value::Array(call.args.clone()).to_string()));
                     eprintln!("→ {}", clip(&String::from_utf8_lossy(&wordcraft_zotero::wire::encode_reply(&r))));
@@ -477,6 +478,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
                 eprintln!("Zotero: {a}");
             }
             eprintln!("{} calls, {}", out.calls, if out.completed { "completed" } else { "ended without completing (cancelled?)" });
+            transaction.commit(&mut s, &mut bridge, &out).map_err(|e| e.to_string())?;
             if let Some(o) = arg_value(&rest, "--save") {
                 s.run("file.save", &json!({"path": o})).map_err(|e| e.to_string())?;
                 eprintln!("wrote {o}");

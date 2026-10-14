@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** trivial (All Caps and Small Caps text extracts from PDFs as the capitals shown, #1473; previously trivial: ODT tracked changes read and written, gap 19; previously trivial: RTF tracked insertions and deletions read and written, gap 19; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-15 · **Change:** trivial (Zotero saves require complete error-free operations (#1330); previously trivial: All Caps and Small Caps text extracts from PDFs as the capitals shown, #1473; previously trivial: ODT tracked changes read and written, gap 19; previously trivial: RTF tracked insertions and deletions read and written, gap 19; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -159,10 +159,20 @@ Preservation is separate from field evaluation. Native Word reopening and
 refresh, full schema validation and company documents remain untested. Synthetic checks do not
 raise readiness estimates. No Word-derived files are fixtures.
 
+## Zotero operation save safety
+
+Zotero commands stage their edits until error-free completion. Cancelled or failed operations
+leave the live document and undo/redo history intact; the CLI returns failure without creating
+or overwriting its `--save` destination (#1330). A changed or replaced document refuses the
+pending result. Synthetic tests cover batch conversion failure, incomplete/error outcomes,
+completion failure, transport failure and concurrent edits; no live Zotero interoperability
+claim is made. See [Zotero](zotero.md).
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Zotero saves require complete error-free operations (#1330) |
 | 2026-10-13 | trivial | Rounded rectangles keep their own corner radius: `roundRect` `adj` read, written back and drawn (#1476) |
 | 2026-10-13 | trivial | Replace All checks content-control locks before editing; a refused batch leaves the document and undo history unchanged; existing deletion-lock rules reused, with tracked/untracked regression coverage |
 | 2026-10-12 | trivial | VML text boxes keep their internal margins (`inset`), fit to their text (`mso-fit-shape-to-text`) and vertical alignment (`v-text-anchor`); hidden drawings (`visibility:hidden`, `wp:docPr/@hidden`) are kept but not shown |

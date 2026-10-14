@@ -1,5 +1,7 @@
 # Zotero
 
+> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (failed commands discard their edits, #1330).
+
 WordCraft works with the [Zotero](https://www.zotero.org) desktop app the way Word does: Zotero's
 own citation dialog, all of its citation styles, automatic bibliography and refresh. Nothing to
 install in Zotero; it only has to be running. The **Zotero** tab in the ribbon has the buttons:
@@ -21,15 +23,24 @@ Citations (each runs one of the commands below).
 
 They run in the app (and through the control channel and MCP bridged to the app). A command
 returns at once with `{"started": …}`; Zotero then works in its own window and WordCraft answers
-it in the background. All changes from one command are one undo step. If New or Open replaces
-the document while a command is running, Zotero's remaining calls for it get an error and the
-new document is left as it is.
+it in the background. Changes become visible together when the command completes successfully,
+as one undo step. Cancelling, disconnecting or failing a callback discards the command's changes;
+the document, selection and undo/redo history stay intact, and autosave never sees partial
+citations. If you edit the document or replace it with New/Open while Zotero is working, its
+result is refused with an error asking you to try again. Your edits or replacement document stay
+intact. Moving the caret alone does not discard the result or move the caret back.
+When Zotero asks about an existing citation, WordCraft still highlights its original position.
+If the command ends unsuccessfully, that preview restores the previous selection unless you
+have since moved the caret or edited the document. New citations appear only on commit.
 
 From a terminal, against a file:
 
 ```
 wordcraft-cli zotero refresh paper.docx --save paper.docx [--trace]
 ```
+
+The CLI saves only after successful completion with no callback errors. An incomplete or failed
+operation exits unsuccessfully and neither creates nor overwrites the `--save` destination.
 
 Two engine commands work with Zotero's fields without Zotero running:
 
@@ -64,6 +75,15 @@ Word's "Field" in the file.)
 ## How it works
 
 `crates/zotero` implements Zotero's published word-processor wire protocol (port 23116):
-`client` runs a session, `Bridge` answers Zotero's `Document_*` / `Field_*` calls against the
-session. The app (`crates/ui-egui/src/zotero.rs`) runs the socket on a thread and answers on the
-UI thread.
+`client` runs a session, `Bridge` answers Zotero's `Document_*` / `Field_*` calls against a private
+editing session owned by `Transaction`. Each failed callback restores its own edits and bridge
+state; the transaction commits only after a successful completion reply and a check that the live
+document has not changed. `client::run_on_session` uses this transaction automatically; callers
+of the lower-level `run_command`/`serve` must check the returned `Outcome` themselves. The app
+(`crates/ui-egui/src/zotero.rs`) runs the socket on a thread and answers on the UI thread.
+
+## Revision history
+
+| Date | Change | Summary |
+|---|---|---|
+| 2026-10-15 | minor | Atomic commands, conflict handling and CLI save gating (#1330); synthetic protocol and app tests, not a live Zotero interoperability check |
