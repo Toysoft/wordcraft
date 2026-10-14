@@ -2077,6 +2077,40 @@ fn track_changes_and_set_author_list_their_params() {
 }
 
 #[test]
+fn line_and_page_break_toggles_take_an_explicit_value() {
+    // #967: a script sets keep with next on a heading and clears it on the paragraph after,
+    // which inherits it through Enter, without tracking the toggle state.
+    let reg = cmd::registry();
+    type Field = fn(&wordcraft_doc::ParaProps) -> Option<bool>;
+    let cases: [(&str, Field); 4] = [
+        ("para.keepNext", |p| p.keep_next),
+        ("para.keepLines", |p| p.keep_lines),
+        ("para.pageBreakBefore", |p| p.page_break_before),
+        ("para.widowControl", |p| p.widow_control),
+    ];
+    for (id, field) in cases {
+        assert!(reg.get(id).unwrap().params.contains(r#""value"?: bool"#), "{id} lists its param");
+        let mut s = s();
+        run(&mut s, "text.insert", json!({"text": "Heading"}));
+        let at = |s: &Session, block| s.doc.para_at(&Pos::body(block, 0)).and_then(|p| field(&p.props));
+        for value in [true, true, false, false, true] {
+            run(&mut s, id, json!({"value": value}));
+            assert_eq!(at(&s, 0), Some(value), "{id} value {value} sets, never toggles");
+        }
+        run(&mut s, "text.newParagraph", json!({}));
+        assert_eq!(at(&s, 1), Some(true), "{id} carries over to the new paragraph");
+        run(&mut s, id, json!({"value": false}));
+        assert_eq!((at(&s, 0), at(&s, 1)), (Some(true), Some(false)), "{id} clears only the new paragraph");
+        run(&mut s, id, json!({}));
+        assert_eq!(at(&s, 1), Some(true), "{id} without value toggles");
+        run(&mut s, id, json!({}));
+        assert_eq!(at(&s, 1), Some(false), "{id} without value toggles back");
+        run(&mut s, id, json!({"value": "yes"}));
+        assert_eq!(at(&s, 1), Some(true), "{id} ignores a value that isn't a bool and toggles, as format.bold does");
+    }
+}
+
+#[test]
 fn no_markup_view_lays_out_the_final_text() {
     let mut s = s();
     run(&mut s, "text.insert", json!({"text": "original"}));
@@ -4747,6 +4781,34 @@ fn table_texts(s: &Session) -> Vec<Vec<String>> {
 }
 
 #[test]
+fn convert_text_to_table_refuses_to_drop_content() {
+    // Issue #1318: a 64th field and a table between the selected paragraphs were silently lost.
+    {
+        let wide = (0..64).map(|i| i.to_string()).collect::<Vec<_>>().join("\t");
+        let mut s = s();
+        run(&mut s, "document.setText", json!({"text": wide}));
+        run(&mut s, "select.all", json!({}));
+        let depth = s.undo_depth();
+        assert!(s.run("table.fromText", &json!({})).is_err());
+        assert_eq!(s.doc.body.len(), 1);
+        assert!(s.doc.body.iter().all(|b| b.as_table().is_none()));
+        assert_eq!(s.undo_depth(), depth);
+    }
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "x\ny\nz"}));
+    let at = |i: u32| json!({"story": "body", "path": [i], "off": 0});
+    run(&mut s, "select.range", json!({"anchor": at(1), "focus": at(1)}));
+    run(&mut s, "table.fromText", json!({}));
+    assert!(s.doc.body.get(1).and_then(|b| b.as_table()).is_some());
+    run(&mut s, "select.range", json!({"anchor": at(0), "focus": at(2)}));
+    let depth = s.undo_depth();
+    assert!(s.run("table.fromText", &json!({})).is_err());
+    assert_eq!(s.doc.body.len(), 3);
+    assert!(s.doc.body.get(1).and_then(|b| b.as_table()).is_some());
+    assert_eq!(s.undo_depth(), depth);
+}
+
+#[test]
 fn delete_columns_deletes_every_selected_column() {
     // Issue #431: only the selection's focus column went.
     let cell = |r: u32, c: u32, off: usize| json!({"story": "body", "path": [0, r, c, 0], "off": off});
@@ -5743,6 +5805,24 @@ fn insert_picture_takes_a_windows_metafile() {
     let err = s.run("insert.picture", &json!({"path": path.to_string_lossy()})).unwrap_err();
     assert!(err.to_string().contains("WMF, EMF"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn outline_aliases_add_one_undo_step() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "one"}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "two"}));
+    for id in ["outline.promote", "outline.demote", "outline.moveUp", "outline.moveDown"] {
+        let (doc, sel, depth) = (s.doc.clone(), s.sel.clone(), s.undo_depth());
+        run(&mut s, id, json!({}));
+        assert_ne!(s.doc, doc, "{id} changed nothing");
+        assert_eq!(s.undo_depth(), depth + 1, "{id}");
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(s.doc, doc, "{id}: one undo restores the document");
+        assert_eq!(s.sel, sel, "{id}: one undo restores the selection");
+        run(&mut s, "edit.redo", json!({}));
+    }
 }
 
 /// Insert › Link › Place in This Document (#1234): a link to a bookmark, a heading or the top of
