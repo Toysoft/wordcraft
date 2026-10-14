@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (progress log: French proofing, #1325; proofed languages listed; previously trivial: progress log: privacy options on save, #1062; previously trivial: progress log: equation pictures in theme colours on Windows, #1002; previously trivial: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -113,9 +113,9 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Vietnamese | vi | none | 0% |
 
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
-system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish, Italian and Czech proofing are not included. Hungarian (`hu`) has a
+system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish and Czech proofing are not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing.
-Proofing: English, Polish and Portuguese (spelling, grammar, hyphenation), chosen per run from its language. Word ships
+Proofing: English, Polish, Portuguese, Italian, Croatian and French (spelling, grammar; hyphenation for all but Croatian), chosen per run from its language. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
 ## Upcoming
@@ -135,6 +135,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-14 | French proofing (#1325, #895): spelling from the Hunspell French dictionary installed on the system (fr_FR or a regional one; never bundled), accent-first suggestions, French typography (a missing non-breaking space before `; : ! ?` and inside `« »`, straight quotes) and grammar (repeated word, sentence capital, missing elision), and TeX French hyphenation. Quebec French (fr-CA) follows Quebec typography; a French interface writes new documents in the system's French region. The affix engine now reads long flags, NEEDAFFIX, KEEPCASE, FULLSTRIP, ICONV and NOSUGGEST |
 | 2026-10-12 | Text boxes from older Word files (VML) keep their internal margins, Resize shape to fit text and vertical alignment, so letterhead address blocks and form headers sit where Word puts them instead of 7 pt in and 4 pt down. Hidden drawings stay hidden (they were drawn as empty boxes) and are kept on save |
 | 2026-10-13 | Word's privacy options are kept and honoured when saving .docx (#1062): with Remove personal information, comments and tracked changes are saved by "Author" and the file has no creator or last-modified-by; with Remove date and time, they are saved without dates. The open document keeps the real names and dates; `file.privacyOptions` sets both |
 | 2026-10-13 | A selected comment balloon's Delete, Reply and Resolve buttons work again (#1085): pressing them no longer counts as a click on the page that closes the balloon first, so a new empty comment, or any other, can be deleted from its balloon |
