@@ -137,6 +137,7 @@ Command line:
 
 ```sh
 wordcraft-cli convert report.docx report.pdf        # docx, pdf, odt, rtf, html, md, tex, txt, png
+wordcraft-cli summary report.docx                   # quick page/word/paragraph stats
 wordcraft-cli text report.docx                      # plain text
 wordcraft-cli inspect report.docx                   # structure as JSON
 wordcraft-cli run --template sample \

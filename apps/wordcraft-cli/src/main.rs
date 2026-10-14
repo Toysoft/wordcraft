@@ -21,6 +21,7 @@ USAGE:
                                               --markup (Print Markup): comments beside each page and
                                               tracked changes in pdf/png, a comment list in html/md/txt
   wordcraft-cli info <file>                   pages, words, paragraphs, properties (JSON)
+  wordcraft-cli summary <file> [--json]       short document stats (plain text or JSON)
   wordcraft-cli text <file>                   plain text
   wordcraft-cli inspect <file>                document structure (JSON)
   wordcraft-cli render <file> <out.png> [--page N] [--scale S]
@@ -126,6 +127,7 @@ const RUN_OPTIONS: &[OptionSpec] = &[
     OptionSpec { name: "--author", takes_value: true },
 ];
 const COMMANDS_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--json", takes_value: false }];
+const SUMMARY_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--json", takes_value: false }];
 const PARITY_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--markdown", takes_value: false }];
 const MCP_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--connect", takes_value: true }, OptionSpec { name: "--author", takes_value: true }];
 const ZOTERO_OPTIONS: &[OptionSpec] = &[
@@ -218,6 +220,42 @@ fn run(args: &[String]) -> Result<(), Failure> {
             let mut s = open(&pos(0)?)?;
             let info = serde_json::to_string_pretty(&s.run("file.info", &json!({})).map_err(|e| e.to_string())?).unwrap_or_default();
             write_stdout(|o| writeln!(o, "{info}"))
+        }
+        "summary" => {
+            validate_options("summary", &rest, SUMMARY_OPTIONS)?;
+            let mut s = open(&pos(0)?)?;
+            let info = s.run("file.info", &json!({})).map_err(|e| e.to_string())?;
+            if rest.iter().any(|a| a == "--json") {
+                let out = serde_json::to_string_pretty(&json!({
+                    "path": info.get("path").cloned().unwrap_or(Value::Null),
+                    "pages": info.get("pages").cloned().unwrap_or(Value::Null),
+                    "words": info.get("words").cloned().unwrap_or(Value::Null),
+                    "paragraphs": info.get("paragraphs").cloned().unwrap_or(Value::Null),
+                    "sections": info.get("sections").cloned().unwrap_or(Value::Null),
+                    "comments": info.get("comments").cloned().unwrap_or(Value::Null),
+                    "trackChanges": info.get("trackChanges").cloned().unwrap_or(Value::Null),
+                    "encrypted": info.get("encrypted").cloned().unwrap_or(Value::Null),
+                })).unwrap_or_default();
+                write_stdout(|o| writeln!(o, "{out}"))
+            } else {
+                let path = info.get("path").and_then(|p| p.as_str()).unwrap_or("<untitled>");
+                let pages = info.get("pages").and_then(|p| p.as_u64()).unwrap_or(0);
+                let words = info.get("words").and_then(|p| p.as_u64()).unwrap_or(0);
+                let paragraphs = info.get("paragraphs").and_then(|p| p.as_u64()).unwrap_or(0);
+                let sections = info.get("sections").and_then(|p| p.as_u64()).unwrap_or(0);
+                let comments = info.get("comments").and_then(|p| p.as_u64()).unwrap_or(0);
+                let track_changes = info.get("trackChanges").and_then(|p| p.as_bool()).unwrap_or(false);
+                write_stdout(|o| {
+                    writeln!(o, "Document: {path}")?;
+                    writeln!(o, "Pages: {pages}")?;
+                    writeln!(o, "Words: {words}")?;
+                    writeln!(o, "Paragraphs: {paragraphs}")?;
+                    writeln!(o, "Sections: {sections}")?;
+                    writeln!(o, "Comments: {comments}")?;
+                    writeln!(o, "Track changes: {}", if track_changes { "on" } else { "off" })?;
+                    Ok(())
+                })
+            }
         }
         "text" => {
             validate_options("text", &rest, NO_OPTIONS)?;
@@ -485,6 +523,34 @@ mod tests {
     fn text_keeps_bullet_and_number_labels() {
         let doc = wordcraft_engine::io::open_bytes("lists.md", b"- alpha\n- beta\n\n1. first\n2. second\n").unwrap();
         assert_eq!(listed_text(&doc).unwrap(), "\u{2022}\talpha\n\u{2022}\tbeta\n1.\tfirst\n2.\tsecond");
+    }
+
+    #[test]
+    fn summary_reports_core_document_stats() {
+        let args = args(&["summary", "--json", "/tmp/does-not-exist.docx"]);
+        assert!(validate_options("summary", &args[1..], SUMMARY_OPTIONS).is_ok());
+        let info = json!({
+            "path": "demo.docx",
+            "pages": 3,
+            "words": 42,
+            "paragraphs": 7,
+            "sections": 1,
+            "comments": 0,
+            "trackChanges": false,
+            "encrypted": false,
+        });
+        let out = serde_json::to_string_pretty(&json!({
+            "path": info["path"],
+            "pages": info["pages"],
+            "words": info["words"],
+            "paragraphs": info["paragraphs"],
+            "sections": info["sections"],
+            "comments": info["comments"],
+            "trackChanges": info["trackChanges"],
+            "encrypted": info["encrypted"],
+        })).unwrap();
+        assert!(out.contains("\"pages\": 3"));
+        assert!(out.contains("\"words\": 42"));
     }
 
     #[test]
