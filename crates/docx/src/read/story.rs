@@ -1728,20 +1728,6 @@ fn wrap_polygon(e: &El) -> Option<wordcraft_doc::wrap::WrapPolygon> {
     wordcraft_doc::wrap::WrapPolygon::new(edited, pts)
 }
 
-/// A VML fraction (opacity), 0–1: a decimal (`0.5`), a percentage (`50%`) or 65536ths with an
-/// `f` suffix (`32768f`).
-fn vml_fraction(v: &str) -> Option<f32> {
-    let v = v.trim();
-    let f = if let Some(fd) = v.strip_suffix('f') {
-        fd.trim().parse::<f32>().ok()? / 65_536.0
-    } else if let Some(pc) = v.strip_suffix('%') {
-        pc.trim().parse::<f32>().ok()? / 100.0
-    } else {
-        v.parse::<f32>().ok()?
-    };
-    f.is_finite().then(|| f.clamp(0.0, 1.0))
-}
-
 /// The value of property `key` in a VML `style` attribute (CSS declarations; the last one wins).
 /// The first `v:textbox` under `e` holding text, with its `w:txbxContent` (depth-first, bounded
 /// like `El::find`): in a group, a member's margins go with that member's text.
