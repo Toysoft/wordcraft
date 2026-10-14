@@ -86,6 +86,7 @@
 	Follow number with:	Faire suivre le numéro de :
 	Formatting	Mise en forme
 	Formatting exceptions	Exceptions de mise en forme
+	In the margin	Dans la marge
 	Include level number from:	Inclure le numéro de niveau de :
 	Ink	Encre
 	Insertions and Deletions	Insertions et suppressions
@@ -101,6 +102,7 @@
 	Number alignment:	Alignement des numéros :
 	Number format	Format des numéros
 	Number style for this level:	Style de numéros pour ce niveau :
+	Only for the selected text	Uniquement pour le texte sélectionné
 	Outside border	Bordure extérieure
 	Overtype	Refrappe
 	Outside:	Extérieur :
@@ -2068,6 +2070,30 @@
 	Reading Column Width	Largeur de colonne de lecture
 	Reading Line Spacing	Interligne de lecture
 	Reading Text Size	Taille du texte de lecture
+	Filter Recipients	Filtrer les destinataires
+	Sort Recipients	Trier les destinataires
+	Filter and Sort	Filtrer et trier
+	And	Et
+	Or	Ou
+	Comparison	Comparaison
+	Compare to	Comparer à
+	Add Condition	Ajouter une condition
+	Remove condition	Supprimer la condition
+	Sort by	Trier par
+	Then by	Puis par
+	Ascending	Croissant
+	Descending	Décroissant
+	Equal to	Égal à
+	Not equal to	Différent de
+	Less than	Inférieur à
+	Greater than	Supérieur à
+	Less than or equal	Inférieur ou égal à
+	Greater than or equal	Supérieur ou égal à
+	Is blank	Est vide
+	Is not blank	N'est pas vide
+	Contains	Contient
+	Does not contain	Ne contient pas
+	{count} of {total} recipients will be merged.	{count} destinataires sur {total} seront fusionnés.
 	Undo Actions	Annuler plusieurs actions
 	Undo History	Historique des annulations
 	Undo 1 Action	Annuler 1 action
@@ -2081,6 +2107,14 @@
 	Automatic ({region})	Automatique ({region})
 	Picture	Image
 	Pastes the clipboard's picture.	Colle l'image du Presse-papiers.
+	Text of the nearest paragraph with a given style (running headers)	Texte du paragraphe le plus proche ayant un style donné (titres courants)
+	Style name:	Nom du style :
+	Search from bottom of page to top	Rechercher du bas vers le haut de la page
+	Insert paragraph number	Insérer le numéro de paragraphe
+	Insert paragraph number in relative context	Insérer le numéro de paragraphe en contexte relatif
+	Insert paragraph number in full context	Insérer le numéro de paragraphe en contexte complet
+	Suppress all non-delimiter characters	Supprimer tous les caractères autres que les séparateurs
+	Insert position (above or below)	Insérer la position (au-dessus ou au-dessous)
 	Select Column	Sélectionner la colonne
 	Select Table Cells by Clicking	Sélectionner des cellules du tableau en cliquant
 	Insert Row or Column by Clicking	Insérer une ligne ou une colonne en cliquant
