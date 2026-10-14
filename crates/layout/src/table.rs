@@ -362,7 +362,7 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
     if !t.props.fixed {
         // Measuring lays paragraphs out once more; it mustn't count their equations twice.
         let eq_count = ctx.eq_count;
-        let content = column_content(ctx, t, style.as_ref(), depth);
+        let content = column_content(ctx, t, style.as_ref(), depth, &grid);
         ctx.eq_count = eq_count;
         if let Some(content) = content {
             autofit(&mut grid, &content, t, avail);
@@ -1053,7 +1053,7 @@ fn region_text(st: &TableStyleProps, (header, total, first_col, last_col, band, 
 /// Each column's narrowest and widest content, cell margins included: its longest word and its
 /// longest line. A cell spanning columns shares what they lack between them; nested tables count
 /// with their own. `None` when every cell is empty.
-fn column_content(ctx: &mut Ctx, t: &Table, style: Option<&TableStyleProps>, depth: usize) -> Option<Vec<(f32, f32)>> {
+fn column_content(ctx: &mut Ctx, t: &Table, style: Option<&TableStyleProps>, depth: usize, grid: &[f32]) -> Option<Vec<(f32, f32)>> {
     let margins_def = default_margins(t, style);
     let mut cols = vec![(0.0f32, 0.0f32); t.cols().max(1)];
     let mut spanning = Vec::new();
@@ -1079,13 +1079,33 @@ fn column_content(ctx: &mut Ctx, t: &Table, style: Option<&TableStyleProps>, dep
     for (g, span, need) in spanning {
         let Some(cs) = cols.get_mut(g..(g + span).min(t.cols())) else { continue };
         let n = cs.len().max(1) as f32;
-        let (have_lo, have_hi) = cs.iter().fold((0.0, 0.0), |(l, h), c| (l + c.0, h + c.1));
+        let have_hi: f32 = cs.iter().map(|c| c.1).sum();
+        let preferred = (!is_automatic(t)).then(|| grid.get(g..g + cs.len())).flatten();
+        share_span_min(cs, preferred, need.0);
         for c in cs {
-            c.0 += (need.0 - have_lo).max(0.0) / n;
             c.1 += (need.1 - have_hi).max(0.0) / n;
         }
     }
     any.then_some(cols)
+}
+
+// A span consumes room already available in its preferred columns before widening them.
+// Equal sharing can otherwise inflate narrow columns even when the span fits the grid.
+fn share_span_min(cols: &mut [(f32, f32)], grid: Option<&[f32]>, need: f32) {
+    let extra = (need - cols.iter().map(|c| c.0).sum::<f32>()).max(0.0);
+    let spare = grid.map_or(0.0, |grid| grid.iter().zip(cols.iter()).map(|(w, c)| (w - c.0).max(0.0)).sum::<f32>());
+    let used = extra.min(spare);
+    if spare > 0.0
+        && let Some(grid) = grid
+    {
+        for (c, w) in cols.iter_mut().zip(grid) {
+            c.0 += (w - c.0).max(0.0) * used / spare;
+        }
+    }
+    let rest = (extra - used) / cols.len().max(1) as f32;
+    for c in cols {
+        c.0 += rest;
+    }
 }
 
 /// The narrowest and widest a block list can be laid out.
@@ -1106,7 +1126,7 @@ fn blocks_content(ctx: &mut Ctx, blocks: &Blocks, text: Option<&CellText>, depth
                     (width, width)
                 } else {
                     let style = table_style(ctx, nt);
-                    let cols = column_content(ctx, nt, style.as_ref(), depth + 1).unwrap_or_default();
+                    let cols = column_content(ctx, nt, style.as_ref(), depth + 1, &nt.grid).unwrap_or_default();
                     let (l, h) = cols.iter().fold((0.0, 0.0), |(l, h), c| (l + c.0, h + c.1));
                     (width.max(l), width.max(h))
                 }
