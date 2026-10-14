@@ -1763,7 +1763,7 @@ preview	Title	სათაური
 	Ribbon tabs	ლენტის ჩანართები
 	New Tab	ახალი ჩანართი
 	New Group	ახალი ჯგუფი
-	Rename…	გადარქმევა…
+	Rename…	სახელის შეცვლა…
 	Ribbon and Quick Access Toolbar:	ლენტი და სწრაფი წვდომის პანელი:
 	Enclose Characters	სიმბოლოების ჩარჩოში ჩასმა
 	Shrink text	ტექსტის შემცირება
@@ -2013,7 +2013,7 @@ preview	Title	სათაური
 	Update Styles from Template	სტილების განახლება შაბლონიდან
 	Organizer	ორგანაიზერი
 	Copy Styles	სტილების კოპირება
-	Rename Style	სტილის გადარქმევა
+	Rename Style	სტილის სახელის შეცვლა
 	Document template:	დოკუმენტის შაბლონი:
 	Attach…	მიმაგრება…
 	Automatically update document styles	დოკუმენტის სტილების ავტომატური განახლება
@@ -2521,3 +2521,13 @@ preview	Title	სათაური
 	Waiting for the save to finish…	შენახვის დასრულების მოლოდინი…
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	გადაადგილებული ობიექტები ებმის გვერდის კიდეებს, ცენტრს, ველებს და სხვა ობიექტებს. თავისუფლად გადასაადგილებლად დააჭირეთ Alt-ს.
 	Show alignment guides when moving pictures and shapes	გასწორების დამხმარე ხაზების ჩვენება სურათებისა და ფიგურების გადაადგილებისას
+	For which item:	რომელი ელემენტისთვის:
+	Heading	სათაური
+	Heading text	სათაურის ტექსტი
+	Insert reference to:	ბმულის ჩასმა:
+	Reference type:	ბმულის ტიპი:
+	Account	ანგარიში
+	Document name	დოკუმენტის სახელი
+	Rename	სახელის შეცვლა
+	Rename Document	დოკუმენტის სახელის შეცვლა
+	Copy to	კოპირება სხვა ადგილას
