@@ -9,7 +9,7 @@ use wordcraft_doc::props::{
 };
 use wordcraft_doc::section::{
     Columns, DocGrid, DocGridType, LineNumberRestart, LineNumbering, MAX_CHAR_SPACE, MAX_GRID_PITCH, NotePos, NoteProps, NoteRestart, NumFormat,
-    SectionProps, SectionStart,
+    PageVAlign, SectionProps, SectionStart,
 };
 
 use super::drawing_color::adjust_lum;
@@ -510,10 +510,22 @@ pub fn trpr(e: &El) -> RowProps {
             }
             "w:tblHeader" => r.header = on_off(k),
             "w:cantSplit" => r.cant_split = on_off(k),
+            "w:gridBefore" => r.grid_before = k.attr("w:val").and_then(u32_of).unwrap_or(0).min(63),
+            "w:gridAfter" => r.grid_after = k.attr("w:val").and_then(u32_of).unwrap_or(0).min(63),
+            "w:wBefore" => r.w_before = gap_width(k),
+            "w:wAfter" => r.w_after = gap_width(k),
             _ => {}
         }
     }
     r
+}
+
+/// `w:wBefore`/`w:wAfter` in points: only a width in twips (`dxa`) is kept.
+fn gap_width(k: &El) -> Option<f32> {
+    match k.attr("w:type") {
+        None | Some("dxa") => tw(k, "w:w").filter(|v| *v >= 0.0).map(|v| v.min(crate::units::MAX_LEN_PT)),
+        _ => None,
+    }
 }
 
 /// `w:tcPr`; returns the props and whether the cell is a legacy `hMerge` continuation.
@@ -656,9 +668,10 @@ pub fn sectpr(e: &El) -> (SectionProps, Vec<HfRef>) {
             }
             "w:vAlign" => {
                 s.valign = match k.attr("w:val") {
-                    Some("center") | Some("both") => VAlign::Center,
-                    Some("bottom") => VAlign::Bottom,
-                    _ => VAlign::Top,
+                    Some("center") => PageVAlign::Center,
+                    Some("both") => PageVAlign::Justify,
+                    Some("bottom") => PageVAlign::Bottom,
+                    _ => PageVAlign::Top,
                 }
             }
             "w:pgBorders" => s.page_borders = Some(borders(k)),
