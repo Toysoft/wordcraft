@@ -11,6 +11,10 @@ description = "WordCraft desktop app"
 workspace = true
 
 [dependencies]
+# The CraftHub v3 client path (default off): the adapter contract; the session wiring lands
+# behind this flag in the pilot follow-up. Nothing changes until it is switched on.
+wordcraft-hub = { workspace = true, optional = true }
+
 wordcraft-doc = { workspace = true }
 wordcraft-engine = { workspace = true }
 wordcraft-proof = { workspace = true }
@@ -78,3 +82,8 @@ pollster = "0.4"
 arboard = { workspace = true, features = ["image-data"] }
 # The control server's random key.
 getrandom = "0.3"
+
+[features]
+# The CraftHub v3 client path (spec §18.4 row 2): default off, flipped only after the
+# simulation suite runs green in CI for a full week.
+crafthub = ["dep:wordcraft-hub"]
