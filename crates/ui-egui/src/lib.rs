@@ -22,6 +22,7 @@ macro_rules! tl {
 
 pub mod a11y;
 pub mod a11y_pane;
+pub mod async_saves;
 pub mod autoscroll;
 pub mod backstage;
 pub mod canvas;
@@ -52,6 +53,7 @@ pub mod equation_tab;
 pub mod file_browser;
 pub mod file_dialogs;
 pub mod frame;
+pub mod guides;
 pub mod i18n;
 pub mod icons;
 pub mod ink;
@@ -107,9 +109,17 @@ pub struct Services {
     pub open_async: Option<Box<dyn Fn(&str)>>,
     /// Web: files (name, bytes) delivered asynchronously (picker, drag and drop).
     pub inbox: Option<Inbox>,
+    /// Web: pictures pasted from the browser's clipboard (the bytes; the name is ignored). Kept
+    /// apart from `inbox` because a paste only lands in the document when the page is the edit
+    /// target (#1349), where a dropped or opened file always lands.
+    pub pasted: Option<Inbox>,
     /// Web: hand bytes to the browser as a download. An error means no download started (the
     /// browser can't tell the page whether the user then kept the file).
     pub download: Option<Box<dyn Fn(&str, &[u8]) -> Result<(), String>>>,
+    /// Web: saves that `download` started and that finish later (the browser's save picker,
+    /// #1315). The hook starts a ticket for such a save and reports how it ended; until then the
+    /// document's save isn't confirmed, and a New/Open held back by the Save Changes prompt waits.
+    pub async_saves: Option<async_saves::AsyncSaves>,
     /// Web: told whether the document has unsaved changes after each pass, for the browser's
     /// leave-page guard (`beforeunload` runs between frames and can't ask the app).
     pub on_dirty: Option<Box<dyn Fn(bool)>>,
@@ -154,6 +164,38 @@ pub struct Services {
     pub make_default_app: Option<Box<dyn Fn() -> Result<DefaultApp, String>>>,
 }
 
+/// How Save in the Save Changes prompt went.
+enum PromptSave {
+    /// Written, keeping everything: the held-back command may run.
+    Saved,
+    /// Not saved (a format that doesn't keep everything); the command is cancelled.
+    NotSaved,
+    /// Web: the browser's save picker finishes later; its ticket ([`async_saves`]).
+    Later(u64),
+}
+
+/// Web: a save the browser's picker hasn't finished ([`async_saves`]).
+struct SaveInFlight {
+    ticket: u64,
+    /// The file name it saves as.
+    name: String,
+    /// The document it saved ([`Session::document_id`]).
+    document: u64,
+    /// Whether it marked the document saved (a Save in a format that keeps everything).
+    marked_saved: bool,
+}
+
+/// Web: the command a Save Changes prompt holds back until its picker save ends.
+struct AwaitingSave {
+    ticket: u64,
+    then: String,
+    params: Value,
+    /// The document the prompt asked about.
+    document: u64,
+    /// Its revision once the save started: a later edit isn't in that save.
+    rev: u64,
+}
+
 /// What [`Services::make_default_app`] did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DefaultApp {
@@ -165,6 +207,14 @@ pub enum DefaultApp {
 
 /// Files delivered asynchronously.
 pub type Inbox = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
+
+/// Whether a pasted picture belongs in the document: the page has keyboard focus, and no
+/// Backstage or dialog is open (#1349). A focused text field (comment, Find box) means the page
+/// does not have focus, so `canvas_focused` already covers it; egui's own "wants keyboard input"
+/// is true for the focused page itself and can't be used.
+fn paste_target(canvas_focused: bool, backstage: bool, dialog: bool) -> bool {
+    canvas_focused && !backstage && !dialog
+}
 
 /// UI state that persists between runs (and that agents can read and set).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -254,6 +304,9 @@ pub struct UiState {
     pub recent_count: usize,
     /// File › Options › General: show the mini toolbar over a selection.
     pub mini_toolbar: bool,
+    /// File › Options › Advanced › Editing: moving a picture or shape snaps it to alignment
+    /// guides (on by default; Alt moves freely).
+    pub alignment_guides: bool,
     /// File › Options › General: start on File › Home (Blank document, templates, Recent) when
     /// the app opens without a document (#766); on, as in Word. See [`WordApp::start_screen`].
     pub start_screen: bool,
@@ -309,6 +362,7 @@ impl Default for UiState {
             options_pane: "general".into(),
             recent_count: 12,
             mini_toolbar: true,
+            alignment_guides: true,
             start_screen: true,
             print_backgrounds: false,
             update_fields_before_print: false,
@@ -381,6 +435,8 @@ pub struct WordApp {
     pub(crate) dialog_pick: Option<String>,
     /// macOS: the window has no title bar; leave room for the traffic lights.
     pub integrated_titlebar: bool,
+    /// macOS: the title bar's height and where its content starts, around the traffic lights.
+    pub mac_titlebar: chrome::MacTitleBar,
     control_rx: Option<std::sync::mpsc::Receiver<ControlRequest>>,
     shot_token: u64,
     queued_shots: Vec<(u64, f64, u32)>,
@@ -421,6 +477,12 @@ pub struct WordApp {
     pub frame_ms: f64,
     /// The window title last sent; a viewport command schedules a repaint, so only send changes.
     sent_title: String,
+    /// Full screen as last asked of the window, and as the window last reported it (#980).
+    sent_full_screen: bool,
+    seen_full_screen: Option<bool>,
+    /// Nothing else (a dialog, menu, keytips, the File tab) is open to take Escape this frame, so
+    /// Escape may leave full screen. Read before anything handles the frame's keys.
+    escape_free: bool,
     pub quit_requested: bool,
     pub autosave: bool,
     pub word_count: (u64, usize),
@@ -444,6 +506,10 @@ pub struct WordApp {
     /// there. A file that was merely opened isn't rewritten until the user saves it: saving drops
     /// whatever WordCraft can't represent (content controls, charts, macros…).
     autosave_path: Option<std::path::PathBuf>,
+    /// Web: saves the browser's picker hasn't finished yet ([`async_saves`], #1315).
+    saves_in_flight: Vec<SaveInFlight>,
+    /// Web: the command a Save Changes prompt held back until its picker save ends (#1315).
+    awaiting_save: Option<AwaitingSave>,
     /// The file dialog the host is showing, and what its answer is for ([`file_dialogs`]).
     file_dialog: Option<file_dialogs::PendingDialog>,
     /// The built-in file browser, when it is open, and the folder it showed last (#576).
@@ -499,6 +565,7 @@ impl WordApp {
             status_msg: None,
             previews: previews::Previews::default(),
             integrated_titlebar: false,
+            mac_titlebar: chrome::MacTitleBar::default(),
             control_rx: None,
             shot_token: 0,
             queued_shots: Vec::new(),
@@ -522,6 +589,9 @@ impl WordApp {
             applied_animations: None,
             frame_ms: 0.0,
             sent_title: String::new(),
+            sent_full_screen: false,
+            seen_full_screen: None,
+            escape_free: false,
             quit_requested: false,
             autosave: true,
             word_count: (0, 0),
@@ -535,6 +605,8 @@ impl WordApp {
             read_aloud_at: None,
             read_aloud_error: None,
             autosave_path: None,
+            saves_in_flight: Vec::new(),
+            awaiting_save: None,
             change_picture_target: None,
             recipient_list_pending: false,
             font_generation: wordcraft_fonts::FontDb::global().generation(),
@@ -641,10 +713,15 @@ impl WordApp {
             self.dialog = dialogs::Dialog::open(name, self);
             return Ok(json!({"pending": name}));
         }
-        if self.session.dirty && discards_document(id, &params) {
-            let name =
-                self.session.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.title_stem());
-            self.dialog = Some(dialogs::Dialog::SaveChanges { name, then: id.to_string(), params, document: self.session.document_id() });
+        if (self.session.dirty || self.save_unconfirmed()) && discards_document(id, &params) {
+            let name = self.prompt_name();
+            self.dialog = Some(dialogs::Dialog::SaveChanges {
+                name,
+                then: id.to_string(),
+                params,
+                document: self.session.document_id(),
+                message: String::new(),
+            });
             return Ok(json!({"pending": "saveChanges"}));
         }
         // The ribbon and context-menu Paste commands send no text: read the system clipboard's, as
@@ -732,6 +809,11 @@ impl WordApp {
                 if matches!(id, "file.save" | "file.saveAs") { self.session.password.as_ref().map(wordcraft_engine::Password::as_str) } else { None };
             let opts = wordcraft_engine::cmd::file::export_options(&self.session, &params);
             let bytes = wordcraft_engine::io::save_bytes_with(&name, &self.session.doc, password, &opts)?;
+            // A ticket left over from an earlier call isn't this save's.
+            let saves = self.services.async_saves.clone();
+            if let Some(saves) = &saves {
+                let _ = saves.take_started();
+            }
             if let Some(d) = &self.services.download
                 && let Err(e) = d(&name, &bytes)
             {
@@ -742,8 +824,16 @@ impl WordApp {
             }
             // An export is a copy, and so is a save in a format that doesn't keep everything (a
             // page image, plain text): the document itself still has unsaved changes.
-            if matches!(id, "file.save" | "file.saveAs") && keeps_everything(&name) {
+            let marked_saved = matches!(id, "file.save" | "file.saveAs") && keeps_everything(&name);
+            if marked_saved {
                 self.session.dirty = false;
+            }
+            // The browser's picker writes the file later (#1315): until it says how that went,
+            // the document's save isn't confirmed.
+            if let Some(ticket) = saves.as_ref().and_then(async_saves::AsyncSaves::take_started) {
+                let document = self.session.document_id();
+                self.saves_in_flight.push(SaveInFlight { ticket, name: name.clone(), document, marked_saved });
+                return Ok(json!({"downloaded": name, "bytes": bytes.len(), "pendingSave": ticket}));
             }
             return Ok(json!({"downloaded": name, "bytes": bytes.len()}));
         }
@@ -834,7 +924,18 @@ impl WordApp {
                     file_dialogs::Asked::Busy => Ok(json!({"done": false})),
                 };
             }
-            SaveChoice::Save => self.save_for_prompt(),
+            SaveChoice::Save => match self.save_for_prompt() {
+                Ok(PromptSave::Saved) => true,
+                Ok(PromptSave::NotSaved) => false,
+                // The browser's picker finishes later: the command waits for it (#1315).
+                Ok(PromptSave::Later(ticket)) => {
+                    let rev = self.session.rev();
+                    self.awaiting_save = Some(AwaitingSave { ticket, then, params, document, rev });
+                    self.status(tl!("Waiting for the save to finish…"));
+                    return Ok(json!({"pending": "save"}));
+                }
+                Err(error) => return Err(self.save_failed(&error, then, params, document)),
+            },
         };
         if !go {
             return Ok(json!({"done": false}));
@@ -861,13 +962,114 @@ impl WordApp {
     /// Save before New/Open/Close (and the mailings that replace the document): true once the
     /// document is safely written. A save in a format that doesn't keep everything (a page
     /// image, plain text) writes a copy and leaves the document unsaved, so it doesn't count:
-    /// the command is cancelled and the document stays.
-    fn save_for_prompt(&mut self) -> bool {
-        let saved = match self.execute("file.save", json!({})) {
-            Ok(v) => v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some(),
-            Err(_) => false,
-        };
-        self.safely_saved(saved)
+    /// the command is cancelled and the document stays. A save that fails (no permission, the
+    /// file locked by another app, a missing folder) is the save's error ([`Self::save_failed`]
+    /// tells the user).
+    /// In the browser the save picker may write the file later ([`PromptSave::Later`], #1315).
+    fn save_for_prompt(&mut self) -> Result<PromptSave, String> {
+        let v = self.execute("file.save", json!({}))?;
+        let saved = v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some();
+        if !self.safely_saved(saved) {
+            return Ok(PromptSave::NotSaved);
+        }
+        Ok(match v.get("pendingSave").and_then(Value::as_u64) {
+            Some(ticket) => PromptSave::Later(ticket),
+            None => PromptSave::Saved,
+        })
+    }
+
+    /// Web: a save of this document is still in the browser's picker (#1315). The document
+    /// looks saved, but nothing is written yet, so New/Open ask first.
+    fn save_unconfirmed(&self) -> bool {
+        let document = self.session.document_id();
+        self.saves_in_flight.iter().any(|s| s.marked_saved && s.document == document)
+    }
+
+    /// The document's name as the Save Changes prompt shows it: its file's name, else its title.
+    fn prompt_name(&self) -> String {
+        self.session.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.title_stem())
+    }
+
+    /// Save (or Save As) from the Save Changes prompt failed (#1445): say so plainly on the status
+    /// bar and in the prompt, which comes back for Save again, Don't Save or Cancel, with the
+    /// held-back command (`then`) still waiting. Nothing closes and nothing is discarded. Returns
+    /// the message, the prompt answer's error.
+    pub(crate) fn save_failed(&mut self, error: &str, then: String, params: Value, document: u64) -> String {
+        let name = self.prompt_name();
+        let message = i18n::fmt(tl!("Couldn't save {name}, so it is still open and nothing was lost: {error}"), &[("name", &name), ("error", error)]);
+        log::error!("save from the Save Changes prompt failed: {error}");
+        self.prompt_again(message, then, params, document)
+    }
+
+    /// The Save Changes prompt comes back with `message` (also on the status bar), the held-back
+    /// command still waiting, if the document is still the one it asked about. Returns `message`.
+    fn prompt_again(&mut self, message: String, then: String, params: Value, document: u64) -> String {
+        self.status(message.clone());
+        if document == self.session.document_id() {
+            let name = self.prompt_name();
+            self.dialog = Some(dialogs::Dialog::SaveChanges { name, then, params, document, message: message.clone() });
+        }
+        message
+    }
+
+    /// Read how the saves that finished later ended (#1315). Called every frame.
+    /// A save that didn't write the file leaves the document it was for unsaved again (only that
+    /// document: one that has replaced it since is left alone). The command a Save Changes prompt
+    /// held back runs once its save is written and closed, if the document is still the same and
+    /// unchanged since; a cancelled or failed save brings the prompt back with the reason.
+    pub(crate) fn settle_async_saves(&mut self) {
+        let Some(saves) = self.services.async_saves.clone() else { return };
+        for (ticket, outcome) in saves.take_finished() {
+            let current = self.session.document_id();
+            if let Some(i) = self.saves_in_flight.iter().position(|s| s.ticket == ticket) {
+                let save = self.saves_in_flight.swap_remove(i);
+                match &outcome {
+                    async_saves::SaveOutcome::Saved => log::info!("saved {} through the save picker", save.name),
+                    async_saves::SaveOutcome::Cancelled | async_saves::SaveOutcome::Failed(_) => {
+                        if save.marked_saved && save.document == current {
+                            self.session.dirty = true;
+                        }
+                    }
+                }
+                if let async_saves::SaveOutcome::Failed(error) = &outcome {
+                    let msg = i18n::fmt(tl!("Couldn't download {name}: {error}"), &[("name", &save.name), ("error", error)]);
+                    log::error!("the save picker couldn't save {}: {error}", save.name);
+                    self.status(msg);
+                }
+            }
+            let Some(wait) = self.awaiting_save.take_if(|w| w.ticket == ticket) else { continue };
+            if wait.document != current {
+                log::info!("the document a held-back {} was for has been replaced; dropped", wait.then);
+                continue;
+            }
+            match outcome {
+                // Only when nothing changed since and no later save of it is still unconfirmed.
+                async_saves::SaveOutcome::Saved if !self.session.dirty && self.session.rev() == wait.rev && !self.save_unconfirmed() => {
+                    if let Err(e) = self.execute_user(&wait.then, wait.params) {
+                        self.status(e);
+                    }
+                }
+                // Edited while the picker was open (those edits may not be written yet): ask again.
+                async_saves::SaveOutcome::Saved => {
+                    let name = self.prompt_name();
+                    self.dialog = Some(dialogs::Dialog::SaveChanges {
+                        name,
+                        then: wait.then,
+                        params: wait.params,
+                        document: wait.document,
+                        message: String::new(),
+                    });
+                }
+                async_saves::SaveOutcome::Cancelled => {
+                    let name = self.prompt_name();
+                    let message = i18n::fmt(tl!("Saving {name} was cancelled, so it is still open and nothing was lost."), &[("name", &name)]);
+                    self.prompt_again(message, wait.then, wait.params, wait.document);
+                }
+                async_saves::SaveOutcome::Failed(error) => {
+                    self.save_failed(&error, wait.then, wait.params, wait.document);
+                }
+            }
+        }
     }
 
     /// Whether a save before New/Open/Close counts: it happened, and kept everything.
@@ -907,7 +1109,9 @@ impl WordApp {
             self.canvas.read_first_visible = None;
         }
         // Drawing leaves the caret where it was: following it would pull the view off the ink.
-        if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") && !id.starts_with("draw.") {
+        if self.session.selects_whole_story() || id == "select.all" {
+            self.canvas.scroll_to_caret = false;
+        } else if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") && !id.starts_with("draw.") {
             self.canvas.scroll_to_caret = true;
         }
         for req in std::mem::take(&mut self.session.ui_requests) {
@@ -1185,6 +1389,16 @@ impl WordApp {
                 }
                 json!({"caretAnimation": self.ui.caret_animation})
             }
+            "ui.alignmentGuides" => {
+                // File › Options › Advanced › Editing: `value` true or false turns snapping to
+                // alignment guides while moving pictures and shapes on or off; no value reads it.
+                match p.get("value") {
+                    None => {}
+                    Some(Value::Bool(on)) => self.ui.alignment_guides = *on,
+                    Some(_) => return Some(Err("`value` must be true or false".into())),
+                }
+                json!({"alignmentGuides": self.ui.alignment_guides})
+            }
             "ui.startScreen" => {
                 // File › Options › General › Start-up (#766): `value` true or false turns showing
                 // File › Home at start-up on or off; no value reads it.
@@ -1374,6 +1588,7 @@ impl WordApp {
             self.applied_editing = Some(lang);
         }
         options::sync(self);
+        self.settle_async_saves();
         // Chinese text wants the Chinese face before the Japanese one (one glyph style per line).
         // An installed CJK font is read only once CJK text is shown (#241): a CJK interface, the
         // language names in Options, or a file name the caption is drawing. A file opened later
@@ -1433,6 +1648,7 @@ impl WordApp {
         self.clear_stale_change_picture();
         let _ = self.poll_file_dialog();
         self.drain_inbox();
+        self.drain_pasted();
         self.watch_fonts(ctx);
         self.autosave_tick(now_ms());
         if self.autosaves() && self.session.dirty {
@@ -1577,6 +1793,7 @@ impl WordApp {
             return;
         }
         let t = theme::Tokens::get(&ctx);
+        self.escape_free = self.dialog.is_none() && !self.ui.backstage && self.ui.keytips == keytips::Phase::Off && !egui::Popup::is_any_open(&ctx);
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
         crate::keytips::logic(self, &ctx);
@@ -1619,9 +1836,32 @@ impl WordApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.sent_title = title;
         }
+        self.sync_full_screen(&ctx);
         self.frame_ms = now_ms() - t0;
         // Typing and formatting land here, after `logic` has reported.
         self.report_dirty();
+    }
+
+    /// Carry View › Full Screen (`view.fullScreen`, F11) to the window, and follow the window
+    /// when the system takes it in or out of full screen (the macOS title bar button, the window
+    /// manager). Leaving full screen gives the window back its earlier size and place: the system
+    /// keeps them, and [`window_geometry`] never saves a full-screen size (#980).
+    fn sync_full_screen(&mut self, ctx: &egui::Context) {
+        let seen = ctx.input(|i| i.viewport().fullscreen);
+        if seen != self.seen_full_screen {
+            self.seen_full_screen = seen;
+            if let Some(on) = seen
+                && on != self.session.view.full_screen
+            {
+                self.session.view.full_screen = on;
+                self.sent_full_screen = on;
+            }
+        }
+        let want = self.session.view.full_screen;
+        if want != self.sent_full_screen {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(want));
+            self.sent_full_screen = want;
+        }
     }
 
     /// A click on the window's chrome (ribbon tabs and empty ribbon space, galleries, check
@@ -1646,6 +1886,9 @@ impl WordApp {
         let on_chrome = ctx.layer_id_at(pos).is_none_or(|l| l.order == egui::Order::Background);
         if on_chrome && ctx.memory(|m| m.focused().is_none()) && !egui::Popup::is_any_open(ctx) {
             self.canvas.want_focus = true;
+            // The canvas reads keys before it takes focus back (#1107), so it counts as focused
+            // now: a keystroke in the very next frame reaches the page instead of being dropped.
+            self.canvas.focused = true;
             ctx.request_repaint();
         }
     }
@@ -1677,6 +1920,21 @@ impl WordApp {
             if r.is_ok() {
                 self.ui.backstage = false;
             }
+        }
+    }
+
+    /// Pictures pasted in the browser: inserted once when the page is the edit target, dropped
+    /// otherwise so the focused field's own paste applies (a text field ignores a picture).
+    fn drain_pasted(&mut self) {
+        let Some(pasted) = self.services.pasted.clone() else { return };
+        let pictures = std::mem::take(&mut *pasted.lock().unwrap_or_else(|e| e.into_inner()));
+        let target = paste_target(self.canvas.focused, self.ui.backstage, self.dialog.is_some() || self.file_dialog_open());
+        for (_, bytes) in pictures {
+            if !target {
+                log::debug!("pasted picture ignored: the document is not the edit target");
+                continue;
+            }
+            let _ = self.insert_or_change_picture(json!({"data": wordcraft_engine::cmd::insert::base64_encode(&bytes)}));
         }
     }
 
@@ -2031,6 +2289,25 @@ mod tests {
 
     fn app() -> WordApp {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
+    }
+
+    /// File › Options › Advanced › Editing: alignment guides are a UI command, on by default and
+    /// kept between runs.
+    #[test]
+    fn alignment_guides_are_a_ui_command_and_survive_a_restart() {
+        let mut a = app();
+        assert_eq!(a.run("ui.alignmentGuides", json!({})).unwrap(), json!({"alignmentGuides": true}), "on by default");
+        assert_eq!(a.run("ui.alignmentGuides", json!({"value": false})).unwrap(), json!({"alignmentGuides": false}));
+        for junk in [json!({"value": "no"}), json!({"value": 0}), json!({"value": null})] {
+            assert!(a.run("ui.alignmentGuides", junk).is_err());
+        }
+        assert!(!a.ui.alignment_guides, "a rejected value keeps the setting");
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert!(!b.ui.alignment_guides);
+        let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
+        assert!(old.alignment_guides, "older settings leave it on");
     }
 
     /// File › Options › Advanced › Animation: the caret's animation is a UI command, kept between
@@ -2912,6 +3189,14 @@ mod tests {
         a.session.doc.plain_text(wordcraft_doc::StoryRef::Body)
     }
 
+    /// The reason the Save Changes prompt shows (a failed save), if that prompt is open.
+    fn prompt_message(a: &WordApp) -> Option<String> {
+        match &a.dialog {
+            Some(dialogs::Dialog::SaveChanges { message, .. }) => Some(message.clone()),
+            _ => None,
+        }
+    }
+
     fn prompt(a: &WordApp) -> Option<&'static str> {
         a.dialog.as_ref().map(|d| d.name())
     }
@@ -3053,6 +3338,114 @@ mod tests {
         assert!(a.quit_requested);
         assert!(a.close_requested(), "the close that follows goes ahead");
         assert!(body_text(&a).contains(UNSAVED), "nothing was replaced on the way out");
+    }
+
+    /// #1445: the window's X on an edited document with a file → Save writes the file and lets
+    /// the window close.
+    #[test]
+    fn window_close_save_writes_the_file_and_quits() {
+        let dir = scratch("close-save");
+        let path = docx_on_disk(&dir, "Draft");
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Revised "})).unwrap();
+        assert!(!a.close_requested());
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        let on_disk = wordcraft_engine::io::open_path(&path).unwrap().plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(on_disk.contains("Revised Draft"), "the edit is on disk: {on_disk:?}");
+        assert!(a.quit_requested, "the app may close");
+        assert!(a.close_requested(), "the close that follows goes ahead");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1445: when Save in the close prompt can't write the file, the prompt's answer is an error
+    /// that says so plainly, the status bar shows it, and the document stays open, still edited.
+    #[test]
+    fn window_close_save_that_fails_says_so_and_keeps_the_document() {
+        let dir = scratch("close-save-fails");
+        let folder = dir.join("folder");
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = docx_on_disk(&folder, "Draft");
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Revised "})).unwrap();
+        // The document's folder is gone and a file has its name: nothing can be written there.
+        std::fs::remove_dir_all(&folder).unwrap();
+        std::fs::write(&folder, b"not a folder").unwrap();
+        assert!(!a.close_requested());
+        a.status_msg = None;
+        let err = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap_err();
+        assert!(err.contains("Couldn't save contract.docx") && err.contains("still open"), "{err}");
+        assert!(a.status_msg.as_ref().is_some_and(|(m, _)| *m == err), "the status bar says why: {:?}", a.status_msg);
+        assert!(!a.quit_requested, "nothing closes");
+        assert!(a.session.dirty && body_text(&a).contains("Revised Draft"), "nothing was discarded");
+        assert_eq!(a.session.path.as_deref(), Some(path.as_path()));
+        // The prompt comes back with the reason in it: Save again, Don't Save or Cancel.
+        assert_eq!(prompt(&a), Some("saveChanges"), "the prompt is open again");
+        assert_eq!(prompt_message(&a).as_deref(), Some(err.as_str()), "the prompt says why");
+        assert!(a.run("ui.saveChanges", json!({"answer": "save"})).is_err(), "Save again fails again");
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        a.run("ui.saveChanges", json!({"answer": "cancel"})).unwrap();
+        assert_eq!(prompt(&a), None);
+        assert!(!a.close_requested(), "the next close asks again");
+        assert_eq!(prompt_message(&a).as_deref(), Some(""), "a fresh prompt, no old reason");
+        a.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert!(a.quit_requested, "Don't Save still closes");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1445: a new document → close → Save → Save As to a place that can't be written: the
+    /// same plain error, the prompt back with the reason, nothing closed or discarded.
+    #[test]
+    fn window_close_save_as_that_fails_says_so_and_keeps_the_document() {
+        let dir = scratch("close-save-as-fails");
+        let blocker = dir.join("folder");
+        std::fs::write(&blocker, b"not a folder").unwrap();
+        let picked = blocker.join("novel.docx").to_string_lossy().to_string();
+        let mut a = typed();
+        a.services.pick_save = Some(Box::new(move |_| Some(picked.clone())));
+        assert!(!a.close_requested());
+        a.status_msg = None;
+        let err = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap_err();
+        assert!(err.contains("Couldn't save") && err.contains("still open"), "{err}");
+        assert!(a.status_msg.as_ref().is_some_and(|(m, _)| *m == err), "the status bar says why: {:?}", a.status_msg);
+        assert!(!a.quit_requested, "nothing closes");
+        assert!(a.session.dirty && body_text(&a).contains(UNSAVED), "nothing was discarded");
+        assert_eq!(a.session.path, None);
+        assert_eq!(prompt(&a), Some("saveChanges"), "the prompt is open again");
+        assert_eq!(prompt_message(&a).as_deref(), Some(err.as_str()), "the prompt says why");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1445: the prompt that comes back after a failed save shows the reason on screen.
+    #[test]
+    fn save_prompt_shows_why_the_save_failed() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = typed();
+        a.run("file.close", json!({})).unwrap();
+        let reason = "Couldn't save Draft, so it is still open and nothing was lost: disk full";
+        if let Some(dialogs::Dialog::SaveChanges { message, .. }) = &mut a.dialog {
+            *message = reason.into();
+        }
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                if fonts {
+                    dialogs::show(app, &ctx);
+                } else {
+                    theme::install_fonts_for(&ctx, false);
+                    fonts = true;
+                }
+            },
+            a,
+        );
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(h.query_by_label(reason).is_some(), "the reason is in the prompt");
+        assert!(h.query_by_label("Save").is_some(), "Save again is offered");
     }
 
     /// Enter activates the focused prompt button; it means Save only when no button has focus.
@@ -3285,6 +3678,53 @@ mod tests {
         }
     }
 
+    /// #1156: the Print page's preview fills the pane beside the settings, zooms from its own
+    /// bar, scrolls both ways once the page outgrows the pane, and One Page fits it again.
+    #[test]
+    fn the_print_preview_fills_the_pane_zooms_and_scrolls_both_ways() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{By, Queryable};
+        let mut a = app();
+        a.run("file.print", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let page = |h: &egui_kittest::Harness<'_, WordApp>| h.get(By::new().role(Role::Image)).rect();
+        let fit = page(&h);
+        assert!(fit.height() > 650.0, "the page fills the pane's height: {fit:?}");
+        assert!(h.query(By::new().role(Role::Label).label("Page 1 of 1")).is_some(), "the page indicator stays");
+
+        for _ in 0..5 {
+            h.get_by_label("Zoom In").click();
+            h.run_steps(2);
+        }
+        let zoomed = page(&h);
+        assert!(zoomed.width() > fit.width() * 1.4 && zoomed.height() > 900.0, "zoomed in: {zoomed:?}");
+
+        h.input_mut().events.push(egui::Event::PointerMoved(zoomed.center()));
+        h.input_mut().events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(-120.0, -120.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(20);
+        let moved = page(&h);
+        assert!(moved.min.x < zoomed.min.x - 50.0, "scrolls sideways: {zoomed:?} -> {moved:?}");
+        assert!(moved.min.y < zoomed.min.y - 50.0, "scrolls down: {zoomed:?} -> {moved:?}");
+
+        h.get_by_label("One Page").click();
+        h.run_steps(4);
+        let again = page(&h);
+        assert!((again.height() - fit.height()).abs() < 1.0, "One Page fits the page again: {fit:?} vs {again:?}");
+    }
+
     /// File › Options shows Make WordCraft the default… only when the host can do it (#295), and
     /// the button runs the host's hook.
     #[test]
@@ -3419,6 +3859,7 @@ mod tests {
 
     /// Types `text` after a click on `what` and checks it reached the document (#1093).
     fn type_after_click(h: &mut egui_kittest::Harness<'_, WordApp>, what: &str, text: &str) {
+        h.step();
         h.step();
         h.event(egui::Event::Text(text.into()));
         h.step();
@@ -3716,12 +4157,175 @@ mod tests {
 
         a.run("file.new", json!({})).unwrap();
         a.status_msg = None;
-        let r = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
-        assert_eq!(r["done"], false, "the New was cancelled");
+        // A failed save is an error, not a quiet Cancel (#1445); the New doesn't run.
+        let err = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap_err();
+        assert!(err.contains("still open") && err.contains("blocked by the browser"), "{err}");
         assert!(body_text(&a).contains(UNSAVED));
         assert!(a.session.dirty);
         let msg = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
         assert!(msg.contains("blocked by the browser"), "the status bar says why: {msg:?}");
+    }
+
+    /// #1315: a web app whose `download` hands the save to the browser's picker, which finishes
+    /// later. Returns the app (with unsaved typing) and the saves its download starts, plus the
+    /// last ticket started.
+    fn web_picker_app() -> (WordApp, async_saves::AsyncSaves, std::rc::Rc<std::cell::Cell<u64>>) {
+        let mut a = typed();
+        let saves = async_saves::AsyncSaves::default();
+        let last = std::rc::Rc::new(std::cell::Cell::new(0));
+        let (hook, seen) = (saves.clone(), last.clone());
+        a.services.download = Some(Box::new(move |_, _| {
+            seen.set(hook.start());
+            Ok(())
+        }));
+        a.services.async_saves = Some(saves.clone());
+        (a, saves, last)
+    }
+
+    /// #1315: Save in the prompt before New waits for the picker: New runs only once the file
+    /// is written and closed.
+    #[test]
+    fn web_save_before_new_waits_for_the_picker_to_finish() {
+        let (mut a, saves, last) = web_picker_app();
+        a.run("file.new", json!({})).unwrap();
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        let r = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        assert_eq!(r["pending"], "save", "{r}");
+        assert_eq!(saves.pending(), 1);
+        a.settle_async_saves();
+        assert!(body_text(&a).contains(UNSAVED), "nothing is replaced while the picker is open");
+        saves.finish(last.get(), async_saves::SaveOutcome::Saved);
+        a.settle_async_saves();
+        assert!(!body_text(&a).contains(UNSAVED), "the New ran once the save finished");
+        assert!(!a.session.dirty);
+        assert_eq!(prompt(&a), None);
+    }
+
+    /// #1315: cancelling the picker, or a write/close that fails, keeps the document: its text,
+    /// its undo, still unsaved, and the prompt back with the reason. Nothing is replaced.
+    #[test]
+    fn web_save_before_new_that_is_cancelled_or_fails_keeps_the_document() {
+        for (outcome, reason) in
+            [(async_saves::SaveOutcome::Cancelled, "cancel"), (async_saves::SaveOutcome::Failed("the disk is full".into()), "the disk is full")]
+        {
+            let (mut a, saves, last) = web_picker_app();
+            a.run("file.new", json!({})).unwrap();
+            a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+            a.status_msg = None;
+            saves.finish(last.get(), outcome.clone());
+            a.settle_async_saves();
+            assert!(body_text(&a).contains(UNSAVED), "{outcome:?}: nothing was replaced");
+            assert!(a.session.dirty, "{outcome:?}: still unsaved");
+            assert_eq!(prompt(&a), Some("saveChanges"), "{outcome:?}: the prompt is back");
+            let message = prompt_message(&a).unwrap_or_default();
+            assert!(message.contains("still open") && message.contains(reason), "{outcome:?}: {message}");
+            let status = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
+            assert!(status.contains(reason), "{outcome:?}: the status bar says why: {status:?}");
+            // The undo history is still there.
+            a.execute("edit.undo", json!({})).unwrap();
+            assert!(!body_text(&a).contains(UNSAVED), "{outcome:?}: the typing can be undone");
+        }
+    }
+
+    /// #1315 review: the prompt's Save is in the picker (ticket 1), the user edits and saves
+    /// again (ticket 2, which marks the document saved at once). Ticket 1 ending doesn't let the
+    /// held-back New replace the document while ticket 2 hasn't written its edits.
+    #[test]
+    fn web_overlapping_saves_hold_the_replacement() {
+        let (mut a, saves, last) = web_picker_app();
+        a.run("file.new", json!({})).unwrap();
+        a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        let first = last.get();
+        a.run("text.insert", json!({"text": "Later edit "})).unwrap();
+        a.execute("file.save", json!({})).unwrap();
+        assert!(!a.session.dirty, "the second save marked the document saved");
+        saves.finish(first, async_saves::SaveOutcome::Saved);
+        a.settle_async_saves();
+        assert!(body_text(&a).contains("Later edit") && body_text(&a).contains(UNSAVED), "nothing was replaced");
+        assert_eq!(prompt(&a), Some("saveChanges"), "the prompt asks again");
+    }
+
+    /// #1315 review: edited while the picker was open, then the save ends: those edits aren't
+    /// in the file, so the prompt asks again instead of running New.
+    #[test]
+    fn web_save_that_ends_after_an_edit_asks_again() {
+        let (mut a, saves, last) = web_picker_app();
+        a.run("file.new", json!({})).unwrap();
+        a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        a.run("text.insert", json!({"text": "Later edit "})).unwrap();
+        saves.finish(last.get(), async_saves::SaveOutcome::Saved);
+        a.settle_async_saves();
+        assert!(body_text(&a).contains("Later edit"), "nothing was replaced");
+        assert!(a.session.dirty);
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        assert_eq!(prompt_message(&a).as_deref(), Some(""));
+    }
+
+    /// #1315 review: the status bar says New/Open is waiting for the save; a cancelled picker
+    /// says it was cancelled, not that saving failed.
+    #[test]
+    fn web_save_prompt_says_it_waits_and_that_a_cancel_was_a_cancel() {
+        let (mut a, saves, last) = web_picker_app();
+        a.run("file.new", json!({})).unwrap();
+        a.status_msg = None;
+        a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        let status = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
+        assert!(status.contains("Waiting for the save"), "{status:?}");
+        saves.finish(last.get(), async_saves::SaveOutcome::Cancelled);
+        a.settle_async_saves();
+        let message = prompt_message(&a).unwrap_or_default();
+        assert!(message.contains("cancelled") && message.contains("still open"), "{message}");
+        assert!(!message.contains("Couldn't save"), "a cancel isn't a failure: {message}");
+    }
+
+    /// #1315 review: a document dropped or picked on the web (`file.open` with its bytes) waits
+    /// for the save too, then opens.
+    #[test]
+    fn web_save_before_open_opens_the_file_once_saved() {
+        let dir = scratch("web-open-after-save");
+        let bytes = std::fs::read(docx_on_disk(&dir, "Picked document")).unwrap();
+        let (mut a, saves, last) = web_picker_app();
+        let data = wordcraft_engine::cmd::insert::base64_encode(&bytes);
+        a.run("file.open", json!({"path": "picked.docx", "data": data})).unwrap();
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        a.settle_async_saves();
+        assert!(body_text(&a).contains(UNSAVED), "nothing opened while the picker is open");
+        saves.finish(last.get(), async_saves::SaveOutcome::Saved);
+        a.settle_async_saves();
+        assert!(body_text(&a).contains("Picked document"), "the picked file opened: {:?}", body_text(&a));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1315: while the picker save is in flight the document's save isn't confirmed, so New
+    /// asks again instead of replacing it.
+    #[test]
+    fn web_new_while_a_picker_save_is_in_flight_asks_first() {
+        let (mut a, _saves, _last) = web_picker_app();
+        a.execute("file.save", json!({})).unwrap();
+        a.run("file.new", json!({})).unwrap();
+        assert_eq!(prompt(&a), Some("saveChanges"));
+        assert!(body_text(&a).contains(UNSAVED), "nothing was replaced");
+    }
+
+    /// #1315: a save that ends after the document was replaced neither runs the held-back New on
+    /// the new document nor marks it unsaved.
+    #[test]
+    fn web_picker_save_ending_after_the_document_changed_leaves_the_new_one_alone() {
+        for outcome in [async_saves::SaveOutcome::Saved, async_saves::SaveOutcome::Failed("gone".into())] {
+            let (mut a, saves, last) = web_picker_app();
+            a.run("file.new", json!({})).unwrap();
+            a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+            // Another document replaces it (an agent's or a script's command) while the picker is open.
+            a.execute("file.new", json!({})).unwrap();
+            a.execute("text.insert", json!({"text": "Second document"})).unwrap();
+            a.session.dirty = false;
+            saves.finish(last.get(), outcome.clone());
+            a.settle_async_saves();
+            assert!(body_text(&a).contains("Second document"), "{outcome:?}: the held-back New didn't run on it");
+            assert!(!a.session.dirty, "{outcome:?}: the new document isn't marked unsaved");
+            assert_eq!(prompt(&a), None, "{outcome:?}");
+        }
     }
 
     /// A new document has no path: Save goes through Save As, and cancelling that cancels the New.
@@ -4293,6 +4897,126 @@ mod tests {
         commands
     }
 
+    /// #980: F11 and View › Full Screen (`view.fullScreen`) take the window to full screen; a
+    /// second F11 or Escape brings it back.
+    #[test]
+    fn f11_and_escape_toggle_full_screen() {
+        use egui::ViewportCommand::Fullscreen;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        // Run frames and return the full-screen requests the window got.
+        let sent = |h: &mut egui_kittest::Harness<WordApp>| {
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                h.step();
+                out.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).filter(|c| matches!(c, Fullscreen(_))).cloned());
+            }
+            out
+        };
+        assert_eq!(sent(&mut h), vec![], "a normal window to start with");
+        h.event(key(egui::Key::F11));
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)], "F11");
+        assert!(h.state().session.view.full_screen);
+        h.event(key(egui::Key::F11));
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "F11 again");
+        assert!(!h.state().session.view.full_screen);
+        // The command (ribbon, command search, agents), then Escape.
+        assert_eq!(h.state_mut().run("view.fullScreen", json!({})).unwrap(), json!({"value": true}));
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)], "the command");
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "Escape");
+        // Escape in a normal window doesn't touch the window.
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![]);
+        // Escape closing a dialog leaves full screen alone.
+        h.state_mut().run("view.fullScreen", json!({"value": true})).unwrap();
+        h.state_mut().run("ui.dialog", json!({"name": "zoom"})).unwrap();
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)]);
+        h.event(key(egui::Key::Escape));
+        assert_eq!(sent(&mut h), vec![]);
+        assert!(h.state().dialog.is_none(), "Escape closed the dialog");
+        assert!(h.state().session.view.full_screen, "and only that");
+    }
+
+    /// #980: in full screen, Escape with text selected collapses the selection (as in a normal
+    /// window) and leaves full screen alone; the next Escape, with nothing selected, leaves it.
+    #[test]
+    fn escape_collapses_a_selection_before_leaving_full_screen() {
+        use egui::ViewportCommand::Fullscreen;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let sent = |h: &mut egui_kittest::Harness<WordApp>| {
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                h.step();
+                out.extend(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).filter(|c| matches!(c, Fullscreen(_))).cloned());
+            }
+            out
+        };
+        h.state_mut().canvas.focused = true;
+        h.state_mut().run("text.insert", json!({"text": "Hello world"})).unwrap();
+        h.state_mut().run("select.all", json!({})).unwrap();
+        h.state_mut().run("view.fullScreen", json!({"value": true})).unwrap();
+        assert_eq!(sent(&mut h), vec![Fullscreen(true)]);
+        assert!(!h.state().session.sel.is_collapsed());
+        h.event(esc.clone());
+        assert_eq!(sent(&mut h), vec![], "Escape with a selection stays in full screen");
+        assert!(h.state().session.sel.is_collapsed(), "and collapses the selection");
+        assert!(h.state().session.view.full_screen);
+        h.event(esc);
+        assert_eq!(sent(&mut h), vec![Fullscreen(false)], "Escape with nothing selected leaves");
+        assert!(!h.state().session.view.full_screen);
+    }
+
+    /// #980: the window leaving full screen by other means (the window manager, the macOS title
+    /// bar button) turns View › Full Screen off, and entering it turns it on.
+    #[test]
+    fn full_screen_follows_the_window() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        let frame = |a: &mut WordApp, fullscreen: Option<bool>| {
+            let mut input = egui::RawInput::default();
+            input.viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = fullscreen;
+            let mut out = ctx.run_ui(input, |ui| a.sync_full_screen(ui.ctx()));
+            let sent = out.viewport_output.remove(&egui::ViewportId::ROOT).map(|v| v.commands).unwrap_or_default();
+            out.drop_without_applying_deltas();
+            sent.into_iter().filter(|c| matches!(c, egui::ViewportCommand::Fullscreen(_))).collect::<Vec<_>>()
+        };
+        assert!(frame(&mut a, Some(false)).is_empty());
+        let sent = frame(&mut a, Some(true));
+        assert!(sent.is_empty(), "the window went full screen: nothing to ask: {sent:?}");
+        assert!(a.session.view.full_screen);
+        assert!(frame(&mut a, Some(false)).is_empty());
+        assert!(!a.session.view.full_screen, "and came back");
+        // Asked for: sent once; the window is slow to report it, which doesn't undo the request.
+        a.run("view.fullScreen", json!({})).unwrap();
+        assert_eq!(frame(&mut a, Some(false)), vec![egui::ViewportCommand::Fullscreen(true)]);
+        assert!(frame(&mut a, Some(false)).is_empty());
+        assert!(a.session.view.full_screen);
+        assert!(frame(&mut a, Some(true)).is_empty());
+        assert!(a.session.view.full_screen);
+    }
+
     /// #311: with System, egui's theme preference stays System, so the native window is never
     /// pinned to a concrete appearance (macOS would stop reporting OS changes), and our palette
     /// follows each OS appearance egui reports.
@@ -4376,6 +5100,121 @@ mod tests {
 
     fn object_count(a: &mut WordApp) -> usize {
         a.session.run("arrange.selectionPane", &json!({})).unwrap().as_array().map(|x| x.len()).unwrap_or(0)
+    }
+
+    /// A picture pasted in the browser lands only when the page is the edit target (#1349);
+    /// dropped or opened files always land.
+    #[test]
+    fn pasted_picture_inserts_only_when_the_page_is_the_edit_target() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        let push = |a: &mut WordApp, c| {
+            // Collapse after the last picture so an insertion adds one instead of replacing it.
+            a.session.run("select.collapse", &json!({"end": true})).unwrap();
+            q.lock().unwrap().push(("pasted.png".into(), png_bytes(c)));
+        };
+        // The page has focus: inserted once.
+        a.canvas.focused = true;
+        push(&mut a, [200, 30, 30, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        assert!(q.lock().unwrap().is_empty(), "the queue is drained, so no second insertion");
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        // A dialog is open.
+        a.run("ui.dialog", json!({"name": "find"})).unwrap();
+        assert!(a.dialog.is_some());
+        push(&mut a, [1, 2, 3, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        a.dialog = None;
+        // The Backstage is open.
+        a.ui.backstage = true;
+        push(&mut a, [1, 2, 3, 255]);
+        a.drain_pasted();
+        assert_eq!(object_count(&mut a), 1);
+        assert!(q.lock().unwrap().is_empty(), "ignored pictures are dropped, not kept for later");
+        a.ui.backstage = false;
+        // A dropped file still inserts with the page unfocused.
+        a.canvas.focused = false;
+        a.session.run("select.collapse", &json!({"end": true})).unwrap();
+        a.services.inbox = Some(Inbox::default());
+        a.services.inbox.as_ref().unwrap().lock().unwrap().push(("drop.png".into(), png_bytes([5, 5, 5, 255])));
+        a.drain_inbox();
+        assert_eq!(object_count(&mut a), 2);
+    }
+
+    fn paste_harness(a: WordApp) -> egui_kittest::Harness<'static, WordApp> {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h
+    }
+
+    /// Through the real frame loop (#1349): a paste onto the focused page inserts once; the
+    /// focused page must not look like a text field to the guard.
+    #[test]
+    fn a_paste_onto_the_focused_page_inserts_one_picture() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        let mut h = paste_harness(a);
+        assert!(h.state().canvas.focused);
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 1);
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 1, "once");
+    }
+
+    /// A real text field with focus (the Find box) takes the input: the picture is dropped.
+    #[test]
+    fn a_paste_with_the_find_dialog_open_is_ignored() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        a.run("ui.dialog", json!({"name": "find"})).unwrap();
+        let mut h = paste_harness(a);
+        h.ctx.memory_mut(|m| m.request_focus(egui::Id::new("find_what")));
+        h.step();
+        h.step();
+        assert!(!h.state().canvas.focused);
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 0);
+        assert!(q.lock().unwrap().is_empty());
+    }
+
+    /// A text field outside any dialog (the Navigation pane's search) with focus takes the input:
+    /// the page is not focused, and the picture is dropped (#1349).
+    #[test]
+    fn a_paste_with_a_pane_text_field_focused_is_ignored() {
+        let mut a = app();
+        let q: Inbox = Inbox::default();
+        a.services.pasted = Some(q.clone());
+        a.run("view.navigationPane", json!({"value": true})).unwrap();
+        let mut h = paste_harness(a);
+        // Focus the search box for real (as Ctrl+F does), once the page has settled.
+        h.state_mut().canvas.want_focus = false;
+        h.state_mut().nav_search_focus = true;
+        h.step();
+        h.step();
+        let app = h.state();
+        assert!(app.dialog.is_none() && !app.ui.backstage, "no dialog, no Backstage");
+        assert!(!app.canvas.focused, "the search box has the focus, not the page");
+        q.lock().unwrap().push(("pasted.png".into(), png_bytes([9, 9, 9, 255])));
+        h.step();
+        assert_eq!(object_count(h.state_mut()), 0);
+        assert!(q.lock().unwrap().is_empty());
     }
 
     /// A pending Change Picture replaces the selected image instead of inserting (#147).
@@ -4645,6 +5484,20 @@ mod tests {
         keeps_view(&mut a, "draw.stroke", json!({"page": 0, "points": [[300, 500], [400, 500]], "tool": "pencil"}));
         keeps_view(&mut a, "draw.erase", json!({"page": 0, "x": 350, "y": 500}));
         a.canvas.scroll_to_caret = false;
+        a.run("text.insert", json!({"text": "x"})).unwrap();
+        assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
+    }
+
+    #[test]
+    fn select_all_does_not_scroll_to_the_end() {
+        let mut a = typed();
+        a.canvas.scroll_to_caret = true;
+        a.run("select.all", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
+        a.run("format.bold", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
+        a.run("edit.copy", json!({})).unwrap();
+        assert!(!a.canvas.scroll_to_caret);
         a.run("text.insert", json!({"text": "x"})).unwrap();
         assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
     }
