@@ -441,7 +441,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
         wordcraft_engine::proof::ProofLang::Hr => "Croatian".into(),
         wordcraft_engine::proof::ProofLang::Pt => "Portuguese (Brazil)".into(),
         wordcraft_engine::proof::ProofLang::It => "Italian".into(),
-        wordcraft_engine::proof::ProofLang::Fr => "French".into(),
+        wordcraft_engine::proof::ProofLang::Fr | wordcraft_engine::proof::ProofLang::FrCa => "French".into(),
         wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
         _ => tag.to_string(),
     }

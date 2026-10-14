@@ -1028,6 +1028,32 @@ fn the_editing_languages_are_the_ones_wordcraft_can_proof() {
 }
 
 #[test]
+fn new_documents_take_the_region_of_the_system_locale() {
+    let locales = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let fr = lang("fr");
+    assert_eq!(fr.editing_lang_in(&locales(&["fr_CA.UTF-8"])).as_deref(), Some("fr-CA"));
+    assert_eq!(fr.editing_lang_in(&locales(&["fr-BE"])).as_deref(), Some("fr-BE"));
+    assert_eq!(fr.editing_lang_in(&locales(&["fr_CH.UTF-8@euro"])).as_deref(), Some("fr-CH"));
+    // The first locale in the interface's language counts; others and region-less ones don't.
+    assert_eq!(fr.editing_lang_in(&locales(&["en-US", "fr-CA"])).as_deref(), Some("fr-CA"));
+    assert_eq!(fr.editing_lang_in(&locales(&["en-US"])).as_deref(), Some("fr-FR"));
+    assert_eq!(fr.editing_lang_in(&locales(&["fr"])).as_deref(), Some("fr-FR"));
+    assert_eq!(fr.editing_lang_in(&[]).as_deref(), Some("fr-FR"));
+    assert_eq!(lang("it").editing_lang_in(&locales(&["it_CH.UTF-8"])).as_deref(), Some("it-CH"));
+    // An interface that names its region keeps it; one that writes no language stays without.
+    assert_eq!(lang("pt-br").editing_lang_in(&locales(&["pt_PT.UTF-8"])).as_deref(), Some("pt-BR"));
+    assert_eq!(lang("de").editing_lang_in(&locales(&["de_AT.UTF-8"])), None);
+    // Quebec text then gets Quebec typography: no mark for `Bonjour!`.
+    let tag = fr.editing_lang_in(&locales(&["fr_CA.UTF-8"]));
+    assert_eq!(wordcraft_engine::proof::ProofLang::from_tag(tag.as_deref()), wordcraft_engine::proof::ProofLang::FrCa);
+    let mut s = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
+    s.set_editing_language(tag.as_deref());
+    s.run("text.insert", &serde_json::json!({"text": "Bonjour!"})).unwrap();
+    let issues = s.run("review.issues", &serde_json::json!({})).unwrap();
+    assert!(issues.as_array().unwrap().iter().all(|i| i["kind"] != "grammar"), "{issues}");
+}
+
+#[test]
 fn a_french_interface_writes_new_documents_in_french() {
     let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
     let ctx = egui::Context::default();
