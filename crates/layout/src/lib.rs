@@ -2331,7 +2331,7 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
     let Some(part) = ctx.doc.parts.get(&id) else { return sect.margin_top };
     let blocks = part.blocks.clone();
     // Placed as `headers_footers` draws it, so page-relative floats wrap the same way.
-    let frame = PageFrame { sect, origin: (sect.margin_left + sect.gutter, sect.header) };
+    let frame = PageFrame { sect, origin: (sect.margin_left + sect.gutter, sect.header), flip: false };
     let track = std::mem::replace(&mut ctx.track_totals, false);
     let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), None, 0, Some(frame)).height;
     ctx.track_totals = track;
@@ -2358,6 +2358,14 @@ struct PageFrame<'a> {
     sect: &'a SectionProps,
     /// Page position of the box's (0, 0); (0, 0) for body text.
     origin: (f32, f32),
+    /// An even page with mirrored margins: inside and outside swap sides, and `mirror_even_pages`
+    /// moves the page's content by the difference of the margins afterwards.
+    flip: bool,
+}
+
+/// The frame of body text on the page `pb` is building.
+fn body_frame<'a>(mirror_margins: bool, pb: &PageBuilder<'a>) -> PageFrame<'a> {
+    PageFrame { sect: pb.sect, origin: (0.0, 0.0), flip: mirror_margins && pb.number % 2 == 0 }
 }
 
 /// A floating (not inline) picture, chart or shape: its size and placement.
@@ -2372,15 +2380,27 @@ fn floating(o: &InlineObject) -> Option<(f32, f32, &Float)> {
 fn float_rect(frame: Option<PageFrame>, col: (f32, f32), y0: f32, w: f32, h: f32, float: &Float) -> Rect {
     let (w, h) = (w.clamp(1.0, 4000.0), h.clamp(1.0, 4000.0));
     // Each axis: the reference area's start and extent, in page coordinates.
-    let page_x = |s: &SectionProps| {
+    let page_x = |s: &SectionProps, flip: bool| {
         let left = s.margin_left + s.gutter;
-        match float.h_rel {
+        // On an even mirrored page the left side holds the outside margin, and the content is moved
+        // by `shift` afterwards, so the area is given before that move.
+        let shift = if flip && (s.margin_right - left).is_finite() { s.margin_right - left } else { 0.0 };
+        let (left_area, right_area) = if flip {
+            ((0.0, s.margin_right), (s.page_w - left, left))
+        } else {
+            ((0.0, left), (s.page_w - s.margin_right, s.margin_right))
+        };
+        let (inside, outside) = if flip { (right_area, left_area) } else { (left_area, right_area) };
+        let area = match float.h_rel {
             Anchor::Page => Some((0.0, s.page_w)),
-            Anchor::Margin => Some((left, s.text_width())),
-            Anchor::LeftMargin | Anchor::InsideMargin => Some((0.0, left)),
-            Anchor::RightMargin | Anchor::OutsideMargin => Some((s.page_w - s.margin_right, s.margin_right)),
+            Anchor::Margin => Some((if flip { s.margin_right } else { left }, s.text_width())),
+            Anchor::LeftMargin => Some(left_area),
+            Anchor::RightMargin => Some(right_area),
+            Anchor::InsideMargin => Some(inside),
+            Anchor::OutsideMargin => Some(outside),
             _ => None,
-        }
+        };
+        area.map(|(a, e)| (a - shift, e))
     };
     let page_y = |s: &SectionProps| match float.v_rel {
         Anchor::Page => Some((0.0, s.page_h)),
@@ -2389,9 +2409,14 @@ fn float_rect(frame: Option<PageFrame>, col: (f32, f32), y0: f32, w: f32, h: f32
         Anchor::BottomMargin | Anchor::OutsideMargin => Some((s.page_h - s.margin_bottom, s.margin_bottom)),
         _ => None,
     };
-    let hx = frame.and_then(|f| page_x(f.sect).map(|(a, e)| (a - f.origin.0, e))).unwrap_or(col);
+    let hx = frame.and_then(|f| page_x(f.sect, f.flip).map(|(a, e)| (a - f.origin.0, e))).unwrap_or(col);
     let vy = frame.and_then(|f| page_y(f.sect).map(|(a, e)| (a - f.origin.1, e))).unwrap_or((y0, 0.0));
-    Rect::new(align_in(hx, float.x, w, float.h_align), align_in(vy, float.y, h, float.v_align), w, h)
+    let h_align = match float.h_align {
+        Some(FloatAlign::Inside) if frame.is_some_and(|f| f.flip) => Some(FloatAlign::Outside),
+        Some(FloatAlign::Outside) if frame.is_some_and(|f| f.flip) => Some(FloatAlign::Inside),
+        a => a,
+    };
+    Rect::new(align_in(hx, float.x, w, h_align), align_in(vy, float.y, h, float.v_align), w, h)
 }
 
 /// Where an object of `size` starts on one axis of `area` (start, extent): at `offset` from the
@@ -2540,7 +2565,7 @@ fn anchor_floats(
     let (col_x, width) = (pb.col_x(), pb.col_w());
     let mut rects = HashMap::new();
     if !pb.web {
-        let frame = PageFrame { sect: pb.sect, origin: (0.0, 0.0) };
+        let frame = body_frame(ctx.doc.settings.mirror_margins, pb);
         // An object left out of the layout (hidden, or deleted in the final text) is not placed, so
         // it takes no room either.
         let left_out = left_out_objects(ctx.doc, p, None, ctx.opts.show_hidden, ctx.hide_deleted);
@@ -2927,7 +2952,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         push_para(&mut items, StoryRef::Body, &[block as u32], &pl, l0, l1, x, y, width);
         // Pictures, shapes and text boxes in these lines (web view: floats placed by this piece).
         let at = ObjFrame {
-            page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0) }),
+            page: Some(body_frame(ctx.doc.settings.mirror_margins, pb)),
             col: (x, width),
             para_y: if pb.web { y } else { anchor_y },
             table_chr: None,
@@ -3055,7 +3080,7 @@ fn place_outline_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let y = pb.y + pl.lines.first().map(|f| f.top.max(0.0)).unwrap_or(0.0);
     let mut items = Vec::new();
     push_para(&mut items, StoryRef::Body, &[block as u32], &pl, 0, l1, x, y, width);
-    let at = ObjFrame { page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0) }), col: (x, width), para_y: y, table_chr: None };
+    let at = ObjFrame { page: Some(body_frame(ctx.doc.settings.mirror_margins, pb)), col: (x, width), para_y: y, table_chr: None };
     let (behind, front) = place_objects(ctx, StoryRef::Body, &[block as u32], &q, &pl, (0, l1), (x, y), &at, &HashMap::new(), 0);
     items.extend(front);
     let children = level < outline::BODY && outline::has_children(&o.levels, block);
@@ -3379,11 +3404,13 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
         ctx.fields.section = page.section as u32 + 1;
         let w = sect.text_width();
         let x = sect.margin_left + sect.gutter;
+        // `mirror_even_pages` moves headers and footers with the body, so their floats flip the same way.
+        let flip = ctx.doc.settings.mirror_margins && page.number % 2 == 0;
         if let Some(id) = hid
             && let Some(part) = ctx.doc.parts.get(&id)
         {
             let blocks = part.blocks.clone();
-            let frame = PageFrame { sect, origin: (x, sect.header) };
+            let frame = PageFrame { sect, origin: (x, sect.header), flip };
             let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, Some(frame)).items;
             for it in &mut items {
                 it.translate(x, sect.header);
@@ -3397,7 +3424,7 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
             let blocks = part.blocks.clone();
             // The footer's height fixes where it sits, which page-relative floats need.
             let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, None).height;
-            let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h) };
+            let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h), flip };
             let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, Some(frame)).items;
             for it in &mut items {
                 it.translate(x, sect.page_h - sect.footer - h);

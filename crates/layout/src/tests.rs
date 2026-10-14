@@ -2488,6 +2488,55 @@ fn floats_align_within_their_reference_area() {
 }
 
 #[test]
+fn outside_anchored_floats_follow_mirrored_pages() {
+    use wordcraft_doc::para::{Anchor, Float, FloatAlign, Wrap};
+    // Inside margin 108, outside 36: the outside is on the right of odd pages and on the left of even ones.
+    let placed = |h_rel: Anchor, h_align: Option<FloatAlign>| {
+        let mut d = Document::from_text(&"Body line\n".repeat(90));
+        d.last_section.margin_left = 108.0;
+        d.last_section.margin_right = 36.0;
+        d.settings.mirror_margins = true;
+        let f = Float { wrap: Wrap::InFrontOfText, h_rel, h_align, ..Default::default() };
+        // One shape on the first page, one on the second.
+        d.insert_object(&Pos::body(70, 0), rect_shape(20.0, 20.0, f.clone()), &Default::default()).unwrap();
+        d.insert_object(&Pos::body(0, 0), rect_shape(20.0, 20.0, f), &Default::default()).unwrap();
+        let l = lay(&d);
+        assert!(l.pages.len() >= 2);
+        (shapes(&l.pages[0].items)[0], shapes(&l.pages[1].items)[0])
+    };
+    let (odd, even) = placed(Anchor::Margin, Some(FloatAlign::Outside));
+    assert!((odd.right() - 576.0).abs() < 0.01, "odd page: {odd:?}");
+    assert!((even.x - 36.0).abs() < 0.01, "even page: {even:?}");
+    let (odd, even) = placed(Anchor::Margin, Some(FloatAlign::Inside));
+    assert!((odd.x - 108.0).abs() < 0.01, "odd page: {odd:?}");
+    assert!((even.right() - 504.0).abs() < 0.01, "even page: {even:?}");
+    let (odd, even) = placed(Anchor::OutsideMargin, None);
+    assert!((odd.x - 576.0).abs() < 0.01, "odd page: {odd:?}");
+    assert!(even.x.abs() < 0.01, "even page: {even:?}");
+}
+
+#[test]
+fn outside_anchored_header_floats_follow_mirrored_pages() {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let mut d = Document::from_text(&"Body line
+".repeat(90));
+    d.last_section.margin_left = 108.0;
+    d.last_section.margin_right = 36.0;
+    d.settings.mirror_margins = true;
+    let hid =
+        d.add_part(wordcraft_doc::PartKind::Header, vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Head", Default::default()))]);
+    d.last_section.headers.default = Some(hid);
+    let f = Float { wrap: Wrap::InFrontOfText, h_rel: Anchor::OutsideMargin, ..Default::default() };
+    let e = d.end_of(StoryRef::Part(hid));
+    d.insert_object(&e, rect_shape(20.0, 20.0, f), &Default::default()).unwrap();
+    let l = lay(&d);
+    assert!(l.pages.len() >= 2);
+    let (odd, even) = (shapes(&l.pages[0].header)[0], shapes(&l.pages[1].header)[0]);
+    assert!((odd.x - 576.0).abs() < 0.01, "odd page: {odd:?}");
+    assert!(even.x.abs() < 0.01, "even page: {even:?}");
+}
+
+#[test]
 fn top_and_bottom_float_pushes_its_own_first_line_down() {
     use wordcraft_doc::para::{Anchor, Float, Wrap};
     let mut d = Document::from_text(&"Text that starts below the picture. ".repeat(10));
