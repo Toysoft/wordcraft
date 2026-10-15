@@ -292,3 +292,86 @@ fn text_outside_text_elements_is_not_counted() {
         format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><title>{}</title><text>Label</text></svg>"#, "t".repeat(2 << 20));
     assert!(parse(ok.as_bytes()).is_ok());
 }
+
+/// An SVG picture with `n` bytes of (blank) text in a text element, as a `data:` link.
+fn nested_text_picture(n: usize) -> String {
+    let inner = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>{}a</text></svg>"#, " ".repeat(n));
+    format!(r#"<image href="data:image/svg+xml;base64,{}" width="10" height="10"/>"#, base64_encode(inner.as_bytes()))
+}
+
+/// Review 3 #1: the text cap covers the whole picture, nested `data:` SVG pictures included,
+/// rather than giving each nested picture a budget of its own.
+#[test]
+fn text_cap_is_shared_with_nested_pictures() {
+    let one = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}</svg>"#, nested_text_picture(600_000));
+    assert!(parse(one.as_bytes()).is_ok(), "one nested picture with 600 KB of text is fine");
+    let two = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}{}</svg>"#,
+        nested_text_picture(600_000),
+        nested_text_picture(600_000)
+    );
+    let r = parse(two.as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("text")), "1.2 MB of text across nested pictures is refused: {:?}", r.err());
+    // The outer picture's own text counts too.
+    let mixed = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>{}a</text>{}</svg>"#,
+        " ".repeat(600_000),
+        nested_text_picture(600_000)
+    );
+    let r = parse(mixed.as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("text")), "{:?}", r.err());
+}
+
+/// Review 3 #2: only `<use>` copies of text multiply the text drawn: a chart with 100 000
+/// markers and a short caption is fine, while many copies of a long text are still refused.
+#[test]
+fn use_copies_count_only_when_they_copy_text() {
+    let markers = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><circle id="dot" r="1"/></defs>{}<text>{}</text></svg>"##,
+        r##"<use href="#dot"/>"##.repeat(100_000),
+        "c".repeat(300)
+    );
+    let r = parse(markers.as_bytes());
+    assert!(r.is_ok(), "marker-heavy chart: {:?}", r.err());
+    // Markers drawn through a group of `<use>`s of a shape copy no text either.
+    let grouped = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><circle id="dot" r="1"/><g id="m"><use href="#dot"/></g></defs>{}<text>{}</text></svg>"##,
+        r##"<use href="#m"/>"##.repeat(100_000),
+        "c".repeat(300)
+    );
+    let r = parse(grouped.as_bytes());
+    assert!(r.is_ok(), "grouped markers: {:?}", r.err());
+    let copies = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><text id="t">{}</text></defs>{}</svg>"##,
+        "c".repeat(100_000),
+        r##"<use xlink:href="#t" xmlns:xlink="http://www.w3.org/1999/xlink"/>"##.repeat(200)
+    );
+    let r = parse(copies.as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("text")), "{:?}", r.err());
+    // A group of text copies, itself copied (and referenced before it is defined).
+    let chained = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}<defs><g id="g">{}</g><text id="t">{}</text></defs></svg>"##,
+        r##"<use href="#g"/>"##.repeat(150),
+        r##"<use href="#t"/>"##.repeat(10),
+        "c".repeat(100_000)
+    );
+    let r = parse(chained.as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("text")), "{:?}", r.err());
+}
+
+/// Fix round 3: usvg reads a nested `data:` picture once per copy of it, so the nested pictures
+/// read for one picture share a cap ([`MAX_SVG_BYTES`] in all) rather than each copy having its own.
+#[test]
+fn nested_pictures_read_per_copy_share_a_cap() {
+    let inner = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><!--{}--></svg>"#, " ".repeat(100_000));
+    let image = format!(r#"<image id="i" href="data:image/svg+xml;base64,{}" width="10" height="10"/>"#, base64_encode(inner.as_bytes()));
+    let svg = |copies: usize| {
+        format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs>{image}</defs>{}</svg>"##,
+            r##"<use href="#i"/>"##.repeat(copies)
+        )
+    };
+    assert!(parse(svg(10).as_bytes()).is_ok(), "ten copies (1 MB read) are fine");
+    let r = parse(svg(400).as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("nested")), "40 MB of nested pictures: {:?}", r.err());
+}

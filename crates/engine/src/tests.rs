@@ -7302,3 +7302,22 @@ fn pasted_svg_pictures_keep_their_fallbacks() {
     assert_eq!(s.doc.media.get(&new_png).map(|m| m.to_vec()), Some(tiny_png()));
     assert!(!s.doc.media.values().any(|m| m.as_slice() == [0x89, b'P', b'N', b'G', 1, 2, 3]), "the orphan fallback isn't added");
 }
+
+/// Review 3 #4: pasting an SVG the document already has keeps the document's own PNG fallback
+/// (and doesn't leave the pasted copy's fallback behind as an unused picture).
+#[test]
+fn pasting_a_known_svg_keeps_the_existing_fallback() {
+    let svg_bytes = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"/>".to_vec();
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    let svg = s.doc.add_media(svg_bytes.clone(), "svg");
+    let png = s.doc.add_media(tiny_png(), "png");
+    s.doc.svg_fallbacks.insert(svg.clone(), png.clone());
+    let mut src = wordcraft_doc::Document::new();
+    let src_svg = src.add_media(svg_bytes, "svg");
+    let src_png = src.add_media(vec![0x89, b'P', b'N', b'G', 9, 9, 9], "png");
+    src.svg_fallbacks.insert(src_svg, src_png);
+    crate::cmd::paste::adopt(&mut s, src);
+    assert_eq!(s.doc.svg_fallbacks.get(&svg), Some(&png), "the document's fallback is kept");
+    assert_eq!(s.doc.svg_fallbacks.len(), 1);
+    assert!(!s.doc.media.values().any(|m| m.as_slice() == [0x89, b'P', b'N', b'G', 9, 9, 9]), "the pasted fallback isn't left unused");
+}

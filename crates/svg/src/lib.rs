@@ -16,6 +16,8 @@ mod fonts;
 #[cfg(test)]
 mod tests;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 pub use usvg;
 
 /// Largest SVG file read (bytes).
@@ -118,20 +120,40 @@ pub fn is_svg(bytes: &[u8]) -> bool {
 
 /// Parse an SVG file safely (see the crate docs).
 pub fn parse(bytes: &[u8]) -> Result<Svg, Error> {
-    parse_nested(bytes, 0)
+    let budget = Budget::default();
+    parse_nested(bytes, 0, &budget)
 }
 
-/// [`parse`] for a picture `level` SVG pictures deep.
-fn parse_nested(bytes: &[u8], level: u32) -> Result<Svg, Error> {
+/// What a picture and the SVG pictures nested in it may hold between them (#1910 review 3).
+#[derive(Default)]
+struct Budget {
+    /// Text bytes in text elements so far.
+    text: AtomicU64,
+    /// Text bytes drawn so far, `<use>` copies counted.
+    drawn: AtomicU64,
+    /// Bytes of nested pictures read so far (usvg reads a nested picture once per copy of it).
+    nested: AtomicU64,
+    /// Why a nested picture went past the caps: the whole picture is refused.
+    over: std::sync::OnceLock<&'static str>,
+}
+
+/// [`parse`] for a picture `level` SVG pictures deep, sharing `budget` with the whole picture.
+fn parse_nested(bytes: &[u8], level: u32, budget: &Budget) -> Result<Svg, Error> {
     if bytes.len() > MAX_SVG_BYTES {
         return Err(Error::TooLarge);
     }
     if !is_svg(bytes) {
         return Err(Error::NotSvg);
     }
+    if level > 0 {
+        let len = bytes.len() as u64;
+        if budget.nested.fetch_add(len, Ordering::Relaxed).saturating_add(len) > MAX_SVG_BYTES as u64 {
+            return budget.refuse(NESTED_TOO_LARGE);
+        }
+    }
     let b = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(bytes);
     let text = std::str::from_utf8(b).map_err(|e| Error::Parse(e.to_string()))?;
-    check_nesting(text)?;
+    check_nesting(text, budget)?;
     let xml_opts = usvg::roxmltree::ParsingOptions { allow_dtd: true, nodes_limit: MAX_XML_NODES, ..Default::default() };
     let xml = usvg::roxmltree::Document::parse_with_options(text, xml_opts).map_err(|e| Error::Parse(e.to_string()))?;
     // Element nesting, measured without recursion (parents come before their children).
@@ -158,7 +180,7 @@ fn parse_nested(bytes: &[u8], level: u32) -> Result<Svg, Error> {
                 "image/gif" => Some(usvg::ImageKind::GIF(data)),
                 "image/webp" => Some(usvg::ImageKind::WEBP(data)),
                 // Our own reader, so a nested picture gets the same checks, and nesting is bounded.
-                "image/svg+xml" if level < MAX_NESTED => parse_nested(&data, level + 1).ok().map(|s| usvg::ImageKind::SVG(s.tree)),
+                "image/svg+xml" if level < MAX_NESTED => parse_nested(&data, level + 1, budget).ok().map(|s| usvg::ImageKind::SVG(s.tree)),
                 _ => None,
             }),
             // Files and URLs are never read.
@@ -168,6 +190,9 @@ fn parse_nested(bytes: &[u8], level: u32) -> Result<Svg, Error> {
         ..usvg::Options::default()
     };
     let tree = usvg::Tree::from_xmltree(&xml, &opts).map_err(|e| Error::Parse(e.to_string()))?;
+    if let Some(why) = budget.over.get() {
+        return refused(why);
+    }
     Ok(Svg { tree })
 }
 
@@ -176,7 +201,7 @@ const MAX_ENTITIES: usize = 4096;
 /// Most character data (bytes, entities expanded) inside text elements: past it usvg would shape
 /// and lay out megabytes of text on the thread that opens the picture.
 const MAX_TEXT_BYTES: u64 = 1 << 20;
-/// Most text a picture may draw once `<use>` copies are counted (text bytes × (1 + uses)).
+/// Most text a picture may draw once `<use>` copies (and copies of copies) are counted.
 const MAX_TEXT_DRAWN: u64 = 16 << 20;
 /// Most text entity references may expand to (bytes): the longest entity value (with the
 /// entities it references expanded) times the number of `&` in the file.
@@ -194,6 +219,17 @@ struct Entities<'a> {
     refs: Option<u64>,
 }
 
+const TEXT_TOO_LONG: &str = "SVG text this long is not supported";
+const NESTED_TOO_LARGE: &str = "SVG with this many nested pictures is not supported";
+
+impl Budget {
+    /// Refuses this picture, and with it the pictures it is nested in.
+    fn refuse<T>(&self, why: &'static str) -> Result<T, Error> {
+        let _ = self.over.set(why);
+        refused(why)
+    }
+}
+
 fn refused<T>(why: &str) -> Result<T, Error> {
     Err(Error::Parse(why.to_string()))
 }
@@ -201,22 +237,42 @@ fn refused<T>(why: &str) -> Result<T, Error> {
 /// Refuses, before the XML parser (which recurses on nesting) or usvg see it: markup nested
 /// deeper than [`MAX_DEPTH`]; entities that hold markup (which could nest elements past the scan),
 /// that could expand past [`MAX_ENTITY_EXPANSION`], or more than [`MAX_ENTITIES`] of them; and more
-/// than [`MAX_TEXT_BYTES`] of text in text elements. One pass over the tags, linear in the file.
-fn check_nesting(text: &str) -> Result<(), Error> {
+/// than [`MAX_TEXT_BYTES`] of text in text elements, counting the text already in `budget` (the
+/// pictures this one is nested in, and those nested before it). One pass over the tags, linear in
+/// the file.
+fn check_nesting(text: &str, budget: &Budget) -> Result<(), Error> {
     let b = text.as_bytes();
-    let mut depth = 0usize;
     let mut i = 0usize;
     let mut ents = Entities { sizes: std::collections::HashMap::new(), longest: 0, count: 0, refs: None };
-    // Depth of the open text element (its content is shaped), text bytes so far, `<use>` count.
+    // Depth of the open text element (its content is shaped), text bytes so far.
     let mut text_at: Option<usize> = None;
+    let used = budget.text.load(Ordering::Relaxed);
     let mut text_bytes = 0u64;
-    let mut uses = 0u64;
+    let over = |n: u64| {
+        let o = used.saturating_add(n) > MAX_TEXT_BYTES;
+        if o {
+            let _ = budget.over.set(TEXT_TOO_LONG);
+        }
+        o
+    };
+    // The elements, numbered in document order: each one's parent, the open ones, the first
+    // element with each `id`, the outermost text elements with their text bytes, and every
+    // `<use>` with its target.
+    let mut parents: Vec<Option<usize>> = Vec::new();
+    let mut open: Vec<usize> = Vec::new();
+    let mut ids: std::collections::HashMap<&[u8], usize> = std::collections::HashMap::new();
+    let mut texts: Vec<(usize, u64)> = Vec::new();
+    let mut uses: Vec<(usize, &[u8])> = Vec::new();
     let find = |from: usize, pat: &[u8]| b.get(from..).and_then(|rest| rest.windows(pat.len()).position(|w| w == pat)).map(|p| from + p);
     while let Some(lt) = b.get(i..).and_then(|rest| rest.iter().position(|c| *c == b'<')).map(|p| i + p) {
         if text_at.is_some() {
-            text_bytes = text_bytes.saturating_add(char_data_size(b.get(i..lt).unwrap_or_default(), &ents));
-            if text_bytes > MAX_TEXT_BYTES {
-                return refused("SVG text this long is not supported");
+            let n = char_data_size(b.get(i..lt).unwrap_or_default(), &ents);
+            text_bytes = text_bytes.saturating_add(n);
+            if let Some(t) = texts.last_mut() {
+                t.1 = t.1.saturating_add(n);
+            }
+            if over(text_bytes) {
+                return refused(TEXT_TOO_LONG);
             }
         }
         let rest = b.get(lt..).unwrap_or_default();
@@ -225,9 +281,13 @@ fn check_nesting(text: &str) -> Result<(), Error> {
         } else if rest.starts_with(b"<![CDATA[") {
             let end = find(lt + 9, b"]]>").unwrap_or(b.len());
             if text_at.is_some() {
-                text_bytes = text_bytes.saturating_add(end.saturating_sub(lt + 9) as u64);
-                if text_bytes > MAX_TEXT_BYTES {
-                    return refused("SVG text this long is not supported");
+                let n = end.saturating_sub(lt + 9) as u64;
+                text_bytes = text_bytes.saturating_add(n);
+                if let Some(t) = texts.last_mut() {
+                    t.1 = t.1.saturating_add(n);
+                }
+                if over(text_bytes) {
+                    return refused(TEXT_TOO_LONG);
                 }
             }
             end.saturating_add(3)
@@ -249,10 +309,10 @@ fn check_nesting(text: &str) -> Result<(), Error> {
             }
             end
         } else if rest.starts_with(b"</") {
-            if text_at == Some(depth) {
+            if text_at == Some(open.len()) {
                 text_at = None;
             }
-            depth = depth.saturating_sub(1);
+            open.pop();
             find(lt, b">").map_or(b.len(), |e| e + 1)
         } else {
             // A start tag: its end is the first `>` outside a quoted attribute value.
@@ -268,29 +328,128 @@ fn check_nesting(text: &str) -> Result<(), Error> {
                 }
                 j += 1;
             }
-            let name = rest.get(1..).unwrap_or_default();
+            let tag = b.get(lt + 1..j).unwrap_or_default();
             let name =
-                name.get(..name.iter().position(|c| c.is_ascii_whitespace() || *c == b'>' || *c == b'/').unwrap_or(name.len())).unwrap_or_default();
-            let local = name.rsplit(|c| *c == b':').next().unwrap_or_default();
-            if local == b"use" {
-                uses = uses.saturating_add(1);
+                tag.get(..tag.iter().position(|c| c.is_ascii_whitespace() || *c == b'>' || *c == b'/').unwrap_or(tag.len())).unwrap_or_default();
+            let local = local_name(name);
+            let attrs = tag.get(name.len()..).unwrap_or_default();
+            let node = parents.len();
+            // The XML parser refuses more nodes anyway; this bounds the lists kept here.
+            if node >= MAX_XML_NODES as usize {
+                return refused("SVG with this many elements is not supported");
+            }
+            parents.push(open.last().copied());
+            if let Some(id) = attr(attrs, |n| n == b"id") {
+                ids.entry(id).or_insert(node);
+            }
+            if local == b"use"
+                && let Some(target) = attr(attrs, |n| local_name(n) == b"href").and_then(|h| h.strip_prefix(b"#"))
+            {
+                uses.push((node, target));
             }
             if b.get(j.saturating_sub(1)) != Some(&b'/') {
-                depth += 1;
-                if depth > MAX_DEPTH {
+                open.push(node);
+                if open.len() > MAX_DEPTH {
                     return Err(Error::TooDeep);
                 }
                 if local == b"text" && text_at.is_none() {
-                    text_at = Some(depth);
+                    text_at = Some(open.len());
+                    texts.push((node, 0));
                 }
             }
             j.saturating_add(1)
         };
     }
-    if text_bytes.saturating_mul(uses.saturating_add(1)) > MAX_TEXT_DRAWN {
-        return refused("SVG text this long is not supported");
+    // usvg builds every copy `<use>` makes (copies of copies multiply): the text they draw.
+    // (usvg refuses more than a million elements, copies included, itself.)
+    let counts = instances(&parents, &ids, &uses);
+    let drawn = texts.iter().fold(0u64, |a, (node, size)| a.saturating_add(size.saturating_mul(counts.get(*node).copied().unwrap_or(1))));
+    budget.text.fetch_add(text_bytes, Ordering::Relaxed);
+    if budget.drawn.fetch_add(drawn, Ordering::Relaxed).saturating_add(drawn) > MAX_TEXT_DRAWN {
+        return budget.refuse(TEXT_TOO_LONG);
     }
     Ok(())
+}
+
+/// How many times usvg builds each element: once where it stands (or once per copy of its
+/// parent), plus once per copy of each `<use>` of it. A `<use>` that would copy itself counts
+/// nothing (usvg skips it). Linear: a depth-first walk over the parent and `<use>` links that
+/// works each element out once, with an explicit stack (no recursion).
+fn instances(parents: &[Option<usize>], ids: &std::collections::HashMap<&[u8], usize>, uses: &[(usize, &[u8])]) -> Vec<u64> {
+    let mut users: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for (node, target) in uses {
+        if let Some(&t) = ids.get(target) {
+            users.entry(t).or_default().push(*node);
+        }
+    }
+    let none = Vec::new();
+    // 0: not reached, 1: on the walk's path, 2: worked out.
+    let mut state = vec![0u8; parents.len()];
+    let mut counts = vec![0u64; parents.len()];
+    let mut stack = Vec::new();
+    for start in 0..parents.len() {
+        stack.push(start);
+        while let Some(&n) = stack.last() {
+            let parent = parents.get(n).copied().flatten();
+            let users = users.get(&n).unwrap_or(&none);
+            match state.get(n).copied() {
+                Some(0) => {
+                    if let Some(s) = state.get_mut(n) {
+                        *s = 1;
+                    }
+                    stack.extend(parent.iter().chain(users).filter(|d| state.get(**d) == Some(&0)));
+                }
+                Some(1) => {
+                    // What it depends on is worked out now, or on the path (a cycle: counts 0).
+                    let own = parent.map_or(1, |p| counts.get(p).copied().unwrap_or(0));
+                    let count = users.iter().fold(own, |a, u| a.saturating_add(counts.get(*u).copied().unwrap_or(0)));
+                    if let Some(c) = counts.get_mut(n) {
+                        *c = count;
+                    }
+                    if let Some(s) = state.get_mut(n) {
+                        *s = 2;
+                    }
+                    stack.pop();
+                }
+                _ => {
+                    stack.pop();
+                }
+            }
+        }
+    }
+    counts
+}
+
+/// The local part of an XML name (`xlink:href` → `href`).
+fn local_name(name: &[u8]) -> &[u8] {
+    name.rsplit(|c| *c == b':').next().unwrap_or_default()
+}
+
+/// The value of the first attribute whose name `want` accepts, in a start tag's attributes.
+fn attr(attrs: &[u8], want: impl Fn(&[u8]) -> bool) -> Option<&[u8]> {
+    let mut k = 0usize;
+    loop {
+        k += attrs.get(k..)?.iter().position(|c| !c.is_ascii_whitespace() && *c != b'/')?;
+        let name_len = attrs.get(k..)?.iter().position(|c| c.is_ascii_whitespace() || *c == b'=')?;
+        let name = attrs.get(k..k + name_len)?;
+        k += name_len;
+        k += attrs.get(k..)?.iter().position(|c| !c.is_ascii_whitespace())?;
+        if attrs.get(k) != Some(&b'=') {
+            return None;
+        }
+        k += 1;
+        k += attrs.get(k..)?.iter().position(|c| !c.is_ascii_whitespace())?;
+        let quote = *attrs.get(k)?;
+        if quote != b'"' && quote != b'\'' {
+            return None;
+        }
+        let len = attrs.get(k + 1..)?.iter().position(|c| *c == quote)?;
+        let value = attrs.get(k + 1..k + 1 + len)?;
+        if want(name) {
+            return Some(value);
+        }
+        k += len + 2;
+    }
 }
 
 /// The length of character data once its entity references are expanded.

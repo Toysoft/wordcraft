@@ -361,19 +361,40 @@ pub(crate) fn adopt(s: &mut Session, src: Document) -> Fragment {
             shown.insert(media.clone());
         }
     });
-    let orphan = |key: &String| src.svg_fallbacks.iter().any(|(svg, png)| png == key && !src.media.contains_key(svg)) && !shown.contains(key);
+    let orphans: std::collections::BTreeSet<&String> =
+        src.svg_fallbacks.iter().filter(|(svg, _)| !src.media.contains_key(*svg)).map(|(_, png)| png).collect();
     let mut media = BTreeMap::new();
+    // Keys added by this paste (rather than matched to a picture the document already has).
+    let mut added = std::collections::BTreeSet::new();
     for (key, data) in &src.media {
-        if orphan(key) {
+        if orphans.contains(key) && !shown.contains(key) {
             continue;
         }
         let ext = key.rsplit_once('.').map(|(_, e)| e).unwrap_or("png");
-        media.insert(key.clone(), s.doc.add_media(data.to_vec(), ext));
+        let before = s.doc.media.len();
+        let new_key = s.doc.add_media(data.to_vec(), ext);
+        if s.doc.media.len() > before {
+            added.insert(new_key.clone());
+        }
+        media.insert(key.clone(), new_key);
     }
-    // SVG pictures keep their PNG fallbacks, under the new keys (#1910).
-    for (svg, png) in &src.svg_fallbacks {
-        if let (Some(svg), Some(png)) = (media.get(svg), media.get(png)) {
-            s.doc.svg_fallbacks.insert(svg.clone(), png.clone());
+    // SVG pictures keep their PNG fallbacks, under the new keys (#1910). An SVG the document
+    // already has keeps the document's fallback; the pasted one, then unused, isn't kept.
+    let shown: std::collections::BTreeSet<&String> = shown.iter().filter_map(|k| media.get(k)).collect();
+    let mut unused = Vec::new();
+    for (src_svg, src_png) in &src.svg_fallbacks {
+        if let (Some(svg), Some(png)) = (media.get(src_svg), media.get(src_png)) {
+            let kept = s.doc.svg_fallbacks.entry(svg.clone()).or_insert_with(|| png.clone());
+            if kept != png && added.contains(png) && !shown.contains(png) {
+                unused.push(png.clone());
+            }
+        }
+    }
+    if !unused.is_empty() {
+        let fallbacks: std::collections::BTreeSet<&String> = s.doc.svg_fallbacks.values().collect();
+        let unused: Vec<String> = unused.into_iter().filter(|png| !fallbacks.contains(png)).collect();
+        for png in unused {
+            s.doc.media.remove(&png);
         }
     }
     let next_abs = s.doc.numbering.abstracts.iter().map(|a| a.id.saturating_add(1)).max().unwrap_or(0);
