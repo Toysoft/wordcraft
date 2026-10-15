@@ -372,6 +372,16 @@ impl Document {
                 pb.clone()
             };
             let bl = self.container_mut(a.story, &a.path)?;
+            // Section breaks on the marks in between go with their paragraphs.
+            let between: Vec<_> = bl
+                .get(ia + 1..ib)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|b| match &**b {
+                    Block::Para(p) => p.section.clone(),
+                    Block::Table(_) => None,
+                })
+                .collect();
             if ib < bl.len() && ia < ib {
                 bl.drain(ia + 1..=ib);
             }
@@ -385,11 +395,12 @@ impl Document {
             pa.append(tail);
             pa.props = keep_props;
             let before = std::mem::replace(&mut pa.section, sect);
-            if let Some(before) = before
-                && a.story == crate::StoryRef::Body
-                && a.path.0.len() == 1
-            {
-                self.section_mut(a.path.last()).absorb(&before);
+            if a.story == crate::StoryRef::Body && a.path.0.len() == 1 {
+                // Nearest first, as "link to previous" resolved them before the delete.
+                let following = self.section_mut(a.path.last());
+                for s in between.iter().rev().chain(before.iter()) {
+                    following.absorb(s);
+                }
             }
             return Ok(a);
         }
@@ -746,6 +757,29 @@ mod tests {
         d.delete_range(&Pos::body(2, 2), &Pos::body(0, 1)).unwrap();
         assert_eq!(d.plain_text(StoryRef::Body), "oree");
         assert_eq!(d.body.len(), 1);
+    }
+
+    /// #2127: a range over two section breaks joins three sections into the last; the headers
+    /// and footers it showed by linking to earlier ones stay, each from the nearest section that
+    /// named it, as they resolved before the delete.
+    #[test]
+    fn delete_over_two_section_breaks_keeps_the_linked_headers() {
+        let mut d = doc(&["A", "B", "C"]);
+        let set = |default| crate::section::HeaderSet { default: Some(default), ..Default::default() };
+        let s1 = crate::section::SectionProps { headers: set(1), footers: set(5), ..Default::default() };
+        let s2 = crate::section::SectionProps { headers: set(2), ..Default::default() };
+        let s3 = crate::section::SectionProps { margin_left: 99.0, ..Default::default() };
+        for (i, s) in [(0, s1), (1, s2), (2, s3.clone())] {
+            if let Some(Block::Para(p)) = d.body.get_mut(i).map(Arc::make_mut) {
+                p.section = Some(Box::new(s));
+            }
+        }
+        assert_eq!(d.sections().len(), 4);
+        d.delete_range(&Pos::body(0, 1), &Pos::body(2, 0)).unwrap();
+        assert_eq!(d.plain_text(StoryRef::Body), "AC");
+        let sections = d.sections();
+        assert_eq!(sections.len(), 2);
+        assert_eq!(*sections[0].1, crate::section::SectionProps { headers: set(2), footers: set(5), ..s3 });
     }
 
     #[test]
