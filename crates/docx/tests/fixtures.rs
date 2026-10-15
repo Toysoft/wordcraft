@@ -2830,3 +2830,22 @@ fn row_table_borders_round_trip() {
     let again = wordcraft_docx::read(&saved).unwrap();
     assert_eq!(d.body, again.body);
 }
+
+#[test]
+fn hyperlink_sublocation_and_hash_normalization() {
+    let body = r##"<w:p>
+        <w:hyperlink w:anchor="#bookmark"><w:r><w:t>one</w:t></w:r></w:hyperlink>
+        <w:hyperlink r:id="rId1" w:anchor="#sec"><w:r><w:t>two</w:t></w:r></w:hyperlink>
+    </w:p>"##;
+    let bytes = docx(body, &[("rId1", "hyperlink", "https://example.org/page#old")], &[]);
+    let doc = wordcraft_docx::read(&bytes).unwrap();
+    let p = doc.body.iter().find_map(|b| b.as_para()).unwrap();
+    assert_eq!(p.props_of_char(0).link.as_deref(), Some("#bookmark"));
+    assert_eq!(p.props_of_char(3).link.as_deref(), Some("https://example.org/page#sec"));
+
+    let out_bytes = wordcraft_docx::write(&doc).unwrap();
+    let d2 = wordcraft_docx::read(&out_bytes).unwrap();
+    let p2 = d2.body.iter().find_map(|b| b.as_para()).unwrap();
+    assert_eq!(p2.props_of_char(0).link.as_deref(), Some("#bookmark"));
+    assert_eq!(p2.props_of_char(3).link.as_deref(), Some("https://example.org/page#sec"));
+}
