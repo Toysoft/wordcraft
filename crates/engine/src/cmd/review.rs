@@ -1177,6 +1177,68 @@ mod tests {
         assert!(s.run("review.trackingOptions", &json!({"moveFromColor": "green"})).is_err());
     }
 
+    /// Three paragraphs; with Track Changes on, the second cut and pasted before the first, then
+    /// the Track Changes Options `opts` applied.
+    fn moved_with(opts: serde_json::Value) -> Session {
+        let mut s = Session::new(Document::new());
+        s.view.proofing = false;
+        s.run("document.setText", &json!({"text": "First one.\nSecond one.\nThird one."})).unwrap();
+        s.run("review.trackChanges", &json!({"value": true})).unwrap();
+        s.run("select.range", &json!({"anchor": {"block": 1, "off": 0}, "focus": {"block": 2, "off": 0}})).unwrap();
+        s.run("edit.cut", &json!({})).unwrap();
+        s.run("caret.set", &json!({"pos": {"block": 0, "off": 0}})).unwrap();
+        s.run("edit.paste", &json!({})).unwrap();
+        s.run("review.trackingOptions", &opts).unwrap();
+        s
+    }
+
+    /// The caret at body paragraph `block`, offset `off`: (x, top).
+    fn caret_at(s: &mut Session, block: usize, off: usize) -> (f32, f32) {
+        let c = s.layout().caret(&wordcraft_doc::Pos::body(block, off)).unwrap();
+        (c.x, c.top)
+    }
+
+    /// Review of gap #5: Moved from = Hidden takes the moved-away paragraph out of the layout,
+    /// as Hidden does for deletions: the text below closes up as if the move were accepted, the
+    /// caret can't land inside it, and nothing of it is drawn, not even its ¶.
+    #[test]
+    fn hidden_moved_from_text_takes_no_room() {
+        let mut accepted = moved_with(json!({}));
+        accepted.run("review.acceptAll", &json!({})).unwrap();
+        let third_accepted = caret_at(&mut accepted, 2, 0).1;
+
+        let mut s = moved_with(json!({"moveFromMark": "hidden"}));
+        assert_eq!(s.doc.body.len(), 4, "the moved-away paragraph is still in the document");
+        assert!((caret_at(&mut s, 3, 0).1 - third_accepted).abs() < 0.01, "no blank line where it was");
+        // Inside it is the same place as its start and as the paragraph after it.
+        assert_eq!(caret_at(&mut s, 2, 5), caret_at(&mut s, 2, 0));
+        assert_eq!(caret_at(&mut s, 2, 0), caret_at(&mut s, 3, 0));
+        let (d, _) = draws(&mut s);
+        assert_eq!(glyph_text(&d).matches("Second").count(), 1, "{:?}", glyph_text(&d));
+        // Formatting marks shown: one ¶ per visible paragraph.
+        let l = s.layout();
+        let opts = DisplayOptions { marks: true, revisions: s.prefs.markup.clone(), ..Default::default() };
+        let d = page_display(&s.doc, &l.pages[0], &opts);
+        assert_eq!(d.iter().filter(|x| matches!(x, Draw::Mark { ch: '¶', .. })).count(), 3);
+    }
+
+    /// Review of gap #5: Deletions = Hidden hides deletions, not moved-away text, which follows
+    /// Moved from (left at its default: shown, green, double strikethrough) and keeps its room.
+    /// Word's behaviour for this combination is unverified; see `MarkupOptions::hides_deletion`.
+    #[test]
+    fn hidden_deletions_leave_moved_from_text_shown() {
+        use wordcraft_layout::display::{MOVE_COLOR, Stroke};
+        let mut accepted = moved_with(json!({}));
+        accepted.run("review.acceptAll", &json!({})).unwrap();
+        let third_accepted = caret_at(&mut accepted, 2, 0).1;
+        let mut s = moved_with(json!({"deleteMark": "hidden"}));
+        assert!(caret_at(&mut s, 3, 0).1 > third_accepted + 1.0, "the moved-away paragraph keeps its line");
+        let (d, _) = draws(&mut s);
+        assert_eq!(glyph_text(&d).matches("Second").count(), 2, "{:?}", glyph_text(&d));
+        let struck = d.iter().any(|x| matches!(x, Draw::Line { color, stroke: Stroke::Double, y0, y1, .. } if *color == MOVE_COLOR && y0 == y1));
+        assert!(struck, "green double lines");
+    }
+
     /// Gap #5: Track moves is a document setting (`w:doNotTrackMoves`): turning it off is one
     /// undo step, and setting it to what it is adds none.
     #[test]

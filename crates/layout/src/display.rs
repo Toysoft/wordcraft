@@ -327,9 +327,19 @@ impl Default for MarkupOptions {
 }
 
 impl MarkupOptions {
-    /// Tracked deletions take no room: they are hidden, or insertions and deletions aren't shown.
-    pub fn hides_deletions(&self) -> bool {
-        !self.insertions_deletions || self.delete_mark == DeleteMark::Hidden
+    /// Whether a tracked deletion takes no room with markup shown: insertions and deletions
+    /// aren't shown, or its mark is Hidden. Text a move took away (`moved_from`) follows Moved
+    /// from, other deletions follow Deletions, so Deletions = Hidden leaves moved-away text shown
+    /// (Word for Mac's behaviour for that combination is unverified: this is the one place to
+    /// change it).
+    pub fn hides_deletion(&self, moved_from: bool) -> bool {
+        let mark = if moved_from { self.move_from_mark } else { self.delete_mark };
+        !self.insertions_deletions || mark == DeleteMark::Hidden
+    }
+
+    /// The deletions the layout leaves out with markup shown ([`crate::LayoutOptions::hide_marked`]).
+    pub fn hidden_deletions(&self) -> crate::HideDeleted {
+        crate::HideDeleted { plain: self.hides_deletion(false), moved_from: self.hides_deletion(true) }
     }
 }
 
@@ -844,8 +854,8 @@ fn lines(
             let rc = &st.rc;
             let m = &opts.revisions;
             // Without markup a deletion is never drawn as ordinary text, even in a layout that
-            // kept it; nor when deletions are hidden.
-            if rc.del.is_some() && (!opts.markup || m.hides_deletions()) {
+            // kept it; nor when its mark is Hidden.
+            if rc.del.is_some() && (!opts.markup || m.hides_deletion(doc.move_name(rc.del).is_some())) {
                 continue;
             }
             let shown = opts.markup && m.insertions_deletions;
@@ -856,9 +866,6 @@ fn lines(
             // where it was, double underline where it went).
             let moved_to = doc.move_name(ins).is_some();
             let moved_from = del.is_some() && doc.move_name(del).is_some();
-            if moved_from && m.move_from_mark == DeleteMark::Hidden {
-                continue;
-            }
             let color = match (ins, del) {
                 (_, Some(r)) if moved_from => m.move_from_color.unwrap_or_else(|| author(r)),
                 (Some(r), _) if moved_to => m.move_to_color.unwrap_or_else(|| author(r)),
@@ -1141,7 +1148,10 @@ fn lines(
                     _ => {}
                 }
             }
-            if line.end == LineEnd::Para && marks.paragraphs {
+            // A deleted paragraph mark that isn't shown (no markup, or its mark is Hidden) draws no ¶.
+            let mark_gone =
+                para.is_some_and(|p| p.mark.del.is_some() && (!opts.markup || opts.revisions.hides_deletion(doc.move_name(p.mark.del).is_some())));
+            if line.end == LineEnd::Para && marks.paragraphs && !mark_gone {
                 // The mark follows the line's visual end, past every glyph, even where the
                 // logically last text runs against the paragraph's direction.
                 let ex = x + line.visual_end_x();
