@@ -868,7 +868,13 @@ fn symbol(s: &mut Session, v: &Value) -> CmdResult {
     }
     let base = s.typing_props();
     let mut props = base.clone();
-    props.font = Some(font.to_string());
+    // A symbol font's character remembers it as its own font (`w:sym`), so changing the text's
+    // font later keeps the symbol; other fonts are ordinary run formatting.
+    if wordcraft_doc::symbol_fonts::is_symbol_font(font) || c.chars().all(|ch| ('\u{F020}'..='\u{F0FF}').contains(&ch)) {
+        props.sym_font = Some(font.to_string());
+    } else {
+        props.font = Some(font.to_string());
+    }
     s.pending = Some(props);
     let r = type_text(s, c);
     // Typing on after the symbol goes on in the text's own font.

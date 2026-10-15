@@ -21,6 +21,8 @@ enum Piece<'a> {
     Br(Option<&'static str>),
     NbHyphen,
     SoftHyphen,
+    /// A symbol character in its own font (`w:sym`, ECMA-376 §17.3.3.30).
+    Sym(&'a str, char),
     /// An object and its byte offset in the paragraph.
     Obj(&'a InlineObject, usize),
 }
@@ -250,6 +252,7 @@ impl Writer<'_> {
         for (range, props) in p.run_ranges() {
             let base = range.start;
             let Some(text) = p.text.get(range) else { continue };
+            let sym_font = props.sym_font.as_deref().filter(|f| !f.trim().is_empty());
             let mut buf = String::new();
             for (ci, c) in text.char_indices() {
                 let special = match c {
@@ -267,6 +270,8 @@ impl Writer<'_> {
                             None => Piece::Text(String::new()),
                         })
                     }
+                    // `w:char` is a two-byte code (ST_ShortHexNumber); anything else stays text.
+                    c if u32::from(c) <= 0xFFFF => sym_font.map(|f| Piece::Sym(f, c)),
                     _ => None,
                 };
                 match special {
@@ -349,6 +354,7 @@ impl Writer<'_> {
                             Piece::Br(Some(t)) => w.empty("w:br", &[("w:type", t)]),
                             Piece::NbHyphen => w.empty("w:noBreakHyphen", &[]),
                             Piece::SoftHyphen => w.empty("w:softHyphen", &[]),
+                            Piece::Sym(font, c) => w.empty("w:sym", &[("w:font", font), ("w:char", &format!("{:04X}", u32::from(*c)))]),
                             _ => {}
                         }
                     }

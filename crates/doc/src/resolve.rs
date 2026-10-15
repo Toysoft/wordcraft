@@ -70,7 +70,8 @@ pub struct ResolvedChar {
 impl ResolvedChar {
     fn from(c: &CharProps) -> ResolvedChar {
         ResolvedChar {
-            font: c.font.clone().unwrap_or_else(|| crate::styles::BODY_FONT.to_string()),
+            // A symbol character is shown in its own font (`w:sym`), whatever the run's font.
+            font: c.shown_font().map(str::to_string).unwrap_or_else(|| crate::styles::BODY_FONT.to_string()),
             size: c.size.unwrap_or(11.0).clamp(1.0, 1638.0),
             bold: c.bold.unwrap_or(false),
             italic: c.italic.unwrap_or(false),
