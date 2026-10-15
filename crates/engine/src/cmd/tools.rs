@@ -2826,6 +2826,27 @@ mod tests {
         assert!(list.as_array().unwrap().iter().any(|c| c["kind"] == "insert"), "{list}");
     }
 
+    /// #1998: a compare result's row marks survive save → open as DOCX, so Accept All and
+    /// Reject All on the reopened file give the revised and the original tables (no empty rows).
+    #[test]
+    fn compared_row_marks_survive_a_docx_round_trip() {
+        let mut original = Document::from_text("Intro\nOutro");
+        original.body.insert(1, cells_table());
+        let revised = Document::from_text("Intro\nOutro");
+        for (original, revised) in [(original.clone(), revised.clone()), (revised, original)] {
+            let mut s = Session::new(original.clone());
+            compare_with(&mut s, revised.clone(), &json!({"author": "Cmp"})).unwrap();
+            let bytes = wordcraft_docx::write(&s.doc).unwrap();
+            let reopened = wordcraft_docx::read(&bytes).unwrap();
+            let mut s = Session::new(reopened.clone());
+            s.run("review.rejectAll", &json!({})).unwrap();
+            assert_eq!(shape(&s.doc), shape(&original), "Reject All on the reopened file gives the original");
+            let mut s = Session::new(reopened);
+            s.run("review.acceptAll", &json!({})).unwrap();
+            assert_eq!(shape(&s.doc), shape(&revised), "Accept All on the reopened file gives the revised document");
+        }
+    }
+
     #[test]
     fn compare_options_ignore_case_and_white_space() {
         let original = "The Cat sat.\nTwo  spaces here.";
