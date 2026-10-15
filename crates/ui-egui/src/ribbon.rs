@@ -1619,7 +1619,7 @@ fn references(app: &mut WordApp, ui: &mut Ui) {
         stack(ui, |ui| {
             small(ui, app, "sources", Some("Manage Sources"), "Manage Sources", "references.sources", json!({}), false);
             let current = app.session.bib_style.clone();
-            let label = crate::i18n::fmt(tl!("Style: {style}"), &[("style", &current)]);
+            let label = crate::i18n::fmt(tl!("Style: {style}"), &[("style", tl!(&current))]);
             menu_button(ui, app, "styles", Some(&label), "Citation Style", false, "references.citationStyle", |ui, app| {
                 for st in &wordcraft_engine::cmd::citations::STYLES {
                     mi_check(ui, app, st.name, st.name == current, "references.citationStyle", json!({"style": st.name}));

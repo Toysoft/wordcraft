@@ -2538,6 +2538,32 @@
 	Leave out the date and time of comments and tracked changes when saving	Mentéskor a megjegyzések és a követett módosítások dátumának és idejének elhagyása
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	A szerkesztett dokumentum megtartja a neveket és a dátumokat; csak a mentett fájlból maradnak ki.
 	Privacy Settings	Jelenlegi adatvédelmi beállítások
+
+# Display-only checker messages; engine results and document text remain unchanged.
+	Chart or diagram has no alternative text	A diagramnak vagy ábrának nincs helyettesítő szövege
+	Column {column} of a table is empty: it looks like spacing	A táblázat {column}. oszlopa üres: valószínűleg térközként szolgál
+	Delete the column and use cell margins instead	Töröld az oszlopot, és használj helyette cellamargókat
+	Delete the row and use cell margins or spacing instead	Töröld a sort, és használj helyette cellamargókat vagy térközt
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Írd le az objektumot a Helyettesítő szöveg panelen (object.altText), vagy jelöld meg díszítőelemként
+	Document has no title	A dokumentumnak nincs címe
+	Give it a title or description (table.altText)	Adj a táblázatnak címet vagy leírást (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Kimaradt egy címsorszint (Címsor {level} a Címsor {previous} után)
+	Link text "click here" isn't descriptive	A „click here” hivatkozásszöveg nem írja le a hivatkozás célját
+	Missing alternative text	Hiányzik a helyettesítő szöveg
+	Object isn't in line with text, so its reading order is unclear	Az objektum nem a szöveggel egy sorban van, ezért az olvasási sorrendje nem egyértelmű
+	Place it in line with text (Layout › Wrap Text)	Helyezd a szöveggel egy sorba (Elrendezés › Szöveg körbefuttatása)
+	Repeat the first row as a header row (table.repeatHeader)	Ismételd az első sort fejlécsorként (table.repeatHeader)
+	Repeated word: "{word}"	Ismétlődő szó: „{word}”
+	Row {row} of a table is empty: it looks like spacing	A táblázat {row}. sora üres: valószínűleg térközként szolgál
+	Split the merged cells (Table Layout › Merge)	Oszd fel az egyesített cellákat (Táblázat-elrendezés › Egyesítés)
+	Table has merged cells, which screen readers can lose track of	A táblázat egyesített cellákat tartalmaz, amelyek megnehezíthetik a képernyőolvasók tájékozódását
+	Table has no alternative text	A táblázatnak nincs helyettesítő szövege
+	Table has no header row	A táblázatnak nincs fejlécsora
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	A szöveg nehezen olvasható: a kontraszt {ratio}:1, az elvárt érték {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Üres bekezdések helyett használj bekezdés előtti/utáni térközt (Elrendezés › Bekezdés) vagy oldaltörést
+	Use a darker or lighter text colour, or change the shading behind it	Használj sötétebb vagy világosabb szövegszínt, vagy módosítsd a hátteret
+	Use the next heading level down, so the outline has no gaps	Használd a következő alacsonyabb címsorszintet, hogy ne legyen hiány a vázlatban
+	{n} empty paragraphs in a row	Egymást követő üres bekezdések száma: {n}
 	Waiting for the save to finish…	Várakozás a mentés befejezésére…
 	Saving {name} was cancelled, so it is still open and nothing was lost.	A(z) {name} mentése megszakadt, így továbbra is nyitva van, és semmi sem veszett el.
 	Paper	Papír

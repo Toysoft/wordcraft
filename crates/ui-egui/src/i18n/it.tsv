@@ -2526,6 +2526,32 @@ preview	Title	Esempio
 	Leave out the date and time of comments and tracked changes when saving	Ometti data e ora di commenti e revisioni al salvataggio
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Il documento che stai modificando conserva nomi e date; solo il file salvato li omette.
 	Privacy Settings	Impostazioni di privacy
+
+# Display-only checker messages; engine results and document text remain unchanged.
+	Chart or diagram has no alternative text	Il grafico o il diagramma non ha testo alternativo
+	Column {column} of a table is empty: it looks like spacing	La colonna {column} della tabella è vuota: sembra usata per creare spazio
+	Delete the column and use cell margins instead	Elimina la colonna e usa invece i margini delle celle
+	Delete the row and use cell margins or spacing instead	Elimina la riga e usa invece i margini delle celle o la spaziatura
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Descrivi l'oggetto nel riquadro Testo alternativo (object.altText), oppure contrassegnalo come decorativo
+	Document has no title	Il documento non ha un titolo
+	Give it a title or description (table.altText)	Assegna alla tabella un titolo o una descrizione (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Livello di titolo saltato (Titolo {level} dopo Titolo {previous})
+	Link text "click here" isn't descriptive	Il testo del collegamento «click here» non descrive la destinazione
+	Missing alternative text	Testo alternativo mancante
+	Object isn't in line with text, so its reading order is unclear	L'oggetto non è in linea con il testo, quindi l'ordine di lettura non è chiaro
+	Place it in line with text (Layout › Wrap Text)	Disponi l'oggetto in linea con il testo (Layout › Testo a capo)
+	Repeat the first row as a header row (table.repeatHeader)	Ripeti la prima riga come riga di intestazione (table.repeatHeader)
+	Repeated word: "{word}"	Parola ripetuta: «{word}»
+	Row {row} of a table is empty: it looks like spacing	La riga {row} della tabella è vuota: sembra usata per creare spazio
+	Split the merged cells (Table Layout › Merge)	Dividi le celle unite (Tabella Layout › Unisci)
+	Table has merged cells, which screen readers can lose track of	Le celle unite nella tabella possono rendere più difficile la navigazione con un lettore di schermo
+	Table has no alternative text	La tabella non ha testo alternativo
+	Table has no header row	La tabella non ha una riga di intestazione
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Il testo è difficile da leggere: contrasto {ratio}:1, richiesto {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Usa la spaziatura prima/dopo il paragrafo (Layout › Paragrafo) o un'interruzione di pagina invece di paragrafi vuoti
+	Use a darker or lighter text colour, or change the shading behind it	Usa un colore del testo più scuro o più chiaro, oppure cambia lo sfondo
+	Use the next heading level down, so the outline has no gaps	Usa il livello di titolo subito sotto il precedente, senza salti nella struttura
+	{n} empty paragraphs in a row	Paragrafi vuoti consecutivi: {n}
 	Waiting for the save to finish…	In attesa del termine del salvataggio…
 	Saving {name} was cancelled, so it is still open and nothing was lost.	Il salvataggio di {name} è stato annullato: il documento è ancora aperto e non è andato perso nulla.
 	Paper	Carta

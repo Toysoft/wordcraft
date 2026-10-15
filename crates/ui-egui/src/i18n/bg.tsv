@@ -2532,6 +2532,32 @@
 	Leave out the date and time of comments and tracked changes when saving	Без дата и час на коментарите и проследените промени при запазване
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Документът, който редактирате, запазва имената и датите; само записаният файл ги пропуска.
 	Privacy Settings	Текущи настройки за поверителност
+
+# Display-only checker messages; engine results and document text remain unchanged.
+	Chart or diagram has no alternative text	Диаграмата или схемата няма алтернативен текст
+	Column {column} of a table is empty: it looks like spacing	Колона {column} от таблицата е празна: изглежда, че служи за разстояние
+	Delete the column and use cell margins instead	Изтрийте колоната и вместо нея използвайте полета на клетките
+	Delete the row and use cell margins or spacing instead	Изтрийте реда и вместо него използвайте полета на клетките или разстояние
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Опишете обекта в панела „Алтернативен текст“ (object.altText) или го отбележете като декоративен
+	Document has no title	Документът няма заглавие
+	Give it a title or description (table.altText)	Добавете заглавие или описание на таблицата (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Пропуснато ниво на заглавие (Заглавие {level} след Заглавие {previous})
+	Link text "click here" isn't descriptive	Текстът „click here“ не описва целта на връзката
+	Missing alternative text	Липсва алтернативен текст
+	Object isn't in line with text, so its reading order is unclear	Обектът не е на един ред с текста, затова редът на прочитане е неясен
+	Place it in line with text (Layout › Wrap Text)	Поставете го на един ред с текста (Оформление › Обтичане на текста)
+	Repeat the first row as a header row (table.repeatHeader)	Повтаряйте първия ред като заглавен ред (table.repeatHeader)
+	Repeated word: "{word}"	Повторена дума: „{word}“
+	Row {row} of a table is empty: it looks like spacing	Ред {row} от таблицата е празен: изглежда, че служи за разстояние
+	Split the merged cells (Table Layout › Merge)	Разделете обединените клетки (Оформление на таблица › Обединяване)
+	Table has merged cells, which screen readers can lose track of	Таблицата има обединени клетки, които могат да объркат екранните четци
+	Table has no alternative text	Таблицата няма алтернативен текст
+	Table has no header row	Таблицата няма заглавен ред
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Текстът се чете трудно: контраст {ratio}:1, необходим {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Вместо празни абзаци използвайте разстояние преди/след абзаца (Оформление › Абзац) или разделител на страница
+	Use a darker or lighter text colour, or change the shading behind it	Използвайте по-тъмен или по-светъл цвят на текста или променете фона
+	Use the next heading level down, so the outline has no gaps	Използвайте следващото по-ниско ниво на заглавие, за да няма пропуски в структурата
+	{n} empty paragraphs in a row	Брой последователни празни абзаци: {n}
 	Waiting for the save to finish…	Изчакване запазването да приключи…
 	Saving {name} was cancelled, so it is still open and nothing was lost.	Запазването на {name} е отменено. Документът остава отворен и нищо не е загубено.
 	Paper	Хартия

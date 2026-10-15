@@ -2672,3 +2672,29 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+
+# Accessibility checker findings, suggestions and repeated-word messages.
+	Chart or diagram has no alternative text	Biểu đồ hoặc sơ đồ không có văn bản thay thế
+	Column {column} of a table is empty: it looks like spacing	Cột {column} của bảng đang trống và có vẻ được dùng để tạo khoảng cách
+	Delete the column and use cell margins instead	Xóa cột và dùng lề ô thay thế
+	Delete the row and use cell margins or spacing instead	Xóa hàng và dùng lề ô hoặc khoảng cách thay thế
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Mô tả đối tượng trong khung văn bản thay thế (object.altText) hoặc đánh dấu là trang trí
+	Document has no title	Tài liệu không có tiêu đề
+	Give it a title or description (table.altText)	Thêm tiêu đề hoặc mô tả (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Bỏ qua cấp tiêu đề (Tiêu đề {level} sau Tiêu đề {previous})
+	Link text "click here" isn't descriptive	Văn bản liên kết "click here" không mô tả rõ đích đến
+	Missing alternative text	Thiếu văn bản thay thế
+	Object isn't in line with text, so its reading order is unclear	Đối tượng không nằm cùng dòng với văn bản nên thứ tự đọc không rõ ràng
+	Place it in line with text (Layout › Wrap Text)	Đặt đối tượng cùng dòng với văn bản (Bố trí › Văn bản quanh đối tượng)
+	Repeat the first row as a header row (table.repeatHeader)	Lặp lại hàng đầu tiên làm hàng tiêu đề (table.repeatHeader)
+	Repeated word: "{word}"	Từ bị lặp: "{word}"
+	Row {row} of a table is empty: it looks like spacing	Hàng {row} của bảng đang trống và có vẻ được dùng để tạo khoảng cách
+	Split the merged cells (Table Layout › Merge)	Tách các ô đã gộp (Bố trí bảng › Gộp)
+	Table has merged cells, which screen readers can lose track of	Bảng có các ô được gộp, khiến trình đọc màn hình có thể khó theo dõi
+	Table has no alternative text	Bảng không có văn bản thay thế
+	Table has no header row	Bảng không có hàng tiêu đề
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Văn bản khó đọc: độ tương phản {ratio}:1, cần {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Dùng khoảng cách trước/sau (Bố trí › Đoạn) hoặc ngắt trang thay cho các đoạn trống
+	Use a darker or lighter text colour, or change the shading behind it	Dùng màu chữ tối hơn hoặc sáng hơn, hoặc thay đổi màu nền phía sau
+	Use the next heading level down, so the outline has no gaps	Dùng cấp tiêu đề thấp hơn liền kề để dàn ý không bị ngắt cấp
+	{n} empty paragraphs in a row	Số đoạn trống liên tiếp: {n}

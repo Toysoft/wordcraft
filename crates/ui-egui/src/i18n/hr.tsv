@@ -2632,3 +2632,29 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+
+# Accessibility checker findings, suggestions and repeated-word messages.
+	Chart or diagram has no alternative text	Grafikon ili dijagram nema alternativni tekst
+	Column {column} of a table is empty: it looks like spacing	Stupac {column} u tablici je prazan i izgleda kao razmak
+	Delete the column and use cell margins instead	Izbrišite stupac i umjesto njega koristite margine ćelija
+	Delete the row and use cell margins or spacing instead	Izbrišite redak i umjesto njega koristite margine ćelija ili razmake
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Opišite objekt u oknu alternativnog teksta (object.altText) ili ga označite kao ukrasni
+	Document has no title	Dokument nema naslov
+	Give it a title or description (table.altText)	Dodajte naslov ili opis (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Preskočena je razina naslova (Naslov {level} nakon naslova {previous})
+	Link text "click here" isn't descriptive	Tekst poveznice „click here” ne opisuje njezinu svrhu
+	Missing alternative text	Nedostaje alternativni tekst
+	Object isn't in line with text, so its reading order is unclear	Objekt nije u retku s tekstom pa redoslijed čitanja nije jasan
+	Place it in line with text (Layout › Wrap Text)	Postavite ga u redak s tekstom (Raspored › Obtok teksta)
+	Repeat the first row as a header row (table.repeatHeader)	Ponavljajte prvi redak kao redak zaglavlja (table.repeatHeader)
+	Repeated word: "{word}"	Ponovljena riječ: „{word}”
+	Row {row} of a table is empty: it looks like spacing	Redak {row} u tablici je prazan i izgleda kao razmak
+	Split the merged cells (Table Layout › Merge)	Razdvojite spojene ćelije (Raspored tablice › Spoji)
+	Table has merged cells, which screen readers can lose track of	Tablica ima spojene ćelije koje čitačima zaslona mogu otežati praćenje
+	Table has no alternative text	Tablica nema alternativni tekst
+	Table has no header row	Tablica nema redak zaglavlja
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Tekst je teško čitljiv: kontrast {ratio}:1, potrebno {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Umjesto praznih odlomaka koristite razmak prije/poslije (Raspored › Odlomak) ili prijelom stranice
+	Use a darker or lighter text colour, or change the shading behind it	Koristite tamniju ili svjetliju boju teksta ili promijenite sjenčanje iza njega
+	Use the next heading level down, so the outline has no gaps	Koristite sljedeću nižu razinu naslova kako struktura ne bi imala preskoke
+	{n} empty paragraphs in a row	Uzastopni prazni odlomci: {n}

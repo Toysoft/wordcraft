@@ -2540,6 +2540,32 @@ preview	Title	Örnek
 	Leave out the date and time of comments and tracked changes when saving	Kaydederken açıklamaların ve izlenen değişikliklerin tarih ve saatini dahil etme
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Düzenlediğiniz belge adları ve tarihleri korur; yalnızca kaydedilen dosya bunları içermez.
 	Privacy Settings	Geçerli gizlilik ayarları
+
+# Display-only checker messages; engine results and document text remain unchanged.
+	Chart or diagram has no alternative text	Grafiğin veya diyagramın alternatif metni yok
+	Column {column} of a table is empty: it looks like spacing	Tablonun {column}. sütunu boş: aralık oluşturmak için kullanılmış görünüyor
+	Delete the column and use cell margins instead	Sütunu silip yerine hücre kenar boşlukları kullanın
+	Delete the row and use cell margins or spacing instead	Satırı silip yerine hücre kenar boşlukları veya aralık kullanın
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Alternatif Metin bölmesinde açıklayın (object.altText) veya dekoratif olarak işaretleyin
+	Document has no title	Belgenin başlığı yok
+	Give it a title or description (table.altText)	Tabloya başlık veya açıklama ekleyin (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Başlık düzeyi atlanmış (Başlık {previous} sonrasında Başlık {level})
+	Link text "click here" isn't descriptive	“click here” bağlantı metni bağlantının amacını açıklamıyor
+	Missing alternative text	Alternatif metin eksik
+	Object isn't in line with text, so its reading order is unclear	Nesne metinle aynı hizada olmadığından okuma sırası belirsiz
+	Place it in line with text (Layout › Wrap Text)	Metinle aynı hizaya yerleştirin (Düzen › Metni Kaydır)
+	Repeat the first row as a header row (table.repeatHeader)	İlk satırı başlık satırı olarak tekrarlayın (table.repeatHeader)
+	Repeated word: "{word}"	Yinelenen sözcük: “{word}”
+	Row {row} of a table is empty: it looks like spacing	Tablonun {row}. satırı boş: aralık oluşturmak için kullanılmış görünüyor
+	Split the merged cells (Table Layout › Merge)	Birleştirilmiş hücreleri bölün (Tablo Düzeni › Birleştir)
+	Table has merged cells, which screen readers can lose track of	Tabloda, ekran okuyucuların konum takibini zorlaştırabilecek birleştirilmiş hücreler var
+	Table has no alternative text	Tablonun alternatif metni yok
+	Table has no header row	Tablonun başlık satırı yok
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Metni okumak zor: kontrast {ratio}:1, gereken oran {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Boş paragraflar yerine paragraf öncesi/sonrası aralığı (Düzen › Paragraf) veya sayfa sonu kullanın
+	Use a darker or lighter text colour, or change the shading behind it	Daha koyu veya açık bir metin rengi kullanın ya da arka planı değiştirin
+	Use the next heading level down, so the outline has no gaps	Anahatta boşluk kalmaması için bir sonraki alt başlık düzeyini kullanın
+	{n} empty paragraphs in a row	{n} boş paragraf art arda geliyor
 	Waiting for the save to finish…	Kaydetme işleminin bitmesi bekleniyor…
 	Saving {name} was cancelled, so it is still open and nothing was lost.	{name} kaydetme işlemi iptal edildi; belge hâlâ açık ve hiçbir şey kaybolmadı.
 	Paper	Kağıt

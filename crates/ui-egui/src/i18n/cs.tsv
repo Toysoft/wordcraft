@@ -2624,3 +2624,29 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+
+# Accessibility checker findings, suggestions and repeated-word messages.
+	Chart or diagram has no alternative text	Graf nebo diagram nemá alternativní text
+	Column {column} of a table is empty: it looks like spacing	Sloupec {column} tabulky je prázdný a zřejmě slouží jako mezera
+	Delete the column and use cell margins instead	Odstraňte sloupec a místo něj použijte okraje buněk
+	Delete the row and use cell margins or spacing instead	Odstraňte řádek a místo něj použijte okraje buněk nebo mezery
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Popište objekt v podokně alternativního textu (object.altText) nebo jej označte jako dekorativní
+	Document has no title	Dokument nemá název
+	Give it a title or description (table.altText)	Zadejte název nebo popis (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Přeskočená úroveň nadpisu (Nadpis {level} po nadpisu {previous})
+	Link text "click here" isn't descriptive	Text odkazu „click here“ nepopisuje jeho cíl
+	Missing alternative text	Chybí alternativní text
+	Object isn't in line with text, so its reading order is unclear	Objekt není vložen v řádku s textem, takže pořadí při čtení není jasné
+	Place it in line with text (Layout › Wrap Text)	Vložte jej do řádku s textem (Rozvržení › Obtékání textu)
+	Repeat the first row as a header row (table.repeatHeader)	Opakujte první řádek jako řádek záhlaví (table.repeatHeader)
+	Repeated word: "{word}"	Opakované slovo: „{word}“
+	Row {row} of a table is empty: it looks like spacing	Řádek {row} tabulky je prázdný a zřejmě slouží jako mezera
+	Split the merged cells (Table Layout › Merge)	Rozdělte sloučené buňky (Rozvržení tabulky › Sloučit)
+	Table has merged cells, which screen readers can lose track of	Tabulka má sloučené buňky, které mohou čtečkám obrazovky ztížit orientaci
+	Table has no alternative text	Tabulka nemá alternativní text
+	Table has no header row	Tabulka nemá řádek záhlaví
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Text je obtížně čitelný: kontrast {ratio}:1, požadováno {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Místo prázdných odstavců použijte mezery před a za odstavcem (Rozvržení › Odstavec) nebo konec stránky
+	Use a darker or lighter text colour, or change the shading behind it	Použijte tmavší nebo světlejší barvu textu nebo změňte jeho podbarvení
+	Use the next heading level down, so the outline has no gaps	Použijte následující nižší úroveň nadpisu, aby osnova neměla mezery
+	{n} empty paragraphs in a row	Počet prázdných odstavců za sebou: {n}

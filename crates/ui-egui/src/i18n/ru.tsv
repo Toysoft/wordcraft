@@ -2541,6 +2541,32 @@ preview	Title	Пример
 	Leave out the date and time of comments and tracked changes when saving	Не сохранять дату и время примечаний и отслеживаемых изменений
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Редактируемый документ сохраняет имена и даты; их не будет только в сохранённом файле.
 	Privacy Settings	Текущие параметры конфиденциальности
+
+# Display-only checker messages; engine results and document text remain unchanged.
+	Chart or diagram has no alternative text	У диаграммы или схемы нет замещающего текста
+	Column {column} of a table is empty: it looks like spacing	Столбец {column} таблицы пуст: похоже, он используется для создания промежутка
+	Delete the column and use cell margins instead	Удалите столбец и используйте поля ячеек
+	Delete the row and use cell margins or spacing instead	Удалите строку и используйте поля ячеек или интервалы
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Опишите объект в области «Замещающий текст» (object.altText) или пометьте его как декоративный
+	Document has no title	У документа нет названия
+	Give it a title or description (table.altText)	Добавьте таблице название или описание (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Пропущен уровень заголовка (Заголовок {level} после Заголовка {previous})
+	Link text "click here" isn't descriptive	Текст ссылки «click here» не описывает её назначение
+	Missing alternative text	Отсутствует замещающий текст
+	Object isn't in line with text, so its reading order is unclear	Объект находится не в строке текста, поэтому порядок чтения неясен
+	Place it in line with text (Layout › Wrap Text)	Разместите объект в тексте (Макет › Обтекание текстом)
+	Repeat the first row as a header row (table.repeatHeader)	Повторяйте первую строку как строку заголовка (table.repeatHeader)
+	Repeated word: "{word}"	Повторяющееся слово: «{word}»
+	Row {row} of a table is empty: it looks like spacing	Строка {row} таблицы пуста: похоже, она используется для создания промежутка
+	Split the merged cells (Table Layout › Merge)	Разделите объединённые ячейки (Макет таблицы › Объединить)
+	Table has merged cells, which screen readers can lose track of	В таблице есть объединённые ячейки, в которых программы чтения с экрана могут потерять ориентацию
+	Table has no alternative text	У таблицы нет замещающего текста
+	Table has no header row	У таблицы нет строки заголовка
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Текст трудно читать: контраст {ratio}:1, требуется {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Вместо пустых абзацев используйте интервалы до и после абзаца (Макет › Абзац) или разрыв страницы
+	Use a darker or lighter text colour, or change the shading behind it	Используйте более тёмный или светлый цвет текста либо измените фон
+	Use the next heading level down, so the outline has no gaps	Используйте следующий более низкий уровень заголовка, чтобы в структуре не было пропусков
+	{n} empty paragraphs in a row	Пустых абзацев подряд: {n}
 	Waiting for the save to finish…	Ожидание завершения сохранения…
 	Saving {name} was cancelled, so it is still open and nothing was lost.	Сохранение {name} отменено. Документ по-прежнему открыт, ничего не потеряно.
 	Paper	Бумага

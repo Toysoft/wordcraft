@@ -2535,6 +2535,36 @@ preview	Title	Tytuł
 	Leave out the date and time of comments and tracked changes when saving	Pomiń datę i godzinę komentarzy i śledzonych zmian przy zapisywaniu
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Edytowany dokument zachowuje nazwiska i daty; pomija je tylko zapisany plik.
 	Privacy Settings	Bieżące ustawienia prywatności
+
+# Display-only checker messages; engine results and document text remain unchanged.
+	Chart or diagram has no alternative text	Wykres lub diagram nie ma tekstu alternatywnego
+	Column {column} of a table is empty: it looks like spacing	Kolumna {column} tabeli jest pusta: wygląda na odstęp
+	Delete the column and use cell margins instead	Usuń kolumnę i zamiast niej użyj marginesów komórek
+	Delete the row and use cell margins or spacing instead	Usuń wiersz i zamiast niego użyj marginesów komórek lub odstępów
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Opisz obiekt w okienku Tekst alternatywny (object.altText) lub oznacz go jako dekoracyjny
+	Document has no title	Dokument nie ma tytułu
+	GOST (name sort)	GOST (sortowanie według nazwiska)
+	GOST (title sort)	GOST (sortowanie według tytułu)
+	Give it a title or description (table.altText)	Dodaj tytuł lub opis tabeli (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Pominięty poziom nagłówka (Nagłówek {level} po Nagłówku {previous})
+	ISO 690 (author-date)	ISO 690 (autor–data)
+	ISO 690 (numerical)	ISO 690 (numeryczny)
+	Link text "click here" isn't descriptive	Tekst łącza „click here” nie opisuje celu łącza
+	Missing alternative text	Brak tekstu alternatywnego
+	Object isn't in line with text, so its reading order is unclear	Obiekt nie jest umieszczony równo z tekstem, więc kolejność odczytu jest niejasna
+	Place it in line with text (Layout › Wrap Text)	Umieść obiekt równo z tekstem (Układ › Zawijaj tekst)
+	Repeat the first row as a header row (table.repeatHeader)	Powtarzaj pierwszy wiersz jako wiersz nagłówka (table.repeatHeader)
+	Repeated word: "{word}"	Powtórzone słowo: „{word}”
+	Row {row} of a table is empty: it looks like spacing	Wiersz {row} tabeli jest pusty: wygląda na odstęp
+	Split the merged cells (Table Layout › Merge)	Podziel scalone komórki (Układ tabeli › Scal)
+	Table has merged cells, which screen readers can lose track of	Tabela ma scalone komórki, co może utrudniać czytnikom ekranu śledzenie ich położenia
+	Table has no alternative text	Tabela nie ma tekstu alternatywnego
+	Table has no header row	Tabela nie ma wiersza nagłówka
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Tekst jest trudny do odczytania: kontrast {ratio}:1, wymagany {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Zamiast pustych akapitów użyj odstępów przed i po akapicie (Układ › Akapit) lub podziału strony
+	Use a darker or lighter text colour, or change the shading behind it	Użyj ciemniejszego lub jaśniejszego koloru tekstu albo zmień tło
+	Use the next heading level down, so the outline has no gaps	Użyj kolejnego, niższego poziomu nagłówka, aby zachować ciągłość konspektu
+	{n} empty paragraphs in a row	Liczba kolejnych pustych akapitów: {n}
 	Waiting for the save to finish…	Oczekiwanie na zakończenie zapisywania…
 	Saving {name} was cancelled, so it is still open and nothing was lost.	Zapisywanie pliku {name} zostało anulowane. Dokument jest nadal otwarty i nic nie zostało utracone.
 	Paper	Papier
