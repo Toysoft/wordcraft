@@ -2386,6 +2386,43 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     }
 }
 
+/// Paragraph ruler frame in page points. Use the placed piece containing the caret, rather
+/// than its text x (which includes alignment, indents and bidi). A paragraph can span columns,
+/// and continuous sections can give one page several different column arrangements.
+fn ruler_text_area(app: &WordApp, layout: &DocLayout, pi: usize) -> Option<(f32, f32)> {
+    if let Some(cell) = crate::table_ruler::text_area(app, layout, pi) {
+        return Some(cell);
+    }
+    let page = layout.pages.get(pi)?;
+    let body = (page.body.x, page.body.w);
+    let focus = &app.session.sel.focus;
+    if focus.story != StoryRef::Body || app.session.view.mode != wordcraft_layout::ViewMode::Print {
+        return Some(body);
+    }
+    let section = wordcraft_engine::cmd::page::sect(&app.session);
+    if section.columns.count <= 1 {
+        return Some(body);
+    }
+    let column_x = page.items.iter().find_map(|item| {
+        let Placed::Lines { story, path, para, l0, l1, x, .. } = item else { return None };
+        if *story != focus.story || *path != focus.path {
+            return None;
+        }
+        let line = para.line_of(focus.off);
+        (*l0 <= line && line < *l1).then_some(*x)
+    });
+    Some(
+        column_x
+            .and_then(|placed_x| section.column_boxes().into_iter().find(|(x, _)| (page.body.x + x - placed_x).abs() < 0.1))
+            .map(|(x, w)| (page.body.x + x, w))
+            .unwrap_or(body),
+    )
+}
+
+#[cfg(test)]
+#[path = "ruler_columns_tests.rs"]
+mod ruler_columns_tests;
+
 /// Horizontal and vertical rulers for the caret's page and paragraph.
 fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layout: &DocLayout, scale: f32) {
     let t = Tokens::get(ui.ctx());
@@ -2439,7 +2476,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
     }
     // Indent markers for the caret's paragraph (relative to its column, or in a table to the
     // cell's text).
-    let (col_x, w) = crate::table_ruler::text_area(app, layout, pi).unwrap_or((page.body.x, page.body.w));
+    let (col_x, w) = ruler_text_area(app, layout, pi).unwrap_or((page.body.x, page.body.w));
     // Where the paragraph starts, from the page's start edge (the right edge when right-to-left).
     let start = if rtl { page.w - (col_x + w) } else { col_x };
     if let Some(rp) = rp {
@@ -2488,7 +2525,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
-            let pt = dist_at(pp.x).clamp(-col_x, (w - 18.0).max(-col_x));
+            let pt = dist_at(pp.x).clamp(-start, (w - 18.0).max(-start));
             let snapped = (pt / 4.5).round() * 4.5;
             if !r.drag_started() {
                 app.session.join_next_undo();
