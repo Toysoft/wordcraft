@@ -90,3 +90,41 @@ fn check_compatibility_says_nested_fields_are_not_updated() {
     assert!(issues.contains("Fields nested in other fields show their last result and aren't updated."), "{issues}");
     assert!(!issues.contains("embedded objects"), "{issues}");
 }
+
+/// A package whose footer holds `{ IF { PAGE } = 1 "first" "later" }`.
+fn footer_package() -> Vec<u8> {
+    let rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdF" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>"#;
+    let page = format!("{}{}{}{}{}", fld("begin"), instr(" PAGE "), fld("separate"), t("1"), fld("end"));
+    let footer = format!(
+        r#"<w:ftr {NS}><w:p>{}{}{page}{}{}{}{}</w:p></w:ftr>"#,
+        fld("begin"),
+        instr(" IF "),
+        instr(r#" = 1 "first" "later" "#),
+        fld("separate"),
+        t("first"),
+        fld("end")
+    );
+    let doc = format!(
+        r#"<w:document {NS} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p>{}</w:p><w:sectPr><w:footerReference w:type="default" r:id="rIdF"/></w:sectPr></w:body></w:document>"#,
+        t("Body")
+    );
+    let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in [
+        ("_rels/.rels", ROOT_RELS.as_bytes()),
+        ("word/document.xml", doc.as_bytes()),
+        ("word/_rels/document.xml.rels", rels.as_bytes()),
+        ("word/footer1.xml", footer.as_bytes()),
+    ] {
+        zw.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        zw.write_all(bytes).unwrap();
+    }
+    zw.finish().unwrap().into_inner()
+}
+
+#[test]
+fn check_compatibility_finds_nested_fields_in_footers() {
+    let mut s = Session::new(wordcraft_docx::read(&footer_package()).unwrap());
+    assert!(!s.doc.parts.is_empty(), "the footer was read");
+    let issues = s.run("file.compatibility", &json!({})).unwrap()["issues"].to_string();
+    assert!(issues.contains("Fields nested in other fields show their last result and aren't updated."), "{issues}");
+}

@@ -447,10 +447,13 @@ pub fn specs() -> Vec<CommandSpec> {
             {
                 issues.push("Some embedded objects from the original file are shown as text only.");
             }
-            if s.doc.para_paths(StoryRef::Body).iter().any(|p| {
-                s.doc
-                    .para(StoryRef::Body, p)
-                    .is_some_and(|x| x.objects.iter().any(|o| matches!(o, InlineObject::Field { code_xml, .. } if !code_xml.is_empty())))
+            // Headers and footers too: `{ IF { PAGE } … }` usually lives there.
+            if all_stories(&s.doc).into_iter().any(|story| {
+                s.doc.para_paths(story).iter().any(|p| {
+                    s.doc
+                        .para(story, p)
+                        .is_some_and(|x| x.objects.iter().any(|o| matches!(o, InlineObject::Field { code_xml, .. } if !code_xml.is_empty())))
+                })
             }) {
                 issues.push("Fields nested in other fields show their last result and aren't updated.");
             }

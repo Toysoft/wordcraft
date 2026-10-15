@@ -1712,40 +1712,80 @@ fn comment_reference_style(doc: &wordcraft_doc::Document) -> &str {
         .map_or("CommentReference", |s| s.id.as_str())
 }
 
-/// A field code holding nested fields ([`InlineObject::Field`]'s `code_xml`), re-serialised from
-/// its parsed runs so only well-formed `w:r` elements are written; in a tracked deletion its text
-/// becomes deleted text (ECMA-376 §17.13.5.13–14). `None` when there are no runs.
+/// A field code holding nested fields ([`InlineObject::Field`]'s `code_xml`), checked and
+/// re-serialised from its parsed runs. Only what a field code's runs hold is allowed (run
+/// properties, code and result text, tabs, breaks, hyphens and `w:fldChar`s), and the nested
+/// fields must be complete (begin, optional separate, end); anything else gives `None`, and the
+/// field is written with its flat `instr`. In a tracked deletion its text becomes deleted text
+/// (ECMA-376 §17.13.5.13–14).
 fn nested_code(code_xml: &str, del: bool) -> Option<String> {
-    fn deleted(e: &mut crate::xml::El, depth: usize) {
-        if depth > crate::xml::MAX_DEPTH {
-            return;
-        }
-        match e.name.as_str() {
-            "w:t" => e.name = "w:delText".into(),
-            "w:instrText" => e.name = "w:delInstrText".into(),
-            _ => {}
-        }
-        for k in &mut e.kids {
-            if let crate::xml::Node::El(c) = k {
-                deleted(c, depth + 1);
-            }
-        }
+    use crate::xml::{El, Node};
+    /// Elements that may never appear inside a run's properties or a form field's definition.
+    fn clean(e: &El, depth: usize) -> bool {
+        depth <= crate::xml::MAX_DEPTH
+            && !e.attrs.iter().any(|(k, _)| k.starts_with("r:"))
+            && e.kids.iter().all(|k| match k {
+                Node::El(c) => {
+                    !matches!(
+                        c.name.as_str(),
+                        "w:p"
+                            | "w:r"
+                            | "w:tbl"
+                            | "w:sdt"
+                            | "w:drawing"
+                            | "w:pict"
+                            | "w:object"
+                            | "w:fldChar"
+                            | "w:instrText"
+                            | "w:t"
+                            | "w:delText"
+                            | "w:delInstrText"
+                    ) && clean(c, depth + 1)
+                }
+                Node::Text(_) => true,
+            })
+    }
+    fn text_only(e: &El) -> bool {
+        e.kids.iter().all(|k| matches!(k, Node::Text(_)))
     }
     if code_xml.is_empty() {
         return None;
     }
     let wrapped = format!(r#"<w:code xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">{code_xml}</w:code>"#);
     let mut root = crate::xml::parse(wrapped.as_bytes()).ok()?;
+    // Open nested fields: whether each has reached its separate.
+    let mut open: Vec<bool> = Vec::new();
     let mut out = String::new();
     for k in &mut root.kids {
-        if let crate::xml::Node::El(r) = k
-            && r.name == "w:r"
-        {
-            if del {
-                deleted(r, 0);
-            }
-            out.push_str(&r.to_xml());
+        let Node::El(r) = k else { return None };
+        if r.name != "w:r" || r.attrs.iter().any(|(k, _)| k.starts_with("r:")) {
+            return None;
         }
+        for c in &mut r.kids {
+            let Node::El(c) = c else { return None };
+            match c.name.as_str() {
+                "w:rPr" if clean(c, 0) => {}
+                "w:t" | "w:delText" | "w:instrText" | "w:delInstrText" if text_only(c) => {
+                    if del {
+                        c.name = if c.name.ends_with("nstrText") { "w:delInstrText" } else { "w:delText" }.into();
+                    }
+                }
+                "w:tab" | "w:br" | "w:cr" | "w:noBreakHyphen" | "w:softHyphen" if c.kids.is_empty() => {}
+                "w:fldChar" if clean(c, 0) => match c.attr("w:fldCharType") {
+                    Some("begin") => open.push(false),
+                    Some("separate") => match open.last_mut() {
+                        Some(sep) if !*sep => *sep = true,
+                        _ => return None,
+                    },
+                    Some("end") => {
+                        open.pop()?;
+                    }
+                    _ => return None,
+                },
+                _ => return None,
+            }
+        }
+        out.push_str(&r.to_xml());
     }
-    (!out.is_empty()).then_some(out)
+    (open.is_empty() && !out.is_empty()).then_some(out)
 }

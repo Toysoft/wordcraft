@@ -321,3 +321,68 @@ fn page_and_column_breaks_in_a_cached_result_are_kept() {
     let xml = resaved(&body);
     assert!(xml.contains(r#"<w:br w:type="page"/>"#) && xml.contains(r#"<w:br w:type="column"/>"#), "{xml}");
 }
+
+/// An `IF` field whose `code_xml` is `code` (as a hostile `.json` or recovery file could hold).
+fn crafted(code: &str) -> String {
+    let mut p = wordcraft_doc::Paragraph::with_text("", wordcraft_doc::props::CharProps::default());
+    let obj = wordcraft_doc::InlineObject::Field {
+        instr: r#"IF 1 = 1 "a" "b""#.into(),
+        result: "a".into(),
+        locked: false,
+        code: false,
+        form: String::new(),
+        code_xml: code.into(),
+    };
+    p.insert_object(0, obj, &wordcraft_doc::props::CharProps::default()).unwrap();
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(p)];
+    document_xml(&write(&d).unwrap())
+}
+
+#[test]
+fn a_malformed_or_unbalanced_nested_code_is_written_as_the_flat_code() {
+    let ok = format!("{}{}{}{}{}", instr(" IF "), ref_amount(), instr(" = 0 "), "", "");
+    assert_eq!(field_marks(&crafted(&ok)), "[IF[REF amount|]= 0|]", "a well-formed code is kept");
+    let flat = r#"[IF 1 = 1 "a" "b"|]"#;
+    for bad in [
+        // Elements a field code's runs never hold.
+        r#"<w:r><w:drawing><w:inline r:id="rId99"/></w:drawing></w:r>"#.to_string(),
+        "<w:r><w:p/></w:r>".to_string(),
+        r#"<w:r><w:rPr><w:p/></w:rPr><w:instrText>IF</w:instrText></w:r>"#.to_string(),
+        "<w:r>loose text</w:r>".to_string(),
+        "<w:p><w:r><w:instrText>IF</w:instrText></w:r></w:p>".to_string(),
+        // Unbalanced nested fields.
+        format!("{}{}{}", instr(" IF "), fld("begin"), instr(" PAGE ")),
+        format!("{}{}{}", instr(" IF "), fld("end"), fld("begin")),
+        format!("{}{}{}{}{}", instr(" IF "), fld("begin"), fld("separate"), fld("separate"), fld("end")),
+        format!("{}{}", instr(" IF "), fld("separate")),
+    ] {
+        let xml = crafted(&bad);
+        assert_eq!(field_marks(&xml), flat, "{bad}\n{xml}");
+        assert!(!xml.contains("<w:p/>") && !xml.contains("rId99") && !xml.contains("loose"), "{xml}");
+    }
+}
+
+#[test]
+fn fallback_a_tracked_change_on_the_code_before_a_nested_field_flattens_it() {
+    let ins =
+        r#"<w:ins w:id="1" w:author="Ada" w:date="2026-10-15T10:00:00Z"><w:r><w:instrText xml:space="preserve"> IF </w:instrText></w:r></w:ins>"#;
+    let body = format!("<w:p>{}{ins}{}{}{}{}{}</w:p>", fld("begin"), ref_amount(), instr(r#" = 0 "z" "nz" "#), fld("separate"), t("z"), fld("end"));
+    assert_eq!(field_marks(&resaved(&body)), r#"[IF 0 = 0 "z" "nz"|]"#);
+}
+
+#[test]
+fn fallback_a_tracked_change_in_a_nested_fields_own_code_flattens_it() {
+    let ins = r#"<w:ins w:id="1" w:author="Ada" w:date="2026-10-15T10:00:00Z"><w:r><w:instrText xml:space="preserve"> REF amount </w:instrText></w:r></w:ins>"#;
+    let inner = format!("{}{ins}{}{}{}", fld("begin"), fld("separate"), t("0"), fld("end"));
+    let body =
+        format!("<w:p>{}{}{inner}{}{}{}{}</w:p>", fld("begin"), instr(" IF "), instr(r#" = 0 "z" "nz" "#), fld("separate"), t("z"), fld("end"));
+    assert_eq!(field_marks(&resaved(&body)), r#"[IF 0 = 0 "z" "nz"|]"#);
+}
+
+#[test]
+fn fallback_a_tracked_formatting_change_in_the_code_flattens_it() {
+    let changed = r#"<w:r><w:rPr><w:b/><w:rPrChange w:id="1" w:author="Ada" w:date="2026-10-15T10:00:00Z"><w:rPr/></w:rPrChange></w:rPr><w:instrText xml:space="preserve"> = 0 "z" "nz" </w:instrText></w:r>"#;
+    let body = format!("<w:p>{}{}{}{changed}{}{}{}</w:p>", fld("begin"), instr(" IF "), ref_amount(), fld("separate"), t("z"), fld("end"));
+    assert_eq!(field_marks(&resaved(&body)), r#"[IF 0 = 0 "z" "nz"|]"#);
+}

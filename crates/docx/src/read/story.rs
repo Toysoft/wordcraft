@@ -81,10 +81,11 @@ struct FieldState {
     code_xml_lost: bool,
 }
 
-/// Whether two runs are in the same tracked insertion and deletion (or none). The field's own
-/// revision is written around its runs, so its code's XML holds none.
+/// Whether a piece of a field (`a`) can go in the field's code XML: it is in the same tracked
+/// insertion and deletion as the field (`b`), or none, and has no tracked formatting change. The
+/// field's own revision is written around its runs, so its code's XML holds none.
 fn same_rev(a: &CharProps, b: &CharProps) -> bool {
-    (a.ins, a.del) == (b.ins, b.del)
+    (a.ins, a.del) == (b.ins, b.del) && a.fmt_change.is_none()
 }
 
 /// One run of a field's code or result, as XML: text with tabs and breaks.
@@ -701,8 +702,12 @@ impl Reader<'_> {
                     }
                     let text = k.text();
                     f.instr.push_str(&text);
-                    if !f.code_xml.is_empty() && !f.code_xml_lost {
-                        if !same_rev(props, &f.props) || f.code_xml.len() >= MAX_INSTR {
+                    if !same_rev(props, &f.props) {
+                        // Code text in another revision: nesting is never kept for this field.
+                        f.code_xml_lost = true;
+                        f.code_xml = String::new();
+                    } else if !f.code_xml.is_empty() && !f.code_xml_lost {
+                        if f.code_xml.len() >= MAX_INSTR {
                             f.code_xml_lost = true;
                             f.code_xml = String::new();
                         } else {
