@@ -174,13 +174,21 @@ Word.
 
 - An input method can ask to erase characters before and after the caret (`DeleteSurrounding`)
   and send replacement text. The web build's hidden text field does this whenever its contents
-  change other than by adding to the end; some desktop input methods do it for corrections.
-  WordCraft erases those characters as Backspace erases a selection, stopping at the
-  paragraph's ends, then types the new text. Erasing and retyping join the open typing undo step
-  (#1480, `keys::tests::delete_surrounding_from_the_web_text_agent_does_not_repeat_text`,
+  change other than by adding to the end: Backspace and corrections from phone keyboards, and
+  the Chrome caret jump below. The desktop builds never receive it (egui-winit 0.36 doesn't
+  send it). WordCraft erases those characters as Backspace erases a selection, stopping at the
+  paragraph's ends, then types the new text. The new text keeps the erased text's formatting
+  and never overtypes what follows. Erasing and retyping stay in the open typing undo step, and
+  typing after them joins it too (#1480,
+  `keys::tests::delete_surrounding_from_the_web_text_agent_does_not_repeat_text`,
   `delete_surrounding_erases_characters_on_both_sides_of_the_caret`,
-  `delete_surrounding_stays_inside_the_paragraph`,
-  `delete_surrounding_joins_the_typing_undo_step`).
+  `delete_surrounding_stays_inside_the_paragraph`, `delete_surrounding_joins_the_typing_undo_step`,
+  `delete_surrounding_keeps_the_replaced_texts_formatting`,
+  `delete_surrounding_text_does_not_overtype`, `delete_surrounding_rewrite_ends_at_a_key_press`).
+- After AutoCorrect or AutoFormat changes the text as you type, the web build tells its hidden
+  text field to start afresh. Its later counts then can't reach past the change
+  (`automatic_change_asks_the_input_method_to_start_afresh`). The reset itself happens in eframe
+  and hasn't been checked in a browser.
 
 ## Known gaps
 
@@ -211,6 +219,7 @@ Word.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Input methods (#1480 review): the rewritten text keeps its formatting, doesn't overtype, keeps the typing undo group; AutoCorrect/AutoFormat reset the web text field; desktop doesn't receive `DeleteSurrounding` |
 | 2026-10-15 | trivial | Input methods: `DeleteSurrounding` erases around the caret, so web typing in non-Latin text no longer repeats; Chrome's caret jump in the hidden field is listed as a known gap (#1480) |
 | 2026-10-14 | trivial | Shift+Delete cuts the selection, and does nothing without one, on macOS and Linux too, as in Word for Windows (#1669); Shift+Backspace already erased (#707) |
 | 2026-10-13 | trivial | Select All then Delete or Backspace removes a table the document starts with (#1198) |

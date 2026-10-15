@@ -240,13 +240,14 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     }
     let alt_codes = alt_codes_supported(ctx);
     // `DeleteSurrounding` and the text replacing what it erased arrive in the same frame.
-    app.canvas.ime_join_text = false;
+    app.canvas.ime_join_text = None;
     for e in events {
         // An Alt shortcut (Alt+Shift+D, Alt+F7…) may also send its key's text; it isn't typed.
         match &e {
             egui::Event::Key { pressed: true, .. } => {
                 app.canvas.swallow_text = false;
                 app.canvas.alt_code_echo = None;
+                app.canvas.ime_join_text = None;
             }
             egui::Event::Text(_) if std::mem::take(&mut app.canvas.swallow_text) => continue,
             egui::Event::Text(t) => {
@@ -320,10 +321,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                 if t.chars().all(|c| !c.is_control()) && !t.is_empty() {
                     // Typing with a text box selected types into it.
                     crate::objects::enter_text_box(app);
-                    if std::mem::take(&mut app.canvas.ime_join_text) {
-                        app.session.join_next_undo();
-                    }
-                    let _ = app.run("text.insert", json!({"text": t}));
+                    type_text(app, &t);
                 }
             }
             egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars, after_chars }) => delete_surrounding(app, before_chars, after_chars),
@@ -331,7 +329,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
             egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
                 app.canvas.ime_preedit.clear();
                 if !text.is_empty() {
-                    let _ = app.run("text.insert", json!({"text": text}));
+                    type_text(app, &text);
                 }
             }
             egui::Event::Paste(t) => {
@@ -540,13 +538,43 @@ fn finish_alt_code(app: &mut WordApp) {
     }
 }
 
+/// Typed text (a key's text or an input method's commit). Text replacing what an input method's
+/// `DeleteSurrounding` just erased takes the erased text's formatting, never overtypes what
+/// follows, and stays in the typing undo group (#1480).
+fn type_text(app: &mut WordApp, text: &str) {
+    if let Some(props) = app.canvas.ime_join_text.take() {
+        app.session.join_next_undo();
+        app.session.pending = Some(props);
+        let overtype = std::mem::replace(&mut app.session.prefs.overtype, false);
+        let typed = app.run("text.insert", json!({"text": text})).is_ok();
+        app.session.prefs.overtype = overtype;
+        if typed {
+            app.session.continue_typing();
+        }
+    } else {
+        let _ = app.run("text.insert", json!({"text": text}));
+    }
+    note_automatic_change(app);
+}
+
+/// AutoCorrect or AutoFormat just changed the text around the caret (its own undo step, which
+/// closes the typing group). The web's text agent still holds the text as typed and counts its
+/// `DeleteSurrounding` from that, so it is asked to start afresh (`canvas::ime_reset`).
+fn note_automatic_change(app: &mut WordApp) {
+    if !app.session.typing_open() && app.session.undo_label() == Some("AutoFormat") {
+        app.canvas.ime_reset = true;
+    }
+}
+
 /// An input method's `DeleteSurrounding`: erase `before` characters (Unicode scalar values, as
 /// the input method counts them) before the caret and `after` after it, as Backspace does over a
 /// selection. The web build's text agent (eframe's hidden `<input>`) sends it, then the new
-/// text, whenever its value changes other than by an addition at its end (#1480); some desktop
-/// input methods do too. The counts come from outside: they stop at the paragraph's ends, so a
-/// paragraph mark or list number is never erased. The erasure joins an open typing group and
-/// the text that follows joins it too, so one Undo takes back the typing with its correction.
+/// text, whenever its value changes other than by an addition at its end (#1480): Backspace
+/// and corrections from phone keyboards, and Chrome's caret jump. The desktop builds never get
+/// it (egui-winit 0.36 doesn't send it). The counts come from outside: they stop at the
+/// paragraph's ends, so a paragraph mark or list number is never erased. The erasure joins an
+/// open typing group and the text that follows joins it too ([`type_text`]), so one Undo takes
+/// back the typing with its correction.
 /// With a selection (the agent starts afresh on any click or editing key, so it doesn't send
 /// one then) nothing is erased: the text that follows replaces the selection as typing does.
 /// Nor inside an equation, whose text the agent's characters went to.
@@ -565,6 +593,8 @@ fn delete_surrounding(app: &mut WordApp, before: usize, after: usize) {
         return;
     }
     let join = s.typing_open();
+    // The formatting typing at the caret would use: that of the erased text (or set for it).
+    let props = s.typing_props();
     app.session.sel =
         wordcraft_engine::Selection { anchor: wordcraft_doc::Pos { off: start, ..f.clone() }, focus: wordcraft_doc::Pos { off: end, ..f.clone() } };
     let caret = f;
@@ -572,7 +602,7 @@ fn delete_surrounding(app: &mut WordApp, before: usize, after: usize) {
         app.session.join_next_undo();
     }
     if app.run("text.backspace", json!({})).is_ok() {
-        app.canvas.ime_join_text = true;
+        app.canvas.ime_join_text = Some(props);
     } else {
         // Refused (a protected document): leave the caret where it was.
         app.session.sel = wordcraft_engine::Selection::caret(caret);
@@ -893,7 +923,70 @@ mod tests {
         alt_frame(&ctx, &mut a, vec![egui::Event::Text("teh".into())]);
         alt_frame(&ctx, &mut a, vec![surround(3, 0), egui::Event::Text("the".into())]);
         assert_eq!(body(&a), "the");
+        // Typing goes on in the same group, not one step per keystroke.
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text(" more".into())]);
+        alt_frame(&ctx, &mut a, vec![surround(4, 0), egui::Event::Text("mores".into())]);
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("t".into())]);
+        assert_eq!(body(&a), "the morest");
+        assert_eq!(a.session.undo_label(), Some("Typing"));
         a.run("edit.undo", json!({})).unwrap();
         assert_eq!(body(&a), "");
+    }
+
+    /// The rewritten text keeps the formatting of the text it replaces: a bold `helo` corrected
+    /// to `hello` stays bold, as typing over a word does.
+    #[test]
+    fn delete_surrounding_keeps_the_replaced_texts_formatting() {
+        let (ctx, mut a) = alt_frame_app();
+        a.run("text.insert", json!({"text": "plain "})).unwrap();
+        a.run("format.bold", json!({})).unwrap();
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("helo".into())]);
+        alt_frame(&ctx, &mut a, vec![surround(4, 0), egui::Event::Text("hello".into())]);
+        assert_eq!(body(&a), "plain hello");
+        let f = a.session.sel.focus.clone();
+        let para = a.session.doc.para_at(&f).expect("a paragraph");
+        let bold: Vec<bool> = para.text.char_indices().map(|(i, _)| para.props_of_char(i).bold == Some(true)).collect();
+        assert_eq!(bold, [false, false, false, false, false, false, true, true, true, true, true], "{bold:?}");
+    }
+
+    /// Overtype replaces characters after the caret when typing, but the text an input method
+    /// sends to replace what it erased only replaces that.
+    #[test]
+    fn delete_surrounding_text_does_not_overtype() {
+        let (ctx, mut a) = alt_frame_app();
+        a.run("text.insert", json!({"text": "texXY"})).unwrap();
+        for _ in 0..2 {
+            a.run("caret.left", json!({})).unwrap();
+        }
+        a.run("file.options", json!({"overtype": true})).unwrap();
+        alt_frame(&ctx, &mut a, vec![surround(3, 0), egui::Event::Text("Texas".into())]);
+        assert_eq!(body(&a), "TexasXY");
+    }
+
+    /// A key pressed between the erasure and the text ends the input method's rewrite: the text
+    /// is ordinary typing, its own undo step.
+    #[test]
+    fn delete_surrounding_rewrite_ends_at_a_key_press() {
+        let (ctx, mut a) = alt_frame_app();
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("ab".into())]);
+        let key = egui::Event::Key { key: Key::F20, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
+        alt_frame(&ctx, &mut a, vec![surround(1, 0), key, egui::Event::Text("X".into())]);
+        assert_eq!(body(&a), "aX");
+        a.run("edit.undo", json!({})).unwrap();
+        assert_eq!(body(&a), "a");
+    }
+
+    /// An automatic change while typing (AutoCorrect `(c)` -> `©`) changes the text behind the
+    /// web's text agent, so its later counts would be wrong: the page asks it to start afresh.
+    #[test]
+    fn automatic_change_asks_the_input_method_to_start_afresh() {
+        let (ctx, mut a) = alt_frame_app();
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("Word".into())]);
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text(" ".into())]);
+        assert!(!a.canvas.ime_reset, "plain typing keeps the agent's text");
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("(c)".into())]);
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text(" ".into())]);
+        assert_eq!(body(&a), "Word \u{a9} ");
+        assert!(a.canvas.ime_reset, "AutoCorrect changed the text");
     }
 }
