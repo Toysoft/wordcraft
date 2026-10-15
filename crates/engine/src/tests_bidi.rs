@@ -70,6 +70,30 @@ fn alignment_buttons_mean_what_they_show_in_rtl_paragraphs() {
 }
 
 #[test]
+fn para_set_on_page_follows_each_paragraphs_own_direction() {
+    // The Paragraph dialog's alignment and indents are as seen on the page (#1346): over a
+    // right-to-left and a left-to-right paragraph, Left is each one's own left side.
+    let mut s = session("سلام دنیا\nHello", false);
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "para.rtl", json!({}));
+    run(&mut s, "select.all", json!({}));
+    let depth = s.undo_depth();
+    run(&mut s, "para.set", json!({"props": {"spaceAfter": 6}, "onPage": {"align": "left", "left": 36}}));
+    assert_eq!(s.undo_depth(), depth + 1, "one undo step");
+    let (rtl, ltr) = (props(&s, 0), props(&s, 1));
+    assert_eq!((rtl.align, rtl.indent_right, rtl.indent_left, rtl.space_after), (Some(Align::Right), Some(36.0), None, Some(6.0)));
+    assert_eq!((ltr.align, ltr.indent_left, ltr.indent_right, ltr.space_after), (Some(Align::Left), Some(36.0), None, Some(6.0)));
+    // A direction in `props` comes first: both are right to left now, so Right is their start.
+    run(&mut s, "para.set", json!({"props": {"bidi": true}, "onPage": {"right": 18}}));
+    assert_eq!((props(&s, 1).bidi, props(&s, 1).indent_left, props(&s, 1).indent_right), (Some(true), Some(18.0), None));
+    assert!(s.run("para.set", &json!({"props": {}, "onPage": {"align": "middle"}})).is_err());
+    // Undo takes each command back whole.
+    run(&mut s, "edit.undo", json!({}));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!((props(&s, 0).align, props(&s, 0).indent_right, props(&s, 1).indent_left), (None, None, None));
+}
+
+#[test]
 fn font_commands_reach_persian_text() {
     let mut s = session("کتاب خوب", true);
     run(&mut s, "select.all", json!({}));
@@ -224,4 +248,24 @@ fn explicit_alignment_sets_without_toggling() {
             assert_eq!(shown, want, "{v} twice stays {v} (rtl={rtl})");
         }
     }
+}
+
+#[test]
+fn typing_kurdish_in_new_document_advances_caret_smoothly() {
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    let mut first_x = None;
+    let mut last_x = 0.0;
+    for ch in ["م", "ن", " ", "ن", "ا", "و", "م", " ", "ه", "ێ", "ڤ", "ا", "ر", "ه"] {
+        run(&mut s, "text.insert", json!({"text": ch}));
+        let l = s.layout();
+        let c = l.caret(&s.sel.focus).unwrap();
+        if first_x.is_none() {
+            first_x = Some(c.x);
+        }
+        last_x = c.x;
+        // The caret must not jump back to the left margin (72.0), but stay near the right margin (540.0).
+        assert!(c.x > 400.0, "caret should not be at left margin: {}", c.x);
+    }
+    assert!(last_x < first_x.unwrap(), "caret should advance leftwards overall");
+    assert_eq!(props(&s, 0).bidi, Some(true), "paragraph auto-detected as right-to-left");
 }

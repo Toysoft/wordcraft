@@ -6,7 +6,8 @@
 //! reaches through relationships (chart, embedded workbook, colours and style; diagram data, layout,
 //! quick style, colours and drawing; OLE embedding and its picture…) as opaque bytes in
 //! `Document::passthrough`, with their content types and relationships in an
-//! [`EmbeddedManifest`](crate::package::EmbeddedManifest).
+//! [`EmbeddedManifest`](crate::package::EmbeddedManifest). The font table and the fonts it embeds
+//! are kept the same way.
 
 use std::sync::Arc;
 
@@ -17,6 +18,48 @@ use crate::package::{
     CUSTOM_XML_ROOTS, ContentTypes, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, MAX_EMBEDDED_XML, Rel, Rels, manifest_field_ok, rel_is, rt,
 };
 use crate::xml::{El, MAX_DEPTH, NAMESPACES, esc};
+
+/// Relationship types (last path segment) the reader models or the writer produces itself, so
+/// they are never carried verbatim: carrying them would duplicate or contradict the written part.
+/// Types the main document refers to by id (headers, pictures, objects…) are listed too.
+pub const HANDLED_RELS: &[&str] = &[
+    "officeDocument",
+    "core-properties",
+    "extended-properties",
+    "custom-properties",
+    "styles",
+    "numbering",
+    "settings",
+    "theme",
+    "fontTable",
+    "footnotes",
+    "endnotes",
+    "comments",
+    "commentsExtended",
+    "commentsIds",
+    "commentsExtensible",
+    "customXml",
+    "vbaProject",
+    "header",
+    "footer",
+    "image",
+    "hyperlink",
+    "oleObject",
+    "package",
+    "chart",
+    "chartEx",
+    "diagramData",
+    "diagramDrawing",
+    "diagramLayout",
+    "diagramQuickStyle",
+    "diagramColors",
+    "video",
+    "audio",
+    "media",
+    "control",
+    "subDocument",
+    "ink",
+];
 
 /// Most relationship ids one object's markup may use.
 const MAX_IDS: usize = 64;
@@ -41,6 +84,38 @@ impl Reader<'_> {
         }
         if !roots.is_empty() {
             self.doc.passthrough.insert(CUSTOM_XML_ROOTS.into(), Arc::new(roots.into_bytes()));
+        }
+    }
+
+    /// Keep the parts the package and the main document relate to that WordCraft neither models
+    /// nor writes itself (web settings, styles-with-effects, add-in task panes, the thumbnail, a
+    /// glossary…), with every part they reach, so saving carries them unchanged. Skipped: the
+    /// relationship types the writer produces or the reader models ([`HANDLED_RELS`]) and any
+    /// relationship the main document's markup refers to by id (its target goes with the
+    /// element, or not at all).
+    pub(super) fn keep_unmodelled(&mut self, package: &Rels, document: &Rels) {
+        let main = self.pkg.get(&self.main).map(|b| b.to_vec()).unwrap_or_default();
+        let referenced = |id: &str| {
+            let needle = format!("\"{id}\"");
+            main.windows(needle.len()).any(|w| w == needle.as_bytes())
+        };
+        let mut roots = String::new();
+        for (owner, rels) in [("P", package), ("D", document)] {
+            for rel in rels.list.iter().filter(|r| !r.external).take(MAX_EMBEDDED_RELS) {
+                let tail = rel.kind.rsplit('/').next().unwrap_or("");
+                if HANDLED_RELS.contains(&tail)
+                    || (owner == "D" && referenced(&rel.id))
+                    || ![&rel.kind, &rel.target].iter().all(|s| manifest_field_ok(s))
+                {
+                    continue;
+                }
+                if self.keep_part_tree(&rel.target) {
+                    roots.push_str(&format!("{owner}\t{}\t{}\n", rel.kind, rel.target));
+                }
+            }
+        }
+        if !roots.is_empty() {
+            self.doc.passthrough.insert(crate::package::UNMODELLED_ROOTS.into(), Arc::new(roots.into_bytes()));
         }
     }
 
@@ -73,7 +148,7 @@ impl Reader<'_> {
 
     /// Keep part `root` and every part it reaches through its relationships. False when `root`
     /// itself can't be kept.
-    fn keep_part_tree(&mut self, root: &str) -> bool {
+    pub(super) fn keep_part_tree(&mut self, root: &str) -> bool {
         if self.embedded.parts.contains_key(root) {
             return true;
         }

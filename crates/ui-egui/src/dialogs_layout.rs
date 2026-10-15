@@ -14,6 +14,7 @@ use wordcraft_doc::section::LineNumberRestart;
 use wordcraft_engine::cmd::mailings::{ENVELOPE_SIZES, LABEL_PRODUCTS};
 
 use crate::WordApp;
+use crate::options::MeasureExt;
 use crate::theme::semibold;
 
 #[derive(Clone, Debug, Serialize)]
@@ -174,11 +175,7 @@ fn line_numbers_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LineNumbersForm) -> b
                 ui.checkbox(&mut f.auto_distance, tl!("Auto"));
                 ui.add_enabled(
                     !f.auto_distance,
-                    egui::DragValue::new(&mut f.distance)
-                        .speed(0.01)
-                        .range(0.0..=22.0 * 72.0 / unit().pt_per_unit())
-                        .suffix(unit().suffix())
-                        .max_decimals(2),
+                    egui::DragValue::new(&mut f.distance).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2),
                 );
             });
             ui.end_row();
@@ -233,7 +230,7 @@ fn hyphenation_ui(app: &mut WordApp, ui: &mut Ui, f: &mut HyphenationForm) -> bo
     ui.checkbox(&mut f.caps, tl!("Hyphenate words in CAPS"));
     egui::Grid::new("hyph").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("Hyphenation zone:"));
-        ui.add(egui::DragValue::new(&mut f.zone).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).suffix(unit().suffix()).max_decimals(2));
+        ui.add(egui::DragValue::new(&mut f.zone).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2));
         ui.end_row();
         ui.label(tl!("Limit consecutive hyphens to:"));
         let no_limit = tl!("No limit").to_string();
@@ -529,16 +526,25 @@ fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm) -> bool {
     cancel
 }
 
-/// `DL  110 × 220 mm` / `#10  4.13 × 9.5 in`: metric sizes in millimetres, the others in inches.
-fn envelope_label(name: &str, w: f32, h: f32) -> String {
+/// `DL   110 × 220 mm` / `#10   4.13 × 9.5 in`: metric sizes in millimetres, the others in
+/// inches. The pattern is translated (the unit's name, the order) and the numbers use the
+/// region's decimal separator.
+pub(crate) fn envelope_label(name: &str, w: f32, h: f32) -> String {
     let short = name.strip_prefix("Envelope ").unwrap_or(name);
-    if short.starts_with('#') || short == "Monarch" {
+    let (template, w, h) = if short.starts_with('#') || short == "Monarch" {
         let i = |pt: f32| ((pt / 72.0) * 100.0).round() / 100.0;
-        format!("{short}   {} × {} in", i(h), i(w))
+        (tl!("{name}   {height} × {width} in"), i(w), i(h))
     } else {
         let mm = |pt: f32| (pt * 25.4 / 72.0).round();
-        format!("{short}   {} × {} mm", mm(h), mm(w))
-    }
+        (tl!("{name}   {height} × {width} mm"), mm(w), mm(h))
+    };
+    crate::i18n::fmt(template, &[("name", short), ("height", &with_decimal(h.to_string())), ("width", &with_decimal(w.to_string()))])
+}
+
+/// A number written with `.` rewritten with the region's decimal separator (`2,625`).
+fn with_decimal(n: String) -> String {
+    let sep = crate::options::decimal();
+    if sep == '.' { n } else { n.replace('.', sep.encode_utf8(&mut [0; 4])) }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -589,7 +595,19 @@ fn product_label(i: usize) -> String {
         "return" => tl!("Return address labels"),
         _ => tl!("Address labels"),
     };
-    format!("{kind}, {} × {}, {} ({})", p.cols, p.rows, p.size_text(), p.paper)
+    // Inches on Letter, millimetres on A4, as the sheets are sold.
+    let size = if p.paper == "A4" {
+        let mm = |pt: f32| with_decimal(format!("{:.1}", pt * 25.4 / 72.0));
+        crate::i18n::fmt(tl!("{width} × {height} mm"), &[("width", &mm(p.width)), ("height", &mm(p.height))])
+    } else {
+        let i = |pt: f32| with_decimal((((pt / 72.0) * 1000.0).round() / 1000.0).to_string());
+        format!("{}\" × {}\"", i(p.width), i(p.height))
+    };
+    let (columns, rows) = (p.cols.to_string(), p.rows.to_string());
+    crate::i18n::fmt(
+        tl!("{kind}, {columns} × {rows}, {size} ({paper})"),
+        &[("kind", kind), ("columns", &columns), ("rows", &rows), ("size", &size), ("paper", tl!(p.paper))],
+    )
 }
 
 fn labels_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LabelsForm) -> bool {
@@ -741,6 +759,24 @@ mod tests {
         assert_eq!(secs.len(), 2);
         assert!((secs[0].1.page_w - 623.6).abs() < 0.1);
         assert!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Thanks."));
+    }
+
+    /// The envelope sizes are in the interface language with the region's decimal separator
+    /// (#1128; the untranslated-text audit found `#10   4.13 × 9.5 in` drawn in English).
+    #[test]
+    fn envelope_sizes_follow_the_interface_language_and_region() {
+        let size = |name: &str| ENVELOPE_SIZES.iter().find(|s| s.0 == name).map(|(n, w, h)| envelope_label(n, *w, *h)).unwrap();
+        assert_eq!(size("Envelope #10"), "#10   4.13 × 9.5 in");
+        assert_eq!(size("Envelope DL"), "DL   110 × 220 mm");
+        let mut a = app();
+        a.run("file.options", json!({"region": "it-IT"})).unwrap();
+        crate::options::sync(&a);
+        crate::i18n::set_current(crate::i18n::Lang::from_code("it").unwrap());
+        assert_eq!(size("Envelope #10"), "#10   4,13 × 9,5 pollici");
+        assert_eq!(size("Envelope DL"), "DL   110 × 220 mm");
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        a.run("file.options", json!({"region": "en-US"})).unwrap();
+        crate::options::sync(&a);
     }
 
     /// #407: Labels builds a new document of the chosen sheet, or a single label.

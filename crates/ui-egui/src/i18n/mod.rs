@@ -52,7 +52,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 16] = [
+pub static LANGUAGES: [LangInfo; 20] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -85,7 +85,7 @@ pub static LANGUAGES: [LangInfo; 16] = [
         name: "Português (Brasil)",
         source: include_str!("pt-br.tsv"),
         prefer_hans: false,
-        editing_lang: None,
+        editing_lang: Some("pt-BR"),
         catalog: OnceLock::new(),
     },
     // Serbian, Cyrillic script (the default per BCP 47 when no script is given); `sr`, `sr-RS`,
@@ -118,9 +118,34 @@ pub static LANGUAGES: [LangInfo; 16] = [
     LangInfo { code: "de", name: "Deutsch", source: include_str!("de.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Russian; `ru`, `ru-RU`, `ru_RU.UTF-8` and other regions resolve here.
     LangInfo { code: "ru", name: "Русский", source: include_str!("ru.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
-    LangInfo { code: "tr", name: "Türkçe", source: include_str!("tr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
-    // Italian; `it-IT`, `it-CH` and `it-*` resolve here.
-    LangInfo { code: "it", name: "Italiano", source: include_str!("it.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "tr",
+        name: "Türkçe",
+        source: include_str!("tr.tsv"),
+        prefer_hans: false,
+        editing_lang: Some("tr-TR"),
+        catalog: OnceLock::new(),
+    },
+    // Italian; `it-IT`, `it-CH` and `it-*` resolve here. New documents are written in
+    // Italian: `wordcraft-proof` checks it (`ProofLang::It`).
+    LangInfo {
+        code: "it",
+        name: "Italiano",
+        source: include_str!("it.tsv"),
+        prefer_hans: false,
+        editing_lang: Some("it-IT"),
+        catalog: OnceLock::new(),
+    },
+    // Hungarian; `hu`, `hu-HU` and `hu_HU.UTF-8` resolve here.
+    LangInfo { code: "hu", name: "Magyar", source: include_str!("hu.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // French; `fr`, `fr-FR`, `fr_CA` and other regions resolve here.
+    LangInfo { code: "fr", name: "Français", source: include_str!("fr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Bulgarian; `bg`, `bg-BG` and `bg_BG.UTF-8` resolve here.
+    LangInfo {
+        code: "bg", name: "Български", source: include_str!("bg.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new()
+    },
+    // Vietnamese; `vi`, `vi-VN` and `vi_VN.UTF-8` resolve here.
+    LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("vi.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -267,6 +292,18 @@ fn detect_system_lang() -> Lang {
     }
     let tags: Vec<String> = sys_locale::get_locales().take(16).collect();
     first_supported(tags.iter().map(String::as_str)).unwrap_or(Lang::EN)
+}
+
+/// The system region (#838): it picks the paper File › New starts on, the default measurement
+/// unit and the decimal separator, independently of the interface language (an English
+/// interface in Germany still gets A4 and centimetres). `en-US` in tests.
+pub fn system_region() -> wordcraft_engine::Region {
+    if cfg!(test) {
+        return wordcraft_engine::Region::default();
+    }
+    // The environment's locale variables (Unix), else the platform's first preferred locale (on
+    // macOS it carries the region, as in `en-PL`; on the web it is the browser's language).
+    wordcraft_engine::Region::from_locale_vars(|name| std::env::var(name).ok(), sys_locale::get_locale)
 }
 
 thread_local! {
