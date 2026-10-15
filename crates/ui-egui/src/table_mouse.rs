@@ -26,6 +26,8 @@ pub(crate) struct TableDrag {
     /// The resize reach at the press (page points).
     reach: f32,
     target: Target,
+    /// Shift was down at the press on a row area: the rows extend from the anchor row.
+    extend: bool,
 }
 
 /// Whether the table mouse is in reach: when resizing is, and not while a border is dragged.
@@ -54,7 +56,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
             d.to = ((p.x - r.min.x) / sc, (p.y - r.min.y) / sc);
         }
         let down = ui.input(|i| i.pointer.primary_down());
-        let at = json!({"page": d.page, "x": d.from.0, "y": d.from.1, "reach": d.reach, "toX": d.to.0, "toY": d.to.1});
+        let at = json!({"page": d.page, "x": d.from.0, "y": d.from.1, "reach": d.reach, "toX": d.to.0, "toY": d.to.1, "extend": d.extend});
         if d.target.spot == Spot::Handle {
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 return true;
@@ -92,7 +94,8 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
     }
     let Some(p) = latest else { return false };
     let Some((page, x, y, reach, target)) = target_at(app, layout, rects, scale, p) else { return false };
-    let at = json!({"page": page, "x": x, "y": y, "reach": reach});
+    let extend = matches!(target.spot, Spot::Row(_)) && ui.input(|i| i.modifiers.shift);
+    let at = json!({"page": page, "x": x, "y": y, "reach": reach, "extend": extend});
     match target.spot {
         Spot::InsertRow(_) | Spot::InsertColumn(_) => {
             if let Err(e) = app.run("table.insertAt", at) {
@@ -106,7 +109,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
             {
                 app.status(e);
             }
-            app.canvas.table_drag = Some(TableDrag { page, from: (x, y), to: (x, y), sent: (x, y), reach, target });
+            app.canvas.table_drag = Some(TableDrag { page, from: (x, y), to: (x, y), sent: (x, y), reach, target, extend });
         }
     }
     true
@@ -306,6 +309,48 @@ mod tests {
         steps(&mut h, 2);
         assert!(h.state().canvas.table_drag.is_none());
         assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (0, 2))));
+    }
+
+    /// The selection bar beside a table (the page margin, well past the row areas) selects the
+    /// row; a drag down it selects the rows it passes; Shift+click extends by rows.
+    #[test]
+    fn the_margin_beside_a_table_selects_rows() {
+        let mut h = table_window();
+        let (a, b) = (cell(&mut h, 0, 0), cell(&mut h, 1, 0));
+        let (ya, yb) = (a.y + a.h / 2.0, b.y + b.h / 2.0);
+        let far = 20.0;
+        assert!(a.x - far > 30.0, "well past the row areas");
+        let at_a = screen(&mut h, far, ya);
+        h.event(egui::Event::PointerMoved(at_a));
+        steps(&mut h, 2);
+        assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "the drawn selection arrow");
+        click(&mut h, at_a);
+        assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 0), (0, 2))), "one click, the row");
+        // Drag from row 0 to row 1.
+        let end = screen(&mut h, far, yb);
+        h.event(egui::Event::PointerMoved(at_a));
+        h.step();
+        button(&h, at_a, true);
+        h.step();
+        h.event(egui::Event::PointerMoved(end));
+        h.step();
+        assert_eq!(h.state().session.cell_range().map(|r| r.rows), Some((0, 1)), "the selection follows the pointer");
+        button(&h, end, false);
+        steps(&mut h, 2);
+        // Click row 0 again, then Shift+click row 1.
+        click(&mut h, at_a);
+        assert_eq!(h.state().session.cell_range().map(|r| r.rows), Some((0, 0)));
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+        h.step();
+        h.event(egui::Event::PointerMoved(end));
+        h.step();
+        button(&h, end, true);
+        h.step();
+        button(&h, end, false);
+        steps(&mut h, 2);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::default()));
+        h.step();
+        assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (0, 2))), "extended by rows");
     }
 
     /// An ordinary drag from one cell's text into another's selects the rectangle of whole cells

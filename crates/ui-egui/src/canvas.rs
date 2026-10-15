@@ -3482,6 +3482,58 @@ mod tests {
         assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default);
     }
 
+    /// A right-to-left paragraph's selection bar is the right margin; the left margin beside it
+    /// is nothing special (a click there is the caret's).
+    #[test]
+    fn selection_bar_of_a_right_to_left_paragraph_is_on_the_right() {
+        use egui::{Event, PointerButton};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "First para\r\u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{5e9}\u{5dc}\u{5d5}\u{5dd}\rThird para"})).unwrap();
+        a.run("caret.set", json!({"pos": serde_json::to_value(Pos::body(1, 0)).unwrap()})).unwrap();
+        a.run("para.rtl", json!({})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let c = h.state_mut().session.layout().caret(&Pos::body(1, 0)).expect("caret");
+        let (body_x, page_w) = {
+            let l = h.state_mut().session.layout();
+            (l.pages[c.page].body.right(), l.pages[c.page].w)
+        };
+        let y = c.top + c.height / 2.0;
+        let right = page_to_screen(h.state_mut(), c.page, (body_x + page_w) / 2.0, y).expect("on screen");
+        let left = page_to_screen(h.state_mut(), c.page, 30.0, y).expect("on screen");
+        let click = |h: &mut egui_kittest::Harness<'_, WordApp>, at: Pos2| {
+            h.event(Event::PointerMoved(at));
+            h.step();
+            h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Default::default() });
+            h.step();
+            h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Default::default() });
+            for _ in 0..3 {
+                h.step();
+            }
+        };
+        h.event(Event::PointerMoved(right));
+        h.step();
+        assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default, "the bar's arrow on the right");
+        click(&mut h, right);
+        let (s, e) = h.state().session.sel.ordered();
+        assert_eq!(s, Pos::body(1, 0), "the line is selected");
+        assert!(e > s && (e.path == wordcraft_doc::Path::top(1) || e == Pos::body(2, 0)), "{s:?}..{e:?}");
+        // Beside it on the left: no bar (the text cursor, and a caret, not a line selection).
+        h.event(Event::PointerMoved(left));
+        h.step();
+        assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Text);
+    }
+
     /// #1085: a selected balloon's buttons work (pressing them is not a click on the page that
     /// leaves the balloon): a new comment with no text resolves and deletes from its balloon.
     #[test]
