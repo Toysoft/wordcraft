@@ -584,6 +584,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         panic!("the record never loaded: {last}");
+    }
 
     /// A session reopened on `root` that lists its recovery copy. A session dropped a moment before still
     /// holds the copy's lock until its worker thread exits, and a scan skips a record it cannot lock, so

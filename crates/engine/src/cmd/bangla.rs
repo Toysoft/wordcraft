@@ -983,6 +983,11 @@ impl Tagged {
         self.replace_with(from, to, true);
     }
 
+    /// [`Tagged::replace`] without a revision barrier for entries that have no distinct separate form.
+    fn replace_fused(&mut self, from: &str, to: &str) {
+        self.replace_with(from, to, false);
+    }
+
     /// Replaces `Av` with `আ`. When `A` and `v` share a revision class, they fuse directly.
     /// When they carry different tracked revisions (e.g. an unchanged `A` followed by an inserted
     /// `v`), fusing into one untracked character would drop the insertion and break Reject All.
