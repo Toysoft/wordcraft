@@ -5316,6 +5316,7 @@ dependencies = [
  "wordcraft-engine",
  "wordcraft-geom",
  "wordcraft-pdf",
+ "wordcraft-proof",
 ]
 
 [[package]]
