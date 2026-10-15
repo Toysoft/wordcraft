@@ -1460,7 +1460,6 @@
 	Formatted	Formaterat
 	Deleted	Borttaget
 	Interface size:	Gränssnittets storlek:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Gör verktygspanelen, menyerna och dialogrutorna större eller mindre, utöver systemets skalning. Dokumentets zoom ställs in separat.
 	Resize Table by Dragging	Ändra tabellens storlek genom att dra
 	Print Markup	Skriv ut märkning
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Kommentarer bredvid varje sida och spårade ändringar i PDF-filer, utskrifter och bilder; en kommentarslista i slutet av webbsidor, Markdown och text.
@@ -2450,17 +2449,12 @@ preview	Title	Titel
 	Limit and	Gränsvärde och
 	Log	log
 	APA	APA
-	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10,12" × 14,33"
-	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7,17" × 10,12"
 	Change to Level 1	Ändra till nivå 1
 	Change to Level 2	Ändra till nivå 2
 	Change to Level 3	Ändra till nivå 3
 	Change to Level 4	Ändra till nivå 4
 	Change to Level 5	Ändra till nivå 5
 	Chicago	Chicago
-	Envelope #10   4.12" × 9.50"	Kuvert nr 10   4,12" × 9,50"
-	Envelope DL   4.33" × 8.66"	Kuvert DL   4,33" × 8,66"
-	Executive   7.25" × 10.50"	Executive   7,25" × 10,50"
 	GB/T 7714	GB/T 7714
 	GOST (name sort)	GOST (sortering på namn)
 	GOST (title sort)	GOST (sortering på titel)
@@ -2472,16 +2466,12 @@ preview	Title	Titel
 	IEEE	IEEE
 	ISO 690 (author-date)	ISO 690 (författare–år)
 	ISO 690 (numerical)	ISO 690 (numerisk)
-	Legal   8.50" × 14.00"	Legal   8,50" × 14,00"
-	Letter   8.50" × 11.00"	Letter   8,50" × 11,00"
 	List Table 3 – Blue	Listtabell 3 – blå
 	List Table 3 – Green	Listtabell 3 – grön
 	List Table 3 – Orange	Listtabell 3 – orange
 	List Table 3 – Purple	Listtabell 3 – lila
 	MLA	MLA
 	SIST02	SIST02
-	Statement   5.50" × 8.50"	Statement   5,50" × 8,50"
-	Tabloid   11.00" × 17.00"	Tabloid   11,00" × 17,00"
 	Turabian	Turabian
 	Index {n}	Register {n}
 	Change to Level 6	Ändra till nivå 6
@@ -2499,22 +2489,13 @@ preview	Title	Titel
 # Strings no catalog had yet, found by the interface audit (untranslated_interface_text).
 	Column width	Kolumnbredd
 	Edit Document	Redigera dokument
-	Envelope #10   4.12" × 9.5"	Kuvert nr 10   4,12" × 9,5"
-	Executive   7.25" × 10.5"	Executive   7,25" × 10,5"
 	Go to what:	Gå till:
-	Legal   8.5" × 14"	Legal   8,5" × 14"
-	Letter   8.5" × 11"	Letter   8,5" × 11"
 	Reading Mode	Läsläge
 	Researcher needs an online service; WordCraft keeps your documents offline.	Efterforska kräver en onlinetjänst; WordCraft håller dina dokument offline.
-	Statement   5.5" × 8.5"	Statement   5,5" × 8,5"
 	Suggested	Förslag
-	Tabloid   11" × 17"	Tabloid   11" × 17"
 	Text size	Textstorlek
 	These settings will be used for new documents.	De här inställningarna används för nya dokument.
 	Type +2 or -1 to move from the page you are on.	Skriv +2 eller -1 för att flytta från sidan du är på.
-	bad parameters: `path` (string) is required	felaktiga parametrar: `path` (sträng) krävs
-	bad parameters: no comment here	felaktiga parametrar: ingen kommentar här
-	bad parameters: select a citation or give `entry`	felaktiga parametrar: markera en källhänvisning eller ange `entry`
 	can't split at the first row	kan inte dela vid första raden
 	select two or more cells to merge	markera två eller fler celler att sammanfoga
 	there is no ink to replay	det finns inget bläck att spela upp
@@ -2544,3 +2525,105 @@ preview	Title	Titel
 	Enter bookmark name:	Ange bokmärkets namn:
 	This document has no bookmarks.	Det här dokumentet har inga bokmärken.
 	Type a page number, or +2 / -1.	Skriv ett sidnummer, eller +2 / -1.
+# Added while landing (#1219): strings that landed after this catalog
+	In the margin	I marginalen
+	No document is open. Create a document or open one first.	Inget dokument är öppet. Skapa eller öppna ett dokument först.
+	Only for the selected text	Endast för den markerade texten
+	Show alignment guides when moving pictures and shapes	Visa justeringslinjer när bilder och former flyttas
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Flyttade objekt fäster mot sidans kanter och mitt, marginalerna och andra objekt. Håll ned Alt för att flytta fritt.
+	Delete Bookmark	Ta bort bokmärke
+	Hidden bookmarks	Dolda bokmärken
+	Sort by:	Sortera efter:
+	{language} (no dictionary)	{language} (ingen ordlista)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Ingen stavningsordlista för {language} är installerad, så språket kontrolleras inte. WordCraft letar efter Hunspell-ordlistan {name} i mappen WORDCRAFT_DICTIONARIES och på systemets vanliga platser.
+	Word 2003 XML Document (*.xml)	Word 2003 XML-dokument (*.xml)
+	Type Character Code	Skriv teckenkod
+	Auto ({percent}%)	Automatisk ({percent} %)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	Gör menyfliksområdet, menyerna och dialogrutorna större eller mindre. Automatisk följer systemets skalning av skärmen; 100 % är en skärmpixel per punkt. Dokumentets zoom ställs in separat.
+	Load System Installed Fonts…	Läs in typsnitt installerade i systemet…
+	All system fonts are already available.	Alla systemtypsnitt finns redan tillgängliga.
+	Local font access is not supported by your browser.	Webbläsaren har inte stöd för åtkomst till lokala typsnitt.
+	Local font access was denied.	Åtkomst till lokala typsnitt nekades.
+	Loaded {count} system fonts.	{count} systemtypsnitt har lästs in.
+	Croatian	Kroatiska
+	Text of the nearest paragraph with a given style (running headers)	Text från närmaste stycke med en viss stil (löpande sidhuvuden)
+	Style name:	Stilnamn:
+	Filter Recipients	Filtrera mottagare
+	Sort Recipients	Sortera mottagare
+	Filter and Sort	Filtrera och sortera
+	And	Och
+	Or	Eller
+	Comparison	Jämförelse
+	Compare to	Jämför med
+	Add Condition	Lägg till villkor
+	Remove condition	Ta bort villkor
+	Sort by	Sortera efter
+	Then by	Sedan efter
+	Ascending	Stigande
+	Descending	Fallande
+	Equal to	Lika med
+	Not equal to	Inte lika med
+	Less than	Mindre än
+	Greater than	Större än
+	Less than or equal	Mindre än eller lika med
+	Greater than or equal	Större än eller lika med
+	Is blank	Är tomt
+	Is not blank	Är inte tomt
+	Contains	Innehåller
+	Does not contain	Innehåller inte
+	{count} of {total} recipients will be merged.	{count} av {total} mottagare kopplas.
+	Take the last match on the page	Använd den sista träffen på sidan
+	Show its list number	Visa dess listnummer
+	Show its number relative to this field	Visa dess nummer i förhållande till det här fältet
+	Show its number with all higher levels	Visa dess nummer med alla högre nivåer
+	Number only, without the label's words	Endast nummer, utan etikettens ord
+	Add whether it is above or below	Lägg till om det är ovanför eller nedanför
+	Copy to	Kopiera till
+	Rename Document	Byt namn på dokument
+	Document name	Dokumentnamn
+	Rename	Byt namn
+	Account	Konto
+	Privacy Options	Sekretessalternativ
+	Trust Center	Säkerhetscenter
+	Privacy for this document	Sekretess för det här dokumentet
+	Remove my name from comments, changes and file properties when saving	Ta bort mitt namn från kommentarer, ändringar och filegenskaper när dokumentet sparas
+	Leave out the date and time of comments and tracked changes when saving	Utelämna datum och tid för kommentarer och spårade ändringar när dokumentet sparas
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	Dokumentet du redigerar behåller namnen och datumen; bara den sparade filen utelämnar dem.
+	Privacy Settings	Sekretessinställningar
+	Waiting for the save to finish…	Väntar på att sparandet ska slutföras…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Sparandet av {name} avbröts, så dokumentet är fortfarande öppet och inget gick förlorat.
+	Paper	Papper
+	Paper size:	Pappersstorlek:
+	Custom size	Anpassad storlek
+	More Paper Sizes…	Fler pappersstorlekar…
+	The margins don't fit on a page this size; make the margins smaller first.	Marginalerna får inte plats på en sida i den här storleken; minska marginalerna först.
+	Full Screen	Helskärm
+	Full\nScreen	Hel-\nskärm
+	Use the browser's full screen (F11)	Använd webbläsarens helskärmsläge (F11)
+	{name}   {height} × {width} in	{name}   {height} × {width} tum
+	{name}   {height} × {width} mm	{name}   {height} × {width} mm
+	{width} × {height} mm	{width} × {height} mm
+	{kind}, {columns} × {rows}, {size} ({paper})	{kind}, {columns} × {rows}, {size} ({paper})
+	Envelope #10	Kuvert #10
+	Envelope DL	Kuvert DL
+	Set Proofing Language…	Ange korrekturspråk…
+	Language Preferences…	Språkinställningar…
+	Print settings	Utskriftsinställningar
+	Submit print job	Skicka utskrift
+	Dictionaries	Ordlistor
+	Dictionaries folder:	Mapp för ordlistor:
+	Not set: the system's usual places	Inte angiven: systemets vanliga platser
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell-filer (.aff och .dic) här (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) används före systemets.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: ingen ordlista hittades
+	Recover	Återställ
+	Mirror margins	Spegelvända marginaler
+	Existing File or Web Page	Befintlig fil eller webbsida
+	Link to:	Länka till:
+	Place in This Document	Plats i det här dokumentet
+	Column {n}	Kolumn {n}
+	Header row	Rubrikrad
+	No header row	Ingen rubrikrad
+	My list has	Min lista har
+	Formula:	Formel:
+	Paste function:	Klistra in funktion:
