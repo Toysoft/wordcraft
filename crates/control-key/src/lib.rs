@@ -187,6 +187,16 @@ mod tests {
     }
 
     #[test]
+    fn the_profile_override_wins_over_a_portable_install() {
+        let exe = install("override", |marker| std::fs::write(marker, "").unwrap());
+        let profile = |value: &'static str| move |key: &str| if key == "WORDCRAFT_PROFILE_DIR" { Some(value.into()) } else { environment(key) };
+        assert_eq!(settings_dir_with(profile("/isolated/profile"), Some(&exe)), Some(PathBuf::from("/isolated/profile")));
+        // An empty override is no override: the marker decides.
+        assert_eq!(settings_dir_with(profile(""), Some(&exe)), Some(exe.join("WordCraftData")));
+        let _ = std::fs::remove_dir_all(&exe);
+    }
+
+    #[test]
     fn settings_dir_is_the_apps_folder() {
         if let Some(d) = settings_dir() {
             let name = d.file_name().and_then(|n| n.to_str()).unwrap_or("");
