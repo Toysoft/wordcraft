@@ -462,6 +462,7 @@ fn fields_put_their_shown_text_in_the_text_layer() {
         dirty: false,
         code: false,
         form: String::new(),
+        code_xml: String::new(),
     };
     f.insert_object(5, field("PAGE"), &CharProps::default()).unwrap();
     let n = f.len();
@@ -491,6 +492,7 @@ fn styleref_headers_show_each_page_s_chapter() {
         dirty: false,
         code: false,
         form: String::new(),
+        code_xml: String::new(),
     };
     h.insert_object(0, field, &CharProps::default()).unwrap();
     let id = d.add_part(wordcraft_doc::PartKind::Header, vec![para_block(h)]);
@@ -736,6 +738,7 @@ fn field_results_are_extractable_text() {
             dirty: false,
             code: false,
             form: String::new(),
+            code_xml: String::new(),
         },
         &CharProps::default(),
     )
@@ -766,6 +769,7 @@ fn field_result_ligatures_extract_all_their_letters() {
             dirty: false,
             code: false,
             form: String::new(),
+            code_xml: String::new(),
         },
         &font,
     )
