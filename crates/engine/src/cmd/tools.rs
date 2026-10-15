@@ -1066,6 +1066,9 @@ fn compare_with(s: &mut Session, revised: Document, v: &Value) -> CmdResult {
     let del = (s.doc.revisions.len() - 1) as u32;
     // Formatting changes are recorded here while the document is read for the comparison.
     let mut revisions = std::mem::take(&mut s.doc.revisions);
+    // Comments of the revised document matched to the original's by one of their marks: the copy's
+    // other marks are pointed at the original, so a comment whose range changed stays one.
+    let mut merged: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
     // Paragraphs match by their text and objects (by what they show, never by id); tables as a
     // whole, by their text and objects and, when formatting counts, their formatting.
     let doc = &s.doc;
@@ -1088,6 +1091,7 @@ fn compare_with(s: &mut Session, revised: Document, v: &Value) -> CmdResult {
                     // comments and text boxes stay themselves rather than copies.
                     let mut base = pb.clone();
                     if base.objects.len() == pa.objects.len() {
+                        pair_comments(&base.objects, &pa.objects, &mut merged);
                         base.objects = pa.objects.clone();
                     }
                     keep_sections(&mut base, Some(pa));
@@ -1121,7 +1125,7 @@ fn compare_with(s: &mut Session, revised: Document, v: &Value) -> CmdResult {
                     let (a, b) = (if x < dels { old.get(i + x) } else { None }, if x < inss { new.get(j + x) } else { None });
                     match (a.map(|x| &**x), b.map(|x| &**x)) {
                         (Some(Block::Para(pa)), Some(Block::Para(pb))) => {
-                            let mut p = word_diff(doc, pa, pb, (ins, del), &opts, (&mut revisions, &author, &date));
+                            let mut p = word_diff(doc, pa, pb, (ins, del), &opts, (&mut revisions, &author, &date, &mut merged));
                             keep_sections(&mut p, Some(pa));
                             out.push((para_block(p), Fate::Kept));
                         }
@@ -1148,7 +1152,25 @@ fn compare_with(s: &mut Session, revised: Document, v: &Value) -> CmdResult {
         }
     }
     s.doc.revisions = revisions;
-    s.doc.body = mark_paragraph_marks(out, ins, del);
+    let mut body = mark_paragraph_marks(out, ins, del);
+    if !merged.is_empty() {
+        for b in &mut body {
+            let untouched = matches!(&**b, Block::Para(p) if !p.objects.iter().any(|o| comment_mark(o).is_some_and(|id| merged.contains_key(&id))));
+            if untouched {
+                continue;
+            }
+            super::paste::each_para(Arc::make_mut(b), 0, &mut |p| {
+                for o in &mut p.objects {
+                    if let InlineObject::CommentStart { id } | InlineObject::CommentEnd { id } = o
+                        && let Some(to) = merged.get(id)
+                    {
+                        *id = *to;
+                    }
+                }
+            });
+        }
+    }
+    s.doc.body = body;
     s.doc.ensure_nonempty();
     drop_unused_copies(&mut s.doc, &parts_before, &comments_before);
     let lost = drop_foreign_embedded(&mut s.doc, &originals, &revised_parts);
@@ -1162,6 +1184,25 @@ fn compare_with(s: &mut Session, revised: Document, v: &Value) -> CmdResult {
     }
     s.sel = Selection::caret(s.doc.start_of(StoryRef::Body));
     Ok(json!({"changes": changes, "author": author, "notHonoured": not_honoured, "dropped": dropped}))
+}
+
+/// The comment a comment mark belongs to.
+fn comment_mark(o: &InlineObject) -> Option<u32> {
+    match o {
+        InlineObject::CommentStart { id } | InlineObject::CommentEnd { id } => Some(*id),
+        _ => None,
+    }
+}
+
+/// Note which revised comments (copies) the original's comment marks matched, one for one.
+fn pair_comments(revised: &[InlineObject], original: &[InlineObject], merged: &mut std::collections::BTreeMap<u32, u32>) {
+    for (r, o) in revised.iter().zip(original) {
+        if let (Some(r), Some(o)) = (comment_mark(r), comment_mark(o))
+            && r != o
+        {
+            merged.insert(r, o);
+        }
+    }
 }
 
 /// What became of a block of the compared document: kept (perhaps changed inside), or inserted
@@ -1741,17 +1782,18 @@ fn slice(p: &Paragraph, r: std::ops::Range<usize>) -> Paragraph {
 /// A changed paragraph: the revised paragraph's content where it matches the original (its
 /// formatting changes tracked), the original's where it was deleted, the revised one's where
 /// inserted, each piece keeping its runs, objects (pictures, fields…) and links. `revs` are the
-/// insertion and deletion revisions; `log` where formatting changes are recorded.
+/// insertion and deletion revisions; `log` where formatting changes are recorded, and the revised
+/// comments whose marks matched the original's.
 fn word_diff(
     doc: &Document,
     a: &Paragraph,
     b: &Paragraph,
     revs: (u32, u32),
     opts: &CompareOptions,
-    log: (&mut Vec<wordcraft_doc::Revision>, &str, &str),
+    log: (&mut Vec<wordcraft_doc::Revision>, &str, &str, &mut std::collections::BTreeMap<u32, u32>),
 ) -> Paragraph {
     let (ins, del) = revs;
-    let (revisions, author, date) = log;
+    let (revisions, author, date, merged) = log;
     let chars = opts.characters && a.text.chars().count().max(b.text.chars().count()) <= MAX_CHAR_DIFF;
     let (ta, tb) = (tokens(a, chars), tokens(b, chars));
     let key = |p: &Paragraph, t: &[std::ops::Range<usize>]| t.iter().map(|r| token_key(doc, p, r, opts)).collect::<Vec<_>>();
@@ -1777,6 +1819,7 @@ fn word_diff(
                 let old = slice(a, token_span(&ta, i, n));
                 // The same objects: the original's (its notes and comments stay themselves).
                 if piece.objects.len() == old.objects.len() {
+                    pair_comments(&piece.objects, &old.objects, merged);
                     piece.objects.clone_from(&old.objects);
                 }
                 if opts.formatting && old.text == piece.text {
@@ -2705,6 +2748,82 @@ mod tests {
         let mut s = Session::new(original);
         compare_with(&mut s, rich_doc("Intro"), &json!({})).unwrap();
         assert_eq!(s.doc.comments.get(&u32::MAX).map(|c| c.author.as_str()), Some("Me"));
+    }
+
+    /// #1317 (N1): a comment whose range grew stays one comment, its start and end both there,
+    /// after Accept All.
+    #[test]
+    fn compare_keeps_a_comment_whose_range_grew_one_comment() {
+        use wordcraft_doc::{Comment, PartKind};
+        let build = |grown: bool| {
+            let plain = CharProps::default();
+            let mut d = Document::from_text("Intro");
+            let part = d.try_add_part(PartKind::Comment, vec![para_block(Paragraph::with_text("Remark", plain.clone()))]).unwrap();
+            d.comments.insert(0, Comment { author: "Ann".into(), part, ..Default::default() });
+            let mut p = Paragraph::with_text("A ", plain.clone());
+            let items: Vec<(Option<InlineObject>, &str)> = if grown {
+                vec![(Some(InlineObject::CommentStart { id: 0 }), "B C"), (Some(InlineObject::CommentEnd { id: 0 }), "")]
+            } else {
+                vec![(Some(InlineObject::CommentStart { id: 0 }), "B "), (Some(InlineObject::CommentEnd { id: 0 }), "C")]
+            };
+            for (obj, text) in items {
+                if let Some(o) = obj {
+                    let n = p.len();
+                    p.insert_object(n, o, &plain).unwrap();
+                }
+                let n = p.len();
+                p.insert_text(n, text, &plain).unwrap();
+            }
+            d.body.push(para_block(p));
+            d
+        };
+        let mut s = Session::new(build(false));
+        compare_with(&mut s, build(true), &json!({})).unwrap();
+        s.run("review.acceptAll", &json!({})).unwrap();
+        assert_eq!(s.doc.comments.len(), 1, "one comment");
+        let id = *s.doc.comments.keys().next().unwrap();
+        let p = s.doc.body[1].as_para().unwrap();
+        let anchors: Vec<&InlineObject> =
+            p.objects.iter().filter(|o| matches!(o, InlineObject::CommentStart { .. } | InlineObject::CommentEnd { .. })).collect();
+        assert_eq!(anchors, [&InlineObject::CommentStart { id }, &InlineObject::CommentEnd { id }]);
+        assert_eq!(p.plain_text(), "A B C");
+    }
+
+    /// #1317 (N2): rejecting the insertion of a row that holds a nested table resolves that row
+    /// once: the next row and its text stay.
+    #[test]
+    fn rejecting_a_row_with_a_nested_table_keeps_the_next_row() {
+        let mut outer = wordcraft_doc::Table::new(2, 2, 200.0);
+        for (i, c) in outer.rows.iter_mut().flat_map(|r| r.cells.iter_mut()).enumerate() {
+            *c = wordcraft_doc::table::Cell::with_text(&format!("cell {i}"));
+        }
+        let mut inner = wordcraft_doc::Table::new(1, 1, 50.0);
+        inner.rows[0].cells[0] = wordcraft_doc::table::Cell::with_text("nested");
+        outer.rows[0].cells[1].blocks.insert(0, Arc::new(Block::Table(inner)));
+        let mut revised = Document::from_text("Intro\nOutro");
+        revised.body.insert(1, Arc::new(Block::Table(outer)));
+        let mut s = Session::new(Document::from_text("Intro\nOutro"));
+        compare_with(&mut s, revised, &json!({})).unwrap();
+        let end = s.doc.para(StoryRef::Body, &wordcraft_doc::Path(vec![1, 0, 1, 1])).map(|p| p.len()).unwrap();
+        s.sel = Selection {
+            anchor: Pos { story: StoryRef::Body, path: wordcraft_doc::Path(vec![1, 0, 0, 0]), off: 0 },
+            focus: Pos { story: StoryRef::Body, path: wordcraft_doc::Path(vec![1, 0, 1, 1]), off: end },
+        };
+        s.run("review.reject", &json!({})).unwrap();
+        let t = s.doc.body.get(1).and_then(|b| b.as_table()).expect("the table stays");
+        assert_eq!(t.rows.len(), 1);
+        assert_eq!(block_text(&s.doc.body[1], 0), "cell 2\tcell 3");
+    }
+
+    /// #1317 (N4): a row inserted or deleted whole is listed as a change, even with empty cells.
+    #[test]
+    fn row_insertions_are_listed_as_changes() {
+        let mut revised = Document::from_text("Intro\nOutro");
+        revised.body.insert(1, Arc::new(Block::Table(wordcraft_doc::Table::new(1, 2, 200.0))));
+        let mut s = Session::new(Document::from_text("Intro\nOutro"));
+        compare_with(&mut s, revised, &json!({})).unwrap();
+        let list = s.run("review.changes", &json!({})).unwrap();
+        assert!(list.as_array().unwrap().iter().any(|c| c["kind"] == "insert"), "{list}");
     }
 
     #[test]
