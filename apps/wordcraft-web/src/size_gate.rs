@@ -50,6 +50,9 @@ mod tests {
         assert_eq!(budget_for("face.ttf", &images), wordcraft_fonts::MAX_FONT_FILE_BYTES as u64);
         assert_eq!(budget_for("letter.docx", &images), wordcraft_engine::io::MAX_OPEN_BYTES);
         assert_eq!(budget_for("noextension", &images), wordcraft_engine::io::MAX_OPEN_BYTES);
+        // Only the last extension counts, and a dotfile has none.
+        assert_eq!(budget_for("scan.png.docx", &images), wordcraft_engine::io::MAX_OPEN_BYTES);
+        assert_eq!(budget_for(".png", &images), wordcraft_engine::io::MAX_OPEN_BYTES);
     }
 
     #[test]

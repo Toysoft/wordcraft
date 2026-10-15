@@ -453,7 +453,6 @@ fn read_regular_file(path: &std::path::Path, limit: u64) -> Option<Vec<u8>> {
 /// The most bytes of a document (or any file opened by path) that is read into memory.
 pub const MAX_OPEN_BYTES: u64 = 2 << 30;
 
-#[cfg(not(target_arch = "wasm32"))]
 /// `max` for an error message: whole gigabytes (when exact), else megabytes, else bytes.
 pub fn limit_text(max: u64) -> String {
     if max >= 1 << 30 && max.is_multiple_of(1 << 30) {
