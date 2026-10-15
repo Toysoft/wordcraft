@@ -1,10 +1,11 @@
 //! Layout, Review and Mailings dialogs (#407): Line Numbers (Layout › Line Numbers › Line
 //! Numbering Options…), Hyphenation (Hyphenation Options… and Manual…), Language (Review ›
-//! Language), Envelopes and Labels (Mailings › Create), and Formula (Table Layout › Data,
-//! #1201). Each ends by running a command (`layout.lineNumbers`, `layout.hyphenation`,
-//! `layout.manualHyphenation` with `caret.set` and `text.optionalHyphen`, `review.language`,
-//! `mailings.envelopes`, `mailings.labels`, `table.formula`), so scripts and agents get the
-//! same result without the dialog. Shown through [`crate::dialogs::Dialog::Layout`].
+//! Language), Envelopes and Labels (Mailings › Create), Formula (Table Layout › Data, #1201)
+//! and Sort (Table Layout › Data, #1200). Each ends by running a command (`layout.lineNumbers`,
+//! `layout.hyphenation`, `layout.manualHyphenation` with `caret.set` and `text.optionalHyphen`,
+//! `review.language`, `mailings.envelopes`, `mailings.labels`, `table.formula`, `table.sort`), so
+//! scripts and agents get the same result without the dialog. Shown through
+//! [`crate::dialogs::Dialog::Layout`].
 
 use egui::{Ui, vec2};
 use serde::Serialize;
@@ -27,6 +28,7 @@ pub enum LayoutDialog {
     Envelopes(EnvelopeForm),
     Labels(LabelsForm),
     Formula(FormulaForm),
+    Sort(SortForm),
 }
 
 impl LayoutDialog {
@@ -39,6 +41,7 @@ impl LayoutDialog {
             LayoutDialog::Envelopes(_) => "envelopes",
             LayoutDialog::Labels(_) => "labels",
             LayoutDialog::Formula(_) => "tableFormula",
+            LayoutDialog::Sort(_) => "tableSort",
         }
     }
 
@@ -52,6 +55,7 @@ impl LayoutDialog {
             LayoutDialog::Envelopes(_) => "Envelopes",
             LayoutDialog::Labels(_) => "Labels",
             LayoutDialog::Formula(_) => "Formula",
+            LayoutDialog::Sort(_) => "Sort",
         }
     }
 }
@@ -66,6 +70,7 @@ pub fn open(name: &str, app: &mut WordApp) -> Option<LayoutDialog> {
         "envelopes" => LayoutDialog::Envelopes(EnvelopeForm::read(app)),
         "labels" => LayoutDialog::Labels(LabelsForm::read(app)),
         "tableFormula" => LayoutDialog::Formula(FormulaForm::read(app)?),
+        "tableSort" => LayoutDialog::Sort(SortForm::read(app)?),
         _ => return None,
     })
 }
@@ -80,6 +85,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut LayoutDialog) -> bool {
         LayoutDialog::Envelopes(f) => envelopes_ui(app, ui, f),
         LayoutDialog::Labels(f) => labels_ui(app, ui, f),
         LayoutDialog::Formula(f) => formula_ui(app, ui, f),
+        LayoutDialog::Sort(f) => sort_ui(app, ui, f),
     }
 }
 
@@ -531,16 +537,25 @@ fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm) -> bool {
     cancel
 }
 
-/// `DL  110 × 220 mm` / `#10  4.13 × 9.5 in`: metric sizes in millimetres, the others in inches.
+/// `DL   110 × 220 mm` / `#10   4.13 × 9.5 in`: metric sizes in millimetres, the others in
+/// inches. The pattern is translated (the unit's name, the order) and the numbers use the
+/// region's decimal separator.
 pub(crate) fn envelope_label(name: &str, w: f32, h: f32) -> String {
     let short = name.strip_prefix("Envelope ").unwrap_or(name);
-    if short.starts_with('#') || short == "Monarch" {
+    let (template, w, h) = if short.starts_with('#') || short == "Monarch" {
         let i = |pt: f32| ((pt / 72.0) * 100.0).round() / 100.0;
-        format!("{short}   {} × {} in", i(h), i(w))
+        (tl!("{name}   {height} × {width} in"), i(w), i(h))
     } else {
         let mm = |pt: f32| (pt * 25.4 / 72.0).round();
-        format!("{short}   {} × {} mm", mm(h), mm(w))
-    }
+        (tl!("{name}   {height} × {width} mm"), mm(w), mm(h))
+    };
+    crate::i18n::fmt(template, &[("name", short), ("height", &with_decimal(h.to_string())), ("width", &with_decimal(w.to_string()))])
+}
+
+/// A number written with `.` rewritten with the region's decimal separator (`2,625`).
+fn with_decimal(n: String) -> String {
+    let sep = crate::options::decimal();
+    if sep == '.' { n } else { n.replace('.', sep.encode_utf8(&mut [0; 4])) }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -591,8 +606,19 @@ fn product_label(i: usize) -> String {
         "return" => tl!("Return address labels"),
         _ => tl!("Address labels"),
     };
-    let paper = tl!(p.paper);
-    format!("{kind}, {} × {}, {} ({paper})", p.cols, p.rows, p.size_text())
+    // Inches on Letter, millimetres on A4, as the sheets are sold.
+    let size = if p.paper == "A4" {
+        let mm = |pt: f32| with_decimal(format!("{:.1}", pt * 25.4 / 72.0));
+        crate::i18n::fmt(tl!("{width} × {height} mm"), &[("width", &mm(p.width)), ("height", &mm(p.height))])
+    } else {
+        let i = |pt: f32| with_decimal((((pt / 72.0) * 1000.0).round() / 1000.0).to_string());
+        format!("{}\" × {}\"", i(p.width), i(p.height))
+    };
+    let (columns, rows) = (p.cols.to_string(), p.rows.to_string());
+    crate::i18n::fmt(
+        tl!("{kind}, {columns} × {rows}, {size} ({paper})"),
+        &[("kind", kind), ("columns", &columns), ("rows", &rows), ("size", &size), ("paper", tl!(p.paper))],
+    )
 }
 
 fn labels_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LabelsForm) -> bool {
@@ -704,6 +730,75 @@ fn formula_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FormulaForm) -> bool {
     let (ok, cancel) = buttons(ui, "OK", ready);
     if ok {
         return run(app, "table.formula", f.params());
+    }
+    cancel
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sort
+
+/// The table Sort dialog's fields: the column to sort by, the order and whether the first row is
+/// a header (kept in place). `headers` is the first row's text, which names the columns when it
+/// is a header.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SortForm {
+    pub column: usize,
+    pub descending: bool,
+    pub header: bool,
+    pub headers: Vec<String>,
+}
+
+impl SortForm {
+    /// The caret's table; none outside a table.
+    pub fn read(app: &WordApp) -> Option<SortForm> {
+        let s = &app.session;
+        let (tp, _, _) = s.sel.focus.path.cell()?;
+        let first = s.doc.table(s.sel.focus.story, &tp)?.rows.first()?;
+        let headers = first
+            .cells
+            .iter()
+            .map(|c| c.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect::<Vec<_>>().join(" ").trim().to_string())
+            .collect();
+        Some(SortForm { column: 0, descending: false, header: first.props.header, headers })
+    }
+
+    /// A column's name in Sort by: its header text, or `Column n`.
+    pub fn column_label(&self, i: usize) -> String {
+        match self.headers.get(i).filter(|h| self.header && !h.is_empty()) {
+            Some(h) => h.clone(),
+            None => crate::i18n::fmt(tl!("Column {n}"), &[("n", &(i + 1).to_string())]),
+        }
+    }
+
+    /// `table.sort` parameters for OK.
+    pub fn params(&self) -> Value {
+        json!({"column": self.column, "descending": self.descending, "header": self.header})
+    }
+}
+
+fn sort_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SortForm) -> bool {
+    heading(ui, "Sort by");
+    ui.horizontal(|ui| {
+        egui::ComboBox::from_id_salt("sort_column").selected_text(f.column_label(f.column)).width(180.0).show_ui(ui, |ui| {
+            for i in 0..f.headers.len() {
+                let label = f.column_label(i);
+                ui.selectable_value(&mut f.column, i, label);
+            }
+        });
+        ui.vertical(|ui| {
+            ui.radio_value(&mut f.descending, false, tl!("Ascending"));
+            ui.radio_value(&mut f.descending, true, tl!("Descending"));
+        });
+    });
+    heading(ui, "My list has");
+    ui.horizontal(|ui| {
+        ui.radio_value(&mut f.header, true, tl!("Header row"));
+        ui.radio_value(&mut f.header, false, tl!("No header row"));
+    });
+    let (ok, cancel) = buttons(ui, "OK", true);
+    if ok {
+        return run(app, "table.sort", f.params());
     }
     cancel
 }
@@ -872,6 +967,48 @@ mod tests {
         let mut a = app();
         a.run("ui.dialog", json!({"name": "tableFormula"})).unwrap();
         assert!(a.dialog.is_none(), "no dialog outside a table");
+    }
+
+    fn first_column(a: &WordApp) -> Vec<String> {
+        let t = a.session.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+        t.rows.iter().map(|r| r.cells[0].blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect()).collect()
+    }
+
+    /// #1200: Table Layout › Sort opens its dialog instead of sorting by the first column at once;
+    /// with a header row the columns are named by it, and OK sorts the rows under it by the
+    /// chosen column (as numbers here: 2, 7, 10).
+    #[test]
+    fn table_sort_opens_its_dialog() {
+        let mut a = table_app(2, &["Name", "Score", "Bea", "10", "Al", "2", "Cy", "7"]);
+        assert_eq!(a.run("table.sort", json!({})).unwrap(), json!({"pending": "tableSort"}));
+        assert_eq!(first_column(&a), ["Name", "Bea", "Al", "Cy"], "nothing sorted yet");
+        let LayoutDialog::Sort(mut f) = form(&mut a) else { panic!("sort") };
+        assert!(!f.header && f.column == 0 && !f.descending);
+        assert_eq!(f.column_label(1), "Column 2");
+        f.header = true;
+        assert_eq!(f.column_label(1), "Score");
+        f.column = 1;
+        a.run("table.sort", f.params()).unwrap();
+        assert_eq!(first_column(&a), ["Name", "Al", "Cy", "Bea"]);
+        assert!(a.dialog.is_none());
+    }
+
+    /// The envelope sizes are in the interface language with the region's decimal separator
+    /// (#1128; the untranslated-text audit found `#10   4.13 × 9.5 in` drawn in English).
+    #[test]
+    fn envelope_sizes_follow_the_interface_language_and_region() {
+        let size = |name: &str| ENVELOPE_SIZES.iter().find(|s| s.0 == name).map(|(n, w, h)| envelope_label(n, *w, *h)).unwrap();
+        assert_eq!(size("Envelope #10"), "#10   4.13 × 9.5 in");
+        assert_eq!(size("Envelope DL"), "DL   110 × 220 mm");
+        let mut a = app();
+        a.run("file.options", json!({"region": "it-IT"})).unwrap();
+        crate::options::sync(&a);
+        crate::i18n::set_current(crate::i18n::Lang::from_code("it").unwrap());
+        assert_eq!(size("Envelope #10"), "#10   4,13 × 9,5 pollici");
+        assert_eq!(size("Envelope DL"), "DL   110 × 220 mm");
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        a.run("file.options", json!({"region": "en-US"})).unwrap();
+        crate::options::sync(&a);
     }
 
     /// #407: Labels builds a new document of the chosen sheet, or a single label.
