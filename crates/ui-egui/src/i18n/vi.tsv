@@ -2672,3 +2672,10 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+	WordCraft {version} is available.	WordCraft {version} đã có.
+	Download	Tải xuống
+	Open the release page in your browser	Mở trang phát hành trong trình duyệt
+	Skip this version	Bỏ qua phiên bản này
+	Dismiss	Đóng
+	Check for updates	Kiểm tra cập nhật
+	Once a day, ask GitHub whether a newer WordCraft release is out and show a notice. Nothing else is sent.	Mỗi ngày một lần, hỏi GitHub xem đã có bản WordCraft mới hơn chưa và hiện thông báo. Không gửi gì khác.

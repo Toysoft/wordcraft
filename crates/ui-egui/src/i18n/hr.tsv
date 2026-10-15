@@ -2632,3 +2632,10 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+	WordCraft {version} is available.	WordCraft {version} je dostupan.
+	Download	Preuzmi
+	Open the release page in your browser	Otvori stranicu izdanja u pregledniku
+	Skip this version	Preskoči ovu verziju
+	Dismiss	Odbaci
+	Check for updates	Provjeri ažuriranja
+	Once a day, ask GitHub whether a newer WordCraft release is out and show a notice. Nothing else is sent.	Jednom dnevno pita GitHub postoji li novije izdanje programa WordCraft i prikazuje obavijest. Ništa drugo se ne šalje.

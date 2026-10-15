@@ -2647,3 +2647,10 @@ preview	Title	Titel
 	Bottom Right Cell	Nedre högra cellen
 	Inside Horizontal Border	Inre vågrät kantlinje
 	Inside Vertical Border	Inre lodrät kantlinje
+	WordCraft {version} is available.	WordCraft {version} är tillgänglig.
+	Download	Hämta
+	Open the release page in your browser	Öppna versionssidan i webbläsaren
+	Skip this version	Hoppa över den här versionen
+	Dismiss	Stäng
+	Check for updates	Sök efter uppdateringar
+	Once a day, ask GitHub whether a newer WordCraft release is out and show a notice. Nothing else is sent.	En gång om dagen frågar WordCraft GitHub om det finns en nyare version och visar ett meddelande. Inget annat skickas.
