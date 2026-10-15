@@ -993,8 +993,10 @@ enum Ev {
     Text(String),
 }
 
-/// Stream XML events (empty elements become start + end). Malformed XML ends the stream.
-fn events(xml: &[u8], mut f: impl FnMut(Ev)) {
+/// Stream XML events (empty elements become start + end). `false` when the reader stopped on
+/// malformed XML before the end of the stream: a truncated or corrupt file, whose partial
+/// content the caller must not mistake for a complete read (#1342).
+fn events(xml: &[u8], mut f: impl FnMut(Ev)) -> bool {
     let mut r = quick_xml::Reader::from_reader(xml);
     let cfg = r.config_mut();
     cfg.trim_text(false);
@@ -1025,7 +1027,8 @@ fn events(xml: &[u8], mut f: impl FnMut(Ev)) {
                 };
                 f(Ev::Text(s));
             }
-            Ok(Event::Eof) | Err(_) => break,
+            Ok(Event::Eof) => return true,
+            Err(_) => return false,
             Ok(_) => {}
         }
     }
@@ -1270,6 +1273,14 @@ struct TableB {
     row: Vec<Cell>,
     /// Covered cells still owed to the previous cell's column span.
     hcover: usize,
+    /// The open row's `table:number-rows-repeated` (bounded).
+    row_repeat: usize,
+}
+
+/// An ODF repeat count (`table:number-rows-repeated` / `table:number-columns-repeated`, ODF 1.3
+/// §19.678): 1 when absent or unreadable, never zero, at most `max`.
+fn repeat_count(a: &Attrs, key: &str, max: usize) -> usize {
+    get(a, key).and_then(|v| v.parse::<u64>().ok()).unwrap_or(1).max(1).min(max as u64) as usize
 }
 
 /// A `text:changed-region` read from `text:tracked-changes`.
@@ -1317,6 +1328,8 @@ struct Body<'a> {
     lists_saved: Vec<(Vec<(Option<String>, bool)>, Vec<bool>)>,
     tables: Vec<TableB>,
     cells: Vec<Cell>,
+    /// The open cells' `table:number-columns-repeated`, in step with `cells`.
+    cell_repeat: Vec<usize>,
     in_text: bool,
     skip: usize,
     depth: usize,
@@ -1715,32 +1728,39 @@ impl Body<'_> {
                     self.skip = 1;
                     return;
                 }
-                self.tables.push(TableB { rows: Vec::new(), row: Vec::new(), hcover: 0 });
+                self.tables.push(TableB { rows: Vec::new(), row: Vec::new(), hcover: 0, row_repeat: 1 });
             }
             "table-row" => {
                 if let Some(t) = self.tables.last_mut() {
                     t.row.clear();
                     t.hcover = 0;
+                    t.row_repeat = repeat_count(a, "table:number-rows-repeated", wordcraft_doc::table::MAX_ROWS);
                 }
             }
             "table-cell" => {
                 self.end_para();
                 let span = get(a, "table:number-columns-spanned").and_then(|v| v.parse::<u32>().ok()).unwrap_or(1).clamp(1, 63);
                 let rows = get(a, "table:number-rows-spanned").and_then(|v| v.parse::<u32>().ok()).unwrap_or(1).clamp(1, 1000);
+                let repeat = repeat_count(a, "table:number-columns-repeated", wordcraft_doc::table::MAX_COLS);
                 let shading = get(a, "table:style-name").and_then(|s| self.styles.cell_background(s));
                 if let Some(t) = self.tables.last_mut() {
-                    t.hcover = span as usize - 1;
+                    // Every copy of a spanning cell is owed its own covered columns.
+                    t.hcover = (span as usize - 1) * repeat;
                 }
                 self.cells.push(Cell { colspan: span, rowspan: rows, shading, ..Default::default() });
+                self.cell_repeat.push(repeat);
                 self.containers.push(Vec::new());
                 self.lists_saved.push((std::mem::take(&mut self.lists), std::mem::take(&mut self.item_used)));
             }
             "covered-table-cell" => {
                 if let Some(t) = self.tables.last_mut() {
-                    if t.hcover > 0 {
-                        t.hcover -= 1;
-                    } else if t.row.len() < 63 {
+                    let mut n = repeat_count(a, "table:number-columns-repeated", wordcraft_doc::table::MAX_COLS);
+                    let owed = t.hcover.min(n);
+                    t.hcover -= owed;
+                    n -= owed;
+                    while n > 0 && t.row.len() < wordcraft_doc::table::MAX_COLS {
                         t.row.push(Cell { covered: true, ..Default::default() });
+                        n -= 1;
                     }
                 }
             }
@@ -1826,6 +1846,7 @@ impl Body<'_> {
         }
         self.tables.truncate(d.tables);
         self.cells.truncate(d.cells);
+        self.cell_repeat.truncate(d.cells);
         self.lists_saved.truncate(d.lists_saved);
         self.fmt.truncate(d.fmt);
         self.lists = d.lists;
@@ -1976,19 +1997,27 @@ impl Body<'_> {
                 let blocks = if self.containers.len() > 1 { self.containers.pop().unwrap_or_default() } else { Vec::new() };
                 (self.lists, self.item_used) = self.lists_saved.pop().unwrap_or_default();
                 let mut cell = self.cells.pop().unwrap_or_default();
+                let repeat = self.cell_repeat.pop().unwrap_or(1);
                 cell.blocks = blocks;
-                if let Some(t) = self.tables.last_mut()
-                    && t.row.len() < 63
-                {
-                    t.row.push(cell);
+                if let Some(t) = self.tables.last_mut() {
+                    for _ in 0..repeat {
+                        if t.row.len() >= wordcraft_doc::table::MAX_COLS {
+                            break;
+                        }
+                        t.row.push(cell.clone());
+                    }
                 }
             }
             "table-row" => {
                 if let Some(t) = self.tables.last_mut() {
                     let r = std::mem::take(&mut t.row);
-                    if !r.is_empty() && t.rows.len() < wordcraft_doc::table::MAX_ROWS {
-                        t.rows.push(r);
+                    if !r.is_empty() {
+                        let room = wordcraft_doc::table::MAX_ROWS.saturating_sub(t.rows.len());
+                        for _ in 0..t.row_repeat.min(room) {
+                            t.rows.push(r.clone());
+                        }
                     }
+                    t.row_repeat = 1;
                 }
             }
             "table-header-rows" => {
@@ -2178,6 +2207,7 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
         item_used: Vec::new(),
         tables: Vec::new(),
         cells: Vec::new(),
+        cell_repeat: Vec::new(),
         in_text: false,
         skip: 0,
         depth: 0,
@@ -2199,7 +2229,7 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
         del: None,
         active_ins: Vec::new(),
     };
-    events(&content, |ev| match ev {
+    let complete = events(&content, |ev| match ev {
         Ev::Start(q, a) => {
             if body.depth < MAX_XML_DEPTH {
                 body.start(&q, &a);
@@ -2216,6 +2246,9 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
         }
         Ev::Text(t) => body.text(&t),
     });
+    if !complete {
+        return Err("ODT: content.xml is not well-formed (the document is truncated or corrupt)".into());
+    }
     body.end_para();
     while body.containers.len() > 1 {
         let c = body.containers.pop().unwrap_or_default();
@@ -2578,6 +2611,62 @@ mod tests {
         let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
         let row: Vec<_> = t.rows[0].iter().map(|c| (c.text(), c.shading)).collect();
         assert_eq!(row, vec![("Red".to_string(), Some(Rgb(255, 0, 0))), ("Plain".to_string(), None)]);
+    }
+
+    #[test]
+    fn table_repeats_expand_rows_and_cells() {
+        // #1342: `table:number-rows-repeated` and `table:number-columns-repeated` are counted, so
+        // repeated populated rows and cells survive and repeated blanks keep later cells in place.
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><table:table>
+            <table:table-column table:number-columns-repeated="4"/>
+            <table:table-row table:number-rows-repeated="2"><table:table-cell table:number-columns-repeated="2"><text:p>R</text:p></table:table-cell><table:table-cell><text:p>End</text:p></table:table-cell></table:table-row>
+            <table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:covered-table-cell table:number-columns-repeated="2"/><table:table-cell><text:p>B</text:p></table:table-cell></table:table-row>
+            <table:table-row><table:table-cell table:number-columns-spanned="2" table:number-columns-repeated="2"><text:p>S</text:p></table:table-cell><table:covered-table-cell/><table:covered-table-cell/></table:table-row>
+            </table:table></office:text></office:body></office:document-content>"#
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        let texts = |r: &[model::Cell]| r.iter().map(Cell::text).collect::<Vec<_>>();
+        // The row repeated twice, its first cell twice.
+        assert_eq!(t.rows.len(), 4);
+        assert_eq!(texts(&t.rows[0]), ["R", "R", "End"]);
+        assert_eq!(texts(&t.rows[1]), ["R", "R", "End"]);
+        // A covered cell repeated twice keeps B in the fourth column.
+        let cells: Vec<(String, bool)> = t.rows[2].iter().map(|c| (c.text(), c.covered)).collect();
+        assert_eq!(cells, [("A".to_string(), false), (String::new(), true), (String::new(), true), ("B".to_string(), false)]);
+        // A spanning cell repeated twice, its covered columns owed twice.
+        let cells: Vec<(String, u32)> = t.rows[3].iter().map(|c| (c.text(), c.colspan)).collect();
+        assert_eq!(cells, [("S".to_string(), 2), ("S".to_string(), 2)]);
+    }
+
+    #[test]
+    fn table_repeats_stop_at_the_caps() {
+        // Hostile repeat counts are clamped to the document table's own limits.
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><table:table>
+            <table:table-row><table:table-cell table:number-columns-repeated="4000000000"><text:p>x</text:p></table:table-cell></table:table-row>
+            <table:table-row table:number-rows-repeated="4000000000"><table:table-cell><text:p>y</text:p></table:table-cell></table:table-row>
+            </table:table></office:text></office:body></office:document-content>"#
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        assert_eq!(t.rows.first().map(Vec::len), Some(wordcraft_doc::table::MAX_COLS));
+        assert_eq!(t.rows.len(), wordcraft_doc::table::MAX_ROWS);
+    }
+
+    #[test]
+    fn malformed_content_is_an_error_not_a_partial_document() {
+        // #1342: a valid prefix followed by corruption fails the import, so a partial read
+        // cannot be mistaken for the file's content and saved or merged.
+        let prefix = format!(r#"<office:document-content {NS_T}><office:body><office:text><text:p>Good</text:p>"#);
+        let corrupt = format!("{prefix}<text:p><<bad");
+        let err = import(&package(&corrupt, None)).unwrap_err();
+        assert!(err.contains("not well-formed"), "{err}");
+        // The same prefix, well-formed, still imports.
+        let ok = format!("{prefix}</office:text></office:body></office:document-content>");
+        let doc = import(&package(&ok, None)).unwrap();
+        assert_eq!(doc.plain_text(wordcraft_doc::StoryRef::Body), "Good");
     }
 
     /// #1379: three master pages (A4 upright; A4 wide with page numbering restarting at 1; A4

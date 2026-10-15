@@ -235,14 +235,16 @@ impl<'a> Package<'a> {
 // XML
 
 /// A streamed XML event with namespace prefixes dropped; elements deeper than
-/// [`MAX_XML_DEPTH`] (and their text) are skipped.
+/// [`MAX_XML_DEPTH`] (and their text) are skipped. `false` when the reader stopped on malformed
+/// XML before the end of the stream: a truncated or corrupt part, whose partial content the
+/// caller must not mistake for a complete read (#1342).
 enum Ev<'e> {
     Start(&'e BytesStart<'e>),
     End(Vec<u8>),
     Text(String),
 }
 
-fn walk(xml: &[u8], mut f: impl FnMut(Ev<'_>)) {
+fn walk(xml: &[u8], mut f: impl FnMut(Ev<'_>)) -> bool {
     let mut r = quick_xml::Reader::from_reader(xml);
     let cfg = r.config_mut();
     cfg.trim_text(false);
@@ -284,7 +286,8 @@ fn walk(xml: &[u8], mut f: impl FnMut(Ev<'_>)) {
                 };
                 f(Ev::Text(s));
             }
-            Ok(Event::Eof) | Err(_) => break,
+            Ok(Event::Eof) => return true,
+            Err(_) => return false,
             Ok(_) => {}
         }
     }
@@ -409,7 +412,7 @@ fn workbook(pkg: &mut Package<'_>) -> Result<Workbook, String> {
     let rels = pkg.read(&rels_of(&path)).map(|r| relationships(&r, dir_of(&path))).unwrap_or_default();
     let mut listed: Vec<(String, String)> = Vec::new();
     let mut date1904 = false;
-    walk(&xml, |ev| {
+    let complete = walk(&xml, |ev| {
         if let Ev::Start(e) = ev {
             match e.local_name().as_ref() {
                 b"sheet" if listed.len() < MAX_SHEETS => listed.push((attr(e, b"name").unwrap_or_default(), attr(e, b"id").unwrap_or_default())),
@@ -418,6 +421,9 @@ fn workbook(pkg: &mut Package<'_>) -> Result<Workbook, String> {
             }
         }
     });
+    if !complete {
+        return Err("the workbook part's XML is not well-formed (the file is truncated or corrupt)".into());
+    }
     let sheets = listed
         .into_iter()
         .filter_map(|(name, id)| {
@@ -596,7 +602,7 @@ fn xlsx_rows(pkg: &mut Package<'_>, path: &str) -> Result<Vec<Vec<String>>, Stri
     let (mut in_data, mut row_no, mut next_col) = (false, 0u64, 0usize);
     let mut cell: Option<XCell> = None;
     let (mut in_v, mut in_is_t, mut phonetic) = (false, false, 0usize);
-    walk(&xml, |ev| match ev {
+    let complete = walk(&xml, |ev| match ev {
         Ev::Start(e) => match e.local_name().as_ref() {
             b"sheetData" => in_data = true,
             b"row" if in_data => {
@@ -657,6 +663,9 @@ fn xlsx_rows(pkg: &mut Package<'_>, path: &str) -> Result<Vec<Vec<String>>, Stri
             _ => {}
         },
     });
+    if !complete {
+        return Err("the sheet's XML is not well-formed (the file is truncated or corrupt)".into());
+    }
     let mut grid = Grid::default();
     for (_, r) in rows {
         grid.push(r, 1);
@@ -804,7 +813,7 @@ fn ods_read(xml: &[u8], want: Option<usize>) -> Result<(Vec<String>, Vec<Vec<Str
     let mut row: Option<(Vec<String>, u64, u64)> = None; // cells, pending blank cells, repeat
     let mut cell: Option<OCell> = None;
     let (mut in_p, mut skip) = (0usize, 0usize);
-    walk(xml, |ev| match ev {
+    let complete = walk(xml, |ev| match ev {
         Ev::Start(e) => {
             let n = e.local_name();
             let n = n.as_ref();
@@ -927,6 +936,9 @@ fn ods_read(xml: &[u8], want: Option<usize>) -> Result<(Vec<String>, Vec<Vec<Str
             }
         }
     });
+    if !complete {
+        return Err("the spreadsheet's XML is not well-formed (the file is truncated or corrupt)".into());
+    }
     if names.is_empty() {
         return Err("the spreadsheet has no sheets".into());
     }
@@ -1050,6 +1062,21 @@ mod tests {
             let _ = sheet_names(junk);
             let _ = read_rows(junk, Pick::Index(0));
         }
+    }
+
+    #[test]
+    fn malformed_xml_is_an_error_not_a_partial_list() {
+        // #1342: a valid prefix followed by corruption fails the import, so a partial sheet
+        // cannot be mistaken for the file's rows and merged or saved. (Truncation inside a tag:
+        // quick-xml tolerates some junk mid-stream, but not an unfinished tag.)
+        let ods = r#"<office:document-content xmlns:office="o" xmlns:table="t" xmlns:text="x"><office:body><office:spreadsheet><table:table table:name="Guests"><table:table-row><table:table-cell office:value-type="string"><text:p>Ada</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell office:value"#;
+        let book = zip(&[("mimetype", "application/vnd.oasis.opendocument.spreadsheet"), ("content.xml", ods)]);
+        let err = read_rows(&book, Pick::Index(0)).unwrap_err();
+        assert!(err.contains("not well-formed"), "{err}");
+        // The same corruption in an xlsx sheet part.
+        let sheet = r#"<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Ada</t></is></c></row><row r="2"><c r="A2" t="inline"#;
+        let err = read_rows(&xlsx(sheet), Pick::Index(0)).unwrap_err();
+        assert!(err.contains("not well-formed"), "{err}");
     }
 
     #[test]
