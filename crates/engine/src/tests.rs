@@ -5488,6 +5488,15 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
     assert_eq!(prefs["dictionariesFolder"], json!(dir.to_string_lossy()));
 }
 
+#[test]
+fn english_review_rejects_unlicensed_inflections() {
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "I buyed catest toys. She bought the nicest toys."}));
+    let issues = run(&mut s, "review.issues", json!({}));
+    let words: Vec<_> = issues.as_array().unwrap().iter().filter(|i| i["kind"] == "spelling").filter_map(|i| i["text"].as_str()).collect();
+    assert_eq!(words, ["buyed", "catest"]);
+}
+
 /// Review › Language and the proofing commands work in Portuguese end to end: the language makes
 /// the document's words Portuguese, F7 and the issue list use the Portuguese dictionary and
 /// grammar, suggestions come from it, and a suggestion fixes the text.

@@ -2,9 +2,9 @@
 //! [`ProofLang`]; the `*_in` functions take it, the older English-only ones remain.
 //!
 //! - **English** ([`ProofLang::En`]; also text with no language): spelling against the
-//!   public-domain Moby word list (~160k words, the same list that drives hyphenation) plus our
+//!   ESDB full-form lexicon (independent of hyphenation) plus our
 //!   supplement of modern words it lacks (`assets/spelling/en-extra.txt`: `desktop`, `email`,
-//!   `download`…), with inflections (`-s`, `-es`, `-ed`, `-ing`, `-ly`, `'s`…), a user dictionary and ignore lists;
+//!   `download`…), with explicitly listed inflections, a user dictionary and ignore lists;
 //!   suggestions by edit distance. Grammar checks that are cheap and reliable: repeated words,
 //!   `a`/`an`, capital letter after a sentence end, spaces before punctuation, doubled spaces.
 //! - **Polish** ([`ProofLang::Pl`], module [`pl`]): spelling against the Hunspell `pl_PL`
@@ -43,6 +43,7 @@ pub mod affix;
 pub mod bg;
 pub mod cs;
 pub mod dict;
+mod en;
 pub mod hr;
 pub mod hunspell;
 pub mod hyphen;
@@ -283,78 +284,8 @@ pub fn save_user_dictionary(path: &std::path::Path, removed: &[String]) -> std::
     written
 }
 
-/// Common words the source list lacks (modern vocabulary, contractions).
-const COMMON: &str = "a an the and or but if of to in on at by for with from as is am are was were be been being it its we us our you your he him his she her they them their i me my mine this that these those there here what which who whom whose when where why how all any both each few more most other some such no nor not only own same so than too very can will just should now do does did done has have had having may might must shall would could up down out over under again further then once off into onto upon about above below between through during before after until while because per via vs etc ok yes yeah oh ah hi hey bye one two three four five six seven eight nine ten first last next new old get got go goes went gone see saw seen say said make made take took come came give gave know knew think thought look want need use used find found tell told ask asked feel felt try left keep let put mean set run show turn move live play pay hear hold bring begin seem help talk start might";
-
-/// Our supplement of common words the Moby list lacks (`desktop`, `email`, `download`…): one
-/// lowercase base form per line, `#` comments. Inflections come from [`known_core`].
-const EXTRA_EN: &str = include_str!("../../../assets/spelling/en-extra.txt");
-
-fn extra_words() -> &'static HashSet<&'static str> {
-    static E: OnceLock<HashSet<&'static str>> = OnceLock::new();
-    E.get_or_init(|| EXTRA_EN.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect())
-}
-
-/// A base form in the dictionary or the supplement.
-fn base_known(d: &dict::Dictionary, w: &str) -> bool {
-    d.get(w).is_some() || extra_words().contains(w)
-}
-
 fn known_core(w: &str) -> bool {
-    let d = dict::Dictionary::en_us();
-    if base_known(d, w) || COMMON.split(' ').any(|c| c == w) {
-        return true;
-    }
-    if user_words().read().unwrap_or_else(|e| e.into_inner()).contains(w) || ignored_words().read().unwrap_or_else(|e| e.into_inner()).contains(w) {
-        return true;
-    }
-    // Inflections.
-    let stems: [(&str, &[&str]); 12] = [
-        ("'s", &[""]),
-        ("s", &[""]),
-        ("es", &["", "e"]),
-        ("ies", &["y"]),
-        ("ed", &["", "e"]),
-        ("ied", &["y"]),
-        ("ing", &["", "e"]),
-        ("ly", &["", "le"]),
-        ("ily", &["y"]),
-        ("er", &["", "e"]),
-        ("est", &["", "e"]),
-        ("ness", &[""]),
-    ];
-    for (suf, adds) in stems {
-        if let Some(stem) = w.strip_suffix(suf)
-            && stem.len() >= 2
-        {
-            for a in adds {
-                let s = format!("{stem}{a}");
-                if base_known(d, &s) {
-                    return true;
-                }
-            }
-            // Doubled consonant: running → run, stopped → stop.
-            let b = stem.as_bytes();
-            if (suf == "ing" || suf == "ed" || suf == "er" || suf == "est")
-                && b.len() >= 3
-                && b.last() == b.get(b.len() - 2)
-                && let Some(s) = stem.get(..stem.len() - 1)
-                && base_known(d, s)
-            {
-                return true;
-            }
-        }
-    }
-    // Prefixes.
-    for pre in ["un", "re", "non", "pre", "over", "under", "co", "mis"] {
-        if let Some(rest) = w.strip_prefix(pre)
-            && rest.len() >= 3
-            && base_known(d, rest)
-        {
-            return true;
-        }
-    }
-    false
+    en::contains(w) || in_user_dictionary(&w.to_lowercase())
 }
 
 /// Is there a proofing dictionary for this BCP 47 language tag? `None` (and empty tags) mean the
@@ -419,58 +350,58 @@ pub fn is_correct_with(word: &str, opts: &Options) -> bool {
     if !w.is_ascii() && !w.chars().any(|c| c.is_ascii_alphabetic()) {
         return true; // other scripts: no dictionary
     }
-    let lower = w.to_lowercase().replace('’', "'");
-    if known_core(&lower) {
+    let normalized = w.replace('’', "'");
+    if known_core(&normalized) {
         return true;
     }
     // Hyphenated compounds: each part.
-    if lower.contains('-') {
-        return lower.split('-').all(|p| p.is_empty() || known_core(p));
+    if normalized.contains('-') {
+        return normalized.split('-').all(|p| p.is_empty() || known_core(p));
     }
     false
 }
 
 /// Spelling suggestions for a misspelled word (best first, at most `max`).
 pub fn suggest(word: &str, max: usize) -> Vec<String> {
-    let lower = word.to_lowercase();
+    let lower = word.to_lowercase().replace('’', "'");
     let n = lower.chars().count();
-    if n == 0 || n > 40 {
+    if max == 0 || n == 0 || n > 40 {
         return Vec::new();
     }
-    let d = dict::Dictionary::en_us();
-    let mut scored: Vec<(usize, i64, String)> = Vec::new();
+    let mut scored: Vec<(usize, u8, u8, usize, &str)> = Vec::new();
     let target: Vec<char> = lower.chars().collect();
-    for w in d.iter().map(|(w, _)| w).chain(extra_words().iter().copied()) {
-        let wn = w.chars().count();
-        if wn + 2 < n || wn > n + 2 {
-            continue;
-        }
-        let dist = damerau(&target, w);
+    let mut distance = en::Distance::new();
+    for (w, lookup) in en::candidates(n) {
+        let dist = distance.score(&target, lookup);
         if dist <= 2 {
-            let same_first = w.chars().next() == target.first().copied();
-            scored.push((dist, if same_first { 0 } else { 1 }, w.to_string()));
+            let same_first = lookup.chars().next() == target.first().copied();
+            let proper = word.chars().next().is_some_and(char::is_lowercase) && w.chars().next().is_some_and(char::is_uppercase);
+            scored.push((dist, u8::from(proper), u8::from(!same_first), lookup.chars().count().abs_diff(n), w));
         }
     }
-    scored.sort_by(|a, b| (a.0, a.1, a.2.len().abs_diff(n)).cmp(&(b.0, b.1, b.2.len().abs_diff(n))).then(a.2.cmp(&b.2)));
+    scored.sort_unstable();
     let cap = word.chars().next().is_some_and(char::is_uppercase);
     let upper = word.chars().all(|c| !c.is_lowercase());
+    let mut seen = HashSet::new();
     scored
         .into_iter()
-        .take(max)
-        .map(|(_, _, w)| {
+        .map(|(_, _, _, _, w)| {
             if upper && n > 1 {
                 w.to_uppercase()
             } else if cap {
                 let mut c = w.chars();
-                c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or(w)
+                c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_else(|| w.to_string())
             } else {
-                w
+                w.to_string()
             }
         })
+        .filter(|w| seen.insert(w.clone()))
+        .take(max)
         .collect()
 }
 
-/// Optimal string alignment distance, early-exit at 3.
+/// Reference optimal string alignment distance for the reusable scorer tests.
+#[cfg(test)]
 fn damerau(a: &[char], b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let (n, m) = (a.len(), b.len());
@@ -987,7 +918,7 @@ mod tests {
 
     #[test]
     fn supplement_is_sorted_lowercase() {
-        let words: Vec<&str> = EXTRA_EN.lines().filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+        let words: Vec<&str> = en::EXTRA.lines().filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
         assert!(words.len() > 100);
         assert!(words.windows(2).all(|p| p[0] < p[1]), "not sorted / duplicate");
         assert!(words.iter().all(|w| w.chars().all(|c| c.is_lowercase() || c == '\'' || c == '-')), "not lowercase");
@@ -999,6 +930,16 @@ mod tests {
         let v = check_spelling(t);
         let bad: Vec<&str> = v.iter().map(|i| &t[i.start..i.end]).collect();
         assert_eq!(bad, vec!["sentense", "mispelled"]);
+    }
+
+    #[test]
+    fn english_full_forms_apply_through_the_public_checker() {
+        let t = "I buyed catest toys. She bought the nicest toys.";
+        assert_eq!(flagged(t, &check_spelling(t)), ["buyed", "catest"]);
+        assert!(check_spelling("She's downloaded files and uploaded screenshots.").is_empty());
+        assert!(check_spelling("The children were running and stopped suddenly.").is_empty());
+        assert!(suggest("wrold", 6).contains(&"world".to_string()));
+        assert!(suggest("anything", 0).is_empty());
     }
 
     #[test]
