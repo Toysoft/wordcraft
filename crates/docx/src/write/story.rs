@@ -251,7 +251,9 @@ impl Writer<'_> {
         let rtl_para = self.doc.styles.resolve_para(&p.props).bidi;
         let styles = &self.doc.styles;
         let para_style = p.props.style.as_deref();
-        let spans = super::bidi::direction_spans(&p.text, rtl_para, p.run_ranges(), |c| super::bidi::inherits_lang_bidi(styles, para_style, c));
+        let para_lang = super::bidi::para_inherits_lang_bidi(styles, para_style);
+        let spans =
+            super::bidi::direction_spans(&p.text, rtl_para, p.run_ranges(), |c| para_lang || super::bidi::char_style_has_lang_bidi(styles, c));
         for (range, props) in &spans {
             let props: &CharProps = props;
             let range = range.clone();

@@ -42,11 +42,25 @@ fn is_rtl_lang(tag: &str) -> bool {
     matches!(primary.as_str(), "he" | "iw" | "yi" | "ar" | "fa" | "ur" | "ps" | "sd" | "ug" | "ckb" | "syr" | "dv" | "ku")
 }
 
-/// Does `c`, in a paragraph of style `para_style`, inherit a bidi language from the document
-/// defaults or its paragraph or character style?
-pub(super) fn inherits_lang_bidi(styles: &StyleSheet, para_style: Option<&str>, c: &CharProps) -> bool {
-    let (_, cp) = styles.para_style_props(para_style.unwrap_or("Normal"));
-    cp.lang_bidi.is_some() || c.style.as_deref().is_some_and(|s| styles.chain(s).iter().any(|st| st.chr.lang_bidi.is_some()))
+/// Does a paragraph of style `para_style` inherit a bidi language from the document defaults or
+/// its style chain? (Resolved once per paragraph.)
+pub(super) fn para_inherits_lang_bidi(styles: &StyleSheet, para_style: Option<&str>) -> bool {
+    styles.para_style_props(para_style.unwrap_or("Normal")).1.lang_bidi.is_some()
+}
+
+/// Does `c`'s character style chain give it a bidi language?
+pub(super) fn char_style_has_lang_bidi(styles: &StyleSheet, c: &CharProps) -> bool {
+    c.style.as_deref().is_some_and(|s| styles.chain(s).iter().any(|st| st.chr.lang_bidi.is_some()))
+}
+
+/// Add `rtl` and, when given, the bidi language `lang` to `c` where it doesn't say them.
+fn direct(c: &mut CharProps, lang: Option<&String>) {
+    c.rtl.get_or_insert(true);
+    if let Some(l) = lang
+        && c.lang_bidi.is_none()
+    {
+        c.lang_bidi = Some(l.clone());
+    }
 }
 
 /// `runs` (byte ranges of `text` with their props), split where the bidi level of `text` in a
@@ -76,10 +90,18 @@ pub(super) fn direction_spans<'a>(
             if !rtl {
                 return (r, Cow::Borrowed(props));
             }
-            let mut p = CharProps { rtl: Some(true), ..props.clone() };
-            if !named {
+            let lang = if named {
+                None
+            } else {
                 let own = props.lang.clone().filter(|l| is_rtl_lang(l));
-                p.lang_bidi = own.or_else(|| text.get(r.clone()).and_then(text_lang).or(para_lang).map(str::to_string));
+                own.or_else(|| text.get(r.clone()).and_then(text_lang).or(para_lang).map(str::to_string))
+            };
+            let mut p = props.clone();
+            direct(&mut p, lang.as_ref());
+            // A tracked formatting change's "before" copy gets the same, so the change lists
+            // nothing the author didn't do.
+            if let Some(ch) = p.fmt_change.as_mut() {
+                direct(&mut ch.old, lang.as_ref());
             }
             (r, Cow::Owned(p))
         };
