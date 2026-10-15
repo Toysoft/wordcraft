@@ -1260,6 +1260,8 @@ impl Reader {
             self.styles.insert(self.style_cur, name);
             self.style_defs.insert(self.style_cur, def);
         }
+        // The next entry is style 0 (Normal) unless it names a number.
+        self.style_cur = 0;
     }
 
     /// The character formatting style `id` gives its runs in this file: its stylesheet entry's,
@@ -1283,19 +1285,18 @@ impl Reader {
         out
     }
 
-    /// The formatting a paragraph of kind `kind` in style `id` gives its runs: the file's style
-    /// where its stylesheet sets a property, else WordCraft's own (`style_fmt`).
+    /// The formatting a paragraph of kind `kind` in style `id` gives its runs. A style whose
+    /// entry and `\sbasedon` chain set no character formatting (a bare `{\s2 heading 2;}`) has
+    /// WordCraft's own (`style_fmt`); otherwise what the chain doesn't set is RTF's default (not
+    /// bold, not italic, 12 pt). The font alone falls back per property: WordCraft writes the code
+    /// font on each code paragraph, not in its Code entry.
     fn style_base(&self, kind: Kind, id: i32) -> Fmt {
         let mut f = style_fmt(kind);
         let d = self.file_style(id);
-        if let Some(b) = d.bold {
-            f.bold = b;
-        }
-        if let Some(i) = d.italic {
-            f.italic = i;
-        }
-        if d.size.is_some() {
-            f.size = d.size;
+        if d.bold.is_some() || d.italic.is_some() || d.size.is_some() || d.font.is_some() {
+            f.bold = d.bold.unwrap_or(false);
+            f.italic = d.italic.unwrap_or(false);
+            f.size = Some(d.size.unwrap_or(12.0));
         }
         // A font is matched the way `\f` sets a run's: a monospaced one is the code font.
         if let Some(name) = d.font.and_then(|i| self.fonts.get(&i)) {
@@ -3450,6 +3451,68 @@ mod tests {
         assert_eq!((run_fmt(&runs, "two").size, run_fmt(&runs, "two").bold), (None, false));
         assert!(!run_fmt(&runs, "five").bold);
         let _ = run_fmt(&runs, "title");
+    }
+
+    #[test]
+    fn a_word_365_heading_is_not_bold_so_a_bold_run_there_is_the_users() {
+        // Word 365's Heading 1 isn't bold: its entry sets the font and size but no `\b`, so a
+        // bold run, or a tracked change to or from bold, is the user's.
+        let rtf = br"{\rtf1\ansi{\fonttbl{\f1 Aptos;}{\f2 Aptos Display;}}{\colortbl;\red15\green71\blue97;}
+{\stylesheet{\ql \f1\fs24 Normal;}{\s1\ql \keepn\outlinelevel0 \f2\fs40\cf1 \sbasedon0 \snext0 heading 1;}}
+{\*\revtbl {Unknown;}{Alice;}}
+\pard\s1\f2\fs40 Plain\par
+\pard\s1\f2\b\fs40 Bold\par
+\pard\s1\f2\fs40 {\b{\*\oldcprops \b0\crauth1}Bolded}{\b0{\*\oldcprops \b\crauth1}Unbolded}\par}";
+        let runs = text_runs(rtf);
+        let plain = run_fmt(&runs, "Plain");
+        assert_eq!((plain.size, plain.bold), (None, false));
+        let bold = run_fmt(&runs, "Bold");
+        assert_eq!((bold.size, bold.bold), (None, true));
+        let bolded = run_fmt(&runs, "Bolded");
+        let old = &bolded.fmt_change.as_deref().expect("change kept").old;
+        assert_eq!((bolded.bold, old.bold, old.size), (true, false, None));
+        let unbolded = run_fmt(&runs, "Unbolded");
+        let old = &unbolded.fmt_change.as_deref().expect("change kept").old;
+        assert_eq!((unbolded.bold, old.bold), (false, true));
+    }
+
+    #[test]
+    fn a_style_chain_without_a_size_has_rtfs_default_size() {
+        // The entries carry formatting words but no `\fs`: the style's size is RTF's 12 pt.
+        let rtf = br"{\rtf1\ansi{\fonttbl{\f0 Times New Roman;}}{\stylesheet{\s0\f0 Normal;}{\s2\sbasedon0\b heading 2;}}
+\pard\s2\b\fs24 Twelve\par
+\pard\s2\b\fs40 Twenty\par}";
+        let runs = text_runs(rtf);
+        let twelve = run_fmt(&runs, "Twelve");
+        assert_eq!((twelve.size, twelve.bold), (None, false));
+        let twenty = run_fmt(&runs, "Twenty");
+        assert_eq!((twenty.size, twenty.bold), (Some(20.0), false));
+    }
+
+    #[test]
+    fn a_code_paragraph_round_trips_without_a_direct_code_font() {
+        // WordCraft's Code entry has no `\f` (the code font is on the paragraph): the code font
+        // stands in for the style's.
+        let mut code = Para { kind: Kind::Code, ..Default::default() };
+        code.push_text("let x", &Fmt::default());
+        let flow = Flow { blocks: vec![FBlock::Para(code)], meta: Meta::default() };
+        let rtf = export(&model::to_doc(&flow));
+        let runs = text_runs(rtf.as_bytes());
+        let f = run_fmt(&runs, "let x");
+        assert_eq!((f.size, f.bold, f.code, f.font.as_deref()), (None, false, false, None), "{rtf}");
+    }
+
+    #[test]
+    fn a_stylesheet_entry_without_a_number_is_normal() {
+        // An entry without `\sN` is style 0; it doesn't replace the entry before it.
+        let rtf = br"{\rtf1\ansi{\stylesheet{\s2\b\fs26 heading 2;}{\b0\fs30 Normal;}}
+\pard\s2\b\fs26 Head\par
+\pard\s2\b\fs30 Other\par}";
+        let runs = text_runs(rtf);
+        let head = run_fmt(&runs, "Head");
+        assert_eq!((head.size, head.bold), (None, false));
+        let other = run_fmt(&runs, "Other");
+        assert_eq!((other.size, other.bold), (Some(15.0), false));
     }
 
     #[test]
