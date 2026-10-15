@@ -33,6 +33,33 @@ fn painted_label(output: &egui::FullOutput, label: &str) -> egui::Rect {
         .expect("painted label")
 }
 
+#[test]
+fn mixed_choice_labels_remain_clickable_in_both_directions() {
+    let _language = LanguageGuard::new();
+    for language in ["en", "qaa-rtl-latin"] {
+        crate::i18n::set_current(crate::i18n::Lang::from_code(language).unwrap());
+        let mut h = egui_kittest::Harness::builder().build_ui_state(
+            |ui, checked: &mut bool| {
+                crate::rtl::root(ui, |ui| {
+                    crate::rtl::checkbox_indeterminate(ui, checked, "Mixed effect");
+                });
+            },
+            false,
+        );
+        h.run_steps(3);
+        if language == "en" {
+            h.get_by_label("Mixed effect").click();
+        } else {
+            h.get_all_by_role(egui::accesskit::Role::Label)
+                .find(|node| node.value().as_deref() == Some("Mixed effect"))
+                .expect("separate RTL choice caption")
+                .click();
+        }
+        h.run_steps(2);
+        assert!(*h.state(), "{language}: clicking the mixed choice turns it on");
+    }
+}
+
 /// All large menu captions retain their vertical geometry; only the marker's side changes.
 #[test]
 fn visual_audit_large_menu_arrows_stay_on_the_last_caption_line() {
@@ -549,7 +576,7 @@ fn interface_surfaces_render_in_both_directions() {
         );
         h.run_steps(3);
         let document = serde_json::to_value(&h.state().session.doc).unwrap();
-        for page in ["home", "new", "open", "info", "saveAs", "print", "export", "options"] {
+        for page in ["home", "new", "open", "info", "recover", "saveAs", "print", "export", "options"] {
             h.state_mut().ui.backstage = true;
             h.state_mut().ui.backstage_page = page.into();
             h.run_steps(3);
@@ -710,8 +737,13 @@ fn local_direction_screenshots() {
                 }
                 "save" => {
                     let document = h.state().session.document_id();
-                    h.state_mut().dialog =
-                        Some(Dialog::SaveChanges { name: "RTL sample 2026.docx".into(), then: "file.new".into(), params: json!({}), document });
+                    h.state_mut().dialog = Some(Dialog::SaveChanges {
+                        name: "RTL sample 2026.docx".into(),
+                        then: "file.new".into(),
+                        params: json!({}),
+                        document,
+                        message: String::new(),
+                    });
                 }
                 "start-screen" => {
                     h.state_mut().dialog = None;

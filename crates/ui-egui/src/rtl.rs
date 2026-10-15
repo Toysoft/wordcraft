@@ -86,11 +86,17 @@ pub(crate) fn grid<R>(ui: &mut Ui, grid: egui::Grid, add: impl FnOnce(&mut Ui) -
     let known = ui.data(|d| d.get_temp::<f32>(key));
     let width = known.unwrap_or_else(|| ui.available_width());
     let width = if width.is_finite() { width.max(0.0) } else { 0.0 };
-    let response = ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| grid.show(ui, add));
+    let mut sizing = ui.is_sizing_pass();
+    let response = ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| {
+        grid.show(ui, |ui| {
+            sizing |= ui.is_sizing_pass();
+            add(ui)
+        })
+    });
     let actual = response.inner.response.rect.width();
-    // Window sizing passes deliberately compress fields. Caching that provisional
+    // Window and first-grid sizing passes deliberately compress fields. Caching that provisional
     // width makes later fields overflow to the right and inflate the window.
-    if !ui.is_sizing_pass() && actual.is_finite() && known.is_none_or(|old| (old - actual).abs() > 0.5) {
+    if !sizing && actual.is_finite() && known.is_none_or(|old| (old - actual).abs() > 0.5) {
         ui.data_mut(|d| d.insert_temp(key, actual));
         ui.ctx().request_repaint();
     }
@@ -108,15 +114,22 @@ fn choice_size(ui: &Ui, text: &egui::WidgetText) -> egui::Vec2 {
 }
 
 pub(crate) fn checkbox(ui: &mut Ui, checked: &mut bool, text: impl Into<egui::WidgetText>) -> egui::Response {
+    checkbox_impl(ui, checked, text.into(), false)
+}
+
+pub(crate) fn checkbox_indeterminate(ui: &mut Ui, checked: &mut bool, text: impl Into<egui::WidgetText>) -> egui::Response {
+    checkbox_impl(ui, checked, text.into(), true)
+}
+
+fn checkbox_impl(ui: &mut Ui, checked: &mut bool, text: egui::WidgetText, indeterminate: bool) -> egui::Response {
     if !crate::i18n::current().is_rtl() {
-        return ui.checkbox(checked, text);
+        return ui.add(egui::Checkbox::new(checked, text).indeterminate(indeterminate));
     }
-    let text = text.into();
     let accessible = text.text().to_owned();
     let response = ui
         .allocate_ui_with_layout(choice_size(ui, &text), Layout::right_to_left(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = ui.spacing().icon_spacing;
-            let mut mark = ui.checkbox(checked, "");
+            let mut mark = ui.add(egui::Checkbox::new(checked, "").indeterminate(indeterminate));
             let label = ui.add(egui::Label::new(text).selectable(false).sense(egui::Sense::click()));
             if label.clicked() {
                 *checked = !*checked;
@@ -178,6 +191,10 @@ impl ComboBox {
     pub(crate) fn width(mut self, width: f32) -> Self {
         self.width = Some(width);
         self.inner = self.inner.width(width);
+        self
+    }
+    pub(crate) fn height(mut self, height: f32) -> Self {
+        self.inner = self.inner.height(height);
         self
     }
     pub(crate) fn show_ui<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<Option<R>> {

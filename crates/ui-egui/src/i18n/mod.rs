@@ -55,7 +55,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 19] = [
+pub static LANGUAGES: [LangInfo; 23] = [
     LangInfo { code: "en", name: "English", source: "", rtl: false, prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -84,6 +84,15 @@ pub static LANGUAGES: [LangInfo; 19] = [
         rtl: false,
         prefer_hans: false,
         editing_lang: None,
+        catalog: OnceLock::new(),
+    },
+    LangInfo {
+        code: "ko",
+        name: "한국어",
+        source: include_str!("ko.tsv"),
+        rtl: false,
+        prefer_hans: false, // 일본어처럼 CJK지만 한자 우선순위는 필요 없으므로 false
+        editing_lang: None, // 현재 한국어 맞춤법(proofing) 지원이 없으므로 None
         catalog: OnceLock::new(),
     },
     LangInfo {
@@ -155,7 +164,7 @@ pub static LANGUAGES: [LangInfo; 19] = [
         source: include_str!("cs.tsv"),
         rtl: false,
         prefer_hans: false,
-        editing_lang: None,
+        editing_lang: Some("cs-CZ"),
         catalog: OnceLock::new(),
     },
     LangInfo {
@@ -194,7 +203,7 @@ pub static LANGUAGES: [LangInfo; 19] = [
         source: include_str!("tr.tsv"),
         rtl: false,
         prefer_hans: false,
-        editing_lang: None,
+        editing_lang: Some("tr-TR"),
         catalog: OnceLock::new(),
     },
     // Italian; `it-IT`, `it-CH` and `it-*` resolve here. New documents are written in
@@ -233,6 +242,36 @@ pub static LANGUAGES: [LangInfo; 19] = [
         code: "bg",
         name: "Български",
         source: include_str!("bg.tsv"),
+        rtl: false,
+        prefer_hans: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
+    // Vietnamese; `vi`, `vi-VN` and `vi_VN.UTF-8` resolve here.
+    LangInfo {
+        code: "vi",
+        name: "Tiếng Việt",
+        source: include_str!("vi.tsv"),
+        rtl: false,
+        prefer_hans: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
+    // Swedish; sv, sv-SE, sv-FI and sv_SE.UTF-8 resolve here.
+    LangInfo {
+        code: "sv",
+        name: "Svenska",
+        source: include_str!("sv.tsv"),
+        rtl: false,
+        prefer_hans: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
+    // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
+    LangInfo {
+        code: "hr",
+        name: "Hrvatski",
+        source: include_str!("hr.tsv"),
         rtl: false,
         prefer_hans: false,
         editing_lang: None,
@@ -323,6 +362,9 @@ impl Lang {
     pub fn is_rtl(self) -> bool {
         self.0.rtl
     }
+    pub fn prefers_korean(self) -> bool {
+        self.0.code == "ko"
+    }
 
     /// The language new blank documents are written in with this interface ([`LangInfo::editing_lang`]).
     pub fn editing_lang(self) -> Option<&'static str> {
@@ -339,6 +381,12 @@ impl Lang {
     /// Options list). The interface fonts check the embedded faces against it (#486).
     pub fn cjk_font_text(hans: bool) -> (Vec<&'static str>, String) {
         let catalogs = Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans).map(|l| l.0.source).collect();
+        (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
+    }
+
+    /// The CJK interface catalogs using the Korean or Chinese writing-system preference.
+    pub fn cjk_font_text_for(hans: bool, korean: bool) -> (Vec<&'static str>, String) {
+        let catalogs = Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans && l.prefers_korean() == korean).map(|l| l.0.source).collect();
         (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
     }
 
@@ -441,23 +489,9 @@ pub fn system_region() -> wordcraft_engine::Region {
     if cfg!(test) {
         return wordcraft_engine::Region::default();
     }
-    let var = |name: &str| std::env::var(name).ok().filter(|v| usable_locale(v));
-    // One tag for everything: an explicit override, or `LC_ALL`.
-    if let Some(tag) = var("WORDCRAFT_REGION").or_else(|| var("LC_ALL")) {
-        return wordcraft_engine::Region::from_tag(&tag);
-    }
-    // Unix sets each convention on its own: numbers (`LC_NUMERIC`, else `LANG`), paper
-    // (`LC_PAPER`) and measurement (`LC_MEASUREMENT`). Elsewhere, and when none is set, the
-    // platform's first preferred locale (on macOS it carries the region, as in `en-PL`; on the web
-    // it is the browser's language).
-    let base = var("LC_NUMERIC").or_else(|| var("LANG")).unwrap_or_else(|| sys_locale::get_locale().unwrap_or_default());
-    wordcraft_engine::Region::from_tag(&base).with_paper_and_measurement(var("LC_PAPER").as_deref(), var("LC_MEASUREMENT").as_deref())
-}
-
-/// A locale variable that names a locale (not empty, `C` or `POSIX`).
-fn usable_locale(v: &str) -> bool {
-    let v = v.trim();
-    !v.is_empty() && !v.eq_ignore_ascii_case("c") && !v.eq_ignore_ascii_case("posix") && !v.starts_with("C.")
+    // The environment's locale variables (Unix), else the platform's first preferred locale (on
+    // macOS it carries the region, as in `en-PL`; on the web it is the browser's language).
+    wordcraft_engine::Region::from_locale_vars(|name| std::env::var(name).ok(), sys_locale::get_locale)
 }
 
 thread_local! {
@@ -493,6 +527,15 @@ pub fn t(s: &str) -> &str {
 /// back to the plain translation and then to English.
 pub fn tc<'a>(context: &str, s: &'a str) -> &'a str {
     trc(current(), context, s)
+}
+
+/// Contextual display labels; matching and document previews keep using logical `tc`/`trc`.
+pub(crate) fn tc_display<'a>(context: &str, s: &'a str) -> &'a str {
+    #[cfg(test)]
+    if pseudo::on() {
+        return pseudo::mark(s);
+    }
+    current().catalog().visual_in_context(context, s).unwrap_or(s)
 }
 
 /// [`tc`] in a given language.

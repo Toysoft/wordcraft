@@ -107,6 +107,7 @@ Local screenshots can be generated with `WORDCRAFT_RTL_AUDIT_DIR` and the
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Integrate main fd0bb2fb: preserve recovery, tab overflow, contextual template translations, Korean fonts, mixed Paragraph fields, new Tabs/Table Style forms and independently scrolling Print settings; RTL helpers cover the changed forms, with logical contextual-text and mixed-choice click regressions |
 | 2026-10-15 | minor | Visual RTL audit: large-menu arrows stay beside the final caption line; choice controls and template tiles retain intrinsic size; custom chrome and recent-file icons follow the reading edge. Geometry and interaction regressions cover identical English labels in both directions |
 | 2026-10-13 | minor | Shared RTL UI infrastructure and regression coverage: logical chart/preview text, reachable chart data, grid choice controls and preserved native LTR paths; catalogs, native frame and full bidi editing remain separate |
 | 2026-10-10 | minor | `proof`: proofing languages (English, Polish), affix engine, Polish patterns; layout and engine route each run by its language |

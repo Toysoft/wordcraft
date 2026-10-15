@@ -922,6 +922,8 @@ pub enum FieldKind {
     Sequence,
     Merge,
     Toc,
+    /// STYLEREF: a style and its search and number switches.
+    Style,
     Plain,
 }
 
@@ -943,8 +945,19 @@ pub const FIELDS: &[(&str, &str, &str)] = &[
     ("SEQ", "Numbering", "A numbered sequence (figures, tables…)"),
     ("PAGEREF", "Links and References", "Page on which a bookmarked passage falls"),
     ("REF", "Links and References", "Copy of the text a bookmark marks"),
+    ("STYLEREF", "Links and References", "Text of the nearest paragraph with a given style (running headers)"),
     ("TOC", "Index and Tables", "A table of contents"),
     ("MERGEFIELD", "Mail Merge", "A mail merge field"),
+];
+
+/// STYLEREF's options (ECMA-376 §17.16.5.59): switch letter and label.
+pub const STYLEREF_SWITCHES: &[(char, &str)] = &[
+    ('l', "Take the last match on the page"),
+    ('n', "Show its list number"),
+    ('r', "Show its number relative to this field"),
+    ('w', "Show its number with all higher levels"),
+    ('t', "Number only, without the label's words"),
+    ('p', "Add whether it is above or below"),
 ];
 
 /// The categories, in list order ("(All)" first).
@@ -992,6 +1005,7 @@ pub fn field_kind(name: &str) -> FieldKind {
         "SEQ" => FieldKind::Sequence,
         "MERGEFIELD" => FieldKind::Merge,
         "TOC" => FieldKind::Toc,
+        "STYLEREF" => FieldKind::Style,
         _ => FieldKind::Plain,
     }
 }
@@ -1007,8 +1021,13 @@ pub struct FieldForm {
     pub date_format: String,
     /// `\*` value for number fields (empty = none).
     pub number_format: String,
-    /// Bookmark (REF, PAGEREF), sequence name (SEQ) or merge field (MERGEFIELD).
+    /// Bookmark (REF, PAGEREF), sequence name (SEQ), merge field (MERGEFIELD) or style name
+    /// (STYLEREF).
     pub target: String,
+    /// STYLEREF switches, as their letters (`l` search from the bottom of the page, `n`
+    /// paragraph number, `r` relative context, `w` full context, `t` suppress non-numbers,
+    /// `p` above/below).
+    pub style_switches: String,
     /// Keep the formatting applied to the result when it updates (`\* MERGEFORMAT`).
     pub preserve: bool,
     /// Field Codes: type the code directly.
@@ -1018,6 +1037,9 @@ pub struct FieldForm {
     bookmarks: Vec<String>,
     #[serde(skip)]
     merge_fields: Vec<String>,
+    /// Paragraph and character style names, for STYLEREF.
+    #[serde(skip)]
+    styles: Vec<String>,
 }
 
 impl FieldForm {
@@ -1036,6 +1058,21 @@ impl FieldForm {
             code: String::new(),
             bookmarks,
             merge_fields: app.session.merge.headers.clone(),
+            style_switches: String::new(),
+            styles: {
+                let mut v: Vec<String> = app
+                    .session
+                    .doc
+                    .styles
+                    .styles
+                    .iter()
+                    .filter(|s| matches!(s.kind, wordcraft_doc::StyleKind::Paragraph | wordcraft_doc::StyleKind::Character) && !s.hidden)
+                    .map(|s| s.name.clone())
+                    .collect();
+                v.sort_by_key(|n| n.to_lowercase());
+                v.dedup();
+                v
+            },
         };
         f.select("DATE");
         f
@@ -1049,8 +1086,16 @@ impl FieldForm {
             FieldKind::Bookmark => self.bookmarks.first().cloned().unwrap_or_default(),
             FieldKind::Sequence => "Figure".into(),
             FieldKind::Merge => self.merge_fields.first().cloned().unwrap_or_default(),
+            FieldKind::Style => self
+                .styles
+                .iter()
+                .find(|n| n.eq_ignore_ascii_case("Heading 1"))
+                .or(self.styles.first())
+                .cloned()
+                .unwrap_or_else(|| "Heading 1".into()),
             _ => String::new(),
         };
+        self.style_switches.clear();
         if field_kind(name) == FieldKind::Date {
             self.date_format = if name == "TIME" { "h:mm am/pm" } else { "M/d/yyyy" }.into();
         }
@@ -1076,6 +1121,14 @@ impl FieldForm {
                 }
             }
             FieldKind::Toc => s.push_str(" \\o \"1-3\" \\h \\z \\u"),
+            FieldKind::Style if !target.is_empty() => {
+                s.push_str(&format!(" \"{}\"", target.replace(['"', '\\'], "")));
+                for (c, _) in STYLEREF_SWITCHES {
+                    if self.style_switches.contains(*c) {
+                        s.push_str(&format!(" \\{c}"));
+                    }
+                }
+            }
             _ => {}
         }
         if matches!(field_kind(&self.name), FieldKind::Number | FieldKind::Sequence) && !self.number_format.is_empty() {
@@ -1241,6 +1294,24 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
                 });
             }
         }
+        FieldKind::Style => {
+            ui.label(tl!("Style name:"));
+            crate::rtl::ComboBox::from_id_salt("field_style").selected_text(f.target.clone()).width(200.0).show_ui(ui, |ui| {
+                for n in &f.styles {
+                    ui.selectable_value(&mut f.target, n.clone(), n);
+                }
+            });
+            ui.add_space(4.0);
+            for (c, label) in STYLEREF_SWITCHES {
+                let mut on = f.style_switches.contains(*c);
+                if crate::rtl::checkbox(ui, &mut on, tl!(label)).changed() {
+                    f.style_switches.retain(|x| x != *c);
+                    if on {
+                        f.style_switches.push(*c);
+                    }
+                }
+            }
+        }
         FieldKind::Toc | FieldKind::Plain => {
             ui.label(egui::RichText::new(tl!("This field has no options.")).small().color(t.text_dim));
         }
@@ -1322,6 +1393,10 @@ mod tests {
         f.select("REF");
         f.target = "intro".into();
         assert_eq!(f.instruction(), r"REF intro \h");
+        f.select("STYLEREF");
+        assert_eq!(f.target, "Heading 1");
+        f.style_switches = "pl".into();
+        assert_eq!(f.instruction(), r#"STYLEREF "Heading 1" \l \p"#);
         f.select("MERGEFIELD");
         f.target = "First Name".into();
         assert_eq!(f.params().unwrap(), json!({"instr": r#"MERGEFIELD "First Name""#, "result": "«First Name»"}));

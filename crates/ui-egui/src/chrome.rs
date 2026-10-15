@@ -70,7 +70,7 @@ fn quick_access(ui: &mut Ui, app: &mut WordApp) {
     }
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(16.0, 16.0)), "more", t.icon, t.accent);
     let resp = resp.on_hover_text(tl!("Customize Quick Access Toolbar"));
-    crate::rtl::menu(&resp).show(|ui| {
+    egui::Popup::menu(&resp).show(|ui| {
         ui.set_min_width(220.0);
         qat_menu(ui, app);
     });
@@ -111,7 +111,7 @@ fn undo_list_button(ui: &mut Ui, app: &mut WordApp, enabled: bool) {
     let c = if enabled { t.icon } else { t.text_disabled };
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(9.0, 9.0)), "dropdown", c, c);
     let resp = resp.on_hover_text(tl!("Undo History"));
-    crate::rtl::menu(&resp).show(|ui| undo_list(ui, app));
+    egui::Popup::menu(&resp).show(|ui| undo_list(ui, app));
 }
 
 /// The Undo list (#701): recent steps, newest first. Hovering a row highlights it and every newer
@@ -197,37 +197,59 @@ const MAC_LIGHTS_LEFT: f32 = 10.0;
 /// from the top of the window.
 pub const MAC_CONTENT_LEFT: f32 = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT + (MAC_TITLE_BAR - MAC_LIGHT) / 2.0;
 
+/// The macOS title bar as laid out around the traffic lights: its height and where content starts
+/// after the lights. The app measures the real buttons (they grew in macOS 26); until then, or if it
+/// can't, the standard layout above.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MacTitleBar {
+    pub height: f32,
+    pub content_left: f32,
+}
+
+impl Default for MacTitleBar {
+    fn default() -> Self {
+        Self { height: MAC_TITLE_BAR, content_left: MAC_CONTENT_LEFT }
+    }
+}
+
+impl MacTitleBar {
+    /// The bar for traffic lights whose right edge is `lights_right` and whose centre is
+    /// `lights_centre_y` below the top of the window: the lights centred in it, and content the
+    /// same gap after them as they keep from the top. Never smaller than the standard layout.
+    pub fn around_lights(lights_right: f32, lights_centre_y: f32, light: f32) -> Self {
+        let height = (2.0 * lights_centre_y).max(MAC_TITLE_BAR);
+        let gap = (height - light) / 2.0;
+        Self { height, content_left: (lights_right + gap).clamp(MAC_CONTENT_LEFT, f32::from(i8::MAX)) }
+    }
+}
+
 pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
-    let t = Tokens::get(ui.ctx());
     let rtl = crate::i18n::current().is_rtl();
+    let t = Tokens::get(ui.ctx());
     // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
     // shrink to keep a margin above and below them.
     let mac = app.integrated_titlebar;
-    let left = if mac { MAC_CONTENT_LEFT as i8 } else { 8 };
+    let bar = app.mac_titlebar;
+    let left = if mac { bar.content_left as i8 } else { 8 };
     let control_h = if mac { 22.0 } else { 26.0 };
     egui::Panel::top("title_bar")
-        .exact_size(if mac { MAC_TITLE_BAR } else { 38.0 })
+        .exact_size(if mac { bar.height } else { 38.0 })
         .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
         .show(ui, |ui| {
-            let full = ui.max_rect();
-            // Drag the window by the title bar (integrated title bar on macOS).
-            let drag = ui.interact(full, ui.id().with("title_drag"), Sense::click_and_drag());
-            if drag.drag_started() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
-            if drag.double_clicked() {
-                let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-            }
-            let mut qat_end = full.min.x;
-            let mut right_start = full.max.x;
-            ui.with_layout(
-                if crate::i18n::current().is_rtl() {
-                    egui::Layout::right_to_left(egui::Align::Center)
-                } else {
-                    egui::Layout::left_to_right(egui::Align::Center)
-                },
-                |ui| {
+            crate::rtl::root(ui, |ui| {
+                let full = ui.max_rect();
+                // Drag the window by the title bar (integrated title bar on macOS).
+                let drag = ui.interact(full, ui.id().with("title_drag"), Sense::click_and_drag());
+                if drag.drag_started() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+                if drag.double_clicked() {
+                    let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+                }
+                let mut qat_end = full.min.x;
+                let mut right_start = full.max.x;
+                ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
                     // AutoSave switch: greyed out, with the reason as its tooltip, when AutoSave can't
                     // cover the document (#196, #176); clicking it then offers Save As where that helps.
@@ -263,18 +285,17 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     quick_access(ui, app);
                     qat_end = if rtl { ui.min_rect().min.x } else { ui.min_rect().max.x };
                     ui.with_layout(
-                        if crate::i18n::current().is_rtl() {
-                            egui::Layout::left_to_right(egui::Align::Center)
-                        } else {
-                            egui::Layout::right_to_left(egui::Align::Center)
-                        },
+                        if rtl { egui::Layout::left_to_right(egui::Align::Center) } else { egui::Layout::right_to_left(egui::Align::Center) },
                         |ui| {
                             // Account / community.
                             let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
                             ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
+                            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Account")));
                             let initials: String = app.session.user_initials().chars().take(2).collect();
                             ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
-                            resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author));
+                            if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
+                                let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
+                            }
                             ui.add_space(8.0);
                             if app.ui.show_discord {
                                 let (r, resp) = ui.allocate_exact_size(vec2(84.0, 22.0), Sense::click());
@@ -331,10 +352,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                             }
                             let tip = match crate::widgets::shortcut_text(app, "tools.search") {
                                 k if k.is_empty() => tl!("Search").to_string(),
-                                k => crate::i18n::fmt(
-                                    "{label} ({shortcut})",
-                                    &[("label", crate::i18n::tr(crate::i18n::current(), "Search")), ("shortcut", &k)],
-                                ),
+                                k => format!("{} ({k})", tl!("Search")),
                             };
                             if resp.on_hover_text(tip).clicked() {
                                 let _ = app.run("tools.search", json!({}));
@@ -342,46 +360,56 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                             right_start = if rtl { ui.min_rect().max.x } else { ui.min_rect().min.x };
                         },
                     );
-                },
-            );
-            // Centred title.
-            let title = if !app.has_document() {
-                // No document open (#1129): the app's name alone.
-                "WordCraft".to_string()
-            } else {
-                format!(
-                    "{} — {}",
-                    app.title_stem(),
-                    if app.session.dirty {
-                        crate::i18n::tr(crate::i18n::current(), "Edited")
-                    } else if app.session.path.is_some() {
-                        crate::i18n::tr(crate::i18n::current(), "Saved")
-                    } else {
-                        crate::i18n::tr(crate::i18n::current(), "Not saved")
+                });
+                // Centred title.
+                let title = if !app.has_document() {
+                    // No document open (#1129): the app's name alone.
+                    "WordCraft".to_string()
+                } else {
+                    format!(
+                        "{} — {}",
+                        app.title_stem(),
+                        if app.session.dirty {
+                            tl!("Edited")
+                        } else if app.session.path.is_some() {
+                            tl!("Saved")
+                        } else {
+                            tl!("Not saved")
+                        }
+                    )
+                };
+                let font = TypeRung::Chrome.semibold();
+                let track = TypeRung::Chrome.tracking();
+                let cx = full.center().x;
+                let (left_end, right_begin) = if rtl { (right_start, qat_end) } else { (qat_end, right_start) };
+                let available = 2.0 * (cx - left_end - 10.0).min(right_begin - 10.0 - cx);
+                let mut shown: String = title.chars().take(240).collect();
+                if text_width(ui.painter(), &shown, &font, track, t.text) > available {
+                    while !shown.is_empty() && text_width(ui.painter(), &format!("{shown}…"), &font, track, t.text) > available {
+                        shown.pop();
                     }
-                )
-            };
-            let title = crate::ui_bidi::display(&title, if rtl { Some(unicode_bidi::Level::rtl()) } else { None });
-            let font = TypeRung::Chrome.semibold();
-            let track = TypeRung::Chrome.tracking();
-            let w = text_width(ui.painter(), &title, &font, track, t.text);
-            let cx = full.center().x;
-            let room = if rtl {
-                cx - w / 2.0 > right_start + 10.0 && cx + w / 2.0 < qat_end - 10.0
-            } else {
-                cx - w / 2.0 > qat_end + 10.0 && cx + w / 2.0 < right_start - 10.0
-            };
-            if room {
-                paint_text(
-                    ui.painter(),
-                    pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
-                    Align2::LEFT_TOP,
-                    &title,
-                    &font,
-                    track,
-                    t.text,
-                );
-            }
+                    shown.push('…');
+                }
+                let w = text_width(ui.painter(), &shown, &font, track, t.text);
+                if available > 24.0 {
+                    let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));
+                    let response = ui.interact(rect, ui.id().with("document_name"), Sense::click()).on_hover_text(tl!("Rename Document"));
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
+                    if response.clicked() {
+                        let _ = app.run("file.rename", json!({}));
+                    }
+
+                    paint_text(
+                        ui.painter(),
+                        pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
+                        Align2::LEFT_TOP,
+                        &shown,
+                        &font,
+                        track,
+                        t.text,
+                    );
+                }
+            });
         });
 }
 
@@ -397,165 +425,160 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 .stroke(Stroke::new(1.0, t.border)),
         )
         .show(ui, |ui| {
+crate::rtl::root(ui, |ui| {
             // No document open (#1129): an empty status bar.
             if !app.has_document() {
                 return;
             }
-            ui.with_layout(
-                if crate::i18n::current().is_rtl() {
-                    egui::Layout::right_to_left(egui::Align::Center)
+            ui.horizontal_centered(|ui| {
+                ui.spacing_mut().item_spacing = vec2(14.0, 0.0);
+                let l = app.session.layout();
+                let page = if app.session.selects_whole_story() {
+                    app.session.page_hint.min(l.pages.len().saturating_sub(1)) + 1
                 } else {
-                    egui::Layout::left_to_right(egui::Align::Center)
-                },
-                |ui| {
-                    ui.spacing_mut().item_spacing = vec2(14.0, 0.0);
-                    let l = app.session.layout();
-                    let page = l.caret_on(&app.session.sel.focus, app.session.page_hint).map(|c| c.page + 1).unwrap_or(1);
-                    let st = |ui: &mut Ui, s: &str| {
-                        let font = TypeRung::Caption.regular();
-                        let track = TypeRung::Caption.tracking();
-                        let w = text_width(ui.painter(), s, &font, track, t.text_dim);
-                        let (r, resp) = ui.allocate_exact_size(vec2(w + 1.0, TypeRung::Caption.line_height()), Sense::click());
-                        paint_text(ui.painter(), pos2(r.min.x, r.min.y), Align2::LEFT_TOP, s, &font, track, t.text_dim);
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, s));
-                        resp
-                    };
-                    if st(ui, &crate::i18n::fmt(tl!("Page {page} of {pages}"), &[("page", &page.to_string()), ("pages", &l.pages.len().to_string())]))
-                        .on_hover_text(tl!("Go To (⌘⌥G)"))
-                        .clicked()
-                    {
-                        let _ = app.run("ui.dialog", json!({"name": "goto"}));
+                    l.caret_on(&app.session.sel.focus, app.session.page_hint).map(|c| c.page + 1).unwrap_or(1)
+                };
+                let st = |ui: &mut Ui, s: &str| {
+                    let font = TypeRung::Caption.regular();
+                    let track = TypeRung::Caption.tracking();
+                    let w = text_width(ui.painter(), s, &font, track, t.text_dim);
+                    let (r, resp) = ui.allocate_exact_size(vec2(w + 1.0, TypeRung::Caption.line_height()), Sense::click());
+                    paint_text(ui.painter(), pos2(r.min.x, r.min.y), Align2::LEFT_TOP, s, &font, track, t.text_dim);
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, s));
+                    resp
+                };
+                if st(ui, &crate::i18n::fmt(tl!("Page {page} of {pages}"), &[("page", &page.to_string()), ("pages", &l.pages.len().to_string())]))
+                    .on_hover_text(tl!("Go To (⌘⌥G)"))
+                    .clicked()
+                {
+                    let _ = app.run("ui.dialog", json!({"name": "goto"}));
+                }
+                let words = app.cached_word_count();
+                // A selected picture/shape/text box isn't a text selection: show the total.
+                let wtxt = if app.session.sel.is_collapsed() || crate::objects::selected(app).is_some() {
+                    crate::i18n::fmt(tl!("{words} words"), &[("words", &words.to_string())])
+                } else {
+                    let sw = wordcraft_doc::count_words(&app.session.selected_text());
+                    crate::i18n::fmt(tl!("{selected} of {words} words"), &[("selected", &sw.to_string()), ("words", &words.to_string())])
+                };
+                if st(ui, &wtxt).clicked() {
+                    let _ = app.run("ui.dialog", json!({"name": "wordCount"}));
+                }
+                if app.session.sel.focus.story != StoryRef::Body && !crate::canvas::in_text_box(app) {
+                    st(ui, tl!("Editing header/footer"));
+                }
+                // The language at the caret; a click sets the proofing language (Review › Language).
+                let lang = crate::ribbon::caret_language(app);
+                let missing = crate::ribbon::caret_missing_dictionary(app);
+                let shown = if missing.is_some() { crate::i18n::fmt(tl!("{language} (no dictionary)"), &[("language", &lang)]) } else { lang.clone() };
+                let tip = match missing {
+                    Some(name) => crate::i18n::fmt(
+                        tl!("No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations."),
+                        &[("language", &lang), ("name", name)],
+                    ),
+                    None => tl!("Language").to_string(),
+                };
+                let resp = st(ui, &shown).on_hover_text(tip);
+                egui::Popup::menu(&resp).show(|ui| {
+                    ui.set_min_width(200.0);
+                    crate::ribbon::language_menu(ui, app);
+                });
+                if app.session.doc.settings.track_changes {
+                    st(ui, tl!("Track Changes: On"));
+                }
+                if app.session.prefs.overtype && st(ui, tl!("Overtype")).on_hover_text(tl!("Click to switch back to inserting")).clicked() {
+                    let _ = app.run("text.overtype", json!({"value": false}));
+                }
+                if let Some((msg, at)) = &app.status_msg
+                    && crate::now_ms() - at < 6000.0
+                {
+                    let font = TypeRung::Caption.regular();
+                    let track = TypeRung::Caption.tracking();
+                    paint_text(ui.painter(), pos2(ui.cursor().min.x, ui.cursor().min.y), Align2::LEFT_TOP, msg, &font, track, t.accent_text);
+                    ui.allocate_space(vec2(text_width(ui.painter(), msg, &font, track, t.accent_text) + 1.0, TypeRung::Caption.line_height()));
+                }
+                ui.with_layout(if rtl { egui::Layout::left_to_right(egui::Align::Center) } else { egui::Layout::right_to_left(egui::Align::Center) }, |ui| {
+                    ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
+                    let reading = app.session.view.read_mode;
+                    let z = (if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT } * 100.0).round();
+                    let ztxt = format!("{z}%");
+                    let zfont = TypeRung::Caption.regular();
+                    let ztrack = TypeRung::Caption.tracking();
+                    let zw = text_width(ui.painter(), &ztxt, &zfont, ztrack, t.text_dim);
+                    let (zr, zresp) = ui.allocate_exact_size(vec2(zw + 1.0, TypeRung::Caption.line_height()), Sense::click());
+                    paint_text(ui.painter(), pos2(zr.min.x, zr.min.y), Align2::LEFT_TOP, &ztxt, &zfont, ztrack, t.text_dim);
+                    if zresp.clicked() && !reading {
+                        let _ = app.run("ui.dialog", json!({ "name": "zoom" }));
                     }
-                    let words = app.cached_word_count();
-                    // A selected picture/shape/text box isn't a text selection: show the total.
-                    let wtxt = if app.session.sel.is_collapsed() || crate::objects::selected(app).is_some() {
-                        crate::i18n::fmt(tl!("{words} words"), &[("words", &words.to_string())])
-                    } else {
-                        let sw = wordcraft_doc::count_words(&app.session.selected_text());
-                        crate::i18n::fmt(tl!("{selected} of {words} words"), &[("selected", &sw.to_string()), ("words", &words.to_string())])
-                    };
-                    if st(ui, &wtxt).clicked() {
-                        let _ = app.run("ui.dialog", json!({"name": "wordCount"}));
-                    }
-                    if app.session.sel.focus.story != StoryRef::Body && !crate::canvas::in_text_box(app) {
-                        st(ui, tl!("Editing header/footer"));
-                    }
-                    // The language at the caret; a click sets the proofing language (Review › Language).
-                    let lang = crate::ribbon::caret_language(app);
-                    let resp = st(ui, &lang).on_hover_text(tl!("Language"));
-                    crate::rtl::menu(&resp).show(|ui| {
-                        ui.set_min_width(200.0);
-                        crate::ribbon::language_menu(ui, app);
-                    });
-                    if app.session.doc.settings.track_changes {
-                        st(ui, tl!("Track Changes: On"));
-                    }
-                    if app.session.prefs.overtype && st(ui, tl!("Overtype")).on_hover_text(tl!("Click to switch back to inserting")).clicked() {
-                        let _ = app.run("text.overtype", json!({"value": false}));
-                    }
-                    if let Some((msg, at)) = &app.status_msg
-                        && crate::now_ms() - at < 6000.0
-                    {
-                        let font = TypeRung::Caption.regular();
-                        let track = TypeRung::Caption.tracking();
-                        paint_text(ui.painter(), pos2(ui.cursor().min.x, ui.cursor().min.y), Align2::LEFT_TOP, msg, &font, track, t.accent_text);
-                        ui.allocate_space(vec2(text_width(ui.painter(), msg, &font, track, t.accent_text) + 1.0, TypeRung::Caption.line_height()));
-                    }
-                    ui.with_layout(
-                        if crate::i18n::current().is_rtl() {
-                            egui::Layout::left_to_right(egui::Align::Center)
+                    if small_icon(ui, "plus", tl!("Zoom In")) {
+                        if reading {
+                            let _ = app.run("view.readTextSize", json!({"value": (z + 10.0).min(150.0)}));
                         } else {
-                            egui::Layout::right_to_left(egui::Align::Center)
-                        },
-                        |ui| {
-                            ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
-                            let reading = app.session.view.read_mode;
-                            let z = (if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT } * 100.0).round();
-                            let ztxt = format!("{z}%");
-                            let zfont = TypeRung::Caption.regular();
-                            let ztrack = TypeRung::Caption.tracking();
-                            let zw = text_width(ui.painter(), &ztxt, &zfont, ztrack, t.text_dim);
-                            let (zr, zresp) = ui.allocate_exact_size(vec2(zw + 1.0, TypeRung::Caption.line_height()), Sense::click());
-                            paint_text(ui.painter(), pos2(zr.min.x, zr.min.y), Align2::LEFT_TOP, &ztxt, &zfont, ztrack, t.text_dim);
-                            if zresp.clicked() && !reading {
-                                let _ = app.run("ui.dialog", json!({ "name": "zoom" }));
-                            }
-                            if small_icon(ui, "plus", tl!("Zoom In")) {
-                                if reading {
-                                    let _ = app.run("view.readTextSize", json!({"value": (z + 10.0).min(150.0)}));
-                                } else {
-                                    let _ = app.run("view.zoomIn", json!({}));
-                                }
-                            }
-                            // Reading zoom changes only reading presentation, never the normal view zoom.
-                            let mut v = if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT };
-                            let slider =
-                                egui::Slider::new(&mut v, if reading { 0.75..=1.5 } else { 0.1..=5.0 }).logarithmic(!reading).show_value(false);
-                            ui.spacing_mut().slider_width = 110.0;
-                            if ui.add(slider).changed() {
-                                let command = if reading { "view.readTextSize" } else { "view.zoom" };
-                                let _ = app.run(command, json!({"value": (v * 100.0).round()}));
-                            }
-                            if small_icon(ui, "minus", tl!("Zoom Out")) {
-                                if reading {
-                                    let _ = app.run("view.readTextSize", json!({"value": (z - 10.0).max(75.0)}));
-                                } else {
-                                    let _ = app.run("view.zoomOut", json!({}));
-                                }
-                            }
-                            ui.add_space(10.0);
-                            let mode = app.session.view.mode;
-                            let read = app.session.view.read_mode;
-                            for (icon, id, name, on) in [
-                                ("webLayout", "view.webLayout", tl!("Web Layout"), mode == wordcraft_layout::ViewMode::Web),
-                                ("printLayout", "view.printLayout", tl!("Print Layout"), mode == wordcraft_layout::ViewMode::Print && !read),
-                                ("readMode", "view.readMode", tl!("Read Mode"), read),
-                            ] {
-                                let (r, resp) = ui.allocate_exact_size(vec2(22.0, 20.0), Sense::click());
-                                if on {
-                                    ui.painter().rect_filled(r, 3.0, t.checked);
-                                } else if resp.hovered() {
-                                    ui.painter().rect_filled(r, 3.0, t.hover);
-                                }
-                                icons::paint(ui.painter(), r.shrink(3.0), icon, t.icon, t.accent);
-                                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name));
-                                if resp.on_hover_text(name).clicked() {
-                                    let _ = app.run(id, json!({}));
-                                }
-                            }
-                            ui.add_space(8.0);
-                            let focus = tl!("Focus");
-                            let focus_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(focus.to_string(), regular(11.5), t.text_dim).size().x);
-                            let (r, resp) = ui.allocate_exact_size(vec2((focus_w + 26.0).max(56.0), 20.0), Sense::click());
-                            if resp.hovered() {
-                                ui.painter().rect_filled(r, 3.0, t.hover);
-                            }
-                            icons::paint(
-                                ui.painter(),
-                                Rect::from_min_size(pos2(if rtl { r.max.x - 18.0 } else { r.min.x + 2.0 }, r.min.y + 2.0), vec2(16.0, 16.0)),
-                                "focus",
-                                t.icon,
-                                t.accent,
-                            );
-                            let ffont = TypeRung::Caption.regular();
-                            let ftrack = TypeRung::Caption.tracking();
-                            paint_text(
-                                ui.painter(),
-                                pos2(if rtl { r.max.x - 22.0 } else { r.min.x + 22.0 }, r.center().y - TypeRung::Caption.line_height() / 2.0),
-                                if rtl { Align2::RIGHT_TOP } else { Align2::LEFT_TOP },
-                                focus,
-                                &ffont,
-                                ftrack,
-                                t.text_dim,
-                            );
-                            if resp.clicked() {
-                                let _ = app.run("view.focus", json!({}));
-                            }
-                        },
+                            let _ = app.run("view.zoomIn", json!({}));
+                        }
+                    }
+                    // Reading zoom changes only reading presentation, never the normal view zoom.
+                    let mut v = if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT };
+                    let slider = egui::Slider::new(&mut v, if reading { 0.75..=1.5 } else { 0.1..=5.0 }).logarithmic(!reading).show_value(false);
+                    ui.spacing_mut().slider_width = 110.0;
+                    if ui.add(slider).changed() {
+                        let command = if reading { "view.readTextSize" } else { "view.zoom" };
+                        let _ = app.run(command, json!({"value": (v * 100.0).round()}));
+                    }
+                    if small_icon(ui, "minus", tl!("Zoom Out")) {
+                        if reading {
+                            let _ = app.run("view.readTextSize", json!({"value": (z - 10.0).max(75.0)}));
+                        } else {
+                            let _ = app.run("view.zoomOut", json!({}));
+                        }
+                    }
+                    ui.add_space(10.0);
+                    let mode = app.session.view.mode;
+                    let read = app.session.view.read_mode;
+                    for (icon, id, name, on) in [
+                        ("webLayout", "view.webLayout", tl!("Web Layout"), mode == wordcraft_layout::ViewMode::Web),
+                        ("printLayout", "view.printLayout", tl!("Print Layout"), mode == wordcraft_layout::ViewMode::Print && !read),
+                        ("readMode", "view.readMode", tl!("Read Mode"), read),
+                    ] {
+                        let (r, resp) = ui.allocate_exact_size(vec2(22.0, 20.0), Sense::click());
+                        if on {
+                            ui.painter().rect_filled(r, 3.0, t.checked);
+                        } else if resp.hovered() {
+                            ui.painter().rect_filled(r, 3.0, t.hover);
+                        }
+                        icons::paint(ui.painter(), r.shrink(3.0), icon, t.icon, t.accent);
+                        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name));
+                        if resp.on_hover_text(name).clicked() {
+                            let _ = app.run(id, json!({}));
+                        }
+                    }
+                    ui.add_space(8.0);
+                    let focus = tl!("Focus");
+                    let focus_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(focus.to_string(), regular(11.5), t.text_dim).size().x);
+                    let (r, resp) = ui.allocate_exact_size(vec2((focus_w + 26.0).max(56.0), 20.0), Sense::click());
+                    if resp.hovered() {
+                        ui.painter().rect_filled(r, 3.0, t.hover);
+                    }
+                    icons::paint(ui.painter(), Rect::from_min_size(pos2(if rtl { r.max.x - 18.0 } else { r.min.x + 2.0 }, r.min.y + 2.0), vec2(16.0, 16.0)), "focus", t.icon, t.accent);
+                    let ffont = TypeRung::Caption.regular();
+                    let ftrack = TypeRung::Caption.tracking();
+                    paint_text(
+                        ui.painter(),
+                        pos2(if rtl { r.max.x - 22.0 } else { r.min.x + 22.0 }, r.center().y - TypeRung::Caption.line_height() / 2.0),
+                        if rtl { Align2::RIGHT_TOP } else { Align2::LEFT_TOP },
+                        focus,
+                        &ffont,
+                        ftrack,
+                        t.text_dim,
                     );
-                },
-            );
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, focus));
+                    if resp.clicked() {
+                        let _ = app.run("view.focus", json!({}));
+                    }
+                });
+            });
         });
+});
 }
 
 fn small_icon(ui: &mut Ui, icon: &str, tip: &str) -> bool {
@@ -649,5 +672,18 @@ mod tests {
         assert_eq!(MAC_CONTENT_LEFT - lights_end, margin);
         // `egui::Margin` is in `i8`.
         assert!(MAC_CONTENT_LEFT <= f32::from(i8::MAX));
+    }
+
+    #[test]
+    fn mac_title_bar_follows_the_measured_lights() {
+        // The standard lights give the standard bar.
+        let lights_end = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT;
+        assert_eq!(MacTitleBar::around_lights(lights_end, MAC_TITLE_BAR / 2.0, MAC_LIGHT), MacTitleBar::default());
+        // Larger, lower lights (macOS 26): a taller bar, and content clear of the green button.
+        let bar = MacTitleBar::around_lights(78.0, 18.0, 14.0);
+        assert_eq!(bar.height, 36.0);
+        assert_eq!(bar.content_left, 89.0);
+        // Never tighter than the standard layout.
+        assert_eq!(MacTitleBar::around_lights(40.0, 10.0, 12.0), MacTitleBar::default());
     }
 }
