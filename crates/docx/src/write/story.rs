@@ -249,7 +249,9 @@ impl Writer<'_> {
         let mut k = 0usize;
         // Runs of mixed direction are split so Word orders them as WordCraft does (#1543).
         let rtl_para = self.doc.styles.resolve_para(&p.props).bidi;
-        let spans = super::bidi::direction_spans(&p.text, rtl_para, p.run_ranges());
+        let styles = &self.doc.styles;
+        let para_style = p.props.style.as_deref();
+        let spans = super::bidi::direction_spans(&p.text, rtl_para, p.run_ranges(), |c| super::bidi::inherits_lang_bidi(styles, para_style, c));
         for (range, props) in &spans {
             let props: &CharProps = props;
             let range = range.clone();

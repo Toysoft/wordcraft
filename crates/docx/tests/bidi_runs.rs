@@ -133,3 +133,62 @@ fn mixed_paragraph_round_trips_text_and_direction() {
     // Saving again writes the same runs: the read-back direction is now explicit.
     assert_eq!(written_runs(&r), written_runs(&d));
 }
+
+// Word gives right-to-left text without a `w:lang w:bidi` its default complex-script language
+// (Arabic), so its status bar, proofing and hyphenation call Hebrew "Arabic". Right-to-left
+// pieces the writer marks say their language (§17.3.2.20), unless the run or a style already does.
+
+/// `w:bidi` attribute of each run's `w:lang` in the first paragraph: (has `w:rtl`, bidi language).
+fn run_langs(xml: &str) -> Vec<(bool, Option<String>)> {
+    let body = xml.split("<w:body>").nth(1).unwrap();
+    let para = body.split("</w:p>").next().unwrap();
+    para.split("<w:r>")
+        .skip(1)
+        .map(|r| {
+            let r = r.split("</w:r>").next().unwrap();
+            let lang = r.split("<w:lang ").nth(1).and_then(|l| l.split("w:bidi=\"").nth(1)).map(|v| v.split('"').next().unwrap().to_string());
+            (r.contains("<w:rtl/>"), lang)
+        })
+        .collect()
+}
+
+fn langs(d: &Document) -> Vec<(bool, Option<String>)> {
+    run_langs(&document_xml(&wordcraft_docx::write(d).unwrap()))
+}
+
+fn he(rtl: bool) -> (bool, Option<String>) {
+    (rtl, rtl.then(|| "he-IL".to_string()))
+}
+
+#[test]
+fn hebrew_pieces_say_they_are_hebrew() {
+    let d = doc_of("לפני (ABC 123) אחרי; דוא״ל test@example.com.", true, arial());
+    // The final stop has no letters of its own; it takes the paragraph's language.
+    assert_eq!(langs(&d), vec![he(true), he(false), he(true), he(false), he(true)]);
+    let d = doc_of("English with עברית מעורבת inside.", false, CharProps::default());
+    assert_eq!(langs(&d), vec![he(false), he(true), he(false)]);
+}
+
+#[test]
+fn arabic_pieces_say_they_are_arabic() {
+    let d = doc_of("مرحبا WordCraft بالعالم", true, arial());
+    let ar = Some("ar-SA".to_string());
+    assert_eq!(langs(&d), vec![(true, ar.clone()), (false, None), (true, ar)]);
+}
+
+#[test]
+fn a_language_the_run_already_has_is_kept() {
+    let d = doc_of("سلام WordCraft دنیا", true, CharProps { lang_bidi: Some("fa-IR".into()), ..arial() });
+    let fa = Some("fa-IR".to_string());
+    assert_eq!(langs(&d), vec![(true, fa.clone()), (false, fa.clone()), (true, fa)]);
+    // A right-to-left proofing language on the run (w:val) names the right-to-left text too.
+    let d = doc_of("שלום WordCraft", true, CharProps { lang: Some("yi".into()), ..arial() });
+    assert_eq!(langs(&d), vec![(true, Some("yi".into())), (false, None)]);
+}
+
+#[test]
+fn an_inherited_bidi_language_is_not_repeated() {
+    let mut d = doc_of("سلام WordCraft دنیا", true, arial());
+    d.styles.default_chr.lang_bidi = Some("fa-IR".into());
+    assert_eq!(langs(&d), vec![(true, None), (false, None), (true, None)]);
+}
