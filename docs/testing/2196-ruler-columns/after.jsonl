@@ -1,0 +1,22 @@
+{"empty": true}
+{"method": "engine.execute", "params": {"command": "text.insert", "params": {"text": "Line 1\rLine 2\rLine 3\rLine 4\rLine 5\rLine 6\rLine 7\rLine 8\rLine 9\rLine 10\rLine 11\rLine 12"}}}
+{"method": "engine.execute", "params": {"command": "select.all", "params": {}}}
+{"method": "engine.execute", "params": {"command": "para.align", "params": {"value": "left"}}}
+{"method": "engine.execute", "params": {"command": "layout.columns", "params": {"count": 2, "space": 36}}}
+{"method": "engine.execute", "params": {"command": "caret.docStart", "params": {}}}
+{"method": "engine.execute", "params": {"command": "caret.down", "params": {}}}
+{"method": "engine.execute", "params": {"command": "layout.break", "params": {"kind": "column"}}}
+{"shot": "docs/testing/2196-ruler-columns/after-column2.png"}
+{"method": "ui.drag", "params": {"x": 748, "y": 178, "toX": 772, "toY": 178, "steps": 8}}
+{"steps": 24}
+{"method": "document.inspect", "params": {"text": true}}
+{"shot": "docs/testing/2196-ruler-columns/after-drag.png"}
+{"method": "ui.click", "params": {"x": 414, "y": 307}}
+{"steps": 6}
+{"shot": "docs/testing/2196-ruler-columns/after-column1.png"}
+{"method": "ui.click", "params": {"x": 773, "y": 307}}
+{"steps": 6}
+{"shot": "docs/testing/2196-ruler-columns/after-return-column2.png"}
+{"method": "engine.execute", "params": {"command": "view.zoom", "params": {"value": 60}}}
+{"steps": 6}
+{"shot": "docs/testing/2196-ruler-columns/after-zoom60.png"}
