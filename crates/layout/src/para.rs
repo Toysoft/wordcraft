@@ -1505,8 +1505,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         c.break_after = opps.contains(&c.end) || matches!(c.kind, ClKind::Object(_) | ClKind::Tab);
     }
 
-    // List label.
-    let label = env.label.as_ref().map(|(text, lvl)| {
+    // Word hides a list label on a paragraph containing only a page break. The list counter
+    // has already advanced, so the following item keeps its number.
+    let break_only =
+        b.clusters.iter().any(|c| c.kind == ClKind::PageBreak) && b.clusters.iter().all(|c| matches!(c.kind, ClKind::PageBreak | ClKind::Marker));
+    let label = env.label.as_ref().filter(|_| !break_only).map(|(text, lvl)| {
         let lc = p.mark.clone().overlaid(&lvl.chr);
         let rc = resolve(&lc);
         // A Symbol/Wingdings bullet (U+F0B7…) is drawn as its Unicode equivalent when the font
@@ -2443,7 +2446,9 @@ fn hyphen_glyph(pl: &ParaLayout, style: u32, cache: &mut Vec<(u32, u32, f32)>) -
 /// paragraph's text.
 fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool, caps: bool, runs: &[ProofRun]) -> Vec<u32> {
     let mut bytes: Vec<usize> = text.char_indices().filter(|(_, c)| *c == SOFT_HYPHEN).map(|(i, c)| i + c.len_utf8()).collect();
-    if auto {
+    // Vietnamese words are single syllables and never take a hyphen: no automatic hyphenation in
+    // a Vietnamese paragraph, nor in a word written with a Vietnamese-only letter (`Nguyễn`).
+    if auto && !wordcraft_proof::vi::looks_vietnamese(text) {
         let lim = wordcraft_proof::hyphen::Limits::default();
         let mut start: Option<usize> = None;
         for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
@@ -2457,6 +2462,7 @@ fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: 
                     if let Some(w) = text.get(a..i)
                         && w.chars().count() >= lim.min_word
                         && !w.chars().any(wordcraft_fonts::is_rtl)
+                        && !wordcraft_proof::vi::is_vietnamese_word(w)
                         && (caps || !all_caps(w))
                     {
                         // The word's language: its first letter's run, found by its place in `p.text`.

@@ -115,14 +115,28 @@ fn single_entry_toc_keeps_formatted_result_and_nested_page_field() {
     assert_eq!(p[0].plain_text(), "Contents");
     assert_eq!(
         p[0].objects,
-        vec![InlineObject::Field { instr: r#"TOC \o "1-1" \h"#.into(), result: String::new(), locked: true, code: false, form: String::new() }]
+        vec![InlineObject::Field {
+            instr: r#"TOC \o "1-1" \h"#.into(),
+            result: String::new(),
+            locked: true,
+            dirty: false,
+            code: false,
+            form: String::new()
+        }]
     );
     assert_eq!(p[1].plain_text(), "Intro\t1");
     assert_eq!(p[1].props_of_char(0).bold, Some(true));
     assert_eq!(p[1].props_of_char(0).link.as_deref(), Some("#_Toc1"));
     assert_eq!(
         p[1].objects,
-        vec![InlineObject::Field { instr: r#"PAGEREF _Toc1 \h"#.into(), result: "1".into(), locked: false, code: false, form: String::new() }]
+        vec![InlineObject::Field {
+            instr: r#"PAGEREF _Toc1 \h"#.into(),
+            result: "1".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new()
+        }]
     );
 }
 
@@ -141,10 +155,17 @@ fn toc_complex_field_spanning_paragraphs() {
     let p = paras(&d);
     assert_eq!(p.len(), 5);
     assert_eq!(p[0].text, "\u{FFFC}Intro\t\u{FFFC}");
-    assert_eq!(p[0].objects[0], InlineObject::FieldStart { instr: r#"TOC \o "1-3" \h \z \u"#.into(), locked: false });
+    assert_eq!(p[0].objects[0], InlineObject::FieldStart { instr: r#"TOC \o "1-3" \h \z \u"#.into(), locked: false, dirty: false });
     assert_eq!(
         p[0].objects[1],
-        InlineObject::Field { instr: r#"PAGEREF _Toc1 \h"#.into(), result: "1".into(), locked: false, code: false, form: String::new() }
+        InlineObject::Field {
+            instr: r#"PAGEREF _Toc1 \h"#.into(),
+            result: "1".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new()
+        }
     );
     assert_eq!(p[0].props_of_char(3).link.as_deref(), Some("#_Toc1"));
     assert_eq!(p[0].props.style.as_deref(), Some("TOC1"));
@@ -153,7 +174,10 @@ fn toc_complex_field_spanning_paragraphs() {
     assert_eq!(p[2].objects, vec![InlineObject::FieldEnd]);
     assert_eq!(p[3].objects, vec![InlineObject::BookmarkStart { name: "_Toc1".into() }, InlineObject::BookmarkEnd { name: "_Toc1".into() }]);
     assert_eq!(p[4].plain_text(), "Page 7");
-    assert_eq!(p[4].objects[0], InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, code: false, form: String::new() });
+    assert_eq!(
+        p[4].objects[0],
+        InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, dirty: false, code: false, form: String::new() }
+    );
     // And it writes back out and reads the same.
     let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
     assert_eq!(again.body, d.body);
@@ -659,10 +683,52 @@ fn unbalanced_fields_and_markers() {
     assert_eq!(p[0].text, "a");
     assert_eq!(
         p[1].objects,
-        vec![InlineObject::Field { instr: "IF X = \"y\"".into(), result: String::new(), locked: false, code: false, form: String::new() }]
+        vec![InlineObject::Field {
+            instr: "IF X = \"y\"".into(),
+            result: String::new(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new()
+        }]
     );
     assert_eq!(p[2].objects, vec![InlineObject::BookmarkStart { name: "between".into() }, InlineObject::BookmarkEnd { name: "between".into() }]);
     assert_eq!(p[2].plain_text(), "after");
+}
+
+#[test]
+fn field_code_spans_paragraphs() {
+    let body = r#"
+<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>IF</w:instrText></w:r></w:p>
+<w:p><w:r><w:instrText> MERGEFIELD x</w:instrText><w:br/><w:instrText> = "y"</w:instrText></w:r></w:p>
+<w:p><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>
+<w:p><w:r><w:t>Visible</w:t></w:r></w:p>"#;
+    let doc = read_body(body);
+    let p = paras(&doc);
+    assert_eq!(p.len(), 4);
+    for code in &p[..2] {
+        assert!(code.plain_text().is_empty());
+        assert_eq!(code.mark.hidden, Some(true));
+    }
+    assert_eq!(p[2].mark.hidden, None);
+    assert_eq!(p[3].plain_text(), "Visible");
+    assert_eq!(p[3].mark.hidden, None);
+}
+
+#[test]
+fn empty_field_results_keep_line() {
+    let body = r#"<w:p><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>PAGE</w:instrText><w:fldChar w:fldCharType="separate"/><w:fldChar w:fldCharType="end"/></w:r></w:p>
+<w:p><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>IF</w:instrText></w:r></w:p>
+<w:p/>
+<w:p><w:r><w:instrText> x = y</w:instrText><w:fldChar w:fldCharType="separate"/><w:t>Result</w:t><w:fldChar w:fldCharType="end"/></w:r></w:p>"#;
+    let doc = read_body(body);
+    let p = paras(&doc);
+    assert_eq!(p[0].mark.hidden, None);
+    assert!(matches!(&p[0].objects[0], InlineObject::Field { instr, .. } if instr == "PAGE"));
+    assert_eq!(p[1].mark.hidden, Some(true));
+    assert_eq!(p[2].mark.hidden, Some(true));
+    assert_eq!(p[3].mark.hidden, None);
+    assert_eq!(p[3].plain_text(), "Result");
 }
 
 #[test]
@@ -1732,7 +1798,7 @@ fn includepicture_keeps_its_embedded_picture() {
             let p = paras(d);
             let objs = &p[0].objects;
             assert_eq!(objs.len(), 3, "{objs:?}");
-            assert_eq!(objs[0], InlineObject::FieldStart { instr: "INCLUDEPICTURE \"picture.png\"".into(), locked });
+            assert_eq!(objs[0], InlineObject::FieldStart { instr: "INCLUDEPICTURE \"picture.png\"".into(), locked, dirty: false });
             let InlineObject::Image { media, .. } = &objs[1] else { panic!("{objs:?}") };
             assert_eq!(d.media.get(media).unwrap().as_slice(), png);
             assert_eq!(objs[2], InlineObject::FieldEnd);
@@ -1925,7 +1991,8 @@ fn vml_preset_shapes_are_drawn() {
     // A preset holding text keeps its geometry around the text.
     assert_eq!(shape(4), Some((ShapeKind::Diamond, 50.0, 50.0, Some(Rgb(0xFF, 0xFF, 0)), black, 0.75, true, true)));
     assert_eq!(shape(5), Some((ShapeKind::RightTriangle, 20.0, 20.0, Some(Rgb(0xFF, 0, 0)), black, 0.75, true, false)));
-    assert_eq!(shape(6), None);
+    // Its own path is drawn as a freeform, not as the shapetype's arrow.
+    assert_eq!(kind(6), Some((ShapeKind::Freeform, false)));
     assert_eq!(shape(7), Some((ShapeKind::Line, 40.0, 10.0, None, black, 0.75, true, false)));
     assert_eq!(shape(8), Some((ShapeKind::Line, 30.0, 15.0, None, Some(Rgb(0xFF, 0, 0)), 0.75, false, false)));
     assert!(matches!(ps[8].objects.first(), Some(InlineObject::Shape { extra, .. }) if extra.arrow_end && !extra.arrow_start));
@@ -2567,6 +2634,93 @@ fn text_frames_read_and_round_trip() {
     assert!(q.iter().any(|x| x.props.drop_cap == Some(2) && x.props.frame.is_none()));
 }
 
+/// A legacy VML freeform (`v:shape` with a `path`, ECMA-376 Part 4): a rule across a header,
+/// drawn in a 1000 × 1000 coordinate space, outlined, its fill transparent. It is read as a
+/// freeform of the shape's size and kept when saved (as DrawingML custom geometry) and read back.
+#[test]
+fn vml_freeform_rule_in_header() {
+    let w10 = r#"xmlns:w10="urn:schemas-microsoft-com:office:word""#;
+    let rule = r##"<w:p><w:r><w:pict><v:shape style="position:absolute;margin-left:0;margin-top:30pt;width:360pt;height:12pt;z-index:2;mso-position-horizontal-relative:margin;mso-position-vertical-relative:margin" coordsize="1000,1000" path="m,500l1000,500xe" fillcolor="this" stroked="t" strokecolor="#3366cc" strokeweight="1.5pt"><v:fill opacity="0"/><w10:wrap anchorx="margin"/></v:shape></w:pict></w:r>
+<w:r><w:pict><v:shape style="width:20pt;height:10pt" coordorigin="100,100" coordsize="200,100" path="t100,100r100,0,0,100nfx e" strokecolor="red"><v:stroke opacity="32768f"/></v:shape></w:pict></w:r></w:p>"##;
+    let header = format!(r#"<w:hdr {W_NS} {w10}><w:p><w:r><w:t>Header</w:t></w:r></w:p>{rule}</w:hdr>"#);
+    let body = r#"<w:p><w:r><w:t>Body</w:t></w:r></w:p><w:sectPr><w:headerReference w:type="default" r:id="rIdH"/></w:sectPr>"#;
+    let bytes = docx(body, &[("rIdH", "header", "header1.xml")], &[("word/header1.xml", &header)]);
+    let near = |a: f32, b: f32| (a - b).abs() < 0.05;
+    let check = |d: &Document| {
+        let hid = d.last_section.headers.default.unwrap();
+        let shapes: Vec<&InlineObject> = d.parts.get(&hid).unwrap().blocks.iter().filter_map(|b| b.as_para()).flat_map(|p| &p.objects).collect();
+        let [rule, tri] = shapes.as_slice() else { panic!("{shapes:?}") };
+        let InlineObject::Shape { kind, w, h, fill, stroke, stroke_width, float, freeform: Some(f), .. } = rule else { panic!("{rule:?}") };
+        assert_eq!((*kind, *fill, *stroke), (ShapeKind::Freeform, None, Some(Rgb(0x33, 0x66, 0xCC))));
+        assert!(near(*w, 360.0) && near(*h, 12.0) && near(*stroke_width, 1.5), "{w} x {h}, {stroke_width}");
+        assert_eq!((float.h_rel, float.v_rel, float.wrap), (Anchor::Margin, Anchor::Margin, Wrap::InFrontOfText));
+        assert!(near(float.y, 30.0), "{float:?}");
+        let [p] = f.paths.as_slice() else { panic!("{f:?}") };
+        let pts = f.placed(0.0, 0.0, *w, *h);
+        let [(pts, _)] = pts.as_slice() else { panic!("{pts:?}") };
+        assert!(p.closed && pts.len() == 2, "{pts:?}");
+        assert!(near(pts[0][0], 0.0) && near(pts[0][1], 6.0) && near(pts[1][0], 360.0) && near(pts[1][1], 6.0), "{pts:?}");
+        // Relative moves and lines from the origin, `nf`: an outlined triangle, half opaque.
+        let InlineObject::Shape { kind: ShapeKind::Freeform, fill: None, stroke: Some(Rgb(255, 0, 0)), w, h, freeform: Some(f), .. } = tri else {
+            panic!("{tri:?}")
+        };
+        let placed = f.placed(0.0, 0.0, *w, *h);
+        let [(pts, true)] = placed.as_slice() else { panic!("{placed:?}") };
+        let want = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]];
+        assert!(pts.len() == 3 && pts.iter().zip(want).all(|(a, b)| near(a[0], b[0]) && near(a[1], b[1])), "{pts:?}");
+        assert!(near(f.alpha, 0.5), "{}", f.alpha);
+    };
+    let d = wordcraft_docx::read(&bytes).unwrap();
+    check(&d);
+    check(&wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap());
+}
+
+/// Hostile VML paths and coordinate spaces read without panicking and stay finite.
+#[test]
+fn hostile_vml_paths_stay_finite() {
+    let paths = [
+        "m,",
+        "l",
+        "mxe",
+        "m99999999999999999999999999,0l-99999999999999999999,1e",
+        "minf,nanlNaN,-inf",
+        "m@1,@2l@3,@4nfnse",
+        "wa1",
+        "c1",
+        "m١٢,٣l٤,٥",
+        "m0,0c",
+        "m0,0v1,2,3",
+        "ar0,0,10,10,0,0,10,10at",
+        "m0,0r1,1,1,1,1,1,1,1,1,1x x x l",
+        "--..,,@@ ,,, xm1.5.5,2..3l+-+,-e",
+        "\u{1F600}m1,1l2,2",
+        "qbqxqyaeal1,2,3,4,5,6",
+    ];
+    let spaces = [("0,0", "0,0"), ("-5,-5", "x,y"), ("1e39,x", "-99999999999999999999,99999999999999999999"), ("", ""), ("1,1", "1e308,1e308")];
+    for path in paths {
+        for (size, origin) in spaces {
+            let body = format!(
+                r#"<w:p><w:r><w:pict><v:shape style="width:1e30pt;height:-4pt" coordsize="{size}" coordorigin="{origin}" path="{path}" strokecolor="black"/></w:pict></w:r></w:p>"#
+            );
+            let d = read_body(&body);
+            // A path with formulas isn't drawn (they aren't evaluated).
+            if path.contains('@') {
+                assert!(paras(&d)[0].objects.iter().all(|o| !matches!(o, InlineObject::Shape { freeform: Some(_), .. })), "{path}");
+            }
+            for o in &paras(&d)[0].objects {
+                if let InlineObject::Shape { w, h, freeform: Some(f), .. } = o {
+                    assert!(w.is_finite() && h.is_finite() && f.alpha.is_finite(), "{path}");
+                    assert!(f.paths.iter().flat_map(|p| &p.pts).all(|[x, y]| x.is_finite() && y.is_finite()), "{path} {size} {origin}");
+                    for (pts, _) in f.placed(0.0, 0.0, *w, *h) {
+                        assert!(pts.iter().all(|[x, y]| x.is_finite() && y.is_finite()), "{path}");
+                    }
+                }
+            }
+            wordcraft_docx::write(&d).unwrap();
+        }
+    }
+}
+
 /// Measured in Word: `w:asciiTheme="minorBidi"` names the theme's complex-script font (`a:cs`);
 /// when that is empty it names nothing, and the run keeps the font it inherits.
 #[test]
@@ -2659,4 +2813,20 @@ fn hyperlink_with_empty_target_is_no_link() {
     let p = back.body.iter().find_map(|b| b.as_para()).unwrap();
     assert_eq!(p.props_of_char(0).link, None);
     assert_eq!(p.props_of_char(5).link.as_deref(), Some("mailto:a@example.com"));
+}
+
+#[test]
+fn row_table_borders_round_trip() {
+    let d = read_body(
+        r#"<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid>
+<w:tr><w:tblPrEx><w:tblBorders><w:top w:val="single" w:sz="8"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPrEx>
+<w:trPr><w:trHeight w:val="400"/></w:trPr><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc></w:tr>
+<w:tr><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc></w:tr></w:tbl><w:p/>"#,
+    );
+    let saved = wordcraft_docx::write(&d).unwrap();
+    let xml = text(&unzip(&saved), "word/document.xml");
+    assert!(xml.contains("<w:tblPrEx>"), "row table borders were dropped: {xml}");
+    assert!(xml.contains("<w:insideV"));
+    let again = wordcraft_docx::read(&saved).unwrap();
+    assert_eq!(d.body, again.body);
 }

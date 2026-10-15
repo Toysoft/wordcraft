@@ -266,6 +266,47 @@ fn empty_doc_has_one_page() {
 }
 
 #[test]
+fn hidden_marks_take_no_space() {
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Before", Default::default()))];
+    for _ in 0..20 {
+        let mut p = wordcraft_doc::Paragraph::new();
+        p.mark.hidden = Some(true);
+        d.body.push(wordcraft_doc::para_block(p));
+    }
+    d.body.push(wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("After", Default::default())));
+    let l = lay(&d);
+    let y = |block: usize| {
+        l.pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .find_map(|item| match item {
+                Placed::Lines { path, y, .. } if *path == Path::top(block) => Some(*y),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let mut plain = Document::new();
+    plain.body = vec![
+        wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Before", Default::default())),
+        wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("After", Default::default())),
+    ];
+    let plain_layout = lay(&plain);
+    let plain_after = plain_layout.pages[0]
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Placed::Lines { path, y, .. } if *path == Path::top(1) => Some(*y),
+            _ => None,
+        })
+        .unwrap();
+    assert!((y(21) - plain_after).abs() < 0.1, "hidden paragraphs moved the following text to {} vs {plain_after}", y(21));
+    let shown = layout(&d, &mut LayoutCache::new(), &LayoutOptions { show_hidden: true, ..Default::default() });
+    let after = shown.caret(&Pos::body(21, 0)).unwrap();
+    assert!(after.top > plain_after + 100.0, "showing hidden marks must restore their lines");
+}
+
+#[test]
 fn long_paragraph_wraps_and_paginates() {
     let text = "The quick brown fox jumps over the lazy dog. ".repeat(400);
     let d = Document::from_text(&text);
@@ -855,6 +896,36 @@ fn lists_get_labels_and_indent() {
 }
 
 #[test]
+fn break_only_list_has_no_label() {
+    use wordcraft_doc::ListKind;
+    for kind in [ListKind::Numbered, ListKind::Bullet] {
+        let mut d = Document::from_text("First\n\u{000C}\nLast\n\nAfter");
+        let id = d.numbering.add_list(kind);
+        d.format_paragraphs(&Pos::body(0, 0), &Pos::body(4, 5), &|p| {
+            p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 });
+        })
+        .unwrap();
+        let l = lay(&d);
+        let labels: Vec<_> = l
+            .pages
+            .iter()
+            .flat_map(|p| &p.items)
+            .filter_map(|it| {
+                let Placed::Lines { path, para, .. } = it else { return None };
+                Some((path.clone(), para.label.as_ref().map(|label| label.text.clone())))
+            })
+            .collect();
+        let label = |n| Some(if kind == ListKind::Numbered { format!("{n}.") } else { "•".to_string() });
+        // Word hides the break's label but counts it; a plain empty item still has a label.
+        assert_eq!(
+            labels,
+            vec![(Path::top(0), label(1)), (Path::top(1), None), (Path::top(2), label(3)), (Path::top(3), label(4)), (Path::top(4), label(5)),],
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
 fn a_numbered_heading_opening_with_a_page_break_takes_its_number_along() {
     // "Before", then a numbered paragraph whose text opens with a page break: Word draws its
     // number on the next page with the text, not alone at the bottom of the first.
@@ -1236,7 +1307,7 @@ fn headers_and_page_fields() {
     let mut hp = wordcraft_doc::Paragraph::new();
     hp.insert_object(
         0,
-        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
         &Default::default(),
     )
     .unwrap();
@@ -4924,7 +4995,7 @@ fn enclosed_characters_draw_a_shape_around_the_text() {
         let e = Enclosure { shape, style, text: "A".into() };
         d.insert_object(
             &Pos::body(0, 2),
-            InlineObject::Field { instr: e.instr(), result: "A".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: e.instr(), result: "A".into(), locked: false, dirty: false, code: false, form: String::new() },
             &Default::default(),
         )
         .unwrap();
@@ -4960,7 +5031,7 @@ fn enclosed_characters_draw_a_shape_around_the_text() {
     let mut d = Document::from_text("x");
     d.insert_object(
         &Pos::body(0, 1),
-        InlineObject::Field { instr: "eq \\o(=,/)".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "eq \\o(=,/)".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
         &Default::default(),
     )
     .unwrap();
@@ -5414,7 +5485,8 @@ fn unproofed_languages_and_no_proof_runs_are_not_marked() {
 #[test]
 fn body_page_totals_count_every_page() {
     let mut d = Document::from_text("Body-1\nBody-2\nBody-3");
-    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, code: false, form: String::new() };
+    let field =
+        |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
     for i in 0..3 {
         let p = d.para_mut(StoryRef::Body, &Path::top(i)).unwrap();
         p.props.page_break_before = Some(i > 0);
@@ -5506,7 +5578,8 @@ fn east_asian_text_takes_the_asian_font_and_latin_text_the_latin_font() {
 /// the body lay out a second time; one in the body still does.
 #[test]
 fn footer_page_total_needs_one_body_pass() {
-    let field = || InlineObject::Field { instr: "NUMPAGES".into(), result: "9".into(), locked: false, code: false, form: String::new() };
+    let field =
+        || InlineObject::Field { instr: "NUMPAGES".into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
     let mut d = Document::from_text("Body-1\nBody-2\nBody-3");
     for i in 1..3 {
         d.para_mut(StoryRef::Body, &Path::top(i)).unwrap().props.page_break_before = Some(true);
@@ -6317,6 +6390,23 @@ fn automatic_spacing_drops_between_list_items() {
     }
 }
 
+/// Vietnamese is written in single syllables: automatic hyphenation leaves its words whole. (The
+/// English patterns happen not to split these accented words today; the Vietnamese guard in
+/// `hyphenation_points` keeps it so whatever the patterns become.)
+#[test]
+fn automatic_hyphenation_leaves_vietnamese_whole() {
+    let text =
+        "Những người khuyến khích chuyện trường thường nghiêng nghiêng nhưng thành phố Nguyễn Trường Thượng xuyên suốt chương trình. ".repeat(8);
+    let mut d = Document::from_text(&text);
+    d.settings.auto_hyphenation = true;
+    let hyphens: usize = lay(&d).pages[0]
+        .items
+        .iter()
+        .filter_map(|i| if let Placed::Lines { para, .. } = i { Some(para.lines.iter().filter(|x| x.hyphen.is_some()).count()) } else { None })
+        .sum();
+    assert_eq!(hyphens, 0);
+}
+
 /// #1252: highlight and character-shading fills are marked as text backgrounds (a dark page dims
 /// them), and so is the text drawn on them; a paragraph's shading is an ordinary fill.
 #[test]
@@ -6376,7 +6466,7 @@ fn page_field_doc(before: usize, pieces: &[&str]) -> Document {
         let n = p.len();
         p.insert_object(
             n,
-            InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
             &Default::default(),
         )
         .unwrap();
@@ -6493,7 +6583,7 @@ fn footnote_page_field_from_a_split_paragraph_shows_its_page() {
     let n = note.len();
     note.insert_object(
         n,
-        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
         &Default::default(),
     )
     .unwrap();
@@ -6572,7 +6662,7 @@ fn relaid_paragraphs_keep_their_equation_numbers() {
     let n = p2.len();
     p2.insert_object(
         n,
-        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
         &Default::default(),
     )
     .unwrap();
@@ -6714,6 +6804,60 @@ fn space_after_stays_clear_before_a_numbered_paragraph_without_a_label() {
         },
         wordcraft_doc::resolve::AUTO_SPACING,
     );
+}
+
+#[test]
+fn cell_widths_override_grid() {
+    for fixed in [false, true] {
+        let mut t = Table::new(2, 3, 450.0);
+        t.props.fixed = fixed;
+        t.grid = vec![40.0, 175.0, 235.0];
+        for row in &mut t.rows {
+            for (cell, width) in row.cells.iter_mut().zip([50.0, 60.0, 340.0]) {
+                cell.props.width = Some(width);
+                cell.blocks = vec![wordcraft_doc::para_block(Paragraph::with_text("A", Default::default()))];
+            }
+        }
+        let mut d = Document::from_text("After");
+        d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let [(x0, _, _)] = para_at(&l, &[0, 0, 0, 0])[..] else { panic!("cell missing") };
+        let [(x1, _, _)] = para_at(&l, &[0, 0, 1, 0])[..] else { panic!("cell missing") };
+        let [(x2, _, _)] = para_at(&l, &[0, 0, 2, 0])[..] else { panic!("cell missing") };
+        assert!((x1 - x0 - 50.0).abs() < 0.01);
+        assert!((x2 - x0 - 110.0).abs() < 0.01);
+    }
+}
+
+#[test]
+fn ambiguous_widths_keep_grid() {
+    let mut t = Table::new(2, 3, 450.0);
+    t.grid = vec![40.0, 175.0, 235.0];
+    for row in &mut t.rows {
+        for (cell, width) in row.cells.iter_mut().zip([50.0, 60.0, 340.0]) {
+            cell.props.width = Some(width);
+            cell.blocks = vec![wordcraft_doc::para_block(Paragraph::with_text("A", Default::default()))];
+        }
+    }
+    let mut conflicting = t.clone();
+    conflicting.rows[1].cells[0].props.width = Some(60.0);
+    let mut percentage = t.clone();
+    percentage.rows[0].cells[0].props.width_pct = Some(10.0);
+    let mut invalid = t.clone();
+    invalid.rows[0].cells[0].props.width = Some(f32::NAN);
+    let mut different_total = t.clone();
+    different_total.rows.iter_mut().for_each(|r| r.cells[0].props.width = Some(60.0));
+    let mut spanned = t;
+    spanned.rows[0].cells.remove(1);
+    spanned.rows[0].cells[0].props.span = 2;
+    for table in [conflicting, percentage, invalid, different_total, spanned] {
+        let mut d = Document::from_text("After");
+        d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(table)).unwrap();
+        let l = lay(&d);
+        let [(x0, _, _)] = para_at(&l, &[0, 1, 0, 0])[..] else { panic!("cell missing") };
+        let [(x1, _, _)] = para_at(&l, &[0, 1, 1, 0])[..] else { panic!("cell missing") };
+        assert!((x1 - x0 - 40.0).abs() < 0.01);
+    }
 }
 
 /// #1374 helpers: a page-anchored, square-wrapped rectangle `w`×`h` at (`x`, `y`) on the page.
@@ -7130,4 +7274,32 @@ fn a_paragraph_left_out_whole_draws_no_borders_or_shading() {
     };
     assert_eq!(decorations(false), 5, "shading and four borders with markup");
     assert_eq!(decorations(true), 0, "none in the final text");
+}
+
+#[test]
+fn row_borders_stay_on_row() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(2, 2, 200.0);
+    t.props.style = None;
+    t.rows[0].props.exceptions =
+        Some(Box::new(wordcraft_doc::props::TableProps { borders: Some(Borders::all(Border::single(1.0))), ..Default::default() }));
+    t.rows[0].cells[0].props.borders = Some(Borders { top: Some(Border::single(2.0)), ..Default::default() });
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    let rules = rules_on_page0(&lay(&d));
+    assert_eq!(rules.len(), 8);
+    assert_eq!(rules.iter().filter(|w| **w == 2.0).count(), 1);
+    assert_eq!(rules.iter().filter(|w| **w == 1.0).count(), 7);
+}
+
+#[test]
+fn row_nil_overrides_style() {
+    let mut d = Document::from_text("before\nafter");
+    let mut t = Table::new(1, 1, 200.0);
+    t.rows[0].props.exceptions = Some(Box::new(wordcraft_doc::props::TableProps {
+        borders: Some(Borders::all(Border { style: BorderStyle::None, width: 0.0, color: None, space: 0.0 })),
+        ..Default::default()
+    }));
+    t.rows[0].cells[0].props.borders = Some(Borders { right: Some(Border::single(2.0)), ..Default::default() });
+    d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
+    assert_eq!(rules_on_page0(&lay(&d)), vec![2.0]);
 }
