@@ -821,7 +821,13 @@ fn keyword(instr: &str) -> String {
 fn act(s: &Session, instr: &str, row: usize) -> Option<Act> {
     let t = instr.trim();
     if let Some(n) = mergefield_name(t) {
-        return Some(Act::Text(value(s, row, &n)));
+        let mut val = value(s, row, &n);
+        if let Some(pic) = super::references::date_picture(t) {
+            if let Some((y, m, d)) = super::controls::parse_date(&val) {
+                val = super::controls::format_date_value(&pic, y, m, d);
+            }
+        }
+        return Some(Act::Text(val));
     }
     Some(match keyword(t).as_str() {
         "ADDRESSBLOCK" => Act::Text(address_block(s, row)),
@@ -1866,5 +1872,16 @@ mod tests {
         assert!(s.merge.rows.is_empty());
         assert!(s.run("mailings.finish", &json!({})).is_err());
         assert!(s.run("mailings.editRecipients", &json!({})).is_ok());
+    }
+
+    #[test]
+    fn mergefield_date_picture_formatting() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.merge.headers = vec!["FECHA".into()];
+        s.merge.rows = vec![vec!["2026-10-01".into()], vec!["10/10/26".into()]];
+        let act1 = act(&s, r#"MERGEFIELD FECHA \@ "d 'de' MMMM 'del' yyyy""#, 0);
+        assert!(matches!(act1, Some(Act::Text(t)) if t == "1 de octubre del 2026"));
+        let act2 = act(&s, r#"MERGEFIELD FECHA \@ "d 'de' MMMM 'del' yyyy""#, 1);
+        assert!(matches!(act2, Some(Act::Text(t)) if t == "10 de octubre del 2026"));
     }
 }
