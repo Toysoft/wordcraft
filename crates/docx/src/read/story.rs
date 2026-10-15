@@ -15,7 +15,7 @@ use super::Reader;
 use super::props::{sectpr, tcpr, trpr};
 use super::shape_style::{preset_kind, shape_paint, vml_color, vml_preset_kind};
 use crate::package::{ContentTypes, Rels, rt};
-use crate::units::{int, measure, u32_of};
+use crate::units::{int, is_off, measure, u32_of};
 use crate::xml::{El, Node};
 use wordcraft_doc::wordart::TextWarp;
 
@@ -1654,7 +1654,7 @@ fn placeholder_of(s: &str) -> String {
 }
 
 fn on_off_attr(e: &El, name: &str) -> bool {
-    e.attr(name).is_some_and(|v| !matches!(v, "0" | "false" | "off"))
+    e.attr(name).is_some_and(|v| !is_off(v))
 }
 
 /// The alternative text of a `wp:docPr`, `pic:cNvPr` or `wps:cNvPr` (ECMA-376
