@@ -821,7 +821,8 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     if let Some(rep) = rep {
         let end = start + word.len();
         let para = s.doc.para_mut(f.story, &f.path)?;
-        let props = para.props_of_char(from).clone();
+        // The replacement is text: a symbol it replaces doesn't give it its symbol font (#2036).
+        let props = para.props_of_char(from).clone().without_symbol();
         para.delete(from, end)?;
         para.insert_text(from, &rep, &props)?;
         caret = (f.off + rep.len()).saturating_sub(end - from);
