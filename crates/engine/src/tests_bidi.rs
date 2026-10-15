@@ -303,3 +303,22 @@ fn latin_typed_into_reopened_hebrew_is_saved_left_to_right() {
     assert!(runs.iter().all(|(rtl, t)| !rtl || !t.chars().any(|c| c.is_ascii_alphanumeric())), "{runs:?}");
     assert_eq!(runs.iter().map(|(_, t)| t.as_str()).collect::<String>(), "לפני Foo Bar 2026 אחרי");
 }
+
+#[test]
+fn a_latin_link_inserted_into_reopened_hebrew_is_saved_left_to_right() {
+    // Other insertions start from the caret's formatting too (#1543): a link's Latin text
+    // inserted between reopened Hebrew words isn't saved as right-to-left.
+    let s = session("לפני אחרי", true);
+    let bytes = crate::io::save_bytes("x.docx", &s.doc).unwrap();
+    let mut s = Session::new(crate::io::open_bytes("x.docx", &bytes).unwrap());
+    s.sel = crate::Selection::caret(Pos::new(StoryRef::Body, wordcraft_doc::Path::top(0), "לפני ".len()));
+    run(&mut s, "insert.link", json!({"url": "https://example.com", "text": "WordCraft site"}));
+    let runs = saved_runs(&s);
+    assert!(runs.contains(&(false, "WordCraft site".to_string())), "{runs:?}");
+    // The caret's own formatting, as Reveal Formatting shows it, still says right to left.
+    s.sel = crate::Selection::caret(Pos::new(StoryRef::Body, wordcraft_doc::Path::top(0), "לפ".len()));
+    s.pending = None; // moving the caret by hand doesn't drop the link's pending formatting
+    assert_eq!(s.caret_props().rtl, Some(true));
+    assert_eq!(s.typing_props().rtl, None);
+    assert_eq!(s.typing_props().lang_bidi.as_deref(), Some("he-IL"), "the bidi language stays");
+}
