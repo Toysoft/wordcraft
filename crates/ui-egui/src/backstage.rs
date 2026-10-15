@@ -353,8 +353,10 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
             ui.painter().rect_filled(r, 4.0, t.hover);
         }
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, &name, medium(13.0), t.text);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &p, regular(11.0), t.text_dim);
+        // As a file manager shows them: a Hebrew name reads from the right, its extension at the end
+        // (plain egui reversed it as a whole: "xcod.(1) ץבוק").
+        crate::bidi::paint_file_name(ui.painter(), pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, &name, medium(13.0), t.text);
+        crate::bidi::paint_file_name(ui.painter(), pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &p, regular(11.0), t.text_dim);
         if resp.clicked() {
             let _ = app.run("file.open", json!({"path": p}));
             app.ui.backstage = false;

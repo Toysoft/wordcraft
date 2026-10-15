@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
+exclude = ["vendor"]
 default-members = ["crates/*", "apps/wordcraft", "apps/wordcraft-cli", "xtask"]
 
 [workspace.package]
@@ -100,3 +101,7 @@ opt-level = 3
 lto = "thin"
 codegen-units = 16
 debug = 0
+
+# Patched copies of upstream crates; see vendor/README.md.
+[patch.crates-io]
+epaint = { path = "vendor/epaint" }

@@ -19,6 +19,8 @@ wordcraft-render = { workspace = true }
 wordcraft-engine = { workspace = true }
 wordcraft-zotero = { workspace = true }
 egui = { workspace = true }
+# Font coverage for right-to-left text in the interface (`bidi.rs`).
+skrifa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

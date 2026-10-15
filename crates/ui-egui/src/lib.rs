@@ -25,6 +25,7 @@ pub mod a11y_pane;
 pub mod async_saves;
 pub mod autoscroll;
 pub mod backstage;
+pub mod bidi;
 pub mod canvas;
 pub mod caret_glide;
 pub mod chrome;
@@ -1668,7 +1669,12 @@ impl WordApp {
     /// fallback faces, as IME composition does (#565). A CJK name uses the CJK UI font instead:
     /// those collections are too large to add here.
     fn ensure_caption_fonts(&mut self) {
-        let stem = self.title_stem();
+        // The caption, and the file names and folders the Home and Open pages list as Recent.
+        let mut stem = self.title_stem();
+        for p in &self.ui.recent {
+            stem.push(' ');
+            stem.push_str(p);
+        }
         if stem.chars().any(wordcraft_fonts::is_cjk) {
             self.want_system_cjk = true;
         }
@@ -2559,6 +2565,21 @@ mod tests {
         let n = arabic.canvas.ime_faces.len();
         frame(&mut arabic);
         assert_eq!(arabic.canvas.ime_faces.len(), n, "the face is added once");
+    }
+
+    /// A Hebrew file in the Recent list (Home and Open) showed its letters as `?` and boxes: the
+    /// list is painted with the interface faces too, so its names borrow a fallback face as the
+    /// caption's does.
+    #[test]
+    fn hebrew_recent_file_names_get_a_face() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.ui.recent = vec![r"F:\Downloads\דף קשר ב2 מעודכן (1).docx".into()];
+        ctx.run_ui(egui::RawInput::default(), |ui| a.logic(ui.ctx())).drop_without_applying_deltas();
+        let letter = 'ד';
+        if wordcraft_fonts::FontDb::global().fallback_for(letter, u32::MAX).is_some_and(|f| f.data().len() <= 16 << 20) {
+            assert!(a.canvas.ime_faces.iter().any(|f| f.covers(letter)), "the recent list borrows a face that covers the name");
+        }
     }
 
     fn app() -> WordApp {

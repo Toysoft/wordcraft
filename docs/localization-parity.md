@@ -192,6 +192,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Recent files (Home, Open) and the window caption show Hebrew and Arabic file names as a file manager does: the letters drawn with a borrowed fallback face (they showed as `?` and boxes), the words read from the right, the extension at the end (`crates/ui-egui/src/bidi.rs`) |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
 | 2026-10-13 | minor | Swedish interface catalog (2,504 entries), locale selection, saved preference, audit coverage and font checks (#1219) |

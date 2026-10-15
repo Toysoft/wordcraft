@@ -1245,8 +1245,6 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0ec0308dc23130fc1a7d4623a8534c2ed069c6dc84e258ee4f3de99615aa1a3"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -5392,6 +5390,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "skrifa 0.47.0",
  "sys-locale",
  "toml",
  "unicode-bidi",

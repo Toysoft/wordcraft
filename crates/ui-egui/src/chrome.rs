@@ -381,15 +381,26 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     let _ = app.run("file.rename", json!({}));
                 }
 
-                paint_text(
-                    ui.painter(),
-                    pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
-                    Align2::LEFT_TOP,
-                    &shown,
-                    &font,
-                    track,
-                    t.text,
-                );
+                let stem = app.title_stem();
+                if app.has_document() && crate::bidi::has_rtl(&stem) {
+                    // A Hebrew or Arabic file name as a file manager shows it (see
+                    // `bidi::file_name`): plain egui reversed it as a whole.
+                    let at = pos2(cx, full.center().y);
+                    match shown.strip_prefix(stem.as_str()) {
+                        Some(status) => crate::bidi::paint_title(ui.painter(), at, &stem, status, font.clone(), t.text),
+                        None => crate::bidi::paint_file_name(ui.painter(), at, Align2::CENTER_CENTER, &shown, font.clone(), t.text),
+                    };
+                } else {
+                    paint_text(
+                        ui.painter(),
+                        pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
+                        Align2::LEFT_TOP,
+                        &shown,
+                        &font,
+                        track,
+                        t.text,
+                    );
+                }
             }
         });
 }
