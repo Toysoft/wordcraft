@@ -195,6 +195,21 @@ fn numbered_list_after_bullets_keeps_its_kind() {
 }
 
 #[test]
+fn markdown_list_items_that_start_like_blocks_keep_their_text() {
+    for text in ["---", "--", "1. Intro", "# Agenda", "ordinary item"] {
+        let mut d = Document::new();
+        let bul = d.numbering.add_list(wordcraft_doc::ListKind::Bullet);
+        let mut p = Paragraph::with_text(text, CharProps::default()).styled("ListParagraph");
+        p.props.numbering = Some(wordcraft_doc::props::NumRef { num: bul, level: 0 });
+        d.body = vec![para_block(p)];
+        let bytes = export("md", &d).unwrap().unwrap();
+        let blocks = flat(&import("md", &bytes).unwrap().unwrap());
+        let [FBlock::Para(p)] = blocks.as_slice() else { panic!("{text}: {}", String::from_utf8_lossy(&bytes)) };
+        assert_eq!((p.text().as_str(), p.kind, p.list), (text, Kind::Normal, Some(model::ListInfo { ordered: false, level: 0 })));
+    }
+}
+
+#[test]
 fn markdown_round_trip() {
     check_round_trip("md", true);
 }
@@ -603,6 +618,65 @@ fn hostile_importer_input_takes_linear_time() {
     }
 }
 
+/// Backtick runs that never close, each a different length, sent every code span and every link
+/// bracket scan over them looking for a closing run through the rest of the text: superlinear
+/// time on hostile Markdown.
+#[test]
+fn unmatched_backtick_runs_take_linear_time() {
+    use std::time::{Duration, Instant};
+    // Runs of 1, 2, … 2000 backticks (2 MB), none of them closed.
+    let runs = (1..=2000).map(|n| "`".repeat(n)).collect::<Vec<_>>().join(" ");
+    let cases = [runs.clone(), format!("{}{runs}{}", "[".repeat(8), "]".repeat(8)), format!("[{runs}")];
+    for text in cases {
+        let t = Instant::now();
+        let d = import("md", text.as_bytes()).unwrap().unwrap();
+        let plain = d.plain_text(Default::default());
+        let elapsed = t.elapsed();
+        eprintln!("{:?}... took {elapsed:?}", &text[..4]);
+        assert!(elapsed < Duration::from_secs(5), "{:?}... took {elapsed:?}", &text[..4]);
+        assert_eq!(plain.matches('`').count(), text.matches('`').count(), "every backtick stays text");
+    }
+}
+
+/// Code spans and brackets around backticks read as before the backtick runs were indexed.
+#[test]
+fn code_spans_and_links_around_backticks_read_as_before() {
+    // An escaped backtick before a span, a span holding a shorter run, a run nothing closes, a `]`
+    // inside a code span in link text, and link text with a backtick that nothing closes.
+    let flow = crate::markdown::parse("\\``e` `` a ` b `` then ``` and `c` [x `]` y](http://a.org) [p ` q](http://b.org) ``f");
+    let FBlock::Para(p) = &flow.blocks[0] else { panic!("{:?}", flow.blocks) };
+    let spans: Vec<(String, bool, Option<String>)> =
+        p.inlines.iter().filter_map(|i| if let model::Inline::Text(t, f) = i { Some((t.clone(), f.code, f.link.clone())) } else { None }).collect();
+    let code: Vec<&str> = spans.iter().filter(|s| s.1).map(|s| s.0.as_str()).collect();
+    assert_eq!(code, ["e", "a ` b", "c", "]"], "{spans:?}");
+    let linked = |url: &str| spans.iter().filter(|s| s.2.as_deref() == Some(url)).map(|s| s.0.as_str()).collect::<String>();
+    assert_eq!(linked("http://a.org"), "x ] y");
+    assert_eq!(linked("http://b.org"), "p ` q");
+    assert_eq!(p.text(), "`e a ` b then ``` and c x ] y p ` q ``f");
+}
+
+/// A `[` nothing closes, bracketed text that is not a link and links themselves used up the bracket
+/// scans' budget as if each had read the rest of the text: later links in the paragraph were plain
+/// text.
+#[test]
+fn brackets_do_not_turn_later_links_into_text() {
+    let links = |md: &str| {
+        let flow = crate::markdown::parse(md);
+        let FBlock::Para(p) = &flow.blocks[0] else { panic!("{:?}", flow.blocks) };
+        let mut urls: Vec<String> = p.inlines.iter().filter_map(|i| if let model::Inline::Text(_, f) = i { f.link.clone() } else { None }).collect();
+        urls.dedup();
+        urls
+    };
+    // An interval nothing closes, before a link.
+    assert_eq!(links("Intervals [0, 1) and [docs](http://x.org)"), ["http://x.org"]);
+    // References early in a long paragraph, a link at its end.
+    let refs = (1..=12).map(|n| format!("[{n}]")).collect::<Vec<_>>().join(" ");
+    assert_eq!(links(&format!("{refs} {}[docs](http://x.org)", "word ".repeat(4000))), ["http://x.org"]);
+    // Many links through one paragraph.
+    let urls: Vec<String> = (0..60).map(|n| format!("http://x.org/{n}")).collect();
+    assert_eq!(links(&urls.iter().map(|u| format!("[link]({u}) {}", "word ".repeat(20))).collect::<String>()), urls);
+}
+
 /// The bounded scans must not change how ordinary links, images, tags and entities read.
 #[test]
 fn bounded_scans_keep_ordinary_markdown_and_entities() {
@@ -772,4 +846,42 @@ fn rtf_hostile_notes_and_comments_do_not_panic() {
     // Private-use marker characters in ordinary text stay text.
     let d = import("rtf", "{\\rtf1 a\u{F8F0}N0\u{F8F1}b}".as_bytes()).unwrap().unwrap();
     assert!(d.parts.is_empty());
+}
+
+#[test]
+fn rtf_notes_comments_tracked_changes_and_sections_work_together() {
+    // Two sections; the second holds a footnote, a comment and a tracked insertion, and has its
+    // own footer. A `\sect` inside the footnote's text must not end a section.
+    let rtf = br"{\rtf1\ansi{\fonttbl{\f0 Arial;}}{\*\revtbl {Unknown;}{Alice;}}
+\sectd{\footerr \pard Foot one\par}\pard First section.\par \sect
+\sectd\lndscpsxn{\footerr \pard Foot two\par}\pard Second{\super\chftn}{\footnote \pard\plain {\super\chftn} Note text\sect\par} {\*\atrfstart 3}section{\*\atrfend 3}{\*\atnid AB}{\*\atnauthor Ann}\chatn{\*\annotation{\*\atnref 3}{\*\atndate 1000}\pard Remark\par}{\revised\revauth1\revdttm-1480361314  added}.\par}";
+    let d = import("rtf", rtf).unwrap().unwrap();
+    assert_eq!(d.sections().len(), 2);
+    let check = |d: &Document| {
+        let (notes, comments) = rtf_notes(d);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("Note text"), "{notes:?}");
+        assert_eq!(comments.len(), 1, "{comments:?}");
+        assert!(comments[0].contains("Remark"), "{comments:?}");
+        let ins = d.body.iter().filter_map(|b| b.as_para()).any(|p| p.plain_text().contains("added"));
+        assert!(ins);
+    };
+    check(&d);
+    let out = String::from_utf8(export("rtf", &d).unwrap().unwrap()).unwrap();
+    assert!(out.contains("\\revised") && out.contains("\\footnote") && out.contains("\\atrfstart"), "{out}");
+    let d2 = import("rtf", out.as_bytes()).unwrap().unwrap();
+    check(&d2);
+}
+
+#[test]
+fn hidden_drawings_are_left_out_of_exports() {
+    let mut d = wordcraft_doc::Document::from_text("x");
+    let key = d.add_media(vec![0x89, b'P', b'N', b'G'], "png");
+    for hidden in [false, true] {
+        let float = wordcraft_doc::para::Float { hidden, ..Default::default() };
+        let image = wordcraft_doc::InlineObject::Image { media: key.clone(), w: 10.0, h: 10.0, alt: "Logo".into(), float, crop: [0.0; 4], ole: None };
+        d.insert_object(&wordcraft_doc::Pos::body(0, 0), image, &Default::default()).unwrap();
+    }
+    // Two pictures, one hidden: one comes out.
+    assert_eq!(crate::html::export(&d).matches("<img").count(), 1);
 }
