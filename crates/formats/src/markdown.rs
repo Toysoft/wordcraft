@@ -711,7 +711,7 @@ fn tag_attr(tag: &str, name: &str) -> Option<String> {
                 let end = inner.find(q)?;
                 tag.get(off..off + end)?.to_string()
             } else {
-                let end = v.find(|c: char| c.is_whitespace() || c == '>').unwrap_or(v.len());
+                let end = v.find(|c: char| c.is_whitespace() || c == '>' || c == '/').unwrap_or(v.len());
                 let off = tag.len() - v.len();
                 tag.get(off..off + end)?.to_string()
             });
@@ -719,6 +719,31 @@ fn tag_attr(tag: &str, name: &str) -> Option<String> {
         from = at + name.len();
     }
     None
+}
+
+/// Parse an inline `<a ...>` anchor: returns the anchor name and total consumed byte length.
+fn parse_anchor(inner: &str, after: &str) -> Option<(String, usize)> {
+    let lower = inner.to_ascii_lowercase();
+    let rest = lower.strip_prefix('a')?;
+    if !rest.starts_with(|c: char| c.is_whitespace() || c == '/') {
+        return None;
+    }
+    let name = tag_attr(inner, "id").or_else(|| tag_attr(inner, "name"))?;
+    if inner.trim_end().ends_with('/') {
+        Some((name, inner.len() + 2))
+    } else {
+        let trimmed_after = after.trim_start();
+        let ws_len = after.len() - trimmed_after.len();
+        let after_lower = trimmed_after.to_ascii_lowercase();
+        if let Some(close_rest) = after_lower.strip_prefix("</a") {
+            let end_gt = close_rest.find('>')?;
+            if close_rest[..end_gt].trim().is_empty() {
+                let skip = inner.len() + 2 + ws_len + 3 + end_gt + 1;
+                return Some((name, skip));
+            }
+        }
+        None
+    }
 }
 
 fn tokenize(s: &str, base: &Fmt, depth: usize) -> Vec<Node> {
@@ -868,12 +893,10 @@ fn tokenize(s: &str, base: &Fmt, depth: usize) -> Vec<Node> {
                     push_text(&mut nodes, "\n", base);
                     i += inner.len() + 2;
                     text_start = i;
-                } else if lower.starts_with("a ") && rest.get(inner.len() + 1..).is_some_and(|r| r.to_ascii_lowercase().starts_with("</a>")) {
+                } else if let Some((name, skip)) = parse_anchor(inner, rest.get(inner.len() + 1..).unwrap_or("")) {
                     flush!();
-                    if let Some(name) = tag_attr(inner, "id").or_else(|| tag_attr(inner, "name")) {
-                        nodes.push(Node::Inl(Inline::Anchor(name)));
-                    }
-                    i += inner.len() + 2 + 4;
+                    nodes.push(Node::Inl(Inline::Anchor(name)));
+                    i += skip;
                     text_start = i;
                 } else {
                     i += 1;
@@ -1679,5 +1702,14 @@ mod tests {
         let FBlock::Table(back_table2) = &back_flow2.blocks[0] else { panic!() };
         assert_eq!(back_table2.rows[1][0].text(), "a`b|c");
         assert_eq!(back_table2.rows[1][1].text(), "CRITICAL_DISTINCTIVE_INFO");
+    }
+
+    #[test]
+    fn markdown_anchor_variants() {
+        let md = "Start <a id=\"sec1\"/> Mid1 <a id=\"sec2\" /> Mid2 <a name=\"sec3\"/> Mid3 <a id=\"sec4\"></a> Mid4 <a id=\"sec5\"></a > Mid5 <a id=sec6/> End";
+        let flow = parse(md);
+        let FBlock::Para(p) = &flow.blocks[0] else { panic!("expected para") };
+        let anchors: Vec<&str> = p.inlines.iter().filter_map(|i| if let Inline::Anchor(a) = i { Some(a.as_str()) } else { None }).collect();
+        assert_eq!(anchors, vec!["sec1", "sec2", "sec3", "sec4", "sec5", "sec6"]);
     }
 }
