@@ -58,7 +58,11 @@ impl Rendered {
     /// PNG bytes (empty on failure, logged).
     pub fn to_png(&self) -> Vec<u8> {
         let mut px = self.to_straight();
-        px.resize(self.width as usize * self.height as usize * 4, 0);
+        let Some(len) = wordcraft_geom::rgba_bytes(self.width, self.height).and_then(|b| usize::try_from(b).ok()) else {
+            log::error!("PNG encode: size {}×{} overflows", self.width, self.height);
+            return Vec::new();
+        };
+        px.resize(len, 0);
         let Some(img) = image::RgbaImage::from_raw(self.width, self.height, px) else {
             log::error!("PNG encode: bad size {}×{}", self.width, self.height);
             return Vec::new();
@@ -175,6 +179,16 @@ const MAX_DECODE_SIDE: u32 = u16::MAX as u32;
 /// Decode an encoded image to a premultiplied pixmap. The dimension limit above and the default
 /// allocation cap (512 MB, what `load_from_memory` applied) bound the decode during paint.
 pub fn decode_pixmap(bytes: &[u8]) -> Option<Pixmap> {
+    decode_pixmap_within(bytes, wordcraft_geom::MAX_DECODED_BYTES)
+}
+
+/// [`decode_pixmap`] with an explicit RGBA byte budget (a small one in tests).
+fn decode_pixmap_within(bytes: &[u8], budget: u64) -> Option<Pixmap> {
+    // The header gives the size; refuse before the decoder (and the RGBA copy) allocate anything.
+    let (hw, hh) = image_size(bytes)?;
+    if !wordcraft_geom::rgba_fits(hw, hh, budget) {
+        return None;
+    }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_DECODE_SIDE);
@@ -495,7 +509,16 @@ pub fn render_page(doc: &Document, page: &Page, scale: f32, opts: &RenderOptions
 
 /// Render a page into a `w`×`h` raster with `view` (page points → pixels).
 pub fn render_region(doc: &Document, page: &Page, w: u32, h: u32, view: Affine, opts: &RenderOptions) -> Rendered {
-    let (w16, h16) = (w.clamp(1, MAX_SIDE) as u16, h.clamp(1, MAX_SIDE) as u16);
+    render_region_capped(doc, page, w, h, view, opts, wordcraft_geom::MAX_RASTER_PIXELS)
+}
+
+/// [`render_region`] with an explicit pixel cap (a small one in tests).
+fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affine, opts: &RenderOptions, max_pixels: u64) -> Rendered {
+    let (w, h) = (w.clamp(1, MAX_SIDE), h.clamp(1, MAX_SIDE));
+    let (cw, ch) = wordcraft_geom::fit_pixels(w, h, max_pixels);
+    // Over the cap the whole picture is drawn smaller, not cropped.
+    let view = if (cw, ch) == (w, h) { view } else { Affine::scale_non_uniform(cw as f64 / w as f64, ch as f64 / h as f64) * view };
+    let (w16, h16) = (cw as u16, ch as u16);
     let mut ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: default_threads(), ..Default::default() });
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(color(opts.ink(doc.settings.page_color.unwrap_or(opts.paper)), 1.0));
@@ -1111,9 +1134,12 @@ pub fn render_area(doc: &Document, page: &Page, x: f32, y: f32, w: f32, h: f32, 
 /// at `scale` px/pt: no paper, no watermark. A dragged object's preview.
 pub fn render_items(doc: &Document, items: &[Draw], x: f32, y: f32, w: f32, h: f32, scale: f32, opts: &RenderOptions) -> Rendered {
     let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
-    let w16 = ((w * scale).ceil() as u32).clamp(1, MAX_SIDE) as u16;
-    let h16 = ((h * scale).ceil() as u32).clamp(1, MAX_SIDE) as u16;
-    let view = Affine::scale(scale as f64) * Affine::translate((-x as f64, -y as f64));
+    let (pw, ph) = (((w * scale).ceil() as u32).clamp(1, MAX_SIDE), ((h * scale).ceil() as u32).clamp(1, MAX_SIDE));
+    let (cw, ch) = wordcraft_geom::fit_pixels(pw, ph, wordcraft_geom::MAX_RASTER_PIXELS);
+    let (w16, h16) = (cw as u16, ch as u16);
+    let view = Affine::scale_non_uniform(cw as f64 / pw as f64, ch as f64 / ph as f64)
+        * Affine::scale(scale as f64)
+        * Affine::translate((-x as f64, -y as f64));
     let mut ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: 0, ..Default::default() });
     let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
     for it in items {
@@ -1329,6 +1355,34 @@ mod tests {
         let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
         let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
         assert_eq!(&img.pixels[0..3], &[255, 255, 255]);
+    }
+
+    #[test]
+    fn decode_budget_is_checked_from_the_header() {
+        let mut buf = Vec::new();
+        let img = image::RgbaImage::from_fn(16, 8, |x, y| image::Rgba([x as u8, y as u8, 9, 255]));
+        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
+        assert!(decode_pixmap_within(&buf, 512).is_some());
+        assert!(decode_pixmap_within(&buf, 511).is_none());
+        // An IHDR claiming 60000x60000 with no pixel data is refused by its header alone.
+        let mut hdr = buf[..33].to_vec();
+        hdr[16..20].copy_from_slice(&60_000u32.to_be_bytes());
+        hdr[20..24].copy_from_slice(&60_000u32.to_be_bytes());
+        assert!(decode_pixmap(&hdr).is_none());
+        assert!(decode_pixmap_within(&hdr, u64::MAX).is_none());
+    }
+
+    #[test]
+    fn page_raster_is_capped_by_total_pixels() {
+        let d = Document::new();
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let opts = RenderOptions::default();
+        let big = render_region_capped(&d, &l.pages[0], 3000, 2000, Affine::scale(4.0), &opts, 100_000);
+        assert!(big.width as u64 * big.height as u64 <= 100_000, "{}x{}", big.width, big.height);
+        assert!(big.width > 300 && big.height > 200);
+        assert_eq!(big.pixels.len() as u64, big.width as u64 * big.height as u64 * 4);
+        let ok = render_region_capped(&d, &l.pages[0], 300, 200, Affine::IDENTITY, &opts, 100_000);
+        assert_eq!((ok.width, ok.height), (300, 200));
     }
 
     #[test]

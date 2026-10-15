@@ -1486,3 +1486,16 @@ fn bundled_unicode_glyphs_are_visible_and_extractable() {
     assert!(String::from_utf8_lossy(&bytes).contains("/ToUnicode"));
     assert_eq!(squash(&extract_text(&bytes).concat()), TEXT);
 }
+
+#[test]
+fn image_budget_is_checked_from_the_header() {
+    let data = Arc::new(png());
+    assert!(load_image_within(&data, 512).is_some());
+    assert!(load_image_within(&data, 511).is_none());
+    // An IHDR claiming 30000x30000 with no pixel data is refused by its header alone.
+    let mut hdr = data[..33].to_vec();
+    hdr[16..20].copy_from_slice(&30_000u32.to_be_bytes());
+    hdr[20..24].copy_from_slice(&30_000u32.to_be_bytes());
+    assert!(load_image(&Arc::new(hdr.clone())).is_none());
+    assert!(load_image_within(&Arc::new(hdr), u64::MAX).is_none());
+}
