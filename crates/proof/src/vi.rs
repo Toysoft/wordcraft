@@ -4,19 +4,17 @@
 //! like any language without them: no spelling or grammar marks.
 //!
 //! The test is orthographic. Vietnamese writes most syllables with letters no other Latin-script
-//! language shares: the breve and horn letters (`ă ơ ư`), `đ`, `ĩ ũ`, and the tone-marked vowels of
-//! the Latin Extended Additional block (`ạ ả ấ ầ … ỹ`), precomposed or as combining hook above,
-//! dot below and horn. French and Portuguese share `â ê ô à é`, so those alone don't count.
+//! language shares: the horn letters (`ơ ư`), `ĩ ũ`, and the tone-marked vowels of the Latin
+//! Extended Additional block (`ạ ả ấ ầ … ỹ`), precomposed or as combining hook above, dot below
+//! and horn. French and Portuguese share `â ê ô à é`, Romanian `ă` and Croatian, Serbian and
+//! Bosnian `đ`, so those alone don't count.
 
 /// Does `c` occur in Vietnamese words but (practically) nowhere else?
 fn vietnamese_letter(c: char) -> bool {
-    matches!(
-        c,
-        'ă' | 'Ă' | 'đ' | 'Đ' | 'ơ' | 'Ơ' | 'ư' | 'Ư' | 'ĩ' | 'Ĩ' | 'ũ' | 'Ũ' | '\u{1EA0}'..='\u{1EF9}' | '\u{0309}' | '\u{0323}' | '\u{031B}'
-    )
+    matches!(c, 'ơ' | 'Ơ' | 'ư' | 'Ư' | 'ĩ' | 'Ĩ' | 'ũ' | 'Ũ' | '\u{1EA0}'..='\u{1EF9}' | '\u{0309}' | '\u{0323}' | '\u{031B}')
 }
 
-/// Is `word` written with a Vietnamese-only letter (`Việt`, `đi`, `ơn`)? Such a word is never an
+/// Is `word` written with a Vietnamese-only letter (`Việt`, `ơn`)? Such a word is never an
 /// English misspelling.
 pub fn is_vietnamese_word(word: &str) -> bool {
     let combining = |c: char| matches!(c, '\u{0300}'..='\u{036F}');
@@ -46,11 +44,12 @@ mod tests {
 
     #[test]
     fn vietnamese_words() {
-        for w in ["Việt", "đi", "ơn", "những", "Ước", "mũi", "Nghĩa", "tie\u{0302}\u{0301}ng", "nho\u{031B}"] {
+        for w in ["Việt", "ơn", "những", "Ước", "mũi", "Nghĩa", "tie\u{0302}\u{0301}ng", "nho\u{031B}"] {
             assert!(is_vietnamese_word(w), "{w}");
         }
         // Shared with French, Portuguese, Spanish: not enough on their own.
-        for w in ["café", "être", "côte", "água", "señor", "anh", "the"] {
+        // Romanian ă and Croatian đ are Vietnamese letters too, but not Vietnamese-only.
+        for w in ["café", "être", "côte", "água", "señor", "anh", "the", "mănânc", "acasă", "Đurđa", "đak", "đi"] {
             assert!(!is_vietnamese_word(w), "{w}");
         }
     }
@@ -65,6 +64,9 @@ mod tests {
         assert!(!looks_vietnamese("Le café de la côte est très bon."));
         assert!(!looks_vietnamese(""));
         assert!(!looks_vietnamese("anh em"));
+        // Romanian and Croatian paragraphs, full of ă and đ, aren't Vietnamese.
+        assert!(!looks_vietnamese("Mă duc acasă să mănânc cu fratele meu, că e târziu."));
+        assert!(!looks_vietnamese("Đurđa i Đorđe su se vratili kući, a Đakovo je daleko."));
     }
 }
 
