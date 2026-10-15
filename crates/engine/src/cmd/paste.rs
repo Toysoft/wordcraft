@@ -353,11 +353,28 @@ pub(crate) fn unlink_sections(blocks: &mut [Block]) {
 
 /// Turn an imported document into a fragment of the session's document: bring over the media,
 /// lists and styles it refers to (renumbered so they can't collide with ours).
-fn adopt(s: &mut Session, src: Document) -> Fragment {
+pub(crate) fn adopt(s: &mut Session, src: Document) -> Fragment {
+    // A fallback PNG whose SVG isn't in the copy (and no picture shows) would be an orphan.
+    let mut shown = std::collections::BTreeSet::new();
+    src.objects_in_reading_order(&mut |o| {
+        if let wordcraft_doc::InlineObject::Image { media, .. } = o {
+            shown.insert(media.clone());
+        }
+    });
+    let orphan = |key: &String| src.svg_fallbacks.iter().any(|(svg, png)| png == key && !src.media.contains_key(svg)) && !shown.contains(key);
     let mut media = BTreeMap::new();
     for (key, data) in &src.media {
+        if orphan(key) {
+            continue;
+        }
         let ext = key.rsplit_once('.').map(|(_, e)| e).unwrap_or("png");
         media.insert(key.clone(), s.doc.add_media(data.to_vec(), ext));
+    }
+    // SVG pictures keep their PNG fallbacks, under the new keys (#1910).
+    for (svg, png) in &src.svg_fallbacks {
+        if let (Some(svg), Some(png)) = (media.get(svg), media.get(png)) {
+            s.doc.svg_fallbacks.insert(svg.clone(), png.clone());
+        }
     }
     let next_abs = s.doc.numbering.abstracts.iter().map(|a| a.id.saturating_add(1)).max().unwrap_or(0);
     let mut abs_map = BTreeMap::new();

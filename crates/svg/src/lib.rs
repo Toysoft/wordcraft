@@ -171,20 +171,66 @@ fn parse_nested(bytes: &[u8], level: u32) -> Result<Svg, Error> {
     Ok(Svg { tree })
 }
 
-/// Refuses markup nested deeper than [`MAX_DEPTH`] before the XML parser (which recurses on
-/// nesting) sees it, by a scan of the tags. Entities that hold markup (which could nest elements
-/// past the scan) are refused too; real SVGs use entities for plain text only.
+/// Most entity declarations a file may have.
+const MAX_ENTITIES: usize = 4096;
+/// Most character data (bytes, entities expanded) inside text elements: past it usvg would shape
+/// and lay out megabytes of text on the thread that opens the picture.
+const MAX_TEXT_BYTES: u64 = 1 << 20;
+/// Most text a picture may draw once `<use>` copies are counted (text bytes × (1 + uses)).
+const MAX_TEXT_DRAWN: u64 = 16 << 20;
+/// Most text entity references may expand to (bytes): the longest entity value (with the
+/// entities it references expanded) times the number of `&` in the file.
+const MAX_ENTITY_EXPANSION: u64 = 16 << 20;
+
+/// What the pre-parse scan has seen of the file's entities.
+struct Entities<'a> {
+    /// Expanded length of each declared entity, by name.
+    sizes: std::collections::HashMap<&'a [u8], u64>,
+    /// The longest expanded value.
+    longest: u64,
+    /// Declarations seen.
+    count: usize,
+    /// Number of `&` in the file, counted the first time a declaration needs it.
+    refs: Option<u64>,
+}
+
+fn refused<T>(why: &str) -> Result<T, Error> {
+    Err(Error::Parse(why.to_string()))
+}
+
+/// Refuses, before the XML parser (which recurses on nesting) or usvg see it: markup nested
+/// deeper than [`MAX_DEPTH`]; entities that hold markup (which could nest elements past the scan),
+/// that could expand past [`MAX_ENTITY_EXPANSION`], or more than [`MAX_ENTITIES`] of them; and more
+/// than [`MAX_TEXT_BYTES`] of text in text elements. One pass over the tags, linear in the file.
 fn check_nesting(text: &str) -> Result<(), Error> {
     let b = text.as_bytes();
     let mut depth = 0usize;
     let mut i = 0usize;
+    let mut ents = Entities { sizes: std::collections::HashMap::new(), longest: 0, count: 0, refs: None };
+    // Depth of the open text element (its content is shaped), text bytes so far, `<use>` count.
+    let mut text_at: Option<usize> = None;
+    let mut text_bytes = 0u64;
+    let mut uses = 0u64;
     let find = |from: usize, pat: &[u8]| b.get(from..).and_then(|rest| rest.windows(pat.len()).position(|w| w == pat)).map(|p| from + p);
     while let Some(lt) = b.get(i..).and_then(|rest| rest.iter().position(|c| *c == b'<')).map(|p| i + p) {
+        if text_at.is_some() {
+            text_bytes = text_bytes.saturating_add(char_data_size(b.get(i..lt).unwrap_or_default(), &ents));
+            if text_bytes > MAX_TEXT_BYTES {
+                return refused("SVG text this long is not supported");
+            }
+        }
         let rest = b.get(lt..).unwrap_or_default();
         i = if rest.starts_with(b"<!--") {
             find(lt + 4, b"-->").map_or(b.len(), |e| e + 3)
         } else if rest.starts_with(b"<![CDATA[") {
-            find(lt + 9, b"]]>").map_or(b.len(), |e| e + 3)
+            let end = find(lt + 9, b"]]>").unwrap_or(b.len());
+            if text_at.is_some() {
+                text_bytes = text_bytes.saturating_add(end.saturating_sub(lt + 9) as u64);
+                if text_bytes > MAX_TEXT_BYTES {
+                    return refused("SVG text this long is not supported");
+                }
+            }
+            end.saturating_add(3)
         } else if rest.starts_with(b"<?") {
             find(lt + 2, b"?>").map_or(b.len(), |e| e + 2)
         } else if rest.starts_with(b"<!") {
@@ -199,10 +245,13 @@ fn check_nesting(text: &str) -> Result<(), Error> {
             };
             let decl = b.get(lt..end.min(b.len())).unwrap_or_default();
             if decl.windows(8).any(|w| w == b"<!ENTITY") {
-                check_entities(decl, b.iter().filter(|c| **c == b'&').count())?;
+                check_entities(decl, b, &mut ents)?;
             }
             end
         } else if rest.starts_with(b"</") {
+            if text_at == Some(depth) {
+                text_at = None;
+            }
             depth = depth.saturating_sub(1);
             find(lt, b">").map_or(b.len(), |e| e + 1)
         } else {
@@ -219,31 +268,60 @@ fn check_nesting(text: &str) -> Result<(), Error> {
                 }
                 j += 1;
             }
+            let name = rest.get(1..).unwrap_or_default();
+            let name =
+                name.get(..name.iter().position(|c| c.is_ascii_whitespace() || *c == b'>' || *c == b'/').unwrap_or(name.len())).unwrap_or_default();
+            let local = name.rsplit(|c| *c == b':').next().unwrap_or_default();
+            if local == b"use" {
+                uses = uses.saturating_add(1);
+            }
             if b.get(j.saturating_sub(1)) != Some(&b'/') {
                 depth += 1;
                 if depth > MAX_DEPTH {
                     return Err(Error::TooDeep);
                 }
+                if local == b"text" && text_at.is_none() {
+                    text_at = Some(depth);
+                }
             }
             j.saturating_add(1)
         };
     }
+    if text_bytes.saturating_mul(uses.saturating_add(1)) > MAX_TEXT_DRAWN {
+        return refused("SVG text this long is not supported");
+    }
     Ok(())
 }
 
-/// Most text entity references may expand to (bytes): the longest entity value (with the
-/// entities it references expanded) times the number of `&` in the file.
-const MAX_ENTITY_EXPANSION: u64 = 16 << 20;
+/// The length of character data once its entity references are expanded.
+fn char_data_size(data: &[u8], ents: &Entities) -> u64 {
+    let mut size = data.len() as u64;
+    if ents.sizes.is_empty() {
+        return size;
+    }
+    let mut k = 0usize;
+    while let Some(amp) = data.get(k..).and_then(|r| r.iter().position(|c| *c == b'&')).map(|p| k + p) {
+        // The name runs to the `;` (or the next `&` in a malformed reference).
+        let semi = data.get(amp + 1..).and_then(|r| r.iter().position(|c| *c == b';' || *c == b'&')).map_or(data.len(), |p| amp + 1 + p);
+        if let Some(n) = data.get(amp + 1..semi).and_then(|name| ents.sizes.get(name)) {
+            size = size.saturating_add(*n);
+        }
+        k = if data.get(semi) == Some(&b';') { semi + 1 } else { semi };
+    }
+    size
+}
 
-/// Refuses the entity declarations in `decl` when a value holds markup, or when they could expand
-/// past [`MAX_ENTITY_EXPANSION`] given `refs` references in the file. The XML parser only limits
+/// Records the entity declarations in `decl` (a part of `file`). Refuses a value holding markup,
+/// more than [`MAX_ENTITIES`] declarations, and values that could expand past
+/// [`MAX_ENTITY_EXPANSION`] given the references in the file. The XML parser only limits
 /// references nested in entities; any number at the top level each expand to a full copy.
-fn check_entities(decl: &[u8], refs: usize) -> Result<(), Error> {
-    let refused = |why: &str| Err(Error::Parse(format!("entities {why} are not supported")));
-    let mut sizes: Vec<(&[u8], u64)> = Vec::new();
-    let mut longest = 0u64;
+fn check_entities<'a>(decl: &'a [u8], file: &[u8], ents: &mut Entities<'a>) -> Result<(), Error> {
     let mut i = 0usize;
     while let Some(at) = decl.get(i..).and_then(|r| r.windows(8).position(|w| w == b"<!ENTITY")).map(|p| i + p + 8) {
+        ents.count += 1;
+        if ents.count > MAX_ENTITIES {
+            return refused("this many entities are not supported");
+        }
         let rest = decl.get(at..).unwrap_or_default();
         // `<!ENTITY [%] name "value">` (an external entity has no quoted value of its own here).
         let name_start = rest.iter().position(|c| !c.is_ascii_whitespace() && *c != b'%').unwrap_or(rest.len());
@@ -261,23 +339,15 @@ fn check_entities(decl: &[u8], refs: usize) -> Result<(), Error> {
         let vlen = rest.get(q + 1..).and_then(|r| r.iter().position(|c| *c == quote)).unwrap_or(0);
         let value = rest.get(q + 1..q + 1 + vlen).unwrap_or_default();
         if value.contains(&b'<') {
-            return refused("holding markup");
+            return refused("entities holding markup are not supported");
         }
         // The value's expanded length: its text plus the expansions of the entities it names.
-        let mut size = value.len() as u64;
-        let mut k = 0usize;
-        while let Some(amp) = value.get(k..).and_then(|r| r.iter().position(|c| *c == b'&')).map(|p| k + p) {
-            let semi = value.get(amp..).and_then(|r| r.iter().position(|c| *c == b';')).map_or(value.len(), |p| amp + p);
-            let reference = value.get(amp + 1..semi).unwrap_or_default();
-            if let Some((_, n)) = sizes.iter().find(|(nm, _)| *nm == reference) {
-                size = size.saturating_add(*n);
-            }
-            k = semi.saturating_add(1);
-        }
-        sizes.push((name, size));
-        longest = longest.max(size);
-        if longest.saturating_mul(refs as u64) > MAX_ENTITY_EXPANSION {
-            return refused("expanding this far");
+        let size = char_data_size(value, ents);
+        ents.sizes.entry(name).or_insert(size);
+        ents.longest = ents.longest.max(size);
+        let refs = *ents.refs.get_or_insert_with(|| file.iter().filter(|c| **c == b'&').count() as u64);
+        if ents.longest.saturating_mul(refs) > MAX_ENTITY_EXPANSION {
+            return refused("entities expanding this far are not supported");
         }
         i = at + q + 1 + vlen;
     }

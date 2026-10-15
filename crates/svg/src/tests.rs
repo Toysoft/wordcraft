@@ -142,10 +142,11 @@ fn declarations_scan_in_linear_time() {
     assert!(t.elapsed() < std::time::Duration::from_secs(1), "{:?}", t.elapsed());
 }
 
-/// Review 1 #3: text in an SVG draws with the fonts documents use.
+/// Review 1 #3: text in an SVG draws with the fonts documents use (Source Sans 3 is compiled in,
+/// so this holds without system fonts or craft-fonts).
 #[test]
 fn text_is_drawn_with_document_fonts() {
-    let doc = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><text x="5" y="50" font-family="Arial" font-size="50" fill="black">WW</text></svg>"#;
+    let doc = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><text x="5" y="50" font-family="Source Sans 3" font-size="50" fill="black">WW</text></svg>"#;
     let r = parse(doc).unwrap().render(100, 60, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
     let inked = r.rgba.chunks(4).filter(|p| p[3] > 128).count();
     assert!(inked > 200, "the text is drawn: {inked} inked pixels");
@@ -237,4 +238,57 @@ fn chained_uses_and_nested_pictures_stay_within_the_stack() {
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><image href="data:image/svg+xml;base64,{gz}" width="10" height="10"/></svg>"#
     );
     assert!(parse(doc.as_bytes()).is_ok());
+}
+
+/// Review 2 N1: every entity declaration outside a DOCTYPE rescanned the whole file for `&`.
+#[test]
+fn many_entity_declarations_scan_quickly() {
+    let doc = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}</svg>"#, "<!ENTITY a \"\">".repeat(20_000));
+    let t = std::time::Instant::now();
+    let _ = parse(doc.as_bytes());
+    assert!(t.elapsed() < std::time::Duration::from_millis(500), "{:?}", t.elapsed());
+}
+
+/// Review 2 N2: each reference inside an entity value looked the name up in a list (quadratic),
+/// and the number of declarations wasn't capped.
+#[test]
+fn entity_declarations_are_capped() {
+    let mut decls = String::from("<!ENTITY e0 \"x\">");
+    for i in 1..20_000 {
+        decls.push_str(&format!("<!ENTITY e{i} \"&e{};\">", i - 1));
+    }
+    // After the root, so the sniff (which reads 64 KB of prolog) lets the file through to the scan.
+    let doc = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{decls}</svg>"#);
+    let t = std::time::Instant::now();
+    let r = parse(doc.as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("entit")), "{:?}", r.err());
+    assert!(t.elapsed() < std::time::Duration::from_millis(500), "{:?}", t.elapsed());
+}
+
+/// Review 2 N3: text is laid out with real fonts now, so a huge text body is refused before usvg
+/// shapes it — written out, or expanded from entities.
+#[test]
+fn huge_text_bodies_are_refused() {
+    let plain = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>{}</text></svg>"#, "a".repeat(1_200_000));
+    let r = parse(plain.as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("text")), "{:?}", r.err());
+}
+
+#[test]
+fn huge_entity_expanded_text_is_refused() {
+    let expanded = format!(
+        r#"<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY e "{}">]><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text><tspan>{}</tspan></text></svg>"#,
+        "a".repeat(4 << 10),
+        "&e;".repeat(300)
+    );
+    let r = parse(expanded.as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("text")), "{:?}", r.err());
+}
+
+#[test]
+fn text_outside_text_elements_is_not_counted() {
+    // Ordinary labels are fine, and text outside text elements (a title) doesn't count.
+    let ok =
+        format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><title>{}</title><text>Label</text></svg>"#, "t".repeat(2 << 20));
+    assert!(parse(ok.as_bytes()).is_ok());
 }

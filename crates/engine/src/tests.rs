@@ -7282,3 +7282,23 @@ fn hostile_svg_pictures_are_refused() {
         assert!(s.doc.media.is_empty());
     }
 }
+
+/// Review 2 N4: a pasted document's SVG pictures keep their PNG fallbacks (remapped to the new
+/// media keys); a fallback whose SVG isn't there isn't brought over.
+#[test]
+fn pasted_svg_pictures_keep_their_fallbacks() {
+    let mut src = wordcraft_doc::Document::new();
+    let svg = src.add_media(b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"/>".to_vec(), "svg");
+    let png = src.add_media(tiny_png(), "png");
+    src.svg_fallbacks.insert(svg.clone(), png.clone());
+    let orphan = src.add_media(vec![0x89, b'P', b'N', b'G', 1, 2, 3], "png");
+    src.svg_fallbacks.insert("gone.svg".into(), orphan);
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.doc.add_media(vec![1, 2, 3], "png");
+    crate::cmd::paste::adopt(&mut s, src);
+    let (new_svg, new_png) = s.doc.svg_fallbacks.iter().next().map(|(a, b)| (a.clone(), b.clone())).expect("the pairing is kept");
+    assert_eq!(s.doc.svg_fallbacks.len(), 1);
+    assert!(s.doc.media.get(&new_svg).is_some_and(|m| m.starts_with(b"<svg")));
+    assert_eq!(s.doc.media.get(&new_png).map(|m| m.to_vec()), Some(tiny_png()));
+    assert!(!s.doc.media.values().any(|m| m.as_slice() == [0x89, b'P', b'N', b'G', 1, 2, 3]), "the orphan fallback isn't added");
+}
