@@ -80,13 +80,29 @@ impl Session {
     pub fn recovery_wait(&self) -> Option<std::time::Duration> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(r) = &self.recovery
-            && self.dirty
-            && self.password.is_none()
             && !r.busy
+            && ((self.dirty && self.password.is_none()) || r.has_stale())
         {
             return r.wait(self.document_id(), self.rev());
         }
         None
+    }
+    /// Remove the current document's recovery copy now, waiting for the worker: the user chose
+    /// Don't Save, or is closing a saved document. A copy left behind would be offered as unsaved
+    /// work at every later start. A failure is logged and the copy stays (it is never lost).
+    pub fn discard_recovery(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let document = self.document_id();
+            if let Some(r) = &mut self.recovery {
+                if r.document_is(document)
+                    && let Err(e) = r.purge()
+                {
+                    log::warn!("recovery: cannot discard the copy: {e}");
+                }
+                r.purge_stale();
+            }
+        }
     }
     /// Only an explicit protect/save action waits for the worker and removes plaintext copies.
     /// A failure prevents applying the password; typing never waits.

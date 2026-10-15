@@ -995,6 +995,14 @@ impl Session {
 
     /// Replace the document (open/new).
     pub fn set_document(&mut self, doc: Document) {
+        // A saved document's recovery copy is out of date once it is replaced (an unsaved one's
+        // is kept: it may be the only copy of that work, say when an agent opened another file).
+        #[cfg(not(target_arch = "wasm32"))]
+        if !self.dirty
+            && let Some(r) = &mut self.recovery
+        {
+            r.replaced_clean(self.document_id);
+        }
         self.document_id = self.document_id.wrapping_add(1);
         self.bib_style = doc_bib_style(&doc);
         self.doc = doc;

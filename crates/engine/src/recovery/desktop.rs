@@ -10,6 +10,12 @@ use std::time::{Duration, Instant};
 use wordcraft_doc::Document;
 
 const INTERVAL: Duration = Duration::from_secs(10);
+/// A snapshot takes at most this share of the worker's time: after one that took `t`, the next
+/// waits at least `t * DUTY`. A two-second snapshot of a large document every ten seconds kept a
+/// fifth of a core busy while typing.
+const DUTY: u32 = 20;
+/// The longest wait between snapshots of a changed document, however slow they are.
+const MAX_INTERVAL: Duration = Duration::from_secs(300);
 const MAX_BYTES: u64 = 256 << 20;
 const MAX_RECORDS: usize = 128;
 const MAX_FILES: usize = 16;
@@ -44,6 +50,26 @@ fn private_dir(path: &Path) -> io::Result<()> {
         b.mode(0o700);
     }
     b.create(path)
+}
+/// Make an existing recovery folder private too: `private_dir`'s mode applies only to folders it
+/// creates, and copies of unsaved documents must not be readable by other users.
+fn tighten(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = fs::metadata(path)?;
+        if !meta.is_dir() {
+            return Err(io::Error::other("the recovery folder is not a folder"));
+        }
+        if meta.permissions().mode() & 0o077 != 0 {
+            fs::set_permissions(path, fs::Permissions::from_mode(meta.permissions().mode() & 0o700))?;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
 }
 fn private_file(path: &Path, exclusive: bool) -> io::Result<File> {
     let mut o = OpenOptions::new();
@@ -100,6 +126,7 @@ fn read_snapshot(path: &Path) -> Result<Snapshot, String> {
 impl Store {
     fn new(root: PathBuf) -> Result<Self, String> {
         private_dir(&root).map_err(|e| e.to_string())?;
+        tighten(&root).map_err(|e| e.to_string())?;
         Ok(Self { root, entries: BTreeMap::new(), locks: BTreeMap::new() })
     }
     fn directories(&self) -> Result<Vec<PathBuf>, String> {
@@ -159,54 +186,69 @@ impl Store {
         let mut unreadable = false;
         for dir in self.directories()? {
             let Some(id) = dir.file_name().and_then(|s| s.to_str()) else { continue };
-            let guard = if self.locks.contains_key(id) {
-                None
-            } else {
-                match self.lock(id) {
-                    Ok(f) => Some(f),
-                    Err(e) => {
-                        log::debug!("recovery: {e}");
-                        continue;
-                    }
+            // One record that can't be read (say, too many generations) is skipped and reported;
+            // it must not hide the others.
+            match self.scan_record(&dir, id, &mut entries) {
+                Ok(complete) => unreadable |= !complete,
+                Err(e) => {
+                    unreadable = true;
+                    log::warn!("recovery: skipping record {}: {e}", dir.display());
                 }
-            };
-            // A crashed writer can leave an incomplete temporary file. Only clean records
-            // we have locked, so another instance's write is never interrupted.
-            for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                if entry.file_type().map_err(|e| e.to_string())?.is_file()
-                    && entry.file_name().to_str().is_some_and(|n| n.strip_prefix("pending-").and_then(|n| n.strip_suffix(".tmp")).is_some_and(id_ok))
-                {
-                    fs::remove_file(entry.path()).map_err(|e| e.to_string())?;
-                }
-            }
-            for path in Self::files(&dir)? {
-                match read_snapshot(&path) {
-                    Ok(s) if s.info.id == id && Some(s.generation) == generation(&path) => {
-                        entries.insert(id.to_string(), Entry { info: s.info, path });
-                        break;
-                    }
-                    Ok(_) => {
-                        unreadable = true;
-                        log::warn!("recovery: mismatched record {}", path.display());
-                    }
-                    Err(e) => {
-                        unreadable = true;
-                        log::warn!("recovery: unreadable {}: {e}", path.display());
-                    }
-                }
-            }
-            drop(guard);
-            // A crash before the first commit leaves no document to recover. Reclaim
-            // that slot only under a fresh lock and the discard path's entry checks.
-            if Self::files(&dir)?.is_empty()
-                && let Err(e) = self.discard(id)
-            {
-                log::warn!("recovery: cannot remove empty record: {e}");
             }
         }
         self.entries = entries;
         if unreadable { Err("Some recovery files could not be read. Earlier valid copies are listed when available.".into()) } else { Ok(()) }
+    }
+    /// List record `id`'s newest valid generation in `entries`. `Ok(false)` when a newer one
+    /// couldn't be read.
+    fn scan_record(&mut self, dir: &Path, id: &str, entries: &mut BTreeMap<String, Entry>) -> Result<bool, String> {
+        let guard = if self.locks.contains_key(id) {
+            None
+        } else {
+            match self.lock(id) {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    log::debug!("recovery: {e}");
+                    return Ok(true);
+                }
+            }
+        };
+        let mut complete = true;
+        // A crashed writer can leave an incomplete temporary file. Only clean records
+        // we have locked, so another instance's write is never interrupted.
+        for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry.file_type().map_err(|e| e.to_string())?.is_file()
+                && entry.file_name().to_str().is_some_and(|n| n.strip_prefix("pending-").and_then(|n| n.strip_suffix(".tmp")).is_some_and(id_ok))
+            {
+                fs::remove_file(entry.path()).map_err(|e| e.to_string())?;
+            }
+        }
+        for path in Self::files(dir)? {
+            match read_snapshot(&path) {
+                Ok(s) if s.info.id == id && Some(s.generation) == generation(&path) => {
+                    entries.insert(id.to_string(), Entry { info: s.info, path });
+                    break;
+                }
+                Ok(_) => {
+                    complete = false;
+                    log::warn!("recovery: mismatched record {}", path.display());
+                }
+                Err(e) => {
+                    complete = false;
+                    log::warn!("recovery: unreadable {}: {e}", path.display());
+                }
+            }
+        }
+        drop(guard);
+        // A crash before the first commit leaves no document to recover. Reclaim
+        // that slot only under a fresh lock and the discard path's entry checks.
+        if Self::files(dir)?.is_empty()
+            && let Err(e) = self.discard(id)
+        {
+            log::warn!("recovery: cannot remove empty record: {e}");
+        }
+        Ok(complete)
     }
     fn inventory(&self) -> Vec<RecoveryInfo> {
         let mut v: Vec<_> = self.entries.values().map(|e| e.info.clone()).collect();
@@ -243,6 +285,7 @@ impl Store {
             }
             private_dir(&dir).map_err(|e| e.to_string())?;
         }
+        tighten(&dir).map_err(|e| e.to_string())?;
         self.acquire(&s.info.id)?;
         let files = Self::files(&dir)?;
         if files.len() >= MAX_FILES {
@@ -357,9 +400,13 @@ enum Outcome {
 struct Event {
     documents: Vec<RecoveryInfo>,
     outcome: Result<Outcome, String>,
+    /// How long a snapshot took to write (also when it failed), to pace the next ([`DUTY`]).
+    saved_in: Option<Duration>,
 }
 pub(crate) struct Recovery {
-    tx: mpsc::SyncSender<Job>,
+    /// `None` once dropped, which ends the worker ([`Drop`]).
+    tx: Option<mpsc::SyncSender<Job>>,
+    worker: Option<std::thread::JoinHandle<()>>,
     rx: mpsc::Receiver<Event>,
     pub documents: Vec<RecoveryInfo>,
     pub ready: bool,
@@ -370,35 +417,44 @@ pub(crate) struct Recovery {
     revision: Option<u64>,
     due: Instant,
     alive: bool,
+    /// Copies of documents that were saved and then replaced before a tick discarded them:
+    /// removed when the worker is free, so they aren't offered as unsaved work at the next start.
+    stale: Vec<String>,
 }
 impl Recovery {
     pub fn start(root: PathBuf, wake: Arc<dyn Fn() + Send + Sync>) -> Result<Self, String> {
         let (tx, jobs) = mpsc::sync_channel(1);
         let (events, rx) = mpsc::channel();
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("wordcraft-recovery".into())
             .spawn(move || {
                 let mut store = match Store::new(root) {
                     Ok(s) => s,
                     Err(e) => {
-                        let _ = events.send(Event { documents: Vec::new(), outcome: Err(e) });
+                        let _ = events.send(Event { documents: Vec::new(), outcome: Err(e), saved_in: None });
                         wake();
                         return;
                     }
                 };
                 let initial = store.scan().map(|_| Outcome::Done);
-                if events.send(Event { documents: store.inventory(), outcome: initial }).is_err() {
+                if events.send(Event { documents: store.inventory(), outcome: initial, saved_in: None }).is_err() {
                     return;
                 }
                 wake();
                 while let Ok(job) = jobs.recv() {
+                    let mut saved_in = None;
                     let result = match job {
-                        Job::Save(s) => store.save(*s).map(|_| Outcome::Done),
+                        Job::Save(s) => {
+                            let started = Instant::now();
+                            let result = store.save(*s).map(|_| Outcome::Done);
+                            saved_in = Some(started.elapsed());
+                            result
+                        }
                         Job::Scan => store.scan().map(|_| Outcome::Done),
                         Job::Load(id, expected) => store.load(&id).map(|s| Outcome::Loaded(Box::new(s), expected)),
                         Job::Discard(id) => store.discard(&id).map(|_| Outcome::Discarded(id)),
                     };
-                    if events.send(Event { documents: store.inventory(), outcome: result }).is_err() {
+                    if events.send(Event { documents: store.inventory(), outcome: result, saved_in }).is_err() {
                         break;
                     }
                     wake();
@@ -406,7 +462,8 @@ impl Recovery {
             })
             .map_err(|e| e.to_string())?;
         Ok(Self {
-            tx,
+            tx: Some(tx),
+            worker: Some(worker),
             rx,
             documents: Vec::new(),
             ready: false,
@@ -417,6 +474,7 @@ impl Recovery {
             revision: None,
             due: Instant::now() + INTERVAL,
             alive: true,
+            stale: Vec::new(),
         })
     }
     fn queue(&mut self, job: Job) -> Result<(), String> {
@@ -426,7 +484,7 @@ impl Recovery {
         if self.busy {
             return Err("recovery is busy; try again when it finishes".into());
         }
-        self.tx.try_send(job).map_err(|e| e.to_string())?;
+        self.tx.as_ref().ok_or("recovery worker is unavailable")?.try_send(job).map_err(|e| e.to_string())?;
         self.busy = true;
         self.error = None;
         Ok(())
@@ -437,7 +495,7 @@ impl Recovery {
                 self.busy = false;
                 self.ready = true;
                 self.documents = e.documents;
-                match e.outcome {
+                let loaded = match e.outcome {
                     Ok(Outcome::Done) => None,
                     Ok(Outcome::Discarded(id)) => {
                         if self.id.as_deref() == Some(&id) {
@@ -452,7 +510,12 @@ impl Recovery {
                         self.due = Instant::now() + INTERVAL;
                         None
                     }
+                };
+                // A slow snapshot spaces out the next, so recovery stays a small share of a core.
+                if let Some(took) = e.saved_in {
+                    self.due = self.due.max(Instant::now() + took.saturating_mul(DUTY).min(MAX_INTERVAL));
                 }
+                loaded
             }
             Err(mpsc::TryRecvError::Empty) => None,
             Err(mpsc::TryRecvError::Disconnected) => {
@@ -480,6 +543,9 @@ impl Recovery {
         if self.busy || !self.ready || !self.alive {
             return Ok(());
         }
+        if let Some(id) = self.stale.pop() {
+            return self.queue(Job::Discard(id));
+        }
         if !s.dirty || s.password.is_some() {
             if let Some(id) = self.id.clone() {
                 self.queue(Job::Discard(id))?;
@@ -504,7 +570,23 @@ impl Recovery {
     pub fn document_is(&self, document: u64) -> bool {
         self.document == Some(document)
     }
+    /// The document `document` is being replaced while saved: its copy, if a tick hasn't
+    /// discarded it yet, is out of date.
+    pub fn replaced_clean(&mut self, document: u64) {
+        if self.document == Some(document)
+            && let Some(id) = self.id.take()
+        {
+            self.stale.push(id);
+            self.revision = None;
+        }
+    }
+    pub fn has_stale(&self) -> bool {
+        !self.stale.is_empty()
+    }
     pub fn wait(&self, document: u64, revision: u64) -> Option<Duration> {
+        if self.alive && self.ready && !self.busy && !self.stale.is_empty() {
+            return Some(Duration::from_millis(100));
+        }
         if !self.alive || !self.ready || self.busy || (self.document == Some(document) && self.revision == Some(revision)) {
             return None;
         }
@@ -529,8 +611,25 @@ impl Recovery {
     pub fn refresh(&mut self) -> Result<(), String> {
         self.queue(Job::Scan)
     }
+    /// Remove the current document's copy now, waiting for the worker.
     pub fn purge(&mut self) -> Result<(), String> {
         let Some(id) = self.id.clone() else { return Ok(()) };
+        self.discard_now(id)?;
+        self.id = None;
+        self.revision = None;
+        Ok(())
+    }
+    /// Remove the copies of replaced saved documents ([`Self::replaced_clean`]) now, before the
+    /// app exits. A copy that can't be removed stays (it is never lost).
+    pub fn purge_stale(&mut self) {
+        while let Some(id) = self.stale.pop() {
+            if let Err(e) = self.discard_now(id) {
+                log::warn!("recovery: cannot discard an out-of-date copy: {e}");
+            }
+        }
+    }
+    /// Discard the copy `id`, waiting for the job under way and then for the discard.
+    fn discard_now(&mut self, id: String) -> Result<(), String> {
         if self.busy {
             let e = self.rx.recv().map_err(|e| e.to_string())?;
             self.documents = e.documents;
@@ -544,10 +643,21 @@ impl Recovery {
         let e = self.rx.recv().map_err(|e| e.to_string())?;
         self.busy = false;
         self.documents = e.documents;
-        e.outcome?;
-        self.id = None;
-        self.revision = None;
-        Ok(())
+        e.outcome.map(|_| ())
+    }
+}
+
+/// Let the worker finish the job under way and release its record locks before the session is
+/// gone: a snapshot being written at exit completes rather than being cut off, and a session
+/// started next (the next launch, or a test) can lock and list that copy.
+impl Drop for Recovery {
+    fn drop(&mut self) {
+        drop(self.tx.take());
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            log::warn!("recovery: the worker stopped abnormally");
+        }
     }
 }
 
@@ -912,5 +1022,213 @@ mod tests {
         s.run("file.encrypt", &json!({"password": "synthetic-password"})).unwrap();
         settle(&mut s);
         assert_eq!(s.recovery_documents().len(), 1);
+    }
+
+    /// `private_dir` sets the mode only on folders it creates: an existing recovery folder (and
+    /// record folder) that others could read is made private before a copy is written into it.
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_recovery_folder_is_made_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let t = Temp::new();
+        let root = t.0.join("recovery");
+        let id = new_id().unwrap();
+        fs::create_dir_all(root.join(&id)).unwrap();
+        for dir in [&root, &root.join(&id)] {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mut store = Store::new(root.clone()).unwrap();
+        assert_eq!(mode(&root), 0o700);
+        store.save(snapshot(&id, "Private synthetic draft")).unwrap();
+        assert_eq!(mode(&root.join(&id)), 0o700);
+        // Every file in a record, the lock included, is the owner's only.
+        let files: Vec<PathBuf> = fs::read_dir(root.join(&id)).unwrap().map(|e| e.unwrap().path()).collect();
+        assert_eq!(files.len(), 2, "{files:?}");
+        for f in files {
+            assert_eq!(mode(&f), 0o600, "{}", f.display());
+        }
+    }
+
+    /// One record failing a per-record check (here, more generations than discovery reads) is
+    /// skipped and reported; it used to end the scan, so no copy at all was offered.
+    #[test]
+    fn one_unreadable_record_does_not_hide_the_others() {
+        let t = Temp::new();
+        let (good, bad) = (new_id().unwrap(), new_id().unwrap());
+        // The same store scans, holding the good record's lock: no other process can be holding
+        // it for a moment (#1849).
+        let mut store = Store::new(t.0.clone()).unwrap();
+        store.save(snapshot(&good, "Valid synthetic draft")).unwrap();
+        private_dir(&t.0.join(&bad)).unwrap();
+        for n in 1..=MAX_FILES + 1 {
+            fs::write(t.0.join(&bad).join(format!("snapshot-{n:020}.json")), b"{truncated").unwrap();
+        }
+        store.entries.clear();
+        assert!(store.scan().is_err(), "the bad record is reported");
+        let listed: Vec<String> = store.inventory().into_iter().map(|i| i.id).collect();
+        assert_eq!(listed, vec![good.clone()]);
+        assert_eq!(store.load(&good).unwrap().document.plain_text(StoryRef::Body), "Valid synthetic draft");
+        assert!(t.0.join(&bad).exists(), "the bad record is left alone");
+    }
+
+    /// A document saved and then replaced before a tick saw it saved (Save, then New or Open at
+    /// once) left its copy behind, offered as unsaved work at every later start; so did Don't Save.
+    #[test]
+    fn copies_of_saved_or_abandoned_documents_do_not_outlive_them() {
+        let t = Temp::new();
+        let root = t.0.join("profile");
+        let mut s = session(&root);
+        s.run("text.insert", &json!({"text": "Saved synthetic draft"})).unwrap();
+        save_now(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1);
+        s.run("file.save", &json!({"path": t.0.join("saved.docx")})).unwrap();
+        s.run("file.new", &json!({})).unwrap();
+        assert!(s.recovery_wait().is_some(), "the out-of-date copy schedules its own removal");
+        save_now(&mut s);
+        settle(&mut s);
+        assert!(s.recovery_documents().is_empty());
+        assert!(fs::read_dir(&root).unwrap().next().is_none(), "the out-of-date copy is gone from disk");
+
+        // Saved, then the app closes before a tick: the copy goes before exit.
+        s.run("text.insert", &json!({"text": "Saved before closing"})).unwrap();
+        save_now(&mut s);
+        s.run("file.save", &json!({"path": t.0.join("closing.docx")})).unwrap();
+        s.discard_recovery();
+        assert!(fs::read_dir(&root).unwrap().next().is_none());
+
+        // Don't Save: the abandoned document's copy goes at once, without waiting for a tick.
+        s.run("file.new", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": "Abandoned synthetic draft"})).unwrap();
+        save_now(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1);
+        s.discard_recovery();
+        assert!(fs::read_dir(&root).unwrap().next().is_none());
+
+        // An unsaved document replaced without a choice (an agent opening a file) keeps its copy.
+        s.run("text.insert", &json!({"text": "Only copy of this work"})).unwrap();
+        save_now(&mut s);
+        s.run("file.new", &json!({})).unwrap();
+        save_now(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1);
+        drop(s);
+        let s = session(&root);
+        assert_eq!(s.recovery_documents().len(), 1, "offered at the next start");
+    }
+
+    /// A slow snapshot spaces out the next, at most [`MAX_INTERVAL`] later, so recovery stays a
+    /// small share of a core on a large document; a quick one keeps the ten-second interval.
+    #[test]
+    fn slow_snapshots_space_out_the_next() {
+        let t = Temp::new();
+        let mut s = session(&t.0);
+        let r = s.recovery.as_mut().unwrap();
+        // Stand in for the worker's report.
+        let (events, rx) = mpsc::channel();
+        let worker_events = std::mem::replace(&mut r.rx, rx);
+        for (took, least, most) in [
+            (Duration::from_millis(20), INTERVAL - Duration::from_secs(1), INTERVAL),
+            (Duration::from_secs(3), Duration::from_secs(59), Duration::from_secs(60)),
+            (Duration::from_secs(100), MAX_INTERVAL - Duration::from_secs(1), MAX_INTERVAL),
+        ] {
+            r.due = Instant::now() + INTERVAL;
+            r.busy = true;
+            events.send(Event { documents: Vec::new(), outcome: Ok(Outcome::Done), saved_in: Some(took) }).unwrap();
+            assert!(r.poll().is_none());
+            let wait = r.due.saturating_duration_since(Instant::now());
+            assert!(wait > least && wait <= most, "{took:?}: next in {wait:?}");
+        }
+        drop(worker_events);
+    }
+
+    /// Ending a session lets the worker finish the snapshot under way and release its lock, so a
+    /// session started next lists the copy. It used to be cut off or still locked, and missed.
+    #[test]
+    fn ending_a_session_finishes_the_snapshot_under_way() {
+        let t = Temp::new();
+        let mut s = session(&t.0);
+        s.run("text.insert", &json!({"text": "Written as the session ends"})).unwrap();
+        s.recovery.as_mut().unwrap().due = Instant::now();
+        s.recovery_tick();
+        assert!(s.recovery_busy());
+        drop(s);
+        let records: Vec<PathBuf> = fs::read_dir(&t.0).unwrap().map(|e| e.unwrap().path()).collect();
+        assert_eq!(records.len(), 1);
+        assert_eq!(Store::files(&records[0]).unwrap().len(), 1, "the snapshot was finished");
+        let s = session(&t.0);
+        assert_eq!(s.recovery_documents().len(), 1);
+    }
+
+    /// Measures what recovery costs on a large synthetic document: copy size, `.json` size, the
+    /// worker's time per snapshot and its share of a core while typing. Run on demand:
+    /// `cargo test --release -p wordcraft-engine recovery_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement"]
+    fn recovery_cost_on_a_large_document() {
+        let para = "Synthetic recovery measurement text with several ordinary words in it. ".repeat(8);
+        let text: Vec<String> = (0..6000).map(|i| format!("{i} {para}")).collect();
+        let mut doc = Document::from_text(&text.join("\n"));
+        // Incompressible bytes, as a photograph's are.
+        let mut noise = vec![0u8; 27 << 20];
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        for b in noise.iter_mut() {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            *b = x as u8;
+        }
+        doc.media.insert("media/image1.png".into(), Arc::new(noise));
+        let t0 = Instant::now();
+        let saved = crate::io::save_bytes("doc.json", &doc).unwrap();
+        println!(".json file: {} MB, written in {:?}", saved.len() >> 20, t0.elapsed());
+        let t0 = Instant::now();
+        let reopened = crate::io::open_bytes("doc.json", &saved).unwrap();
+        println!(".json file: opened in {:?}", t0.elapsed());
+        assert_eq!(reopened.media, doc.media);
+        drop((saved, reopened));
+        let t = Temp::new();
+        let mut s = session(&t.0);
+        s.set_document(doc);
+        s.run("text.insert", &json!({"text": "edit"})).unwrap();
+        let t0 = Instant::now();
+        s.recovery.as_mut().unwrap().due = Instant::now();
+        s.recovery_tick();
+        println!("UI thread: recovery_tick that queues a snapshot {:?}", t0.elapsed());
+        settle(&mut s);
+        println!("worker: first snapshot written in {:?} (error: {:?})", t0.elapsed(), s.recovery_error());
+        let size: u64 = Store::files(&t.0.join(&s.recovery_documents()[0].id)).unwrap().iter().map(|p| fs::metadata(p).unwrap().len()).sum();
+        println!("recovery copy: {} MB", size >> 20);
+        // Two minutes of typing, a character every 100 ms, ticking as the app's frames do.
+        let (window, mut busy_since, mut busy, mut snapshots) = (Duration::from_secs(120), None::<Instant>, Duration::ZERO, 0);
+        let (start, mut typed) = (Instant::now(), Instant::now());
+        while start.elapsed() < window {
+            if typed.elapsed() >= Duration::from_millis(100) {
+                s.run("text.insert", &json!({"text": "x"})).unwrap();
+                typed = Instant::now();
+            }
+            s.recovery_tick();
+            match (busy_since, s.recovery_busy()) {
+                (None, true) => {
+                    busy_since = Some(Instant::now());
+                    snapshots += 1;
+                }
+                (Some(since), false) => {
+                    busy += since.elapsed();
+                    busy_since = None;
+                }
+                _ => {}
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        if let Some(since) = busy_since {
+            busy += since.elapsed();
+        }
+        let share = busy.as_secs_f64() * 100.0 / start.elapsed().as_secs_f64();
+        println!("typing for {window:?}: {snapshots} snapshots, worker busy {busy:?} = {share:.1}% of a core");
+        settle(&mut s);
+        drop(s);
+        let t0 = Instant::now();
+        let s = session(&t.0);
+        println!("start-up scan listing {} copies: {:?}", s.recovery_documents().len(), t0.elapsed());
     }
 }

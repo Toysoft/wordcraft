@@ -2224,6 +2224,19 @@
 
 # Backstage › Recover (#586)
 	Recover	Oporavi
+	Recover documents	Oporavi dokumente
+	Restore opens an unsaved copy. Your original file stays unchanged.	Vraćanje otvara nesačuvanu kopiju. Originalna datoteka ostaje nepromenjena.
+	Recovery is disabled while this document has a password.	Oporavak je isključen dok ovaj dokument ima lozinku.
+	Local recovery is unavailable or still loading.	Lokalni oporavak nije dostupan ili se još učitava.
+	No recovery copies.	Nema kopija za oporavak.
+	Recovery copy	Kopija za oporavak
+	Restore	Vrati
+	Discard…	Odbaci…
+	Continue without restoring	Nastavi bez vraćanja
+	Discard recovery copy	Odbaci kopiju za oporavak
+	Discard the recovery copy of {name}?	Odbaciti kopiju za oporavak dokumenta {name}?
+	This cannot be undone. Your original file stays unchanged.	Ovo ne može da se opozove. Originalna datoteka ostaje nepromenjena.
+	Discard	Odbaci
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Preslikane margine

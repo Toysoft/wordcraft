@@ -201,7 +201,7 @@ fn untranslated_interface_text() {
         record(&app, &format!("tab {tab}"), drawn);
     }
     let _ = app.run("ui.tab", json!({"tab": "Home"}));
-    for page in ["home", "new", "open", "info", "export", "options"] {
+    for page in ["home", "new", "open", "info", "export", "options", "recover"] {
         let _ = app.run("ui.backstage", json!({"value": true, "page": page}));
         let drawn = frame(&ctx, &mut app);
         record(&app, &format!("File › {page}"), drawn);
@@ -247,6 +247,12 @@ fn untranslated_interface_text() {
         record(&app, &format!("dialog {name}"), drawn);
         app.dialog = None;
     }
+    // Opened from a copy listed on File › Recover, which this app has none of. The copy's name
+    // has no letters: it is the user's, not the interface's.
+    app.dialog = Some(crate::dialogs::Dialog::DiscardRecovery { id: "0".repeat(32), name: "42".into() });
+    let drawn = frame(&ctx, &mut app);
+    record(&app, "dialog discardRecovery", drawn);
+    app.dialog = None;
     let panes: Vec<String> =
         app.session.registry.all().iter().map(|c| c.id.to_string()).filter(|id| id.starts_with("view.") && id.ends_with("Pane")).collect();
     for pane in &panes {

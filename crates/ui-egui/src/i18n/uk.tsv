@@ -2226,6 +2226,19 @@
 
 # Backstage › Recover (#586)
 	Recover	Відновити
+	Recover documents	Відновити документи
+	Restore opens an unsaved copy. Your original file stays unchanged.	Відновлення відкриває незбережену копію. Вихідний файл не зміниться.
+	Recovery is disabled while this document has a password.	Відновлення вимкнено, доки документ має пароль.
+	Local recovery is unavailable or still loading.	Локальне відновлення недоступне або ще завантажується.
+	No recovery copies.	Немає копій для відновлення.
+	Recovery copy	Копія для відновлення
+	Restore	Відновити
+	Discard…	Видалити…
+	Continue without restoring	Продовжити без відновлення
+	Discard recovery copy	Видалити копію для відновлення
+	Discard the recovery copy of {name}?	Видалити копію для відновлення документа {name}?
+	This cannot be undone. Your original file stays unchanged.	Цю дію не можна скасувати. Вихідний файл не зміниться.
+	Discard	Видалити
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Дзеркальні поля

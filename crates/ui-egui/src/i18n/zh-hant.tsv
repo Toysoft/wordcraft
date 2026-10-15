@@ -2215,6 +2215,19 @@
 
 # Backstage › Recover (#586)
 	Recover	復原
+	Recover documents	復原文件
+	Restore opens an unsaved copy. Your original file stays unchanged.	還原會開啟一個未儲存的副本。原始檔案保持不變。
+	Recovery is disabled while this document has a password.	此文件設有密碼時，復原功能已停用。
+	Local recovery is unavailable or still loading.	本機復原無法使用或仍在載入。
+	No recovery copies.	沒有復原副本。
+	Recovery copy	復原副本
+	Restore	還原
+	Discard…	捨棄…
+	Continue without restoring	繼續而不還原
+	Discard recovery copy	捨棄復原副本
+	Discard the recovery copy of {name}?	要捨棄 {name} 的復原副本嗎？
+	This cannot be undone. Your original file stays unchanged.	此動作無法復原。原始檔案保持不變。
+	Discard	捨棄
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	左右對稱邊界

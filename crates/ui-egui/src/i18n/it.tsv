@@ -2596,6 +2596,19 @@ preview	Title	Esempio
 
 # Backstage › Recover (#586)
 	Recover	Ripristina
+	Recover documents	Recupera documenti
+	Restore opens an unsaved copy. Your original file stays unchanged.	Il ripristino apre una copia non salvata. Il file originale resta invariato.
+	Recovery is disabled while this document has a password.	Il recupero è disattivato finché questo documento ha una password.
+	Local recovery is unavailable or still loading.	Il recupero locale non è disponibile o è ancora in caricamento.
+	No recovery copies.	Nessuna copia di recupero.
+	Recovery copy	Copia di recupero
+	Restore	Ripristina
+	Discard…	Elimina…
+	Continue without restoring	Continua senza ripristinare
+	Discard recovery copy	Elimina copia di recupero
+	Discard the recovery copy of {name}?	Eliminare la copia di recupero di {name}?
+	This cannot be undone. Your original file stays unchanged.	L’operazione non può essere annullata. Il file originale resta invariato.
+	Discard	Elimina
 
 # Bibliography styles, proofing messages and labels the French, Hungarian, Polish and Bulgarian catalogs added
 	APA	APA

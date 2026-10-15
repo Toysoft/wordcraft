@@ -989,7 +989,15 @@ impl WordApp {
         }
         let go = match choice {
             SaveChoice::Cancel => false,
-            SaveChoice::DontSave => true,
+            // Don't Save gives the changes up: their recovery copy goes too, or it would be
+            // offered as unsaved work at every later start (#586). Not before a restore, which
+            // may be of that very copy.
+            SaveChoice::DontSave => {
+                if then != "file.recover" {
+                    self.session.discard_recovery();
+                }
+                true
+            }
             // A new document: ask where through Save As; the command runs once that has saved,
             // which with the desktop's non-blocking dialog is on a later frame (#94).
             SaveChoice::Save if self.session.path.is_none() && self.services.download.is_none() => {
@@ -1165,6 +1173,12 @@ impl WordApp {
         }
         // No document open (#1129): nothing to save.
         if self.quit_requested || !self.session.dirty || !self.has_document() {
+            // A saved document's recovery copy is out of date: remove it before exit rather than
+            // on a tick that may not come. One with unsaved changes (an agent's forced quit) stays,
+            // to be offered at the next start.
+            if !self.session.dirty {
+                self.session.discard_recovery();
+            }
             return true;
         }
         let _ = self.run("file.close", json!({}));

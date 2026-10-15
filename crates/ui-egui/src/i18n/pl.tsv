@@ -2603,6 +2603,19 @@ preview	Title	Tytuł
 
 # Backstage › Recover (#586)
 	Recover	Odzyskaj
+	Recover documents	Odzyskaj dokumenty
+	Restore opens an unsaved copy. Your original file stays unchanged.	Przywrócenie otwiera niezapisaną kopię. Oryginalny plik pozostaje bez zmian.
+	Recovery is disabled while this document has a password.	Odzyskiwanie jest wyłączone, dopóki ten dokument ma hasło.
+	Local recovery is unavailable or still loading.	Lokalne odzyskiwanie jest niedostępne lub wciąż się wczytuje.
+	No recovery copies.	Brak kopii do odzyskania.
+	Recovery copy	Kopia do odzyskania
+	Restore	Przywróć
+	Discard…	Odrzuć…
+	Continue without restoring	Kontynuuj bez przywracania
+	Discard recovery copy	Odrzuć kopię do odzyskania
+	Discard the recovery copy of {name}?	Odrzucić kopię do odzyskania dokumentu {name}?
+	This cannot be undone. Your original file stays unchanged.	Tej operacji nie można cofnąć. Oryginalny plik pozostaje bez zmian.
+	Discard	Odrzuć
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Marginesy lustrzane

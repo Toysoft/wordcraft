@@ -2611,6 +2611,19 @@
 
 # Backstage › Recover (#586)
 	Recover	Khôi phục
+	Recover documents	Khôi phục tài liệu
+	Restore opens an unsaved copy. Your original file stays unchanged.	Khôi phục sẽ mở một bản sao chưa lưu. Tệp gốc của bạn vẫn giữ nguyên.
+	Recovery is disabled while this document has a password.	Tính năng khôi phục bị tắt khi tài liệu này có mật khẩu.
+	Local recovery is unavailable or still loading.	Khôi phục cục bộ không khả dụng hoặc vẫn đang tải.
+	No recovery copies.	Không có bản sao khôi phục nào.
+	Recovery copy	Bản sao khôi phục
+	Restore	Khôi phục
+	Discard…	Loại bỏ…
+	Continue without restoring	Tiếp tục mà không khôi phục
+	Discard recovery copy	Loại bỏ bản sao khôi phục
+	Discard the recovery copy of {name}?	Loại bỏ bản sao khôi phục của {name}?
+	This cannot be undone. Your original file stays unchanged.	Không thể hoàn tác thao tác này. Tệp gốc của bạn vẫn giữ nguyên.
+	Discard	Loại bỏ
 
 # STYLEREF switch labels (#1294)
 	Add whether it is above or below	Thêm là ở phía trên hay phía dưới

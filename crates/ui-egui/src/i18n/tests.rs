@@ -152,6 +152,36 @@ fn every_tab_and_command_is_translated() {
     assert!(missing.is_empty(), "untranslated: {missing:#?}");
 }
 
+/// File › Recover and its Discard dialog (#586) are translated in every language; they shipped
+/// in English only. (The audit draws them too, but checks only the complete catalogs.)
+#[test]
+fn the_recover_page_is_translated_in_every_language() {
+    let page = [
+        "Recover",
+        "Recover documents",
+        "Restore opens an unsaved copy. Your original file stays unchanged.",
+        "Recovery is disabled while this document has a password.",
+        "Local recovery is unavailable or still loading.",
+        "No recovery copies.",
+        "Document",
+        "Recovery copy",
+        "Restore",
+        "Discard…",
+        "Continue without restoring",
+        "Refresh",
+        "Discard recovery copy",
+        "Discard the recovery copy of {name}?",
+        "This cannot be undone. Your original file stays unchanged.",
+        "Cancel",
+        "Discard",
+    ];
+    let missing: Vec<String> = Lang::all()
+        .filter(|l| *l != Lang::EN)
+        .flat_map(|l| page.iter().filter(move |s| !has(l, s)).map(move |s| format!("{}: {s:?}", l.code())))
+        .collect();
+    assert!(missing.is_empty(), "untranslated: {missing:#?}");
+}
+
 #[test]
 fn korean_print_settings_and_printer_feedback_are_translated() {
     let korean = lang("ko");

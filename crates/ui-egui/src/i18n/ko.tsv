@@ -2488,3 +2488,19 @@ preview	Title	제목
 	Bottom Right Cell	오른쪽 아래 셀
 	Inside Horizontal Border	안쪽 가로 테두리
 	Inside Vertical Border	안쪽 세로 테두리
+
+# Backstage › Recover (#586)
+	Recover	복구
+	Recover documents	문서 복구
+	Restore opens an unsaved copy. Your original file stays unchanged.	복원하면 저장되지 않은 사본이 열립니다. 원본 파일은 변경되지 않습니다.
+	Recovery is disabled while this document has a password.	이 문서에 암호가 설정되어 있는 동안에는 복구를 사용할 수 없습니다.
+	Local recovery is unavailable or still loading.	로컬 복구를 사용할 수 없거나 아직 불러오는 중입니다.
+	No recovery copies.	복구 사본이 없습니다.
+	Recovery copy	복구 사본
+	Restore	복원
+	Discard…	버리기…
+	Continue without restoring	복원하지 않고 계속
+	Discard recovery copy	복구 사본 버리기
+	Discard the recovery copy of {name}?	{name}의 복구 사본을 버리시겠습니까?
+	This cannot be undone. Your original file stays unchanged.	이 작업은 실행 취소할 수 없습니다. 원본 파일은 변경되지 않습니다.
+	Discard	버리기

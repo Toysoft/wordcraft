@@ -2571,6 +2571,19 @@ preview	Title	Naslov
 	Privacy Settings	Postavke privatnosti
 	Privacy for this document	Privatnost ovog dokumenta
 	Recover	Oporavi
+	Recover documents	Oporavak dokumenata
+	Restore opens an unsaved copy. Your original file stays unchanged.	Vraćanje otvara nespremljenu kopiju. Vaša izvorna datoteka ostaje nepromijenjena.
+	Recovery is disabled while this document has a password.	Oporavak je onemogućen dok ovaj dokument ima lozinku.
+	Local recovery is unavailable or still loading.	Lokalni oporavak nije dostupan ili se još učitava.
+	No recovery copies.	Nema kopija za oporavak.
+	Recovery copy	Kopija za oporavak
+	Restore	Vrati
+	Discard…	Odbaci…
+	Continue without restoring	Nastavi bez vraćanja
+	Discard recovery copy	Odbaci kopiju za oporavak
+	Discard the recovery copy of {name}?	Odbaciti kopiju za oporavak dokumenta {name}?
+	This cannot be undone. Your original file stays unchanged.	Ovo se ne može poništiti. Vaša izvorna datoteka ostaje nepromijenjena.
+	Discard	Odbaci
 	Reference type:	Vrsta reference:
 	Remove condition	Ukloni uvjet
 	Remove my name from comments, changes and file properties when saving	Pri spremanju ukloni moje ime iz komentara, promjena i svojstava datoteke

@@ -2226,6 +2226,19 @@
 
 # Backstage › Recover (#586)
 	Recover	Recuperar
+	Recover documents	Recuperar documentos
+	Restore opens an unsaved copy. Your original file stays unchanged.	Restaurar abre uma cópia não salva. O arquivo original permanece inalterado.
+	Recovery is disabled while this document has a password.	A recuperação fica desativada enquanto este documento tiver senha.
+	Local recovery is unavailable or still loading.	A recuperação local não está disponível ou ainda está carregando.
+	No recovery copies.	Nenhuma cópia de recuperação.
+	Recovery copy	Cópia de recuperação
+	Restore	Restaurar
+	Discard…	Descartar…
+	Continue without restoring	Continuar sem restaurar
+	Discard recovery copy	Descartar cópia de recuperação
+	Discard the recovery copy of {name}?	Descartar a cópia de recuperação de {name}?
+	This cannot be undone. Your original file stays unchanged.	Esta ação não pode ser desfeita. O arquivo original permanece inalterado.
+	Discard	Descartar
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Margens espelho

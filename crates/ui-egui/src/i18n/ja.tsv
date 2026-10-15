@@ -2214,6 +2214,19 @@
 
 # Backstage › Recover (#586)
 	Recover	回復
+	Recover documents	ドキュメントの回復
+	Restore opens an unsaved copy. Your original file stays unchanged.	復元すると未保存のコピーが開きます。元のファイルは変更されません。
+	Recovery is disabled while this document has a password.	このドキュメントにパスワードが設定されている間は回復が無効です。
+	Local recovery is unavailable or still loading.	ローカル回復は利用できないか、まだ読み込み中です。
+	No recovery copies.	回復用コピーはありません。
+	Recovery copy	回復用コピー
+	Restore	復元
+	Discard…	破棄…
+	Continue without restoring	復元せずに続行
+	Discard recovery copy	回復用コピーの破棄
+	Discard the recovery copy of {name}?	{name} の回復用コピーを破棄しますか?
+	This cannot be undone. Your original file stays unchanged.	この操作は元に戻せません。元のファイルは変更されません。
+	Discard	破棄
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	見開きページ

@@ -2226,6 +2226,19 @@
 
 # Backstage › Recover (#586)
 	Recover	恢复
+	Recover documents	恢复文档
+	Restore opens an unsaved copy. Your original file stays unchanged.	还原会打开一个未保存的副本。原始文件保持不变。
+	Recovery is disabled while this document has a password.	此文档设有密码时，恢复功能已停用。
+	Local recovery is unavailable or still loading.	本地恢复不可用或仍在加载。
+	No recovery copies.	没有恢复副本。
+	Recovery copy	恢复副本
+	Restore	还原
+	Discard…	放弃…
+	Continue without restoring	继续而不还原
+	Discard recovery copy	放弃恢复副本
+	Discard the recovery copy of {name}?	放弃 {name} 的恢复副本吗？
+	This cannot be undone. Your original file stays unchanged.	此操作无法撤消。原始文件保持不变。
+	Discard	放弃
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	对称页边距
