@@ -158,6 +158,8 @@ pub struct Para {
     pub spacing: Spacing,
     /// Borders the source puts on the paragraph itself (RTF `\brdrb`…).
     pub borders: Option<wordcraft_doc::props::Borders>,
+    /// Tab stops the source gives the paragraph (ODT paragraph styles); `None` = the defaults.
+    pub tabs: Option<Vec<wordcraft_doc::props::TabStop>>,
     /// The section this paragraph ends (RTF `\sect`), as the document's last paragraph of it.
     pub section: Option<Box<wordcraft_doc::SectionProps>>,
     /// Tracked insertion of the paragraph mark.
@@ -495,6 +497,9 @@ impl<'a> Builder<'a> {
             Kind::Rule | Kind::Normal => None,
         };
         out.props.style = style;
+        if p.tabs.is_some() {
+            out.props.tabs.clone_from(&p.tabs);
+        }
         if p.kind == Kind::Rule {
             out.props.borders = Some(rule_borders());
         } else if p.borders.is_some() {
@@ -914,6 +919,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
         inlines: Vec::new(),
         spacing: Spacing::default(),
         borders: None,
+        tabs: None,
         section: None,
         mark_ins: None,
         mark_del: None,
@@ -942,6 +948,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         inlines: Vec::new(),
                         spacing: Spacing::default(),
                         borders: None,
+                        tabs: None,
                         section: None,
                         mark_ins: None,
                         mark_del: None,
