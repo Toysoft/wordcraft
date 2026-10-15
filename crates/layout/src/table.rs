@@ -1089,22 +1089,23 @@ fn column_content(ctx: &mut Ctx, t: &Table, style: Option<&TableStyleProps>, dep
     any.then_some(cols)
 }
 
-// A span consumes room already available in its preferred columns before widening them.
-// Equal sharing can otherwise inflate narrow columns even when the span fits the grid.
+// Share a span's extra minimum in preferred-column proportions. Each column keeps
+// its own text minimum; automatic tables share the extra equally.
 fn share_span_min(cols: &mut [(f32, f32)], grid: Option<&[f32]>, need: f32) {
     let extra = (need - cols.iter().map(|c| c.0).sum::<f32>()).max(0.0);
-    let spare = grid.map_or(0.0, |grid| grid.iter().zip(cols.iter()).map(|(w, c)| (w - c.0).max(0.0)).sum::<f32>());
-    let used = extra.min(spare);
-    if spare > 0.0
-        && let Some(grid) = grid
-    {
-        for (c, w) in cols.iter_mut().zip(grid) {
-            c.0 += (w - c.0).max(0.0) * used / spare;
+    let weight = |w: &f32| if w.is_finite() { w.clamp(0.0, UNBOUNDED) } else { 0.0 };
+    let total = grid.map_or(0.0, |grid| grid.iter().take(cols.len()).map(weight).sum::<f32>());
+    if total > 0.0 {
+        if let Some(grid) = grid {
+            for (c, w) in cols.iter_mut().zip(grid) {
+                c.0 += extra * weight(w) / total;
+            }
         }
+        return;
     }
-    let rest = (extra - used) / cols.len().max(1) as f32;
+    let share = extra / cols.len().max(1) as f32;
     for c in cols {
-        c.0 += rest;
+        c.0 += share;
     }
 }
 

@@ -6653,6 +6653,7 @@ fn justified_multi_column_pages_stay_at_the_top() {
 enum SpanWidth {
     Preferred,
     Automatic,
+    TextOnly,
 }
 
 fn banner_layout(width: SpanWidth) -> DocLayout {
@@ -6662,19 +6663,21 @@ fn banner_layout(width: SpanWidth) -> DocLayout {
     t.grid = widths.to_vec();
     t.props.width = match width {
         SpanWidth::Preferred => Some(300.0),
-        SpanWidth::Automatic => None,
+        SpanWidth::Automatic | SpanWidth::TextOnly => None,
     };
     t.props.cell_margins = Some([0.0; 4]);
     t.rows[0].cells.truncate(1);
     t.rows[0].cells[0].props.span = 4;
     t.rows[0].cells[0].props.width = t.props.width;
     let mut banner = wordcraft_doc::Paragraph::new();
-    banner.insert_object(0, picture(300.0, 30.0, Default::default()), &Default::default()).unwrap();
+    if !matches!(width, SpanWidth::TextOnly) {
+        banner.insert_object(0, picture(300.0, 30.0, Default::default()), &Default::default()).unwrap();
+    }
     t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(banner)];
     for (i, cell) in t.rows[1].cells.iter_mut().enumerate() {
         cell.props.width = match width {
             SpanWidth::Preferred => Some(widths[i]),
-            SpanWidth::Automatic => None,
+            SpanWidth::Automatic | SpanWidth::TextOnly => None,
         };
         cell.blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("A", Default::default()))];
     }
@@ -6683,8 +6686,17 @@ fn banner_layout(width: SpanWidth) -> DocLayout {
 }
 
 #[test]
-fn spanning_banner_keeps_columns() {
-    let widths = [150.0, 100.0, 25.0, 25.0];
+fn spanning_banner_uses_weights() {
+    let text = banner_layout(SpanWidth::TextOnly);
+    let minimum = text.pages[0]
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Placed::Cell { rect, row: 1, .. } => Some(rect.w),
+            _ => None,
+        })
+        .unwrap();
+    let widths = [150.0 - minimum, 100.0 - minimum / 3.0, 25.0 + 2.0 * minimum / 3.0, 25.0 + 2.0 * minimum / 3.0];
     let l = banner_layout(SpanWidth::Preferred);
     let actual: Vec<_> =
         l.pages[0].items.iter().filter_map(|it| if let Placed::Cell { rect, row: 1, .. } = it { Some(rect.w) } else { None }).collect();
