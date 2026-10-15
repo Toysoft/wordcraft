@@ -2672,3 +2672,9 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+	Switch Windows	Chuyển cửa sổ
+	Switch\nWindows	Chuyển\ncửa sổ
+	Arrange All	Sắp xếp tất cả
+	View Side by Side	Xem song song
+	Synchronous Scrolling	Cuộn đồng bộ
+	No other WordCraft windows are open.	Không có cửa sổ WordCraft nào khác đang mở.

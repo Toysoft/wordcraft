@@ -49,7 +49,7 @@ Document renaming: desktop renaming requires a filesystem that supports hard lin
 | 23 | **PDF Reflow** (open a PDF as an editable document, Word for Windows) | | | Users who edit PDFs they receive | 30–50 | [file-format-parity.md](file-format-parity.md) |
 | 24 | **Default shortcuts**: 140 (macOS) / 158 (Linux/Windows) of Word's ~250 (#330, #339, #343; Customize Keyboard #368, Customize Ribbon and Quick Access Toolbar #379; inspector, macros, strikethrough, file/edit keys) | | [ui-parity.md](ui-parity.md) | Power users | 1–3 | [ui-parity.md](ui-parity.md) |
 | 25 | **In-app AI assistant** (Copilot-style draft, rewrite, summarize) | | Chat PR #178 and AI assistant PR #815 open | Users expecting Copilot | 15–30 + owner (provider) | [target-app-parity.md](target-app-parity.md) |
-| 27 | **View windows**: Side by Side, Synchronous Scrolling, Arrange All, Switch Windows | | [parity-checklist.md](parity-checklist.md) (View 25/29); PR #331 open | Comparing documents | 3–5 | [ui-parity.md](ui-parity.md) |
+| 27 | **View windows**: Switch Windows, Arrange All, View Side by Side and Synchronous Scrolling landed across WordCraft windows (#322). Left: New Window (a second window on the same document) and Split are placeholders; Wayland doesn't let apps place or raise windows | | [parity-checklist.md](parity-checklist.md) (View 29/29 ids) | Comparing documents | 2–4 | [ui-parity.md](ui-parity.md) |
 | 26 | **Minor formats**: MHT, Works/WordPerfect | | Word XML Document (Flat OPC) opens and saves, Word 2003 XML opens (#548) and saves (#1081, not yet checked in Word) | Rare | 14–26 | [file-format-parity.md](file-format-parity.md) |
 | 28 | **Dictate** | | `tools.dictate` missing | Dictation users | 8–15 + owner (speech model) | [hardware-parity.md](hardware-parity.md) |
 | 29 | **Equations**: ink equations; copied equations as OMML for Word (#816, #1297) | | #191 notes; long display equations wrap at operators (#326); a copy holding an equation puts MathML in HTML on the clipboard (#816; Word/LibreOffice paste not yet verified) | Maths-heavy documents | 2–3 | [layout-parity.md](layout-parity.md) |
@@ -87,6 +87,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | #27: Switch Windows, Arrange All, View Side by Side, Synchronous Scrolling landed (#322); New Window and Split left |
 | 2026-10-14 | trivial | Row table border exceptions fixed; other row table exceptions remain unsupported |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |

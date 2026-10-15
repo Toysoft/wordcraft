@@ -81,6 +81,7 @@ pub mod table_ruler;
 pub mod theme;
 pub mod widgets;
 pub mod window_geometry;
+pub mod windows;
 pub mod wordart_menus;
 pub mod zotero;
 
@@ -167,6 +168,8 @@ pub struct Services {
     /// `xdg-mime`. `None` (web, macOS) hides the button; macOS shows how to do it in Finder
     /// instead. An error means nothing changed.
     pub make_default_app: Option<Box<dyn Fn() -> Result<DefaultApp, String>>>,
+    /// Desktop: the other WordCraft windows and a channel to them, for View › Window (#322).
+    pub windows: Option<Box<dyn windows::WindowHost>>,
 }
 
 /// How Save in the Save Changes prompt went.
@@ -1245,6 +1248,7 @@ impl WordApp {
         if req.get("close").is_some() {
             self.quit_requested = true;
         }
+        windows::request(self, req);
     }
 
     /// Follow the desktop's light/dark choice while the app runs (Linux, where winit reports no
@@ -1809,6 +1813,7 @@ impl WordApp {
         self.drain_control(ctx);
         zotero::poll(self, ctx);
         read_aloud::poll(self, ctx);
+        windows::poll(self, ctx);
         self.clear_stale_change_picture();
         let _ = self.poll_file_dialog();
         self.drain_inbox();
