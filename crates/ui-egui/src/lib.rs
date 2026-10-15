@@ -1994,7 +1994,17 @@ impl WordApp {
             chrome::title_bar(self, ui);
             ribbon::show(self, ui);
             chrome::status_bar(self, ui);
-            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
+                ui.centered_and_justified(|ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.label(egui::RichText::new(tl!("No document open")).font(theme::semibold(16.0)).color(t.text_dim));
+                        ui.add_space(10.0);
+                        if ui.button(egui::RichText::new(tl!("Open File menu (Start screen)")).font(theme::medium(13.0))).clicked() {
+                            let _ = self.run("ui.backstage", json!({"value": true, "page": "home"}));
+                        }
+                    });
+                });
+            });
         } else {
             chrome::title_bar(self, ui);
             if !self.session.view.focus_mode {
@@ -2668,6 +2678,14 @@ mod tests {
         assert!(!a.session.dirty && !a.has_document());
         assert!(a.close_requested(), "closing asks nothing");
         assert!(a.dialog.is_none());
+
+        // In the empty window, clicking the File tab opens Backstage (#1129):
+        h.get_by_label("File").click();
+        h.run_steps(4);
+        assert!(h.state().ui.backstage, "File tab opens Backstage");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(4);
+        assert!(!h.state().ui.backstage);
 
         let mut b = app();
         b.run("ui.startScreen", json!({"value": false})).unwrap();
