@@ -50,7 +50,9 @@ fn find<'a>(e: &'a El, name: &str) -> Option<&'a El> {
 /// text, used when `math` has no tree (as in the document writer).
 pub fn equation_to_omml(linear: &str, display: bool, math: &Math) -> String {
     let mut w = W::default();
-    crate::write::math::write_equation(&mut w, linear, display, math);
+    // No separate run colour: the fragment keeps the colour its own OMML carries.
+    let color = crate::write::math::omml_color(&math.omml);
+    crate::write::math::write_equation(&mut w, linear, display, math, color);
     declare_ns(&w.s)
 }
 
