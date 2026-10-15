@@ -885,7 +885,8 @@ fn field(s: &mut Session, v: &Value) -> CmdResult {
     let result = p::str(v, "result").unwrap_or("").to_string();
     let props = s.typing_props();
     let at = delete_selection(s)?;
-    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, dirty: false, code: false, form: String::new() }, &props)?;
+    let end =
+        s.doc.insert_object(&at, InlineObject::Field { instr, result, locked: false, dirty: false, code: false, form: String::new() }, &props)?;
     s.sel = Selection::caret(end);
     let _ = super::references::update_fields(s);
     sel_result(s)

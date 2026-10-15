@@ -374,7 +374,10 @@ fn sections_headers_footers_round_trip() {
     assert_eq!(part_text(&r, secs[0].1.headers.first), "First page header");
     assert_eq!(secs[0].1.headers.default, secs[1].1.headers.default, "shared header part stays shared");
     let fp = r.parts.get(&secs[0].1.footers.default.unwrap()).unwrap().blocks[0].as_para().unwrap();
-    assert_eq!(fp.objects, vec![InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() }]);
+    assert_eq!(
+        fp.objects,
+        vec![InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() }]
+    );
     assert_eq!(part_text(&r, secs[1].1.footers.default), "Page 1");
     assert_eq!(r.parts.get(&secs[0].1.headers.default.unwrap()).unwrap().kind, PartKind::Header);
 }
@@ -819,7 +822,14 @@ fn toc_field_skips_nested_stories() {
     let end = head.len();
     head.insert_object(
         end,
-        InlineObject::Field { instr: "TOC \\o \"1-1\" \\h \\z \\u".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+        InlineObject::Field {
+            instr: "TOC \\o \"1-1\" \\h \\z \\u".into(),
+            result: String::new(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -858,8 +868,12 @@ fn tracked_changes_round_trip() {
     let p = para_runs(&[("kept ", CharProps::default()), ("added\t", ins.clone()), ("removed", del.clone()), ("gone", both.clone())]);
     let mut p = p;
     let end = p.len();
-    p.insert_object(end, InlineObject::Field { instr: "DATE".into(), result: "today".into(), locked: false, dirty: false, code: false, form: String::new() }, &del)
-        .unwrap();
+    p.insert_object(
+        end,
+        InlineObject::Field { instr: "DATE".into(), result: "today".into(), locked: false, dirty: false, code: false, form: String::new() },
+        &del,
+    )
+    .unwrap();
     d.body = vec![para_block(p.clone())];
     let r = rt(&d);
     assert_eq!(r.revisions, d.revisions);
@@ -907,7 +921,14 @@ fn fields_and_special_chars_round_trip() {
     let mut p = Paragraph::with_text("a\tb\nc\u{000C}d\u{000E}e\u{2011}f\u{00AD}g  spaced  ", CharProps::default());
     let fields = [
         InlineObject::Field { instr: "PAGE".into(), result: "4".into(), locked: false, dirty: false, code: false, form: String::new() },
-        InlineObject::Field { instr: "DATE \\@ \"M/d/yyyy\"".into(), result: "1/2/2026".into(), locked: true, dirty: false, code: false, form: String::new() },
+        InlineObject::Field {
+            instr: "DATE \\@ \"M/d/yyyy\"".into(),
+            result: "1/2/2026".into(),
+            locked: true,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        },
         InlineObject::Field { instr: "NUMPAGES".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
     ];
     for f in &fields {
@@ -939,7 +960,7 @@ fn field_dirty_flag_round_trips() {
         let end = p.len();
         p.insert_object(
             end,
-            InlineObject::Field { instr: instr.into(), result: "7".into(), locked: false, dirty: false, code: false },
+            InlineObject::Field { instr: instr.into(), result: "7".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps::default(),
         )
         .unwrap();

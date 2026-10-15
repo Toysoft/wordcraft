@@ -561,6 +561,25 @@ fn backspace_and_delete() {
     assert_eq!(text(&s), "");
 }
 
+/// Backspace at the start of the paragraph after a table nested in a cell goes into the nested
+/// table's last cell, not into the last cell of the table around it.
+#[test]
+fn backspace_after_a_nested_table_stays_in_its_cell() {
+    let mut s = s();
+    run(&mut s, "table.quick", json!({"kind": "matrix"}));
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 1, 1, 0], "off": 0}}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    let outer = s.doc.body.get(1).and_then(|b| b.as_table()).expect("the outer table");
+    let blocks = &outer.rows[1].cells[1].blocks;
+    let nested = blocks.iter().position(|b| b.as_table().is_some()).expect("a nested table");
+    assert!(nested + 1 < blocks.len(), "a paragraph follows the nested table");
+    let after = nested as u32 + 1;
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 1, 1, after], "off": 0}}));
+    run(&mut s, "text.backspace", json!({}));
+    // The nested table's last cell: row 1, cell 1, its first paragraph.
+    assert_eq!(s.sel.focus.path.0, vec![1, 1, 1, after - 1, 1, 1, 0]);
+}
+
 #[test]
 fn bold_toggles_selection_and_caret_word() {
     let mut s = s();
@@ -1762,6 +1781,18 @@ fn track_changes_and_accept() {
     assert_eq!(text(&s), "inal added");
 }
 
+#[test]
+fn document_text_drops_tracked_deletions() {
+    // #866: document.text (MCP get_text) omits tracked deletions; plain_text still includes them.
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Signed by Alice Smith, Partner."}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "select.text", json!({"text": "Alice Smith, Partner"}));
+    run(&mut s, "text.insert", json!({"text": "Bob Jones, Director"}));
+    assert_eq!(text(&s), "Signed by Bob Jones, DirectorAlice Smith, Partner.");
+    assert_eq!(run(&mut s, "document.text", json!({}))["text"], "Signed by Bob Jones, Director.");
+}
+
 /// The author of the revision `rid` points to.
 fn author_of(s: &Session, rid: Option<u32>) -> Option<String> {
     rid.and_then(|r| s.doc.revisions.get(r as usize)).map(|r| r.author.clone())
@@ -2361,7 +2392,14 @@ fn update_fields_clears_dirty() {
         let end = p.len();
         p.insert_object(
             end,
-            wordcraft_doc::InlineObject::Field { instr: instr.into(), result: String::new(), locked: false, dirty: true, code: false },
+            wordcraft_doc::InlineObject::Field {
+                instr: instr.into(),
+                result: String::new(),
+                locked: false,
+                dirty: true,
+                code: false,
+                form: String::new(),
+            },
             &wordcraft_doc::props::CharProps::default(),
         )
         .unwrap();
@@ -2446,7 +2484,8 @@ fn toc_page_numbers_reach_the_right_margin() {
         toc2.para.indent_left = Some(36.9);
         toc2.para.indent_first = Some(-22.7);
         let p = d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(1)).unwrap();
-        p.insert_object(0, InlineObject::FieldStart { instr: r#"TOC \o "1-3" \h \z \u"#.into(), locked: false, dirty: false }, &CharProps::default()).unwrap();
+        p.insert_object(0, InlineObject::FieldStart { instr: r#"TOC \o "1-3" \h \z \u"#.into(), locked: false, dirty: false }, &CharProps::default())
+            .unwrap();
         let p = d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(3)).unwrap();
         p.insert_object(0, InlineObject::FieldEnd, &CharProps::default()).unwrap();
     }

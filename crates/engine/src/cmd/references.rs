@@ -383,7 +383,14 @@ fn range_toc_to_field(s: &mut Session) -> Result<(), CmdError> {
         let len = s.doc.para(StoryRef::Body, &heading).map_or(0, |p| p.len());
         at = Pos { story: StoryRef::Body, path: heading, off: len };
     }
-    let field = InlineObject::Field { instr: r.instr.trim().to_string(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() };
+    let field = InlineObject::Field {
+        instr: r.instr.trim().to_string(),
+        result: String::new(),
+        locked: false,
+        dirty: false,
+        code: false,
+        form: String::new(),
+    };
     let after = s.doc.insert_object(&at, field, &props)?;
     if s.doc.para_at(&after).is_some_and(|p| after.off < p.len()) {
         s.doc.split_paragraph(&after)?;
