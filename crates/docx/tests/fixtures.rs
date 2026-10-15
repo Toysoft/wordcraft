@@ -179,7 +179,15 @@ fn toc_complex_field_spanning_paragraphs() {
     assert_eq!(p[4].plain_text(), "Page 7");
     assert_eq!(
         p[4].objects[0],
-        InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() }
+        InlineObject::Field {
+            instr: "PAGE".into(),
+            result: "7".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+            code_xml: String::new()
+        }
     );
     // And it writes back out and reads the same.
     let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();

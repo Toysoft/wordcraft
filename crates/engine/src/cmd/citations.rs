@@ -570,7 +570,15 @@ fn citation(s: &mut Session, v: &Value) -> CmdResult {
     let instr = if pages.is_empty() { format!("CITATION {tag}") } else { format!("CITATION {tag} \\p {pages}") };
     let end = s.doc.insert_object(
         &at,
-        InlineObject::Field { instr, result: cite(&src, st.name, n, &pages), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
+        InlineObject::Field {
+            instr,
+            result: cite(&src, st.name, n, &pages),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+            code_xml: String::new(),
+        },
         &props,
     )?;
     s.sel = Selection::caret(end);
@@ -693,7 +701,15 @@ pub(crate) fn generated_list(s: &mut Session, instr: &str, title: &str) -> Resul
     let end = head.len();
     head.insert_object(
         end,
-        InlineObject::Field { instr: instr.to_string(), result: String::new(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
+        InlineObject::Field {
+            instr: instr.to_string(),
+            result: String::new(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+            code_xml: String::new(),
+        },
         &CharProps::default(),
     )?;
     let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) { at.path.last() } else { s.doc.split_paragraph(&at)?.path.last() };

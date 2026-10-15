@@ -329,6 +329,7 @@ fn crafted(code: &str) -> String {
         instr: r#"IF 1 = 1 "a" "b""#.into(),
         result: "a".into(),
         locked: false,
+        dirty: false,
         code: false,
         form: String::new(),
         code_xml: code.into(),
@@ -385,4 +386,15 @@ fn fallback_a_tracked_formatting_change_in_the_code_flattens_it() {
     let changed = r#"<w:r><w:rPr><w:b/><w:rPrChange w:id="1" w:author="Ada" w:date="2026-10-15T10:00:00Z"><w:rPr/></w:rPrChange></w:rPr><w:instrText xml:space="preserve"> = 0 "z" "nz" </w:instrText></w:r>"#;
     let body = format!("<w:p>{}{}{}{changed}{}{}{}</w:p>", fld("begin"), instr(" IF "), ref_amount(), fld("separate"), t("z"), fld("end"));
     assert_eq!(field_marks(&resaved(&body)), r#"[IF 0 = 0 "z" "nz"|]"#);
+}
+
+#[test]
+fn a_dirty_flag_on_a_nested_field_survives() {
+    // `w:dirty` (#877) on the outer field and on a nested field's begin both survive a round trip.
+    let dirty = r#"<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>"#;
+    let inner = format!("{dirty}{}{}{}{}", instr(" REF amount "), fld("separate"), t("0"), fld("end"));
+    let body = format!("<w:p>{dirty}{}{inner}{}{}{}{}</w:p>", instr(" IF "), instr(r#" = 0 "z" "nz" "#), fld("separate"), t("z"), fld("end"));
+    let xml = resaved(&body);
+    assert_eq!(field_marks(&xml), r#"[IF[REF amount|]= 0 "z" "nz"|]"#, "{xml}");
+    assert_eq!(xml.matches(r#"w:dirty="true""#).count(), 2, "{xml}");
 }

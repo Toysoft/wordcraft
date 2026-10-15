@@ -128,10 +128,18 @@ fn run_xml(w: &mut crate::xml::W, props: &CharProps, tag: &str, s: &str) {
 /// (nested fields complete), separate and cached result, end.
 fn field_xml(f: &FieldState) -> String {
     let mut w = crate::xml::W::default();
-    let fld = |w: &mut crate::xml::W, kind: &str, lock: bool, form: &str| {
+    // A begin keeps its `w:fldLock` and `w:dirty` (#877); separate and end carry neither.
+    let fld = |w: &mut crate::xml::W, kind: &str, begin: bool, form: &str| {
         w.open("w:r", &[]);
         crate::write::props::rpr(w, &f.props);
-        let attrs: &[(&str, &str)] = if lock { &[("w:fldCharType", kind), ("w:fldLock", "1")] } else { &[("w:fldCharType", kind)] };
+        let mut attrs: Vec<(&str, &str)> = vec![("w:fldCharType", kind)];
+        if begin && f.locked {
+            attrs.push(("w:fldLock", "1"));
+        }
+        if begin && f.dirty {
+            attrs.push(("w:dirty", "true"));
+        }
+        let attrs = attrs.as_slice();
         if form.is_empty() {
             w.empty("w:fldChar", attrs);
         } else {
@@ -141,7 +149,7 @@ fn field_xml(f: &FieldState) -> String {
         }
         w.close("w:r");
     };
-    fld(&mut w, "begin", f.locked, &f.form);
+    fld(&mut w, "begin", true, &f.form);
     if f.code_xml.is_empty() {
         run_xml(&mut w, &f.props, "w:instrText", &f.instr);
     } else {
@@ -810,7 +818,15 @@ impl Reader<'_> {
             "w:pgNum" => self.emit_obj(
                 sc,
                 pb,
-                InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
+                InlineObject::Field {
+                    instr: "PAGE".into(),
+                    result: String::new(),
+                    locked: false,
+                    dirty: false,
+                    code: false,
+                    form: String::new(),
+                    code_xml: String::new(),
+                },
                 props,
             ),
             "w:ruby" => self.read_ruby(sc, pb, k, props),
@@ -1029,7 +1045,15 @@ impl Reader<'_> {
             f.spilled = true;
             let form = std::mem::take(&mut f.form);
             pb.push_obj(
-                InlineObject::Field { instr: f.instr.trim().to_string(), result: String::new(), locked: f.locked, dirty: f.dirty, code: false, form, code_xml: String::new() },
+                InlineObject::Field {
+                    instr: f.instr.trim().to_string(),
+                    result: String::new(),
+                    locked: f.locked,
+                    dirty: f.dirty,
+                    code: false,
+                    form,
+                    code_xml: String::new(),
+                },
                 &f.props,
             );
             for (it, p) in f.buf.drain(..) {

@@ -1369,7 +1369,15 @@ mod tests {
         let mut p = Paragraph::with_text("añb€c", CharProps::default());
         p.insert_object(
             3,
-            InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
+            InlineObject::Field {
+                instr: "PAGE".into(),
+                result: "7".into(),
+                locked: false,
+                dirty: false,
+                code: false,
+                form: String::new(),
+                code_xml: String::new(),
+            },
             &CharProps::default(),
         )
         .unwrap();
@@ -1443,7 +1451,15 @@ mod tests {
         let mut p = Paragraph::with_text("ab", CharProps::default());
         p.insert_object(
             1,
-            InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
+            InlineObject::Field {
+                instr: "PAGE".into(),
+                result: "1".into(),
+                locked: false,
+                dirty: false,
+                code: false,
+                form: String::new(),
+                code_xml: String::new(),
+            },
             &CharProps::default(),
         )
         .unwrap();
