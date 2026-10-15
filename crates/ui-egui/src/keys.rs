@@ -316,6 +316,9 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                     continue;
                 }
                 if t.chars().all(|c| !c.is_control()) && !t.is_empty() {
+                    if crate::dialogs_smart_art::type_into(app, &t) {
+                        continue;
+                    }
                     // Typing with a text box selected types into it.
                     crate::objects::enter_text_box(app);
                     let _ = app.run("text.insert", json!({"text": t}));
@@ -324,7 +327,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
             egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => app.canvas.ime_preedit = text,
             egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
                 app.canvas.ime_preedit.clear();
-                if !text.is_empty() {
+                if !text.is_empty() && !crate::dialogs_smart_art::type_into(app, &text) {
                     let _ = app.run("text.insert", json!({"text": text}));
                 }
             }
@@ -773,5 +776,22 @@ mod tests {
         a.canvas.alt_code_echo = Some(AltCodeEcho { typed: "€".into(), system_composes: false, byte_code: false });
         alt_frame(&ctx, &mut a, vec![egui::Event::Text("x".into())]);
         assert_eq!(text(&a), "ą€x");
+    }
+
+    #[test]
+    fn typing_with_smart_art_selected_types_into_an_item() {
+        let ctx = egui::Context::default();
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("insert.smartArt", json!({"layout": "matrix", "items": ["Ada", "Bea"]})).unwrap();
+        for t in ["x", "y"] {
+            ctx.run_ui(egui::RawInput { events: vec![egui::Event::Text(t.into())], ..Default::default() }, |ui| canvas_events(&mut a, ui.ctx()))
+                .drop_without_applying_deltas();
+        }
+        let g = wordcraft_engine::cmd::smart_art::selected_smart_art(&a.session).expect("the graphic stays");
+        assert_eq!(g.items.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(), ["Adaxy", "Bea"]);
+        assert!(a.session.view.smart_art_pane, "the Text Pane opens");
+        a.run("edit.undo", json!({})).unwrap();
+        let g = wordcraft_engine::cmd::smart_art::selected_smart_art(&a.session).expect("still there");
+        assert_eq!(g.items[0].text, "Ada", "one undo step for the typing");
     }
 }
