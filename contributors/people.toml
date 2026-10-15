@@ -100,6 +100,9 @@ sync_github_name = true
 [people.leoncral]
 sync_github_name = true
 
+[people.ms-youssef]
+sync_github_name = true
+
 [people.finwarman]
 real_name = "Fin Warman"
 
@@ -117,6 +120,10 @@ display_name = "The Legend Of MTS Dev"
 [people.dotCooCoo]
 real_name = "Robert Lee"
 
+[people.rbr48]
+real_name = "M S Rana"
+display_name = "Izhaan Intellect"
+
 
 
 [people.holmbom]
@@ -128,6 +135,3 @@ sync_github_name = false
 real_name = "Andrej Škvorc"
 display_name = "Andrej Škvorc"
 sync_github_name = false
-
-[people.rbr48]
-sync_github_name = true
