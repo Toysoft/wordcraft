@@ -2647,3 +2647,5 @@ preview	Title	Titel
 	Bottom Right Cell	Nedre högra cellen
 	Inside Horizontal Border	Inre vågrät kantlinje
 	Inside Vertical Border	Inre lodrät kantlinje
+	OpenDocument Text Template (*.ott)	OpenDocument-textmall (*.ott)
+	Flat OpenDocument Text (*.fodt)	OpenDocument-text i XML-format (*.fodt)

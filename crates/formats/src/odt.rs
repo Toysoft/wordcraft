@@ -4,11 +4,14 @@
 //! `text:h` headings with outline levels, spans with automatic text styles, links, bookmarks,
 //! line breaks / tabs / `text:s`, nested `text:list`s with generated list styles, tables with
 //! header rows, column/row spans and cell shading, pictures as `draw:frame`/`draw:image` with the
-//! bytes under `Pictures/`, page breaks), `styles.xml` (Standard, Heading 1–6, Title,
-//! Quotations, Preformatted Text, page layout) and `meta.xml`.
+//! bytes under `Pictures/`, page breaks), footnotes and endnotes (`text:note` with
+//! `text:note-citation` and `text:note-body`), comments (`office:annotation` with `dc:creator`,
+//! `dc:date`, `meta:creator-initials` and its paragraphs, plus `office:annotation-end` for the
+//! commented range), `styles.xml` (Standard, Heading 1–6, Title, Quotations, Preformatted Text,
+//! page layout) and `meta.xml`.
 //!
 //! Import reads the same subset back from `content.xml` / `styles.xml` (style inheritance
-//! resolved, both automatic and common styles), skipping notes, annotations, text boxes and drawing shapes.
+//! resolved, both automatic and common styles), including notes and comments, skipping text boxes and drawing shapes.
 //!
 //! Tracked changes (ODF 1.3 Part 3 §5.5) go both ways: `text:tracked-changes` holds one
 //! `text:changed-region` per change; an insertion is the body text between
@@ -17,13 +20,15 @@
 //! `ins`/`del` marks of runs and paragraph marks; a deleted paragraph mark is a region of
 //! several paragraphs. Format changes are read as no change.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
+use std::sync::Arc;
 
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
+use wordcraft_doc::para::{InlineObject, NoteKind, OBJ};
 use wordcraft_doc::section::{Columns, SectionStart};
-use wordcraft_doc::{Align, Document, RevisionKind, Rgb, SectionProps};
+use wordcraft_doc::{Align, Block, Blocks, CharProps, Comment, Document, Paragraph, PartKind, RevisionKind, Rgb, SectionProps};
 
 use crate::model::{self, Cell, FBlock, FTable, Flow, Fmt, Inline, Kind, ListInfo, Meta, Para, RevMark, make_img, mime_of};
 
@@ -31,14 +36,22 @@ use crate::model::{self, Cell, FBlock, FTable, Flow, Fmt, Inline, Kind, ListInfo
 const MAX_ENTRY: u64 = 256 << 20;
 /// Deepest element nesting handled in content.xml.
 const MAX_XML_DEPTH: usize = 512;
-/// Most sections an import makes (page-style changes and column sections); later ones are ignored.
-const MAX_SECTIONS: usize = 10_000;
 /// Most `text:changed-region`s read (hostile input).
 const MAX_REGIONS: usize = 10_000;
 /// Most insertions open at once (`text:change-start` without its end yet).
 const MAX_OPEN_INSERTIONS: usize = 64;
 /// Longest change author or date kept, in characters.
 const MAX_INFO_CHARS: usize = 256;
+
+mod flat;
+mod page_parts;
+mod sections;
+pub use flat::{export_flat, import_flat};
+
+const TEXT_MIME: &str = "application/vnd.oasis.opendocument.text";
+const TEMPLATE_MIME: &str = "application/vnd.oasis.opendocument.text-template";
+/// Most sections an import makes (page-style changes and column sections); later ones are ignored.
+const MAX_SECTIONS: usize = 10_000;
 
 // ---------------------------------------------------------------------------------------------
 // Export
@@ -70,6 +83,7 @@ const NS: &str = concat!(
     "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" ",
     "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" ",
     "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" ",
+    "xmlns:loext=\"urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0\" ",
     "office:version=\"1.3\""
 );
 
@@ -80,14 +94,19 @@ fn pt(v: f32) -> String {
 
 #[derive(Default)]
 struct Writer {
+    flat: bool,
+    image_count: usize,
     /// Automatic text styles: properties XML → name.
     text_styles: Vec<(String, String)>,
     /// Automatic paragraph styles: (parent, properties XML) → name.
-    para_styles: Vec<((String, String), String)>,
+    para_styles: Vec<((String, String, String), String)>,
+    next_master: Option<(String, Option<u32>)>,
+    section_styles: Vec<String>,
     /// List styles: level kinds.
     list_styles: Vec<[bool; 9]>,
     /// Table styles: (name, column widths).
     tables: Vec<Vec<f32>>,
+    table_masters: HashMap<usize, (String, Option<u32>)>,
     /// Cell styles by shading.
     cell_styles: Vec<Option<Rgb>>,
     pictures: Vec<(String, std::sync::Arc<Vec<u8>>, String)>,
@@ -101,6 +120,12 @@ struct Writer {
     /// and which of them the text being written belongs to.
     chain: Vec<String>,
     part: usize,
+    /// Footnotes and endnotes (by part id) and comments (by id) to write where their markers are.
+    out: OutExtras,
+    foot_n: usize,
+    end_n: usize,
+    /// Comments whose `office:annotation` is written and whose range is still open.
+    started: HashSet<u32>,
 }
 
 fn text_props(f: &Fmt) -> String {
@@ -169,6 +194,10 @@ impl Writer {
     }
 
     fn para_style(&mut self, p: &Para) -> String {
+        self.named_para_style(p, None)
+    }
+
+    fn named_para_style(&mut self, p: &Para, page: Option<(String, Option<u32>)>) -> String {
         let parent = parent_style(p.kind).to_string();
         let mut props = String::new();
         match p.align {
@@ -178,16 +207,43 @@ impl Writer {
             Some(Align::Left) => props.push_str(" fo:text-align=\"start\""),
             None => {}
         }
+        for (key, value) in [
+            ("fo:margin-top", p.spacing.before),
+            ("fo:margin-bottom", p.spacing.after),
+            ("fo:margin-left", p.spacing.left),
+            ("fo:margin-right", p.spacing.right),
+            ("fo:text-indent", p.spacing.first),
+        ] {
+            if let Some(v) = value.filter(|v| v.is_finite()) {
+                props.push_str(&format!(" {key}=\"{}\"", pt(v)));
+            }
+        }
+        if let Some(line) = p.spacing.line {
+            use wordcraft_doc::props::LineSpacing;
+            match line {
+                LineSpacing::Multiple(v) if v.is_finite() => props.push_str(&format!(" fo:line-height=\"{}%\"", v * 100.0)),
+                LineSpacing::Exactly(v) if v.is_finite() => props.push_str(&format!(" fo:line-height=\"{}\"", pt(v))),
+                LineSpacing::AtLeast(v) if v.is_finite() => props.push_str(&format!(" style:line-height-at-least=\"{}\"", pt(v))),
+                _ => {}
+            }
+        }
         if p.page_break {
             props.push_str(" fo:break-before=\"page\"");
         }
         if p.kind == Kind::Rule {
             props.push_str(" fo:border-bottom=\"0.75pt solid #a0a0a0\" fo:padding-bottom=\"1pt\"");
         }
-        if props.is_empty() {
+        let mut master = String::new();
+        if let Some((name, restart)) = page {
+            master = format!(" style:master-page-name=\"{}\"", x(&name));
+            if let Some(n) = restart {
+                props.push_str(&format!(" style:page-number=\"{n}\""));
+            }
+        }
+        if props.is_empty() && master.is_empty() {
             return parent;
         }
-        let key = (parent, props);
+        let key = (parent, props, master);
         if let Some((_, n)) = self.para_styles.iter().find(|(k, _)| *k == key) {
             return n.clone();
         }
@@ -373,17 +429,31 @@ impl Writer {
                     }
                 }
                 Inline::Image(img) => {
-                    let href = self.picture(img);
-                    let n = self.pictures.len();
+                    self.image_count += 1;
+                    let name = self.image_count;
                     out.push_str(&format!(
-                        "<draw:frame draw:name=\"Image{n}\" text:anchor-type=\"as-char\" svg:width=\"{}\" svg:height=\"{}\" draw:z-index=\"0\"><draw:image xlink:href=\"{href}\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\"/>",
+                        "<draw:frame draw:name=\"Image{name}\" text:anchor-type=\"as-char\" svg:width=\"{}\" svg:height=\"{}\" draw:z-index=\"0\">",
                         pt(img.w),
                         pt(img.h)
                     ));
+                    if self.flat {
+                        out.push_str("<draw:image><office:binary-data>");
+                        out.push_str(&model::base64_encode(&img.data));
+                        out.push_str("</office:binary-data></draw:image>");
+                    } else {
+                        let href = self.picture(img);
+                        out.push_str(&format!(
+                            "<draw:image xlink:href=\"{href}\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\"/>"
+                        ));
+                    }
                     if !img.alt.is_empty() {
                         out.push_str(&format!("<svg:desc>{}</svg:desc>", x(&img.alt)));
                     }
                     out.push_str("</draw:frame>");
+                    prev_space = false;
+                }
+                Inline::Anchor(a) if a.starts_with(MARK) => {
+                    self.mark(a, out);
                     prev_space = false;
                 }
                 Inline::Anchor(a) => out.push_str(&format!("<text:bookmark text:name=\"{}\"/>", x(a))),
@@ -398,7 +468,8 @@ impl Writer {
         let paras: &[Para] = chain.map(|c| c.as_slice()).unwrap_or(std::slice::from_ref(p));
         self.chain = chain.map(|c| c.iter().map(|q| self.para_style(q)).collect()).unwrap_or_default();
         self.part = 0;
-        let style = self.para_style(p);
+        let page = self.next_master.take();
+        let style = self.named_para_style(p, page);
         self.cur_style = style.clone();
         let tag = match p.kind {
             Kind::Heading(n) => {
@@ -542,6 +613,9 @@ impl Writer {
         };
         self.tables.push(widths);
         let tn = self.tables.len();
+        if let Some(master) = self.next_master.take() {
+            self.table_masters.insert(tn, master);
+        }
         out.push_str(&format!("<table:table table:name=\"Table{tn}\" table:style-name=\"Table{tn}\">"));
         for c in 0..cols {
             out.push_str(&format!("<table:table-column table:style-name=\"Table{tn}.C{}\"/>", c + 1));
@@ -592,14 +666,17 @@ impl Writer {
         out.push_str("</table:table>\n");
     }
 
-    fn automatic_styles(&self) -> String {
-        let mut s = String::from("<office:automatic-styles>");
+    fn automatic_styles(&self, page: &str) -> String {
+        let mut s = format!("<office:automatic-styles>{page}");
         for (props, n) in &self.text_styles {
             s.push_str(&format!("<style:style style:name=\"{n}\" style:family=\"text\"><style:text-properties{props}/></style:style>"));
         }
-        for ((parent, props), n) in &self.para_styles {
+        for section in &self.section_styles {
+            s.push_str(section);
+        }
+        for ((parent, props, master), n) in &self.para_styles {
             s.push_str(&format!(
-                "<style:style style:name=\"{n}\" style:family=\"paragraph\" style:parent-style-name=\"{parent}\"><style:paragraph-properties{props}/></style:style>"
+                "<style:style style:name=\"{n}\" style:family=\"paragraph\" style:parent-style-name=\"{parent}\"{master}><style:paragraph-properties{props}/></style:style>"
             ));
         }
         for (i, kinds) in self.list_styles.iter().enumerate() {
@@ -626,8 +703,13 @@ impl Writer {
         for (i, widths) in self.tables.iter().enumerate() {
             let tn = i + 1;
             let total: f32 = widths.iter().sum();
+            let (master, restart) = self
+                .table_masters
+                .get(&tn)
+                .map(|(m, n)| (format!(" style:master-page-name=\"{}\"", x(m)), n.map(|n| format!(" style:page-number=\"{n}\"")).unwrap_or_default()))
+                .unwrap_or_default();
             s.push_str(&format!(
-                "<style:style style:name=\"Table{tn}\" style:family=\"table\"><style:table-properties style:width=\"{}\" table:align=\"margins\"/></style:style>",
+                "<style:style style:name=\"Table{tn}\" style:family=\"table\"{master}><style:table-properties style:width=\"{}\" table:align=\"margins\"{restart}/></style:style>",
                 pt(total)
             ));
             for (c, w) in widths.iter().enumerate() {
@@ -756,8 +838,8 @@ fn now_unix() -> i64 {
     }
 }
 
-fn styles_xml(sec: &wordcraft_doc::SectionProps, body_font: &str) -> String {
-    let mut s = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles {NS}><office:styles>");
+fn common_styles(body_font: &str) -> String {
+    let mut s = String::from("<office:styles>");
     s.push_str(&format!(
         "<style:default-style style:family=\"paragraph\"><style:paragraph-properties fo:margin-bottom=\"8pt\"/><style:text-properties fo:font-family=\"'{}'\" fo:font-size=\"12pt\"/></style:default-style>",
         x(body_font)
@@ -775,24 +857,32 @@ fn styles_xml(sec: &wordcraft_doc::SectionProps, body_font: &str) -> String {
     s.push_str("<style:style style:name=\"Title\" style:family=\"paragraph\" style:parent-style-name=\"Standard\" style:class=\"chapter\"><style:text-properties fo:font-size=\"28pt\"/></style:style>");
     s.push_str("<style:style style:name=\"Quotations\" style:family=\"paragraph\" style:parent-style-name=\"Standard\" style:class=\"html\"><style:paragraph-properties fo:margin-left=\"36pt\" fo:margin-right=\"36pt\"/><style:text-properties fo:font-style=\"italic\" fo:color=\"#404040\"/></style:style>");
     s.push_str(&format!("<style:style style:name=\"Preformatted_20_Text\" style:display-name=\"Preformatted Text\" style:family=\"paragraph\" style:parent-style-name=\"Standard\" style:class=\"html\"><style:paragraph-properties fo:margin-top=\"0pt\" fo:margin-bottom=\"0pt\"/><style:text-properties fo:font-family=\"'{}'\" style:font-family-generic=\"modern\" style:font-pitch=\"fixed\" fo:font-size=\"10pt\"/></style:style>", model::MONO_FONT));
-    s.push_str("</office:styles><office:automatic-styles>");
+    s.push_str("</office:styles>");
+    s
+}
+
+fn page_layout(sec: &wordcraft_doc::SectionProps) -> String {
+    let mut s = String::new();
     s.push_str(&format!(
-        "<style:page-layout style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"{}\" fo:page-height=\"{}\" fo:margin-top=\"{}\" fo:margin-bottom=\"{}\" fo:margin-left=\"{}\" fo:margin-right=\"{}\" style:print-orientation=\"{}\"/></style:page-layout>",
+        "<style:page-layout style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"{}\" fo:page-height=\"{}\" fo:margin-top=\"{}\" fo:margin-bottom=\"{}\" fo:margin-left=\"{}\" fo:margin-right=\"{}\" style:print-orientation=\"{}\">{}</style:page-layout-properties></style:page-layout>",
         pt(sec.page_w),
         pt(sec.page_h),
         pt(sec.margin_top),
         pt(sec.margin_bottom),
         pt(sec.margin_left),
         pt(sec.margin_right),
-        if sec.page_w > sec.page_h { "landscape" } else { "portrait" }
+        if sec.page_w > sec.page_h { "landscape" } else { "portrait" },
+        sections::columns(&sec.columns)
     ));
-    s.push_str("</office:automatic-styles><office:master-styles><style:master-page style:name=\"Standard\" style:page-layout-name=\"pm1\"/></office:master-styles></office:document-styles>\n");
     s
 }
 
 fn meta_xml(m: &Meta) -> String {
-    let mut s =
-        format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-meta {NS}><office:meta><meta:generator>WordCraft</meta:generator>");
+    format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-meta {NS}>{}</office:document-meta>\n", metadata(m))
+}
+
+fn metadata(m: &Meta) -> String {
+    let mut s = String::from("<office:meta><meta:generator>WordCraft</meta:generator>");
     if !m.title.is_empty() {
         s.push_str(&format!("<dc:title>{}</dc:title>", x(&m.title)));
     }
@@ -811,17 +901,25 @@ fn meta_xml(m: &Meta) -> String {
     if !m.created.is_empty() {
         s.push_str(&format!("<meta:creation-date>{}</meta:creation-date>", x(m.created.trim_end_matches('Z'))));
     }
-    s.push_str("</office:meta></office:document-meta>\n");
+    s.push_str("</office:meta>");
     s
 }
 
 /// Write an `.odt` package.
 pub fn export(doc: &Document) -> Result<Vec<u8>, String> {
-    let flow = model::from_doc_tracked(doc);
-    let mut w = Writer::default();
-    let mut body = String::new();
-    w.blocks(&flow.blocks, &mut body, 0);
-    w.close_ins(&mut body);
+    export_package(doc, TEXT_MIME)
+}
+
+/// Write an OpenDocument Text template with matching package and manifest media types.
+pub fn export_template(doc: &Document) -> Result<Vec<u8>, String> {
+    export_package(doc, TEMPLATE_MIME)
+}
+
+fn export_package(doc: &Document, mime: &str) -> Result<Vec<u8>, String> {
+    let (marked, out) = prepare_export(doc);
+    let flow = model::from_doc_tracked(marked.as_ref().unwrap_or(doc));
+    let mut w = Writer { out, ..Default::default() };
+    let (body, layouts, masters) = sections::write(&mut w, doc, &flow);
     let tracked = if w.regions.is_empty() && !doc.settings.track_changes {
         String::new()
     } else {
@@ -829,13 +927,17 @@ pub fn export(doc: &Document) -> Result<Vec<u8>, String> {
     };
     let content = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {NS}>{}<office:body><office:text>\n{tracked}{body}</office:text></office:body></office:document-content>\n",
-        w.automatic_styles()
+        w.automatic_styles("")
     );
     let body_font = doc.styles.default_chr.font.clone().unwrap_or_else(|| wordcraft_doc::styles::BODY_FONT.to_string());
-    let styles = styles_xml(&doc.last_section, &body_font);
+    let styles = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><office:document-styles {NS}>{}{}{masters}</office:document-styles>",
+        common_styles(&body_font),
+        w.automatic_styles(&layouts)
+    );
     let meta = meta_xml(&flow.meta);
-    let mut manifest = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.3\">\n<manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.3\" manifest:media-type=\"application/vnd.oasis.opendocument.text\"/>\n<manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/>\n<manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>\n<manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>\n",
+    let mut manifest = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.3\">\n<manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.3\" manifest:media-type=\"{mime}\"/>\n<manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/>\n<manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>\n<manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>\n",
     );
     for (name, _, mime) in &w.pictures {
         manifest.push_str(&format!("<manifest:file-entry manifest:full-path=\"{}\" manifest:media-type=\"{mime}\"/>\n", x(name)));
@@ -848,7 +950,7 @@ pub fn export(doc: &Document) -> Result<Vec<u8>, String> {
     let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     let deflated = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     z.start_file("mimetype", stored).map_err(err)?;
-    z.write_all(b"application/vnd.oasis.opendocument.text").map_err(ioerr)?;
+    z.write_all(mime.as_bytes()).map_err(ioerr)?;
     for (name, data) in [
         ("META-INF/manifest.xml", manifest.as_bytes()),
         ("content.xml", content.as_bytes()),
@@ -917,6 +1019,7 @@ struct StyleInfo {
     border_bottom: bool,
     /// `fo:background-color` of a table-cell style's `style:table-cell-properties`.
     cell_background: Option<Rgb>,
+    spacing: model::Spacing,
     /// `style:master-page-name` of a paragraph or table style: its paragraphs (tables) start a
     /// page of that master page. Empty: explicitly none, which stops the lookup up the chain.
     master_page: Option<String>,
@@ -1122,6 +1225,30 @@ impl Styles {
                             Some("start") | Some("left") => Some(Align::Left),
                             _ => s.align,
                         };
+                        for (key, slot, min) in [
+                            ("fo:margin-top", &mut s.spacing.before, 0.0),
+                            ("fo:margin-bottom", &mut s.spacing.after, 0.0),
+                            ("fo:margin-left", &mut s.spacing.left, -1584.0),
+                            ("fo:margin-right", &mut s.spacing.right, -1584.0),
+                            ("fo:text-indent", &mut s.spacing.first, -1584.0),
+                        ] {
+                            *slot = get(&a, key).and_then(length).filter(|v| v.is_finite()).map(|v| v.clamp(min, 1584.0));
+                        }
+                        use wordcraft_doc::props::LineSpacing;
+                        s.spacing.line = get(&a, "fo:line-height")
+                            .and_then(|v| {
+                                if let Some(pct) = v.strip_suffix('%') {
+                                    pct.parse::<f32>().ok().filter(|v| v.is_finite()).map(|v| LineSpacing::Multiple((v / 100.0).clamp(0.1, 100.0)))
+                                } else {
+                                    length(v).filter(|v| v.is_finite()).map(|v| LineSpacing::Exactly(v.clamp(1.0, 1584.0)))
+                                }
+                            })
+                            .or_else(|| {
+                                get(&a, "style:line-height-at-least")
+                                    .and_then(length)
+                                    .filter(|v| v.is_finite())
+                                    .map(|v| LineSpacing::AtLeast(v.clamp(1.0, 1584.0)))
+                            });
                         if get(&a, "fo:break-before") == Some("page") {
                             s.page_break = true;
                         }
@@ -1219,6 +1346,18 @@ impl Styles {
     /// Background colour of a table-cell style (whole chain).
     fn cell_background(&self, name: &str) -> Option<Rgb> {
         self.chain(name).iter().find_map(|(_, s)| s.cell_background)
+    }
+
+    fn spacing(&self, name: &str) -> model::Spacing {
+        let chain = self.chain(name);
+        model::Spacing {
+            before: chain.iter().find_map(|(_, s)| s.spacing.before),
+            after: chain.iter().find_map(|(_, s)| s.spacing.after),
+            line: chain.iter().find_map(|(_, s)| s.spacing.line),
+            left: chain.iter().find_map(|(_, s)| s.spacing.left),
+            right: chain.iter().find_map(|(_, s)| s.spacing.right),
+            first: chain.iter().find_map(|(_, s)| s.spacing.first),
+        }
     }
 
     /// Paragraph kind, alignment, page break, rule and base formatting. The text formatting of
@@ -1322,16 +1461,9 @@ struct Body<'a> {
     depth: usize,
     frame: Option<(Option<f32>, Option<f32>, Option<Vec<u8>>, String)>,
     in_desc: bool,
-    /// The master pages' page setups.
-    pages: &'a Pages,
-    /// The current master page's setup (a column section's page, without its columns).
-    page: SectionProps,
-    /// The open section; where its blocks start in the body; how many sections have ended.
-    sec: SectionProps,
-    sec_from: usize,
-    sections: usize,
-    /// Element depth of the open columned `text:section`.
-    cols_at: Option<usize>,
+    binary: Option<String>,
+    binary_overflow: bool,
+    binary_remaining: usize,
     /// Inside `text:tracked-changes`.
     in_tc: bool,
     /// `text:track-changes` of the document's tracked changes (default on), when it has them.
@@ -1349,6 +1481,67 @@ struct Body<'a> {
     del: Option<DelState>,
     /// Insertions open in the body: (region id, revision).
     active_ins: Vec<(String, RevMark)>,
+    /// Notes and comments read so far (see [`Extras`]).
+    extras: Extras,
+    /// A `text:note` / `office:annotation` being collected (its events, replayed by a body of its own).
+    capture: Option<Capture>,
+    /// A body replaying a note: notes and comments inside it are skipped.
+    nested: bool,
+    /// The master pages' page setups.
+    pages: &'a Pages,
+    /// The current master page's setup (a column section's page, without its columns).
+    page: SectionProps,
+    /// The open section; where its blocks start in the body; how many sections have ended.
+    sec: SectionProps,
+    sec_from: usize,
+    sections: usize,
+    /// Element depth of the open columned `text:section`.
+    cols_at: Option<usize>,
+}
+
+impl<'a> Body<'a> {
+    fn new(styles: &'a Styles, pages: &'a Pages, zip: &'a mut dyn FnMut(&str) -> Option<Vec<u8>>) -> Self {
+        let page = pages.first.clone().unwrap_or_default();
+        Self {
+            pages,
+            sec: page.clone(),
+            page,
+            sec_from: 0,
+            sections: 0,
+            cols_at: None,
+            styles,
+            zip,
+            containers: vec![Vec::new()],
+            fmt: Vec::new(),
+            para: None,
+            para_cont: false,
+            lists: Vec::new(),
+            lists_saved: Vec::new(),
+            item_used: Vec::new(),
+            tables: Vec::new(),
+            cells: Vec::new(),
+            in_text: false,
+            skip: 0,
+            depth: 0,
+            frame: None,
+            in_desc: false,
+            binary: None,
+            binary_overflow: false,
+            binary_remaining: MAX_ENTRY as usize,
+            in_tc: false,
+            track: None,
+            regions: HashMap::new(),
+            region_count: 0,
+            region: None,
+            info_at: None,
+            info_field: None,
+            del: None,
+            active_ins: Vec::new(),
+            extras: Extras::default(),
+            capture: None,
+            nested: false,
+        }
+    }
 }
 
 impl Body<'_> {
@@ -1428,7 +1621,7 @@ impl Body<'_> {
         if let Some(h) = heading {
             kind = Kind::Heading(h.clamp(1, 6));
         }
-        let mut p = Para { kind, align, page_break: pb, ..Default::default() };
+        let mut p = Para { kind, align, page_break: pb, spacing: style.map(|s| self.styles.spacing(s)).unwrap_or_default(), ..Default::default() };
         if rule && kind == Kind::Normal {
             p.kind = Kind::Rule;
         }
@@ -1523,7 +1716,21 @@ impl Body<'_> {
     }
 
     fn text(&mut self, t: &str) {
+        if self.capture.is_some() {
+            self.capture_event(Ev::Text(t.to_string()));
+            return;
+        }
         if self.skip > 0 || !self.in_text {
+            return;
+        }
+        if let Some(binary) = &mut self.binary {
+            for c in t.bytes().filter(|c| !c.is_ascii_whitespace()) {
+                if binary.len() >= self.binary_remaining.saturating_add(2) / 3 * 4 {
+                    self.binary_overflow = true;
+                    break;
+                }
+                binary.push(char::from(c));
+            }
             return;
         }
         if self.info_at.is_some() {
@@ -1571,6 +1778,10 @@ impl Body<'_> {
 
     fn start(&mut self, q: &str, a: &Attrs) {
         self.depth += 1;
+        if self.capture.is_some() {
+            self.capture_event(Ev::Start(q.to_string(), a.clone()));
+            return;
+        }
         if q == "office:text" {
             self.in_text = true;
             return;
@@ -1631,6 +1842,9 @@ impl Body<'_> {
                 }
             }
             "change-start" | "change-end" => change_mark(&self.regions, &mut self.active_ins, local(q) == "change-start", a),
+            "note" if !self.nested && q == "text:note" => self.begin_capture(false, a),
+            "annotation" if !self.nested && q == "office:annotation" => self.begin_capture(true, a),
+            "annotation-end" if !self.nested && q == "office:annotation-end" => self.end_annotation(a),
             "note"
             | "annotation"
             | "text-box"
@@ -1679,7 +1893,7 @@ impl Body<'_> {
             "tab" => self.push_text("\t"),
             "line-break" => self.push_text("\n"),
             "bookmark" | "bookmark-start" => {
-                if let Some(n) = get(a, "text:name") {
+                if let Some(n) = get(a, "text:name").filter(|n| !n.starts_with(MARK)) {
                     if self.para.is_none() {
                         self.start_para(None, None);
                     }
@@ -1757,6 +1971,10 @@ impl Body<'_> {
                     let path = href.trim_start_matches("./");
                     fr.2 = (self.zip)(path);
                 }
+            }
+            "binary-data" if q == "office:binary-data" && self.frame.as_ref().is_some_and(|f| f.2.is_none()) => {
+                self.binary = Some(String::new());
+                self.binary_overflow = false;
             }
             "desc" | "title" if self.frame.is_some() => self.in_desc = true,
             // A columned section (ODF 1.3 §5.4) is a continuous section with its columns.
@@ -1902,6 +2120,10 @@ impl Body<'_> {
 
     fn end(&mut self, q: &str) {
         self.depth = self.depth.saturating_sub(1);
+        if self.capture.is_some() {
+            self.capture_event(Ev::End(q.to_string()));
+            return;
+        }
         if q == "office:text" {
             if self.del.is_some() {
                 // Unclosed deleted content (hostile): drop it.
@@ -2008,6 +2230,18 @@ impl Body<'_> {
                     self.container().push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
                 }
             }
+            "binary-data" if q == "office:binary-data" => {
+                if let Some(encoded) = self.binary.take()
+                    && !self.binary_overflow
+                    && let Some(data) = model::base64_decode(&encoded)
+                    && data.len() <= self.binary_remaining
+                {
+                    self.binary_remaining -= data.len();
+                    if let Some(frame) = &mut self.frame {
+                        frame.2 = Some(data);
+                    }
+                }
+            }
             "desc" | "title" => self.in_desc = false,
             "section" if q.starts_with("text:") && self.cols_at == Some(self.depth + 1) => {
                 self.end_para();
@@ -2048,6 +2282,504 @@ fn change_mark(regions: &HashMap<String, Region>, open: &mut Vec<(String, RevMar
         && !open.iter().any(|(o, _)| o == id)
     {
         open.push((id.to_string(), r.mark()));
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Footnotes, endnotes and comments
+
+/// Start of the bookmark names that stand for a note reference or a comment range boundary while
+/// the text goes through the flow model (`n<id>`, `cs<id>`, `ce<id>` follow). A control character
+/// no real bookmark has; files that carry it anyway are ignored on import.
+const MARK: &str = "\u{1}wc-odt:";
+/// Most notes plus comments read from one file.
+const MAX_NOTES: usize = 10_000;
+/// Most events kept for one note or comment.
+const MAX_NOTE_EVENTS: usize = 50_000;
+/// Most bytes (names, attributes, text) kept for one note or comment.
+const MAX_NOTE_BYTES: usize = 1 << 20;
+/// Most bytes kept for all notes and comments of a file.
+const MAX_NOTES_TOTAL: usize = 16 << 20;
+/// Longest custom note mark (characters), as the Footnote dialog takes.
+const MAX_MARK_CHARS: usize = 10;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MarkKind {
+    Note,
+    CommentStart,
+    CommentEnd,
+}
+
+fn mark_name(kind: MarkKind, id: usize) -> String {
+    let k = match kind {
+        MarkKind::Note => "n",
+        MarkKind::CommentStart => "cs",
+        MarkKind::CommentEnd => "ce",
+    };
+    format!("{MARK}{k}{id}")
+}
+
+fn parse_mark(name: &str) -> Option<(MarkKind, usize)> {
+    let r = name.strip_prefix(MARK)?;
+    let (kind, n) = if let Some(n) = r.strip_prefix("cs") {
+        (MarkKind::CommentStart, n)
+    } else if let Some(n) = r.strip_prefix("ce") {
+        (MarkKind::CommentEnd, n)
+    } else {
+        (MarkKind::Note, r.strip_prefix('n')?)
+    };
+    Some((kind, n.parse().ok()?))
+}
+
+fn short(s: &str, max: usize) -> String {
+    s.chars().filter(|c| !c.is_control()).take(max).collect::<String>().trim().to_string()
+}
+
+/// A footnote or endnote read from the file.
+struct NoteIn {
+    endnote: bool,
+    custom: String,
+    blocks: Vec<FBlock>,
+}
+
+/// A comment read from the file.
+struct CommentIn {
+    author: String,
+    initials: String,
+    date: String,
+    blocks: Vec<FBlock>,
+}
+
+/// What the flow model has no place for: the notes and comments of a file, numbered in reading
+/// order (the reserved bookmark names carry the numbers).
+#[derive(Default)]
+struct Extras {
+    notes: Vec<NoteIn>,
+    comments: Vec<CommentIn>,
+    /// `office:name` and number of the comments whose range is open.
+    open: Vec<(String, usize)>,
+    /// Bytes kept so far.
+    budget: usize,
+}
+
+/// A `text:note` or `office:annotation` being collected.
+struct Capture {
+    annotation: bool,
+    attrs: Attrs,
+    level: usize,
+    events: Vec<Ev>,
+    bytes: usize,
+    overflow: bool,
+}
+
+impl Body<'_> {
+    fn begin_capture(&mut self, annotation: bool, a: &Attrs) {
+        if self.extras.notes.len() + self.extras.comments.len() >= MAX_NOTES || self.extras.budget >= MAX_NOTES_TOTAL {
+            self.skip = 1;
+            return;
+        }
+        self.capture = Some(Capture { annotation, attrs: a.clone(), level: 1, events: Vec::new(), bytes: 0, overflow: false });
+    }
+
+    fn capture_event(&mut self, ev: Ev) {
+        let Some(cap) = self.capture.as_mut() else { return };
+        match &ev {
+            Ev::Start(..) => cap.level += 1,
+            Ev::End(_) => cap.level = cap.level.saturating_sub(1),
+            Ev::Text(_) => {}
+        }
+        if cap.level == 0 {
+            self.finish_capture();
+            return;
+        }
+        if cap.overflow {
+            return;
+        }
+        let cost = match &ev {
+            Ev::Start(q, a) => q.len() + a.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>() + 16,
+            Ev::End(q) => q.len() + 8,
+            Ev::Text(t) => t.len() + 8,
+        };
+        if cap.events.len() >= MAX_NOTE_EVENTS || cap.bytes.saturating_add(cost) > MAX_NOTE_BYTES {
+            cap.overflow = true;
+            return;
+        }
+        cap.bytes += cost;
+        cap.events.push(ev);
+    }
+
+    fn finish_capture(&mut self) {
+        let Some(cap) = self.capture.take() else { return };
+        self.extras.budget = self.extras.budget.saturating_add(cap.bytes);
+        if cap.annotation { self.finish_annotation(cap) } else { self.finish_note(cap) }
+    }
+
+    /// A marker bookmark at the current position (in a paragraph of its own if none is open).
+    fn add_marker(&mut self, name: String) {
+        if self.para.is_none() {
+            self.start_para(None, None);
+        }
+        if let Some(p) = &mut self.para {
+            p.inlines.push(Inline::Anchor(name));
+        }
+    }
+
+    /// The blocks `events` make up, read by a body of its own (in which notes and comments are
+    /// skipped, so nesting is bounded).
+    fn replay(&mut self, events: &[Ev]) -> Vec<FBlock> {
+        let mut sub = Body::new(self.styles, self.pages, &mut *self.zip);
+        sub.in_text = true;
+        sub.nested = true;
+        sub.binary_remaining = self.binary_remaining;
+        for ev in events {
+            match ev {
+                Ev::Start(q, a) => {
+                    if sub.depth < MAX_XML_DEPTH {
+                        sub.start(q, a);
+                    } else {
+                        sub.depth += 1;
+                    }
+                }
+                Ev::End(q) => {
+                    if sub.depth <= MAX_XML_DEPTH {
+                        sub.end(q);
+                    } else {
+                        sub.depth -= 1;
+                    }
+                }
+                Ev::Text(t) => sub.text(t),
+            }
+        }
+        self.binary_remaining = sub.binary_remaining;
+        sub.end_para();
+        while sub.containers.len() > 1 {
+            let c = sub.containers.pop().unwrap_or_default();
+            sub.container().extend(c);
+        }
+        let mut blocks = sub.containers.pop().unwrap_or_default();
+        for t in sub.tables.drain(..) {
+            if !t.rows.is_empty() {
+                blocks.push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
+            }
+        }
+        blocks
+    }
+
+    /// `<text:note text:note-class="footnote|endnote">` with its citation and body.
+    fn finish_note(&mut self, cap: Capture) {
+        let endnote = get(&cap.attrs, "text:note-class") == Some("endnote");
+        let mut custom = String::new();
+        let mut level = 0usize;
+        let mut body_level = 0usize;
+        let mut body_start: Option<usize> = None;
+        let mut body_end: Option<usize> = None;
+        for (i, ev) in cap.events.iter().enumerate() {
+            match ev {
+                Ev::Start(q, a) => {
+                    level += 1;
+                    if q == "text:note-citation"
+                        && body_start.is_none()
+                        && let Some(l) = get(a, "text:label")
+                    {
+                        custom = short(l, MAX_MARK_CHARS);
+                    } else if q == "text:note-body" && body_start.is_none() {
+                        body_start = Some(i + 1);
+                        body_level = level;
+                    }
+                }
+                Ev::End(q) => {
+                    if q == "text:note-body" && body_start.is_some() && body_end.is_none() && level == body_level {
+                        body_end = Some(i);
+                    }
+                    level = level.saturating_sub(1);
+                }
+                Ev::Text(_) => {}
+            }
+        }
+        let events = match body_start {
+            Some(s) => cap.events.get(s..body_end.unwrap_or(cap.events.len())).unwrap_or(&[]),
+            None => &[],
+        };
+        let blocks = self.replay(events);
+        let idx = self.extras.notes.len();
+        self.extras.notes.push(NoteIn { endnote, custom, blocks });
+        self.add_marker(mark_name(MarkKind::Note, idx));
+    }
+
+    /// `<office:annotation>`: author, date, initials and the comment's paragraphs.
+    fn finish_annotation(&mut self, cap: Capture) {
+        let (mut author, mut date, mut initials) = (String::new(), String::new(), String::new());
+        let mut cur: Option<u8> = None;
+        for ev in &cap.events {
+            match ev {
+                Ev::Start(q, _) => {
+                    cur = match q.as_str() {
+                        "dc:creator" => Some(0),
+                        "dc:date" => Some(1),
+                        "meta:creator-initials" => Some(2),
+                        _ => None,
+                    }
+                }
+                Ev::End(_) => cur = None,
+                Ev::Text(t) => {
+                    let dst = match cur {
+                        Some(0) => &mut author,
+                        Some(1) => &mut date,
+                        Some(2) => &mut initials,
+                        _ => continue,
+                    };
+                    if dst.len() < 1024 {
+                        dst.push_str(t);
+                    }
+                }
+            }
+        }
+        let blocks = self.replay(&cap.events);
+        let idx = self.extras.comments.len();
+        self.extras.comments.push(CommentIn { author: short(&author, 256), initials: short(&initials, 16), date: short(&date, 64), blocks });
+        if let Some(name) = get(&cap.attrs, "office:name").filter(|n| !n.is_empty() && n.len() <= 256)
+            && self.extras.open.len() < MAX_NOTES
+        {
+            self.extras.open.push((name.to_string(), idx));
+        }
+        self.add_marker(mark_name(MarkKind::CommentStart, idx));
+    }
+
+    /// `<office:annotation-end>`: the commented range ends here.
+    fn end_annotation(&mut self, a: &Attrs) {
+        let Some(name) = get(a, "office:name") else { return };
+        if let Some(at) = self.extras.open.iter().position(|(n, _)| n == name) {
+            let (_, idx) = self.extras.open.remove(at);
+            self.add_marker(mark_name(MarkKind::CommentEnd, idx));
+        }
+    }
+}
+
+/// Run `f` on every paragraph of `blocks`, in table cells too.
+fn for_paras(blocks: &mut Blocks, depth: usize, f: &mut dyn FnMut(&mut Paragraph)) {
+    for b in blocks.iter_mut() {
+        match Arc::make_mut(b) {
+            Block::Para(p) => f(p),
+            Block::Table(t) if depth < model::MAX_DEPTH => {
+                for r in t.rows.iter_mut() {
+                    for c in r.cells.iter_mut() {
+                        for_paras(&mut c.blocks, depth + 1, f);
+                    }
+                }
+            }
+            Block::Table(_) => {}
+        }
+    }
+}
+
+/// Swap the marker bookmarks `import` finds in `doc` for note references and comment ranges, and
+/// add the notes' and comments' stories to the document.
+fn attach_extras(doc: &mut Document, extras: Extras) {
+    if extras.notes.is_empty() && extras.comments.is_empty() {
+        return;
+    }
+    let mut notes: Vec<Option<InlineObject>> = Vec::new();
+    for n in &extras.notes {
+        let (pk, kind, style, refstyle) = if n.endnote {
+            (PartKind::Endnote, NoteKind::Endnote, "EndnoteText", "EndnoteReference")
+        } else {
+            (PartKind::Footnote, NoteKind::Footnote, "FootnoteText", "FootnoteReference")
+        };
+        let id = doc.add_part(pk, Blocks::new());
+        let mut blocks = model::part_blocks(doc, &n.blocks);
+        // Like a note made in the app, the story starts with its own reference mark.
+        if let Some(first) = blocks.first_mut()
+            && let Block::Para(p) = Arc::make_mut(first)
+        {
+            let had_text = !p.is_empty();
+            p.props.style.get_or_insert_with(|| style.to_string());
+            let props = CharProps { style: Some(refstyle.to_string()), ..Default::default() };
+            let _ = p.insert_object(0, InlineObject::NoteRef { kind, id, custom: n.custom.clone() }, &props);
+            if had_text {
+                let _ = p.insert_text(OBJ.len_utf8(), " ", &CharProps::default());
+            }
+        }
+        if let Some(part) = doc.parts.get_mut(&id) {
+            part.blocks = blocks;
+        }
+        notes.push(Some(InlineObject::NoteRef { kind, id, custom: n.custom.clone() }));
+    }
+    let mut comments: Vec<Option<u32>> = Vec::new();
+    for c in &extras.comments {
+        let blocks = model::part_blocks(doc, &c.blocks);
+        let part = doc.add_part(PartKind::Comment, blocks);
+        let id = doc.comments.keys().next_back().map(|k| k.saturating_add(1)).unwrap_or(0);
+        doc.comments.insert(id, Comment { author: c.author.clone(), initials: c.initials.clone(), date: c.date.clone(), part, ..Default::default() });
+        comments.push(Some(id));
+    }
+    // Which comments have an end marker; those without are points.
+    let mut ended: HashSet<usize> = HashSet::new();
+    for_paras(&mut doc.body, 0, &mut |p| {
+        for off in p.object_offsets() {
+            if let Some(InlineObject::BookmarkEnd { name }) = p.object_at(off)
+                && let Some((MarkKind::CommentEnd, i)) = parse_mark(name)
+            {
+                ended.insert(i);
+            }
+        }
+    });
+    for_paras(&mut doc.body, 0, &mut |p| {
+        // (offset, what replaces the marker (None: remove it), a point comment's end to add)
+        let mut acts: Vec<(usize, Option<InlineObject>, Option<u32>)> = Vec::new();
+        for off in p.object_offsets() {
+            let (name, is_start) = match p.object_at(off) {
+                Some(InlineObject::BookmarkStart { name }) => (name, true),
+                Some(InlineObject::BookmarkEnd { name }) => (name, false),
+                _ => continue,
+            };
+            let Some((kind, i)) = parse_mark(name) else { continue };
+            let comment = comments.get(i).copied().flatten();
+            let act = match (kind, is_start) {
+                (MarkKind::Note, true) => notes.get(i).cloned().flatten(),
+                (MarkKind::CommentStart, true) => comment.map(|id| InlineObject::CommentStart { id }),
+                (MarkKind::CommentEnd, false) => comment.map(|id| InlineObject::CommentEnd { id }),
+                _ => None,
+            };
+            let point = if kind == MarkKind::CommentStart && is_start && !ended.contains(&i) { comment } else { None };
+            acts.push((off, act, point));
+        }
+        // Back to front, so the offsets before stay valid.
+        for (off, act, point) in acts.into_iter().rev() {
+            match act {
+                Some(obj) => {
+                    if let Some(o) = p.object_at_mut(off) {
+                        *o = obj;
+                    }
+                    if let Some(id) = point {
+                        let _ = p.insert_object(off + OBJ.len_utf8(), InlineObject::CommentEnd { id }, &CharProps::default());
+                    }
+                }
+                None => {
+                    let _ = p.delete(off, off + OBJ.len_utf8());
+                }
+            }
+        }
+    });
+}
+
+/// The notes and comments of a document to write: footnote and endnote stories by part id
+/// (endnote?, custom mark, blocks) and comments by id (the comment, blocks).
+#[derive(Default)]
+struct OutExtras {
+    notes: HashMap<u32, (bool, String, Vec<FBlock>)>,
+    comments: HashMap<u32, (Comment, Vec<FBlock>)>,
+}
+
+/// A copy of `doc` whose note references and comment boundaries in the body are the reserved
+/// bookmarks the flow model carries (`None` when there are none), and the notes and comments
+/// themselves.
+fn prepare_export(doc: &Document) -> (Option<Document>, OutExtras) {
+    let has_notes = doc.parts.values().any(|p| matches!(p.kind, PartKind::Footnote | PartKind::Endnote));
+    if !has_notes && doc.comments.is_empty() {
+        return (None, OutExtras::default());
+    }
+    let mut d = doc.clone();
+    let mut notes: Vec<(u32, NoteKind, String)> = Vec::new();
+    let mut seen_notes: HashSet<u32> = HashSet::new();
+    let mut seen_comments: HashSet<u32> = HashSet::new();
+    for_paras(&mut d.body, 0, &mut |p| {
+        for off in p.object_offsets() {
+            let name = match p.object_at(off) {
+                Some(InlineObject::NoteRef { kind, id, custom }) if doc.parts.contains_key(id) => {
+                    if seen_notes.insert(*id) {
+                        notes.push((*id, *kind, custom.clone()));
+                    }
+                    Some(mark_name(MarkKind::Note, *id as usize))
+                }
+                Some(InlineObject::CommentStart { id }) if doc.comments.contains_key(id) => {
+                    seen_comments.insert(*id);
+                    Some(mark_name(MarkKind::CommentStart, *id as usize))
+                }
+                Some(InlineObject::CommentEnd { id }) if doc.comments.contains_key(id) => Some(mark_name(MarkKind::CommentEnd, *id as usize)),
+                _ => None,
+            };
+            if let Some(name) = name
+                && let Some(o) = p.object_at_mut(off)
+            {
+                *o = InlineObject::BookmarkStart { name };
+            }
+        }
+    });
+    let mut out = OutExtras::default();
+    for (id, kind, custom) in notes.into_iter().take(MAX_NOTES) {
+        let Some(part) = doc.parts.get(&id) else { continue };
+        let mut blocks = part.blocks.clone();
+        // The story's own reference mark (and the space after it) is the citation here.
+        if let Some(first) = blocks.first_mut()
+            && let Block::Para(p) = Arc::make_mut(first)
+            && let Some(off) = p.object_offsets().first().copied()
+            && matches!(p.object_at(off), Some(InlineObject::NoteRef { .. }))
+            && p.text.get(..off).is_some_and(|t| t.trim().is_empty())
+        {
+            let _ = p.delete(0, off + OBJ.len_utf8());
+            if p.text.starts_with(' ') {
+                let _ = p.delete(0, 1);
+            }
+        }
+        out.notes.insert(id, (kind == NoteKind::Endnote, custom, model::flow_of_blocks(doc, &blocks)));
+    }
+    for id in seen_comments.into_iter().take(MAX_NOTES) {
+        let Some(c) = doc.comments.get(&id) else { continue };
+        let blocks = doc.parts.get(&c.part).map(|p| model::flow_of_blocks(doc, &p.blocks)).unwrap_or_default();
+        out.comments.insert(id, (c.clone(), blocks));
+    }
+    (Some(d), out)
+}
+
+impl Writer {
+    /// A note reference or comment boundary (`name` is a reserved bookmark name).
+    fn mark(&mut self, name: &str, out: &mut String) {
+        let Some((kind, id)) = parse_mark(name) else { return };
+        let Ok(id) = u32::try_from(id) else { return };
+        match kind {
+            MarkKind::Note => {
+                let Some((endnote, custom, blocks)) = self.out.notes.get(&id).cloned() else { return };
+                let counter = if endnote { &mut self.end_n } else { &mut self.foot_n };
+                *counter += 1;
+                let num = *counter;
+                let (class, prefix) = if endnote { ("endnote", "edn") } else { ("footnote", "ftn") };
+                let (label, cite) =
+                    if custom.is_empty() { (String::new(), num.to_string()) } else { (format!(" text:label=\"{}\"", x(&custom)), custom) };
+                out.push_str(&format!(
+                    "<text:note text:id=\"{prefix}{num}\" text:note-class=\"{class}\"><text:note-citation{label}>{}</text:note-citation><text:note-body>",
+                    x(&cite)
+                ));
+                self.blocks(&blocks, out, 1);
+                out.push_str("</text:note-body></text:note>");
+            }
+            MarkKind::CommentStart => {
+                let Some((c, blocks)) = self.out.comments.get(&id).cloned() else { return };
+                if !self.started.insert(id) {
+                    return;
+                }
+                out.push_str(&format!("<office:annotation office:name=\"__Annotation__{id}\">"));
+                if !c.author.is_empty() {
+                    out.push_str(&format!("<dc:creator>{}</dc:creator>", x(&c.author)));
+                }
+                if !c.date.is_empty() {
+                    out.push_str(&format!("<dc:date>{}</dc:date>", x(&c.date)));
+                }
+                if !c.initials.is_empty() {
+                    out.push_str(&format!("<meta:creator-initials>{}</meta:creator-initials>", x(&c.initials)));
+                }
+                if blocks.is_empty() {
+                    out.push_str("<text:p/>");
+                } else {
+                    self.blocks(&blocks, out, 1);
+                }
+                out.push_str("</office:annotation>");
+            }
+            MarkKind::CommentEnd => {
+                if self.started.remove(&id) {
+                    out.push_str(&format!("<office:annotation-end office:name=\"__Annotation__{id}\"/>"));
+                }
+            }
+        }
     }
 }
 
@@ -2134,16 +2866,11 @@ fn read_meta(xml: &[u8]) -> Meta {
 
 /// Parse an `.odt` package into the flow model.
 pub fn parse(bytes: &[u8]) -> Result<Flow, String> {
-    parse_full(bytes).map(|(flow, _)| flow)
+    import(bytes).map(|doc| model::from_doc_tracked(&doc))
 }
 
-/// [`parse`], with the last section's properties (the others are on the paragraphs that end them).
-fn parse_full(bytes: &[u8]) -> Result<(Flow, SectionProps), String> {
-    parse_tracked(bytes).map(|(f, last, _)| (f, last))
-}
-
-/// [`parse_full`], plus whether change tracking is on (`None`: the document has no tracked changes).
-fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), String> {
+/// Parse an ODT/OTT package, reading each XML part once.
+pub fn import(bytes: &[u8]) -> Result<Document, String> {
     let mut z = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("ODT: not a valid package ({e})"))?;
     if let Some(mt) = read_entry(&mut z, "mimetype") {
         let mt = String::from_utf8_lossy(&mt);
@@ -2152,54 +2879,40 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
         }
     }
     let content = read_entry(&mut z, "content.xml").ok_or("ODT: content.xml is missing")?;
-    let mut styles = Styles::default();
-    let mut pages = Pages::default();
-    if let Some(s) = read_entry(&mut z, "styles.xml") {
-        styles.read(&s, false);
-        pages = read_pages(&s);
-    }
-    let page = pages.first.clone().unwrap_or_default();
-    styles.read(&content, true);
+    let styles_xml = read_entry(&mut z, "styles.xml").unwrap_or_default();
     let meta = read_entry(&mut z, "meta.xml").map(|m| read_meta(&m)).unwrap_or_default();
     let mut pictures = Pictures::new(MAX_ENTRY);
     let mut fetch = |path: &str| -> Option<Vec<u8>> {
         // A frame may point at any entry, as often as it likes: `Pictures` keeps that bounded.
         pictures.get(&mut z, path)
     };
-    let mut body = Body {
-        styles: &styles,
-        zip: &mut fetch,
-        containers: vec![Vec::new()],
-        fmt: Vec::new(),
-        para: None,
-        para_cont: false,
-        lists: Vec::new(),
-        lists_saved: Vec::new(),
-        item_used: Vec::new(),
-        tables: Vec::new(),
-        cells: Vec::new(),
-        in_text: false,
-        skip: 0,
-        depth: 0,
-        frame: None,
-        in_desc: false,
-        pages: &pages,
-        sec: page.clone(),
-        page,
-        sec_from: 0,
-        sections: 0,
-        cols_at: None,
-        in_tc: false,
-        track: None,
-        regions: HashMap::new(),
-        region_count: 0,
-        region: None,
-        info_at: None,
-        info_field: None,
-        del: None,
-        active_ins: Vec::new(),
-    };
-    events(&content, |ev| match ev {
+    Ok(import_xml(&content, &styles_xml, meta, &mut fetch))
+}
+
+fn import_xml(content: &[u8], styles_xml: &[u8], meta: Meta, fetch: &mut dyn FnMut(&str) -> Option<Vec<u8>>) -> Document {
+    let mut styles = Styles::default();
+    styles.read(styles_xml, false);
+    styles.read(content, true);
+    let mut pages = read_pages(styles_xml);
+    let mut doc = model::to_doc(&Flow { blocks: Vec::new(), meta: meta.clone() });
+    page_parts::read(styles_xml, &styles, &mut pages, &mut doc, fetch);
+    let (flow, track, extras, last) = parse_body(content, &styles, meta, &pages, fetch);
+    doc.body = model::part_blocks(&mut doc, &flow.blocks);
+    doc.last_section = last;
+    doc.settings.track_changes = track.unwrap_or(false);
+    attach_extras(&mut doc, extras);
+    doc
+}
+
+fn parse_body(
+    content: &[u8],
+    styles: &Styles,
+    meta: Meta,
+    pages: &Pages,
+    fetch: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
+) -> (Flow, Option<bool>, Extras, SectionProps) {
+    let mut body = Body::new(styles, pages, fetch);
+    events(content, |ev| match ev {
         Ev::Start(q, a) => {
             if body.depth < MAX_XML_DEPTH {
                 body.start(&q, &a);
@@ -2239,19 +2952,7 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
     if blocks.is_empty() {
         blocks.push(FBlock::Para(Para::default()));
     }
-    let track = body.track;
-    Ok((Flow { blocks, meta }, last, track))
-}
-
-/// Parse an `.odt` package into a document.
-pub fn import(bytes: &[u8]) -> Result<Document, String> {
-    let (flow, last, track) = parse_tracked(bytes)?;
-    let mut doc = model::to_doc(&flow);
-    doc.last_section = last;
-    if let Some(t) = track {
-        doc.settings.track_changes = t;
-    }
-    Ok(doc)
+    (Flow { blocks, meta }, body.track, body.extras, last)
 }
 
 /// The page setup of each master page in `styles.xml` (ODF 1.3 §16.9), and of the first one,
@@ -2260,6 +2961,7 @@ pub fn import(bytes: &[u8]) -> Result<Document, String> {
 struct Pages {
     masters: HashMap<String, SectionProps>,
     first: Option<SectionProps>,
+    first_name: Option<String>,
 }
 
 fn read_pages(xml: &[u8]) -> Pages {
@@ -2287,8 +2989,8 @@ fn read_pages(xml: &[u8]) -> Pages {
                 }
             }
             "master-page" if masters.len() < MAX_SECTIONS => {
-                if let (Some(n), Some(l)) = (get(&a, "style:name"), get(&a, "style:page-layout-name")) {
-                    masters.push((n.to_string(), l.to_string()));
+                if let Some(n) = get(&a, "style:name") {
+                    masters.push((n.to_string(), get(&a, "style:page-layout-name").unwrap_or("").to_string()));
                 }
             }
             _ => {}
@@ -2302,7 +3004,8 @@ fn read_pages(xml: &[u8]) -> Pages {
     });
     let mut pages = Pages::default();
     for (name, layout) in masters {
-        let Some((a, cols)) = layouts.get(&layout) else { continue };
+        let empty = (Vec::new(), None);
+        let (a, cols) = layouts.get(&layout).unwrap_or(&empty);
         let mut sec = SectionProps::default();
         apply_layout(a, &mut sec);
         // A one-column layout keeps the default columns (and their gap).
@@ -2311,6 +3014,7 @@ fn read_pages(xml: &[u8]) -> Pages {
         }
         if pages.first.is_none() {
             pages.first = Some(sec.clone());
+            pages.first_name = Some(name.clone());
         }
         pages.masters.entry(name).or_insert(sec);
     }
@@ -2580,141 +3284,6 @@ mod tests {
         assert_eq!(row, vec![("Red".to_string(), Some(Rgb(255, 0, 0))), ("Plain".to_string(), None)]);
     }
 
-    /// #1379: three master pages (A4 upright; A4 wide with page numbering restarting at 1; A4
-    /// upright again with numbering continuing) and a two-column `text:section` in between.
-    fn sections_package() -> Vec<u8> {
-        let styles = format!(
-            r#"<office:document-styles {NS_T}><office:automatic-styles>
-            <style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" style:print-orientation="portrait" fo:margin-top="2cm" fo:margin-bottom="2cm" fo:margin-left="2.5cm" fo:margin-right="2.5cm"/></style:page-layout>
-            <style:page-layout style:name="pW"><style:page-layout-properties fo:page-width="29.7cm" fo:page-height="21cm" style:print-orientation="landscape" fo:margin-top="1.5cm" fo:margin-bottom="1.5cm" fo:margin-left="1.5cm" fo:margin-right="1.5cm"/></style:page-layout>
-            </office:automatic-styles><office:master-styles>
-            <style:master-page style:name="Upright" style:page-layout-name="pU"/>
-            <style:master-page style:name="Wide" style:page-layout-name="pW"/>
-            <style:master-page style:name="Closing" style:page-layout-name="pU"/>
-            </office:master-styles></office:document-styles>"#
-        );
-        let content = format!(
-            r#"<office:document-content {NS_T}><office:automatic-styles>
-            <style:style style:name="PStart" style:family="paragraph" style:master-page-name="Upright"/>
-            <style:style style:name="PWide" style:family="paragraph" style:master-page-name="Wide"><style:paragraph-properties fo:break-before="page" style:page-number="1"/></style:style>
-            <style:style style:name="PClose" style:family="paragraph" style:master-page-name="Closing"><style:paragraph-properties fo:break-before="page" style:page-number="auto"/></style:style>
-            <style:style style:name="Two" style:family="section"><style:section-properties><style:columns fo:column-count="2" fo:column-gap="1cm"><style:column-sep style:width="0.02cm" style:style="solid"/></style:columns></style:section-properties></style:style>
-            </office:automatic-styles><office:body><office:text>
-            <text:p text:style-name="PStart">Opening words</text:p><text:p>More opening words</text:p>
-            <text:h text:style-name="PWide" text:outline-level="1">Wide part</text:h>
-            <table:table><table:table-column table:number-columns-repeated="2"/><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell></table:table-row></table:table>
-            <text:section text:name="Cols" text:style-name="Two"><text:p>Left column text</text:p><text:p>Right column text</text:p></text:section>
-            <text:p text:style-name="PClose">Closing words</text:p><text:p>Last line</text:p>
-            </office:text></office:body></office:document-content>"#
-        );
-        package(&content, Some(&styles))
-    }
-
-    #[test]
-    fn master_pages_and_column_sections_become_sections() {
-        use wordcraft_doc::section::SectionStart;
-        let doc = import(&sections_package()).unwrap();
-        let secs = doc.sections();
-        let summary: Vec<_> =
-            secs.iter().map(|(_, s)| (s.start, s.landscape, s.page_w.round(), s.page_h.round(), s.columns.count, s.page_num_start)).collect();
-        assert_eq!(
-            summary,
-            [
-                (SectionStart::NextPage, false, 595.0, 842.0, 1, None),
-                (SectionStart::NextPage, true, 842.0, 595.0, 1, Some(1)),
-                (SectionStart::Continuous, true, 842.0, 595.0, 2, None),
-                (SectionStart::NextPage, false, 595.0, 842.0, 1, None),
-            ]
-        );
-        // Margins come from each section's page layout; the columns from the section style.
-        assert!((secs[0].1.margin_left - 70.87).abs() < 0.01 && (secs[1].1.margin_left - 42.52).abs() < 0.01);
-        let cols = &secs[2].1.columns;
-        assert!((cols.space - 28.35).abs() < 0.01 && cols.separator, "{cols:?}");
-        // Each section ends on its own last paragraph; the wide one ends after its table.
-        let text = |i: usize| match doc.body.get(i).map(|b| &**b) {
-            Some(wordcraft_doc::Block::Para(p)) => p.plain_text().to_string(),
-            _ => String::from("<not a paragraph>"),
-        };
-        assert_eq!(text(secs[0].0), "More opening words");
-        assert!(matches!(doc.body.get(secs[1].0 - 1).map(|b| &**b), Some(wordcraft_doc::Block::Table(_))));
-        assert_eq!(text(secs[2].0), "Right column text");
-        assert_eq!(text(secs[3].0), "Last line");
-    }
-
-    #[test]
-    fn one_master_page_stays_one_section() {
-        let styles = format!(
-            r#"<office:document-styles {NS_T}><office:automatic-styles><style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pU"/></office:master-styles></office:document-styles>"#
-        );
-        let content = format!(
-            r#"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="P1" style:family="paragraph" style:master-page-name="Standard"/></office:automatic-styles><office:body><office:text><text:p text:style-name="P1">One</text:p><text:p>Two</text:p></office:text></office:body></office:document-content>"#
-        );
-        let doc = import(&package(&content, Some(&styles))).unwrap();
-        assert_eq!(doc.sections().len(), 1);
-        assert_eq!(doc.last_section.page_w.round(), 595.0);
-    }
-
-    #[test]
-    fn hostile_sections_are_capped_and_clamped() {
-        // 20,000 master-page paragraphs give at most 10,000 sections; absurd column counts and
-        // gaps are clamped; a column section at the very end leaves no empty section after it.
-        let mut body = String::new();
-        for _ in 0..20_000 {
-            body.push_str(r#"<text:p text:style-name="PM">x</text:p>"#);
-        }
-        body.push_str(r#"<text:section text:style-name="Many"><text:p>cols</text:p></text:section>"#);
-        let content = format!(
-            r#"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="PM" style:family="paragraph" style:master-page-name="Standard"/><style:style style:name="Many" style:family="section"><style:section-properties><style:columns fo:column-count="99999999999" fo:column-gap="1e30in"/></style:section-properties></style:style></office:automatic-styles><office:body><office:text>{body}</office:text></office:body></office:document-content>"#
-        );
-        let styles = format!(
-            r#"<office:document-styles {NS_T}><office:automatic-styles><style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pU"/></office:master-styles></office:document-styles>"#
-        );
-        let doc = import(&package(&content, Some(&styles))).unwrap();
-        assert_eq!(doc.sections().len(), 10_000);
-        let content = format!(
-            r#"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="Many" style:family="section"><style:section-properties><style:columns fo:column-count="1000" fo:column-gap="1e30in"/></style:section-properties></style:style></office:automatic-styles><office:body><office:text><text:p>before</text:p><text:section text:style-name="Many"><text:p>cols</text:p></text:section></office:text></office:body></office:document-content>"#
-        );
-        let doc = import(&package(&content, None)).unwrap();
-        let secs = doc.sections();
-        assert_eq!(secs.len(), 2);
-        assert_eq!(secs[1].1.columns.count, 45);
-        assert!(secs[1].1.columns.space <= 1584.0);
-    }
-
-    #[test]
-    fn master_page_on_a_table_style_starts_a_section() {
-        // Review of #1379: a table style can name a master page too (ODF 1.3 §19.509), with its
-        // page-number restart on `style:table-properties`. An empty name on a child style means
-        // "no page style here", and a page-number restart without a master page starts nothing.
-        use wordcraft_doc::section::SectionStart;
-        let styles = format!(
-            r#"<office:document-styles {NS_T}><office:styles><style:style style:name="WideParent" style:family="paragraph" style:master-page-name="Wide"/></office:styles><office:automatic-styles>
-            <style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"><style:columns fo:column-count="1" fo:column-gap="0cm"/></style:page-layout-properties></style:page-layout>
-            <style:page-layout style:name="pW"><style:page-layout-properties fo:page-width="29.7cm" fo:page-height="21cm" style:print-orientation="landscape"/></style:page-layout>
-            </office:automatic-styles><office:master-styles>
-            <style:master-page style:name="Upright" style:page-layout-name="pU"/><style:master-page style:name="Wide" style:page-layout-name="pW"/>
-            </office:master-styles></office:document-styles>"#
-        );
-        let content = format!(
-            r#"<office:document-content {NS_T}><office:automatic-styles>
-            <style:style style:name="NoPage" style:family="paragraph" style:parent-style-name="WideParent" style:master-page-name=""/>
-            <style:style style:name="Restart" style:family="paragraph"><style:paragraph-properties fo:break-before="page" style:page-number="3"/></style:style>
-            <style:style style:name="WideTable" style:family="table" style:master-page-name="Wide"><style:table-properties style:page-number="1"/></style:style>
-            </office:automatic-styles><office:body><office:text>
-            <text:p>Intro</text:p><text:p text:style-name="NoPage">Not a new page style</text:p><text:p text:style-name="Restart">Page break only</text:p>
-            <table:table table:style-name="WideTable"><table:table-column/><table:table-row><table:table-cell><text:p>Cell</text:p></table:table-cell></table:table-row></table:table>
-            <text:p>After</text:p>
-            </office:text></office:body></office:document-content>"#
-        );
-        let doc = import(&package(&content, Some(&styles))).unwrap();
-        let secs = doc.sections();
-        let summary: Vec<_> = secs.iter().map(|(i, s)| (*i, s.start, s.landscape, s.page_num_start)).collect();
-        assert_eq!(summary, [(2, SectionStart::NextPage, false, None), (4, SectionStart::NextPage, true, Some(1))]);
-        assert!(matches!(doc.body.get(3).map(|b| &**b), Some(wordcraft_doc::Block::Table(_))));
-        // A one-column page layout keeps the default column gap.
-        assert_eq!(secs[0].1.columns, wordcraft_doc::section::Columns::default());
-    }
-
     // --- Tracked changes (ODF 1.3 Part 3 §5.5) -------------------------------------------------
 
     const NS_TC: &str = r#"xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/""#;
@@ -2919,5 +3488,140 @@ mod tests {
         assert!(back.revisions.first().is_some_and(|r| r.date.len() >= 19 && r.date.starts_with("20")), "{:?}", back.revisions);
         assert_eq!(marks(&back), marks(&doc));
         assert_eq!(marks(&back).len(), 1);
+    }
+
+    /// #1379: three master pages (A4 upright; A4 wide with page numbering restarting at 1; A4
+    /// upright again with numbering continuing) and a two-column `text:section` in between.
+    fn sections_package() -> Vec<u8> {
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:automatic-styles>
+            <style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" style:print-orientation="portrait" fo:margin-top="2cm" fo:margin-bottom="2cm" fo:margin-left="2.5cm" fo:margin-right="2.5cm"/></style:page-layout>
+            <style:page-layout style:name="pW"><style:page-layout-properties fo:page-width="29.7cm" fo:page-height="21cm" style:print-orientation="landscape" fo:margin-top="1.5cm" fo:margin-bottom="1.5cm" fo:margin-left="1.5cm" fo:margin-right="1.5cm"/></style:page-layout>
+            </office:automatic-styles><office:master-styles>
+            <style:master-page style:name="Upright" style:page-layout-name="pU"/>
+            <style:master-page style:name="Wide" style:page-layout-name="pW"/>
+            <style:master-page style:name="Closing" style:page-layout-name="pU"/>
+            </office:master-styles></office:document-styles>"#
+        );
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles>
+            <style:style style:name="PStart" style:family="paragraph" style:master-page-name="Upright"/>
+            <style:style style:name="PWide" style:family="paragraph" style:master-page-name="Wide"><style:paragraph-properties fo:break-before="page" style:page-number="1"/></style:style>
+            <style:style style:name="PClose" style:family="paragraph" style:master-page-name="Closing"><style:paragraph-properties fo:break-before="page" style:page-number="auto"/></style:style>
+            <style:style style:name="Two" style:family="section"><style:section-properties><style:columns fo:column-count="2" fo:column-gap="1cm"><style:column-sep style:width="0.02cm" style:style="solid"/></style:columns></style:section-properties></style:style>
+            </office:automatic-styles><office:body><office:text>
+            <text:p text:style-name="PStart">Opening words</text:p><text:p>More opening words</text:p>
+            <text:h text:style-name="PWide" text:outline-level="1">Wide part</text:h>
+            <table:table><table:table-column table:number-columns-repeated="2"/><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>B</text:p></table:table-cell></table:table-row></table:table>
+            <text:section text:name="Cols" text:style-name="Two"><text:p>Left column text</text:p><text:p>Right column text</text:p></text:section>
+            <text:p text:style-name="PClose">Closing words</text:p><text:p>Last line</text:p>
+            </office:text></office:body></office:document-content>"#
+        );
+        package(&content, Some(&styles))
+    }
+
+    #[test]
+    fn master_pages_and_column_sections_become_sections() {
+        use wordcraft_doc::section::SectionStart;
+        let doc = import(&sections_package()).unwrap();
+        let secs = doc.sections();
+        let summary: Vec<_> =
+            secs.iter().map(|(_, s)| (s.start, s.landscape, s.page_w.round(), s.page_h.round(), s.columns.count, s.page_num_start)).collect();
+        assert_eq!(
+            summary,
+            [
+                (SectionStart::NextPage, false, 595.0, 842.0, 1, None),
+                (SectionStart::NextPage, true, 842.0, 595.0, 1, Some(1)),
+                (SectionStart::Continuous, true, 842.0, 595.0, 2, None),
+                (SectionStart::NextPage, false, 595.0, 842.0, 1, None),
+            ]
+        );
+        // Margins come from each section's page layout; the columns from the section style.
+        assert!((secs[0].1.margin_left - 70.87).abs() < 0.01 && (secs[1].1.margin_left - 42.52).abs() < 0.01);
+        let cols = &secs[2].1.columns;
+        assert!((cols.space - 28.35).abs() < 0.01 && cols.separator, "{cols:?}");
+        // Each section ends on its own last paragraph; the wide one ends after its table.
+        let text = |i: usize| match doc.body.get(i).map(|b| &**b) {
+            Some(wordcraft_doc::Block::Para(p)) => p.plain_text().to_string(),
+            _ => String::from("<not a paragraph>"),
+        };
+        assert_eq!(text(secs[0].0), "More opening words");
+        assert!(matches!(doc.body.get(secs[1].0 - 1).map(|b| &**b), Some(wordcraft_doc::Block::Table(_))));
+        assert_eq!(text(secs[2].0), "Right column text");
+        assert_eq!(text(secs[3].0), "Last line");
+    }
+
+    #[test]
+    fn one_master_page_stays_one_section() {
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:automatic-styles><style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pU"/></office:master-styles></office:document-styles>"#
+        );
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="P1" style:family="paragraph" style:master-page-name="Standard"/></office:automatic-styles><office:body><office:text><text:p text:style-name="P1">One</text:p><text:p>Two</text:p></office:text></office:body></office:document-content>"#
+        );
+        let doc = import(&package(&content, Some(&styles))).unwrap();
+        assert_eq!(doc.sections().len(), 1);
+        assert_eq!(doc.last_section.page_w.round(), 595.0);
+    }
+
+    #[test]
+    fn hostile_sections_are_capped_and_clamped() {
+        // 20,000 master-page paragraphs give at most 10,000 sections; absurd column counts and
+        // gaps are clamped; a column section at the very end leaves no empty section after it.
+        let mut body = String::new();
+        for _ in 0..20_000 {
+            body.push_str(r#"<text:p text:style-name="PM">x</text:p>"#);
+        }
+        body.push_str(r#"<text:section text:style-name="Many"><text:p>cols</text:p></text:section>"#);
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="PM" style:family="paragraph" style:master-page-name="Standard"/><style:style style:name="Many" style:family="section"><style:section-properties><style:columns fo:column-count="99999999999" fo:column-gap="1e30in"/></style:section-properties></style:style></office:automatic-styles><office:body><office:text>{body}</office:text></office:body></office:document-content>"#
+        );
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:automatic-styles><style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pU"/></office:master-styles></office:document-styles>"#
+        );
+        let doc = import(&package(&content, Some(&styles))).unwrap();
+        assert_eq!(doc.sections().len(), 10_000);
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="Many" style:family="section"><style:section-properties><style:columns fo:column-count="1000" fo:column-gap="1e30in"/></style:section-properties></style:style></office:automatic-styles><office:body><office:text><text:p>before</text:p><text:section text:style-name="Many"><text:p>cols</text:p></text:section></office:text></office:body></office:document-content>"#
+        );
+        let doc = import(&package(&content, None)).unwrap();
+        let secs = doc.sections();
+        assert_eq!(secs.len(), 2);
+        assert_eq!(secs[1].1.columns.count, 45);
+        assert!(secs[1].1.columns.space <= 1584.0);
+    }
+
+    #[test]
+    fn master_page_on_a_table_style_starts_a_section() {
+        // Review of #1379: a table style can name a master page too (ODF 1.3 §19.509), with its
+        // page-number restart on `style:table-properties`. An empty name on a child style means
+        // "no page style here", and a page-number restart without a master page starts nothing.
+        use wordcraft_doc::section::SectionStart;
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:styles><style:style style:name="WideParent" style:family="paragraph" style:master-page-name="Wide"/></office:styles><office:automatic-styles>
+            <style:page-layout style:name="pU"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm"><style:columns fo:column-count="1" fo:column-gap="0cm"/></style:page-layout-properties></style:page-layout>
+            <style:page-layout style:name="pW"><style:page-layout-properties fo:page-width="29.7cm" fo:page-height="21cm" style:print-orientation="landscape"/></style:page-layout>
+            </office:automatic-styles><office:master-styles>
+            <style:master-page style:name="Upright" style:page-layout-name="pU"/><style:master-page style:name="Wide" style:page-layout-name="pW"/>
+            </office:master-styles></office:document-styles>"#
+        );
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles>
+            <style:style style:name="NoPage" style:family="paragraph" style:parent-style-name="WideParent" style:master-page-name=""/>
+            <style:style style:name="Restart" style:family="paragraph"><style:paragraph-properties fo:break-before="page" style:page-number="3"/></style:style>
+            <style:style style:name="WideTable" style:family="table" style:master-page-name="Wide"><style:table-properties style:page-number="1"/></style:style>
+            </office:automatic-styles><office:body><office:text>
+            <text:p>Intro</text:p><text:p text:style-name="NoPage">Not a new page style</text:p><text:p text:style-name="Restart">Page break only</text:p>
+            <table:table table:style-name="WideTable"><table:table-column/><table:table-row><table:table-cell><text:p>Cell</text:p></table:table-cell></table:table-row></table:table>
+            <text:p>After</text:p>
+            </office:text></office:body></office:document-content>"#
+        );
+        let doc = import(&package(&content, Some(&styles))).unwrap();
+        let secs = doc.sections();
+        let summary: Vec<_> = secs.iter().map(|(i, s)| (*i, s.start, s.landscape, s.page_num_start)).collect();
+        assert_eq!(summary, [(2, SectionStart::NextPage, false, None), (4, SectionStart::NextPage, true, Some(1))]);
+        assert!(matches!(doc.body.get(3).map(|b| &**b), Some(wordcraft_doc::Block::Table(_))));
+        // A one-column page layout keeps the default column gap.
+        assert_eq!(secs[0].1.columns, wordcraft_doc::section::Columns::default());
     }
 }

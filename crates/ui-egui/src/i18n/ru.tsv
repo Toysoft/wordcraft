@@ -2630,3 +2630,5 @@ preview	Title	Пример
 # Reading Mode column widths (#1040)
 	Narrow	Узкая
 	Medium	Средняя
+	OpenDocument Text Template (*.ott)	Шаблон текста OpenDocument (*.ott)
+	Flat OpenDocument Text (*.fodt)	Текст OpenDocument в формате XML (*.fodt)

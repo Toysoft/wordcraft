@@ -2641,3 +2641,5 @@ preview	Title	Esempio
 # Reading Mode column widths (#1040)
 	Narrow	Stretta
 	Medium	Media
+	OpenDocument Text Template (*.ott)	Modello di testo OpenDocument (*.ott)
+	Flat OpenDocument Text (*.fodt)	Testo OpenDocument in formato XML (*.fodt)

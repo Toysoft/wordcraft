@@ -2245,3 +2245,5 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+	OpenDocument Text Template (*.ott)	OpenDocument 文本模板 (*.ott)
+	Flat OpenDocument Text (*.fodt)	扁平 OpenDocument 文本 (*.fodt)

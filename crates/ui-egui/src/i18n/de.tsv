@@ -2232,3 +2232,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Schmal
 	Medium	Mittel
+
+	OpenDocument Text Template (*.ott)	OpenDocument-Textvorlage (*.ott)
+	Flat OpenDocument Text (*.fodt)	OpenDocument-Text als XML (*.fodt)

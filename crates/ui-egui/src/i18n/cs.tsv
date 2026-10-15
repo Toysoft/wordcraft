@@ -2624,3 +2624,5 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+	OpenDocument Text Template (*.ott)	Šablona textu OpenDocument (*.ott)
+	Flat OpenDocument Text (*.fodt)	Text OpenDocument ve formátu XML (*.fodt)

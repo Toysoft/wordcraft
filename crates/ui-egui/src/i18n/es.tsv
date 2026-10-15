@@ -2599,3 +2599,5 @@ preview	Title	Título
 # Reading Mode column widths (#1040)
 	Narrow	Estrecha
 	Medium	Media
+	OpenDocument Text Template (*.ott)	Plantilla de texto OpenDocument (*.ott)
+	Flat OpenDocument Text (*.fodt)	Texto OpenDocument en formato XML (*.fodt)

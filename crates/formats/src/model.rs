@@ -127,13 +127,13 @@ pub struct Para {
     pub spacing: Spacing,
     /// Borders the source puts on the paragraph itself (RTF `\brdrb`…).
     pub borders: Option<wordcraft_doc::props::Borders>,
-    /// The section this paragraph ends (RTF `\sect`), as the document's last paragraph of it.
-    pub section: Option<Box<wordcraft_doc::SectionProps>>,
     /// Tracked insertion of the paragraph mark.
     pub mark_ins: Option<Box<RevMark>>,
     /// Tracked deletion of the paragraph mark (only [`from_doc_tracked`] and formats that keep
     /// revisions set it).
     pub mark_del: Option<Box<RevMark>>,
+    /// The section this paragraph ends (RTF `\sect`), as the document's last paragraph of it.
+    pub section: Option<Box<wordcraft_doc::SectionProps>>,
 }
 
 impl Para {
@@ -692,6 +692,9 @@ pub fn to_doc_in(flow: &Flow, section: wordcraft_doc::SectionProps) -> Document 
 /// `blocks` as document blocks of `doc` (their pictures go into its media), for a header,
 /// footer or other part an importer adds itself.
 pub fn part_blocks(doc: &mut Document, blocks: &[FBlock]) -> Blocks {
+    if uses_kind(blocks, Kind::Code, 0) {
+        doc.styles.upsert(code_style());
+    }
     let mut out = Builder::new(doc).blocks(blocks, 0);
     if out.is_empty() {
         out.push(para_block(Paragraph::new()));
@@ -821,6 +824,14 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
 /// insertion and deletion marks.
 fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
     let (kind, list) = para_kind(doc, p);
+    let spacing = Spacing {
+        before: p.props.space_before,
+        after: p.props.space_after,
+        line: p.props.line_spacing,
+        left: p.props.indent_left,
+        right: p.props.indent_right,
+        first: p.props.indent_first,
+    };
     let mut done: Vec<Para> = Vec::new();
     let mut out = Para {
         kind,
@@ -828,11 +839,11 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
         align: p.props.align,
         page_break: p.props.page_break_before.unwrap_or(false),
         inlines: Vec::new(),
-        spacing: Spacing::default(),
+        spacing,
         borders: None,
-        section: None,
         mark_ins: None,
         mark_del: None,
+        section: None,
     };
     let in_code = kind == Kind::Code;
     let mut k = 0usize;
@@ -856,11 +867,11 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         align: p.props.align,
                         page_break: true,
                         inlines: Vec::new(),
-                        spacing: Spacing::default(),
+                        spacing,
                         borders: None,
-                        section: None,
                         mark_ins: None,
                         mark_del: None,
+                        section: None,
                     };
                     let prev = std::mem::replace(&mut out, next);
                     if prev.inlines.is_empty() {
@@ -930,6 +941,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
         let (ins, del) = rev_marks(doc, &p.mark);
         (out.mark_ins, out.mark_del) = (ins.map(Box::new), del.map(Box::new));
     }
+    out.section = p.section.clone();
     done.push(out);
     done
 }
@@ -1012,6 +1024,11 @@ fn flow_of(doc: &Document, tracked: bool) -> Flow {
             created: c.created.clone(),
         },
     }
+}
+
+/// `blocks` (the story of a note or comment, say) as flow blocks.
+pub fn flow_of_blocks(doc: &Document, blocks: &Blocks) -> Vec<FBlock> {
+    flow_blocks(doc, blocks, 0, true)
 }
 
 // ---------------------------------------------------------------------------------------------

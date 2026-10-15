@@ -2628,3 +2628,5 @@
 # Reading Mode column widths (#1040)
 	Narrow	Keskeny
 	Medium	Közepes
+	OpenDocument Text Template (*.ott)	OpenDocument szövegsablon (*.ott)
+	Flat OpenDocument Text (*.fodt)	OpenDocument szöveg XML formátumban (*.fodt)
