@@ -88,6 +88,7 @@
 	Ignore web and file addresses	웹 주소와 파일 주소 무시
 	Ignore words in capitals	대문자로 된 단어 무시
 	Ignore words with numbers	숫자가 포함된 단어 무시
+	In the margin	여백에
 	Inches	인치
 	Formatting exceptions	서식 예외
 	Include level number from:	다음 수준 번호 포함:
@@ -108,15 +109,19 @@
 	Millimeters	밀리미터
 	New comments and tracked changes are recorded under this name and these initials.	새 댓글과 변경 내용 추적은 이 이름과 이니셜로 기록됩니다.
 	New word	새 단어
+	No document is open. Create a document or open one first.	열려 있는 문서가 없습니다. 문서를 만들거나 먼저 여세요.
 	No words yet. Add to Dictionary on a misspelled word puts it here.	아직 단어가 없습니다. 맞춤법이 틀린 단어에서 사전에 추가를 선택하면 여기에 표시됩니다.
 	Mirror indents	좌우 대칭 들여쓰기
 	Nothing	없음
 	Number alignment:	번호 맞춤:
 	Number format	번호 서식
 	Number style for this level:	이 수준의 번호 스타일:
+	Only for the selected text	고른 글에만
 	Outside border	바깥쪽 테두리
 	Overtype	겹쳐쓰기
 	Overtype (typing replaces the characters after the caret)	겹쳐쓰기(입력한 문자가 커서 뒤의 문자를 대체함)
+	Show alignment guides when moving pictures and shapes	그림과 도형을 옮길 때 맞춤 안내선 보이기
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	옮기는 개체가 쪽의 가장자리와 가운데, 여백, 다른 개체에 맞춰 붙습니다. 자유롭게 옮기려면 Alt 를 누르고 있으세요.
 	Page display	페이지 표시
 	Paragraph marks	단락 기호
 	Personalize	개인 설정
@@ -509,6 +514,8 @@
 	Labels	레이블
 	Landscape	가로
 	Language	언어
+	{language} (no dictionary)	{language} (사전 없음)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	{language} 맞춤법 사전이 설치되어 있지 않아 검사하지 않습니다. WordCraft 는 Hunspell 사전 {name} 을 WORDCRAFT_DICTIONARIES 폴더와 시스템의 보통 위치에서 찾습니다.
 	Lasso	올가미
 	Last Column	마지막 열
 	Last commit	최근 커밋
@@ -967,6 +974,7 @@
 	Word Count	단어 수
 	Word document (*.docx)	Word 문서 (*.docx)
 	Word XML Document (*.xml)	Word XML 문서 (*.xml)
+	Word 2003 XML Document (*.xml)	Word 2003 XML 문서 (*.xml)
 	Word Left	이전 단어로 이동
 	Word Right	다음 단어로 이동
 	WordArt	WordArt
@@ -1091,6 +1099,19 @@
 	Print job submitted.	인쇄 작업을 전송했습니다.
 	Print job submitted: {receipt}	인쇄 작업을 전송했습니다: {receipt}
 	Print failed: the printing worker stopped.	인쇄 실패: 인쇄 작업자가 중지되었습니다.
+	Print settings	인쇄 설정
+	Submit print job	인쇄 작업 보내기
+	Dictionaries	사전
+	Dictionaries folder:	사전 폴더:
+	Not set: the system's usual places	정하지 않음: 시스템의 보통 위치
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	이 폴더의 Hunspell .aff, .dic 파일(pl_PL, pt_BR, it_IT, hr_HR, tr_TR)을 시스템의 것보다 먼저 씁니다.
+	{language}: {file}	{language}: {file}
+	{language}: no dictionary found	{language}: 사전을 찾지 못함
+	Recover	되살리기
+	Mirror margins	좌우 대칭 여백
+	Existing File or Web Page	기존 파일 또는 웹 페이지
+	Link to:	연결 대상:
+	Place in This Document	이 문서 안의 위치
 	Couldn't open {path}: {error}	{path}을(를) 열 수 없습니다: {error}
 	Column Selection	열 선택
 	New Table Style	새 표 스타일
@@ -1418,6 +1439,8 @@
 	Formatted	서식 지정됨
 	Deleted	삭제됨
 	Interface size:	인터페이스 크기:
+	Auto ({percent}%)	자동 ({percent}%)
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	도구 줄, 메뉴, 대화 상자를 더 크게 또는 작게 합니다. 자동은 시스템의 화면 배율을 따르며, 100% 는 1포인트에 화면 한 픽셀입니다. 문서 확대/축소는 따로 정합니다.
 	Resize Table by Dragging	드래그하여 표 크기 조정
 	Print Markup	변경 내용 표시 인쇄
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	PDF, 인쇄물, 이미지에서는 각 페이지 옆에 주석과 변경 내용 추적을 표시하고, 웹 페이지, Markdown, 텍스트에서는 끝에 주석 목록을 표시합니다.
@@ -2027,6 +2050,7 @@
 	Hyphenation Options…	하이픈 넣기 옵션…
 	Hyphenation zone:	하이픈 넣기 영역:
 	Italian	이탈리아어
+	Croatian	크로아티아어
 	Japanese	일본어
 	Korean	한국어
 	Limit consecutive hyphens to:	연속 하이픈 수 제한:
@@ -2073,6 +2097,8 @@
 	AutoFit Column by Double-Clicking	두 번 클릭하여 열 자동 맞춤
 	Region:	지역:
 	Automatic ({region})	자동({region})
+	Text of the nearest paragraph with a given style (running headers)	정한 스타일을 쓴 가장 가까운 문단의 글 (쪽 머리글용)
+	Style name:	스타일 이름:
 	Start-up	시작 화면
 	Show the Start screen when WordCraft starts	WordCraft 시작 시 시작 화면 표시
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	켜기: WordCraft를 실행하면 파일 › 홈에 빈 문서, 서식 파일 및 최근 문서가 표시됩니다. 끄기: 빈 문서가 열립니다.
@@ -2456,13 +2482,82 @@ preview	Title	제목
 # Added while landing (#1216): labels and dialogs that landed after this catalog
 	Copy to	다른 위치에 복사
 	Delete Bookmark	책갈피 삭제
+	Hidden bookmarks	숨은 책갈피
+	Sort by:	정렬 기준:
 	Filter Recipients	받는 사람 필터
 	Full Screen	전체 화면
+	Full\nScreen	전체\n화면
+	Use the browser's full screen (F11)	브라우저의 전체 화면 쓰기 (F11)
+	{name}   {height} × {width} in	{name}   {height} × {width} 인치
+	{name}   {height} × {width} mm	{name}   {height} × {width} mm
+	{width} × {height} mm	{width} × {height} mm
+	{kind}, {columns} × {rows}, {size} ({paper})	{kind}, {columns} × {rows}, {size} ({paper})
+	Researcher needs an online service; WordCraft keeps your documents offline.	조사 도우미는 온라인 서비스가 필요합니다. WordCraft 는 문서를 오프라인으로 보관합니다.
+	These settings will be used for new documents.	이 설정은 새 문서에 쓰입니다.
+	can't split at the first row	첫 줄에서는 나눌 수 없습니다
+	select two or more cells to merge	합칠 칸을 둘 이상 고르세요
+	there is no ink to replay	다시 재생할 잉크가 없습니다
+	there's no citation after the caret	커서 뒤에 인용이 없습니다
+	this item is already at the top level	이 항목은 이미 가장 위 단계입니다
+	Envelope #10	봉투 #10
+	Envelope DL	봉투 DL
+	Reading Mode	읽기 모드
+	Column width	열 너비
+	Text size	글자 크기
+	Edit Document	문서 고치기
+	Go to what:	이동할 대상:
+	Type +2 or -1 to move from the page you are on.	지금 있는 쪽에서 움직일 만큼 +2 또는 -1 을 입력하세요.
+	Suggested	추천
+	Set Proofing Language…	맞춤법 언어 정하기…
+	Language Preferences…	언어 기본 설정…
 	Load System Installed Fonts…	시스템에 설치된 글꼴 불러오기…
 	Privacy Options	개인 정보 옵션
+	Trust Center	보안 센터
+	Privacy for this document	이 문서의 개인 정보
+	Remove my name from comments, changes and file properties when saving	저장할 때 메모, 고침, 파일 속성에서 내 이름 지우기
+	Leave out the date and time of comments and tracked changes when saving	저장할 때 메모와 고침 기록의 날짜와 시간 빼기
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	고치고 있는 문서에는 이름과 날짜가 그대로 남고, 저장한 파일에서만 빠집니다.
 	Privacy Settings	개인 정보 설정
+	Waiting for the save to finish…	저장이 끝나기를 기다리는 중…
+	Saving {name} was cancelled, so it is still open and nothing was lost.	{name} 저장을 취소해서 문서는 그대로 열려 있고 잃은 것은 없습니다.
+	Paper	용지
+	Paper size:	용지 크기:
+	Custom size	직접 정한 크기
+	More Paper Sizes…	다른 용지 크기…
+	The margins don't fit on a page this size; make the margins smaller first.	이 크기의 쪽에는 여백이 맞지 않습니다. 먼저 여백을 줄이세요.
 	Rename Document	문서 이름 바꾸기
+	Document name	문서 이름
+	Rename	이름 바꾸기
+	Account	계정
 	Sort Recipients	받는 사람 정렬
+	Filter and Sort	거르기와 정렬
+	And	그리고
+	Or	또는
+	Comparison	비교
+	Compare to	비교할 값
+	Add Condition	조건 넣기
+	Remove condition	조건 지우기
+	Sort by	정렬 기준
+	Then by	다음 기준
+	Ascending	오름차순
+	Descending	내림차순
+	Equal to	같음
+	Not equal to	같지 않음
+	Less than	보다 작음
+	Greater than	보다 큼
+	Less than or equal	작거나 같음
+	Greater than or equal	크거나 같음
+	Is blank	비어 있음
+	Is not blank	비어 있지 않음
+	Contains	포함
+	Does not contain	포함하지 않음
+	{count} of {total} recipients will be merged.	받는 사람 {total} 명 중 {count} 명을 병합합니다.
+	Take the last match on the page	쪽에서 마지막으로 찾은 것 쓰기
+	Show its list number	목록 번호 보이기
+	Show its number relative to this field	이 필드 기준의 상대 번호 보이기
+	Show its number with all higher levels	모든 상위 단계를 붙인 번호 보이기
+	Number only, without the label's words	이름표 글 없이 번호만
+	Add whether it is above or below	위인지 아래인지 덧붙이기
 	Type Character Code	문자 코드 입력
 	All system fonts are already available.	모든 시스템 글꼴을 이미 사용할 수 있습니다.
 	Local font access is not supported by your browser.	이 브라우저는 로컬 글꼴 액세스를 지원하지 않습니다.

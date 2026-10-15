@@ -153,6 +153,14 @@ fn every_tab_and_command_is_translated() {
 }
 
 #[test]
+fn korean_covers_the_entire_existing_interface_catalog() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    let missing: Vec<_> = keys(lang("zh-hans").0.source).difference(&keys(lang("ko").0.source)).cloned().collect();
+    assert!(missing.is_empty(), "missing Korean entries: {missing:?}");
+}
+
+#[test]
 fn korean_print_settings_and_printer_feedback_are_translated() {
     let korean = lang("ko");
     for source in [
