@@ -571,7 +571,7 @@
 	Multiple Pages	Várias páginas
 	Name (A–Z)	Nome (A–Z)
 	Name:	Nome:
-	Narrow  0.5" all	Estreita  0,5" em todas as margens
+	Narrow  {size} all	Estreita  {size} em todas as margens
 	Navigation	Navegação
 	Navigation Pane	Painel de navegação
 	New	Novo
@@ -598,7 +598,7 @@
 	Nonbreaking Hyphen	Hífen inseparável
 	Nonbreaking Space	Espaço inseparável
 	None	Nenhuma
-	Normal  1" all	Normal  1" em todas as margens
+	Normal  {size} all	Normal  {size} em todas as margens
 	Normal Style	Estilo Normal
 	Not available right now	Indisponível no momento
 	Not saved	Não salvo
@@ -2232,3 +2232,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Fórmula:
 	Paste function:	Colar função:
+# Reading Mode column widths (#1040)
+	Narrow	Estreita
+	Medium	Média

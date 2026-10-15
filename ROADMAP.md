@@ -112,7 +112,7 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Korean | ko | partial (interface catalog; proofing unavailable) | 100% (2,463 entries) |
 | Vietnamese | vi | partial (#1434) | ~95% |
 
-Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
+Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries); Swedish (`sv`) covers that too, plus 44 newer strings no other catalog has yet (2,504 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
 system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish, Italian and Czech proofing are not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
 2,448-entry catalog, also without proofing.
@@ -135,11 +135,14 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 ## Progress log
 
 | Date | What landed |
+| 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
+| 2026-10-12 | Fields keep `w:dirty` through DOCX saves (#877): a begin marker flagged by a generator that couldn't compute a result (pandoc-style TOC placeholders) keeps the flag on open/save — as a buffered field or a range field — so Word still refreshes it on open; computing a result (Update Field, Update Table) clears it, like Word's F9 |
+|---|---|
 | 2026-10-14 | Consistent preferred cell widths override a stale table grid when both totals agree, for fixed and AutoFit tables. Conflicting widths, spans and percentages remain unchanged. |
 | 2026-10-14 | Legacy VML freeforms (`v:shape` with its own `path`), such as the rule lines in many older headers, are read as freeform shapes: they show on screen and in PDFs and are saved back as DrawingML custom geometry instead of vanishing |
 | 2026-10-14 | Field instructions spanning paragraphs no longer add blank lines during pagination; empty result paragraphs still take a line. |
 | 2026-10-14 | Page-break-only list paragraphs no longer print stray bullets or numbers. The next item keeps its number, matching the reference export. |
-|---|---|---|
+| 2026-10-12 | Backspace at the start of the paragraph after a table nested in a cell moves into the nested table's last cell, no longer into the last cell of the table around it |
 | 2026-10-14 | Grouped `flowChartOr` shapes draw their circle and crossing spokes, as in Word |
 | 2026-10-14 | Deleting a comment removes its anchors from headers, footers, notes and text boxes too, not just the body, and deletes the whole thread below it, replies to replies included; no anchor or reply is left pointing at a deleted comment (#1345) |
 | 2026-10-14 | Legacy DOC DIB conversion checks the BMP header and copy before allocation, uses the caller's decode allowance, and caps PNG output while encoding; a BMP fallback is kept when it fits. A generated 1-pixel regression covers 57/58/512-byte limits. Resource-exhaustion consequences remain unmeasured. Related: #1334 and #1554 |
@@ -276,6 +279,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Hide White Space (#645): `view.hideWhiteSpace` (View › Show checkbox, or double-click the gap between pages) collapses margins, headers and footers between pages to a thin line in Print Layout; screen only, page count unchanged |
 | 2026-10-11 | Fonts: Palatino Linotype and Book Antiqua fall back to Palatino (macOS) or TeX Gyre Pagella / P052 / URW Palladio (Linux) before generic serif (#670) |
 |---|---|
+| 2026-10-12 | Tables: dragging the border of one selected cell (Select Cell, or a click along its left edge) moves it in that cell's row only, as in Word, like the border of cells selected across (#962) |
 | 2026-10-13 | Korean interface catalog completed: all 2,463 entries translated; the ko-KR system locale and saved language choice select the interface. The UI prefers Korean embedded/system font faces so Hangul renders instead of boxes, and print settings and printer feedback are translated. Korean proofing remains unavailable; macOS Korean IME fixes are still pending (#163, #164) |
 | 2026-10-12 | Word default shortcuts expanded (gap #24): 140 commands bound on macOS (169 combinations), 158 on Linux/Windows (188 combinations). Bound Style Inspector (Shift+F1), Macros (Alt+F8), Strikethrough (Mod+Shift+X), Find Next (Shift+F4), Copy/Paste (Mod+Insert, Shift+Insert), Go Back (Mod+Alt+Z), File Open/Save/Save As/Print (Mod+Alt+F2, Alt+Shift+F2, Alt+F2, Mod+Alt+I), Field navigation (Alt+F1, Alt+Shift+F1), Outline show first line (Alt+Shift+L), Next Footnote (Alt+Shift+>), Link to Previous (Alt+Shift+R), AutoText (Alt+F3), Spelling on Mac (Mod+Alt+L) |
 | 2026-10-13 | Web and Draft Layout now render visible full-resolution raster tiles for exceptionally tall pages rather than downsampling the entire page into one texture; verified with a 440-paragraph headless UI reproduction |
@@ -360,7 +364,9 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | Native saves use exclusively created sibling temporary files, synchronize before replacement and clean up on failure; existing temporary-name files/links and original files on failed saves are protected. Synthetic CLI and focused tests on macOS; no new Word parity or readiness claim. |
 | 2026-10-11 | Field codes like Word's field keys (#339): show codes (Alt+F9, Shift+F9), edit, unlink, lock and step through fields |
 | 2026-10-11 | Word's common keyboard shortcuts (#330): 101 → 125 of ~250 |
+| 2026-10-13 | Swedish (`sv`) interface: 2,504 catalog entries (every key of the reference catalog, the equation gallery, everything the interface audit finds, and 44 newer strings no catalog had yet, among them the native print settings), `sv-SE`/`sv-FI` system locales and a saved language choice; locale, catalog and bundled-font tests; AI-assisted, terminology and the running app reviewed by a native speaker; no Swedish proofing resources |
 | 2026-10-12 | Bulgarian (`bg`) interface: 2,419 catalog entries (every key of the reference catalog, the equation gallery and everything the interface audit finds), `bg-BG` system locales and a saved language choice; locale, catalog and bundled-font tests; no Bulgarian proofing resources |
+| 2026-10-13 | Croatian (`hr`) interface: 2,507 catalog entries (every key of the reference catalog, built-in style names and the equation gallery), `hr-*` system locales and a saved language choice; locale, catalog and bundled-font tests; no Croatian proofing yet |
 | 2026-10-11 | Hungarian (`hu`) interface: all 2,419 catalog entries, built-in style names translated, `hu-HU` system locales and a saved language choice; locale, catalog and bundled-font tests; no Hungarian proofing resources |
 | 2026-10-11 | Turkish (`tr`) interface: all 1,307 catalog entries, `tr-TR`/`tr-CY` system locales and a saved language choice; command search keeps Turkish dotted and dotless I apart (`italik` finds İtalik); locale, catalog, search and bundled-font tests; no Turkish proofing resources |
 | 2026-10-11 | Italian (`it`) interface (#594): 2,399 entries, feature names as Italian Word users know them, locale and saved-preference tests, bundled-font checks; no Italian proofing resources |
@@ -391,6 +397,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | trivial | Progress log: one selected cell's border drags in its row only (#962) |
 | 2026-10-12 | minor | Progress log: Word default shortcuts expanded to 140 commands on macOS (169 combinations) and 158 on Linux/Windows (188 combinations), addressing gap #24 |
 | 2026-10-13 | trivial | Web/Draft long-page blur fixed with visible full-resolution raster tiles |
 | 2026-10-14 | trivial | Progress log: VML freeforms read and kept on save |
@@ -540,7 +547,9 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-12 | trivial | Native saves protect existing temporary-name entries and originals on pre-replacement failure; synthetic macOS evidence, explicit durability/platform limits; readiness unchanged |
 | 2026-10-11 | trivial | Word's common keyboard shortcuts (#330): 125 of ~250 |
 | 2026-10-11 | trivial | Collapsed duplicate rows left by parallel merges |
+| 2026-10-13 | trivial | Swedish interface (`sv`): progress log and shipped languages |
 | 2026-10-12 | trivial | Bulgarian interface (`bg`): progress log and shipped languages |
+| 2026-10-13 | trivial | Croatian interface (`hr`): progress log and shipped languages |
 | 2026-10-11 | trivial | Hungarian interface (`hu`): progress log and shipped languages |
 | 2026-10-11 | trivial | Turkish interface (`tr`): progress log and shipped languages |
 | 2026-10-14 | trivial | Progress log: `.doc` notes, headers and text boxes read their text once (#1319) |
