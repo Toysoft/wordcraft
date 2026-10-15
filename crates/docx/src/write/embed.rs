@@ -523,6 +523,9 @@ impl super::Writer<'_> {
     /// Put a group or canvas member kept from a file (native ink and its picture fallback) at
     /// `frame` ([x, y, w, h] in points, in the group's space, as the group is written): its
     /// `w14:xfrm` and the fallback's `a:xfrm` get that offset and extent and the member's turn.
+    /// It rewrites every `w14:xfrm` and `a:xfrm` under `e` and doesn't descend into them: right
+    /// for the forms Word writes (the content part's own transform and one `pic:pic` fallback's
+    /// `pic:spPr/a:xfrm`); a fallback holding several transforms (a group) would get one frame.
     pub(super) fn place_member(e: &mut El, frame: [f32; 4], float: &Float, depth: usize) {
         if depth > MAX_DEPTH {
             return;

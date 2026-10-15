@@ -2655,17 +2655,86 @@ fn native_ink_in_a_group_shows_its_fallback_picture() {
 
 #[test]
 fn native_ink_in_a_nested_group_is_written_at_its_place_in_the_outer_group() {
+    // The inner group doubles its members: 1 inch of its space is 2 inches of the outer group's.
     let inner = format!(
-        r#"<wpg:grpSp><wpg:cNvGrpSpPr/><wpg:grpSpPr><a:xfrm><a:off x="914400" y="0"/><a:ext cx="914400" cy="914400"/><a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></wpg:grpSpPr>{}</wpg:grpSp>"#,
+        r#"<wpg:grpSp><wpg:cNvGrpSpPr/><wpg:grpSpPr><a:xfrm><a:off x="914400" y="0"/><a:ext cx="1828800" cy="1828800"/><a:chOff x="0" y="0"/><a:chExt cx="914400" cy="914400"/></a:xfrm></wpg:grpSpPr>{}</wpg:grpSp>"#,
         ink_member(0, false)
     );
     let d = wordcraft_docx::read(&nested_ink_docx(false, &inner, false)).unwrap();
-    assert_ink_between_rects(&d);
+    let c = group_children(&d);
+    let ink = c.iter().find(|c| matches!(c.obj, InlineObject::Graphic { .. })).expect("ink member kept");
+    let InlineObject::Graphic { w, h, .. } = &ink.obj else { panic!() };
+    assert_eq!((ink.x, ink.y, *w, *h), (72.0, 0.0, 144.0, 72.0));
     let files = unzip(&wordcraft_docx::write(&d).unwrap());
     check_ink(&files);
     let body = text(&files, "word/document.xml");
     let xfrm = &body[body.find("<w14:xfrm").unwrap()..];
     assert_eq!(attr_values(xfrm, "a:off", "x").first().map(String::as_str), Some("914400"));
+    assert_eq!(attr_values(xfrm, "a:ext", "cx").first().map(String::as_str), Some("1828800"));
+    assert_eq!(attr_values(xfrm, "a:ext", "cy").first().map(String::as_str), Some("914400"));
+}
+
+/// Ink parts share the custom XML relationship type with real custom XML stores: the store is
+/// carried as before, the ink part only with the ink that refers to it.
+#[test]
+fn custom_xml_store_beside_native_ink_is_kept_and_ink_leaves_no_orphan() {
+    const STORE: &str = r#"<?xml version="1.0" encoding="UTF-8"?><data xmlns="urn:example:store"><item>kept</item></data>"#;
+    let types = INK_TYPES.replace("<Default ", r#"<Override PartName="/customXml/item1.xml" ContentType="application/xml"/><Default "#);
+    let mut files = unzip(&nested_ink_docx(false, &ink_member(914400, false), false));
+    let rels = text(&files, "word/_rels/document.xml.rels").replace(
+        "</Relationships>",
+        r#"<Relationship Id="rStore" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml" Target="../customXml/item1.xml"/></Relationships>"#,
+    );
+    files.insert("word/_rels/document.xml.rels".into(), rels.into_bytes());
+    files.insert("[Content_Types].xml".into(), types.into_bytes());
+    files.insert("customXml/item1.xml".into(), STORE.as_bytes().to_vec());
+    let entries: Vec<_> = files.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())).collect();
+    let mut d = wordcraft_docx::read(&zip(&entries)).unwrap();
+    let out = unzip(&wordcraft_docx::write(&d).unwrap());
+    check_ink(&out);
+    assert!(out.values().any(|b| b == STORE.as_bytes()), "the store is kept");
+    assert_eq!(out.values().filter(|b| *b == INK_XML.as_bytes()).count(), 1, "one ink part, not a second copy as a store");
+    // Without the ink the store stays and the ink part goes.
+    d.body.truncate(1);
+    let out = unzip(&wordcraft_docx::write(&d).unwrap());
+    assert!(out.values().any(|b| b == STORE.as_bytes()), "the store is kept");
+    assert!(!out.values().any(|b| b == INK_XML.as_bytes()), "orphan ink part: {:?}", out.keys().collect::<Vec<_>>());
+    assert!(!text(&out, "[Content_Types].xml").contains("inkml"));
+    assert_eq!(text(&out, "word/_rels/document.xml.rels").matches("/customXml\"").count(), 1, "only the store's relationship");
+}
+
+#[test]
+fn deleting_drawing_level_native_ink_writes_no_orphan_ink_part() {
+    for fallback in [false, true] {
+        let mut d = wordcraft_docx::read(&ink_docx(fallback, false)).unwrap();
+        assert_eq!(graphics(&d).len(), 1);
+        d.body.truncate(1);
+        let files = unzip(&wordcraft_docx::write(&d).unwrap());
+        assert!(!files.values().any(|b| b == INK_XML.as_bytes()), "orphan ink part: {:?}", files.keys().collect::<Vec<_>>());
+        assert!(!text(&files, "[Content_Types].xml").contains("inkml"));
+        assert!(!text(&files, "word/_rels/document.xml.rels").contains("customXml"));
+    }
+}
+
+/// A group member's ink taken out of its group (not something WordCraft's commands do: Ungroup
+/// refuses such a group) can't be written as a stand-alone drawing: it is left out whole, never
+/// written in the wrong place, and its parts aren't written either.
+#[test]
+fn group_member_ink_on_its_own_is_left_out_without_orphans() {
+    for fallback in [false, true] {
+        let d = wordcraft_docx::read(&nested_ink_docx(false, &ink_member(914400, fallback), fallback)).unwrap();
+        let ink = group_children(&d).into_iter().find(|c| matches!(c.obj, InlineObject::Graphic { .. })).expect("ink member").obj;
+        let mut d = d;
+        d.body.truncate(1);
+        let mut p = Paragraph::new();
+        p.insert_object(0, ink, &Default::default()).unwrap();
+        d.body.push(wordcraft_doc::para_block(p));
+        let files = unzip(&wordcraft_docx::write(&d).unwrap());
+        let body = text(&files, "word/document.xml");
+        assert!(!body.contains("contentPart"), "fallback {fallback}: {body}");
+        assert!(!files.values().any(|b| b == INK_XML.as_bytes()), "orphan ink part: {:?}", files.keys().collect::<Vec<_>>());
+        assert!(!text(&files, "word/_rels/document.xml.rels").contains("customXml"));
+    }
 }
 
 #[test]
