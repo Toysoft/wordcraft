@@ -5,9 +5,9 @@
 //! sign-in. There is no device flow and no token file.
 
 use craft_cloud_client::{Client, Error};
-use wordcraft_ui_egui::cloud::{Account, CloudBackend, Event, Fault, Job, Post};
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen_futures::spawn_local;
+use wordcraft_ui_egui::cloud::{Account, CloudBackend, Event, Fault, Job, Post};
 
 /// Hands cloud jobs to async tasks. Cheap to clone.
 #[derive(Clone)]
@@ -42,11 +42,8 @@ impl Service {
         };
         match job {
             Job::Account => {
-                let answer = self.me().await.map(|me| Account {
-                    display: me.display,
-                    capabilities: me.capabilities,
-                    provider_linked: me.provider_linked,
-                });
+                let answer =
+                    self.me().await.map(|me| Account { display: me.display, capabilities: me.capabilities, provider_linked: me.provider_linked });
                 if matches!(&answer, Err(Fault::Unauthenticated)) {
                     offer_login();
                 }
@@ -106,9 +103,7 @@ fn fault(e: Error) -> Fault {
         Error::Unreachable(detail) => Fault::Unreachable(detail),
         Error::Refused { code, .. } if code == "conflict" || code == "409" || code == "412" => Fault::Conflict,
         Error::Refused { code, detail } => Fault::Refused(if detail.trim().is_empty() { code } else { detail }),
-        Error::Malformed(detail) => {
-            Fault::Refused(format!("the cloud service gave an answer WordCraft could not read: {detail}"))
-        }
+        Error::Malformed(detail) => Fault::Refused(format!("the cloud service gave an answer WordCraft could not read: {detail}")),
         Error::Unsendable(detail) => {
             log::error!("cloud request could not be encoded: {detail}");
             Fault::Refused("WordCraft could not build that request".to_owned())

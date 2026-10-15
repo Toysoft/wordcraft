@@ -7,6 +7,13 @@ use wordcraft_doc::StoryRef;
 use crate::theme::{Tokens, TypeRung, medium, paint_text, regular, semibold, text_width};
 use crate::{WordApp, icons};
 
+/// Panel width (CSS/egui screen pixels) below which the title bar switches to
+/// a compact layout. Search and Discord yield to the Quick Access Toolbar,
+/// Share, the suite account and presence.
+///
+/// Shared with `ribbon` so the tab-strip compact breakpoint is consistent.
+pub(crate) const TITLE_NARROW: f32 = 760.0;
+
 fn qat_button(ui: &mut Ui, app: &mut WordApp, icon: &str, tip: &str, id: &str, enabled: bool) -> egui::Response {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
@@ -209,6 +216,9 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
         .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
+            // Below TITLE_NARROW the search box would overlap the QAT; hide it (and
+            // Discord) so every control stays reachable without visual collisions.
+            let narrow = full.width() < TITLE_NARROW;
             // Drag the window by the title bar (integrated title bar on macOS).
             let drag = ui.interact(full, ui.id().with("title_drag"), Sense::click_and_drag());
             if drag.drag_started() {
@@ -227,7 +237,11 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 let block = app.autosave_block();
                 let on = app.autosaves();
                 let label = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
-                ui.label(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(label));
+                // Label hidden at very narrow widths to save horizontal room; the toggle
+                // still carries a tooltip that explains AutoSave.
+                if !narrow {
+                    ui.label(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(label));
+                }
                 let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
                 let (fill, stroke, knob_fill) = match (&block, on) {
                     (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
@@ -256,14 +270,17 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 quick_access(ui, app);
                 qat_end = ui.min_rect().max.x;
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Account / community.
-                    let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
-                    ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
-                    let initials: String = app.session.user_initials().chars().take(2).collect();
-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
-                    resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author));
+                    // The suite account, collaborators and Share live together
+                    // in the title bar. The document-author initials still
+                    // belong to comments and tracked changes under Options;
+                    // they are not a second account.
+                    crate::cloud::who(app, ui);
                     ui.add_space(8.0);
-                    if app.ui.show_discord {
+                    crate::ribbon::title_share(app, ui);
+                    ui.add_space(8.0);
+                    // Discord and Search are hidden below TITLE_NARROW so the QAT buttons
+                    // and the account controls cannot overlap at ~472 px or narrower.
+                    if !narrow && app.ui.show_discord {
                         let (r, resp) = ui.allocate_exact_size(vec2(84.0, 22.0), Sense::click());
                         ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
                         icons::paint(
@@ -279,37 +296,45 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         }
                         ui.add_space(8.0);
                     }
-                    // Search ("Tell me").
-                    let (r, resp) = ui.allocate_exact_size(vec2(260.0, control_h), Sense::click());
-                    ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-                    icons::paint(
-                        ui.painter(),
-                        Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)),
-                        "search",
-                        t.text_dim,
-                        t.accent,
-                    );
-                    let ph = tl!("Search commands and help");
-                    let pfont = TypeRung::Control.regular();
-                    let ptrack = TypeRung::Control.tracking();
-                    paint_text(
-                        ui.painter(),
-                        pos2(r.min.x + 30.0, r.center().y - TypeRung::Control.line_height() / 2.0),
-                        Align2::LEFT_TOP,
-                        ph,
-                        &pfont,
-                        ptrack,
-                        t.text_dim,
-                    );
-                    if app.ui.keytips == crate::keytips::Phase::Tabs {
-                        app.keytip_rects.push((r, crate::keytips::SEARCH_LETTER.to_string()));
-                    }
-                    let tip = match crate::widgets::shortcut_text(app, "tools.search") {
-                        k if k.is_empty() => tl!("Search").to_string(),
-                        k => format!("{} ({k})", tl!("Search")),
-                    };
-                    if resp.on_hover_text(tip).clicked() {
-                        let _ = app.run("tools.search", json!({}));
+                    // Search ("Tell me") — hidden at narrow widths.
+                    if !narrow {
+                        let (r, resp) = ui.allocate_exact_size(vec2(260.0, control_h), Sense::click());
+                        ui.painter().rect(
+                            r,
+                            6.0,
+                            if resp.hovered() { t.input } else { t.ribbon },
+                            Stroke::new(1.0, t.border),
+                            egui::StrokeKind::Inside,
+                        );
+                        icons::paint(
+                            ui.painter(),
+                            Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)),
+                            "search",
+                            t.text_dim,
+                            t.accent,
+                        );
+                        let ph = tl!("Search commands and help");
+                        let pfont = TypeRung::Control.regular();
+                        let ptrack = TypeRung::Control.tracking();
+                        paint_text(
+                            ui.painter(),
+                            pos2(r.min.x + 30.0, r.center().y - TypeRung::Control.line_height() / 2.0),
+                            Align2::LEFT_TOP,
+                            ph,
+                            &pfont,
+                            ptrack,
+                            t.text_dim,
+                        );
+                        if app.ui.keytips == crate::keytips::Phase::Tabs {
+                            app.keytip_rects.push((r, crate::keytips::SEARCH_LETTER.to_string()));
+                        }
+                        let tip = match crate::widgets::shortcut_text(app, "tools.search") {
+                            k if k.is_empty() => tl!("Search").to_string(),
+                            k => format!("{} ({k})", tl!("Search")),
+                        };
+                        if resp.on_hover_text(tip).clicked() {
+                            let _ = app.run("tools.search", json!({}));
+                        }
                     }
                     right_start = ui.min_rect().min.x;
                 });
