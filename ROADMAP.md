@@ -135,9 +135,10 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 ## Progress log
 
 | Date | What landed |
-|---|---|
+| 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
 | 2026-10-14 | Pictures keep the brightness, contrast and transparency their file gives them (#1711, #1766): a "Washout" picture watermark (VML `gain`/`blacklevel`) and a washed-out letterhead picture behind the text (`a:lum`) are drawn faded on screen and in PDF instead of at full colour, with the pixel curve measured on Word's own PDF export; `a:alphaModFix` transparency too. Saved back as DrawingML (and as VML `gain`/`blacklevel` in Word 2003 XML, without the transparency). Picture Format › Corrections, Transparency and Color › Washout replace the file's values (other Color modes leave them alone), and Reset Picture discards them all, as in Word; the PDF embeds the corrected pixels once per picture |
 | 2026-10-12 | Fields keep `w:dirty` through DOCX saves (#877): a begin marker flagged by a generator that couldn't compute a result (pandoc-style TOC placeholders) keeps the flag on open/save — as a buffered field or a range field — so Word still refreshes it on open; computing a result (Update Field, Update Table) clears it, like Word's F9 |
+|---|---|
 | 2026-10-14 | Consistent preferred cell widths override a stale table grid when both totals agree, for fixed and AutoFit tables. Conflicting widths, spans and percentages remain unchanged. |
 | 2026-10-14 | Legacy VML freeforms (`v:shape` with its own `path`), such as the rule lines in many older headers, are read as freeform shapes: they show on screen and in PDFs and are saved back as DrawingML custom geometry instead of vanishing |
 | 2026-10-14 | Field instructions spanning paragraphs no longer add blank lines during pagination; empty result paragraphs still take a line. |
@@ -279,6 +280,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Hide White Space (#645): `view.hideWhiteSpace` (View › Show checkbox, or double-click the gap between pages) collapses margins, headers and footers between pages to a thin line in Print Layout; screen only, page count unchanged |
 | 2026-10-11 | Fonts: Palatino Linotype and Book Antiqua fall back to Palatino (macOS) or TeX Gyre Pagella / P052 / URW Palladio (Linux) before generic serif (#670) |
 |---|---|
+| 2026-10-12 | Tables: dragging the border of one selected cell (Select Cell, or a click along its left edge) moves it in that cell's row only, as in Word, like the border of cells selected across (#962) |
 | 2026-10-13 | Korean interface catalog completed: all 2,463 entries translated; the ko-KR system locale and saved language choice select the interface. The UI prefers Korean embedded/system font faces so Hangul renders instead of boxes, and print settings and printer feedback are translated. Korean proofing remains unavailable; macOS Korean IME fixes are still pending (#163, #164) |
 | 2026-10-12 | Word default shortcuts expanded (gap #24): 140 commands bound on macOS (169 combinations), 158 on Linux/Windows (188 combinations). Bound Style Inspector (Shift+F1), Macros (Alt+F8), Strikethrough (Mod+Shift+X), Find Next (Shift+F4), Copy/Paste (Mod+Insert, Shift+Insert), Go Back (Mod+Alt+Z), File Open/Save/Save As/Print (Mod+Alt+F2, Alt+Shift+F2, Alt+F2, Mod+Alt+I), Field navigation (Alt+F1, Alt+Shift+F1), Outline show first line (Alt+Shift+L), Next Footnote (Alt+Shift+>), Link to Previous (Alt+Shift+R), AutoText (Alt+F3), Spelling on Mac (Mod+Alt+L) |
 | 2026-10-13 | Web and Draft Layout now render visible full-resolution raster tiles for exceptionally tall pages rather than downsampling the entire page into one texture; verified with a 440-paragraph headless UI reproduction |
@@ -397,6 +399,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-14 | trivial | Progress log: picture brightness, contrast and transparency (#1711, #1766) |
+| 2026-10-12 | trivial | Progress log: one selected cell's border drags in its row only (#962) |
 | 2026-10-12 | minor | Progress log: Word default shortcuts expanded to 140 commands on macOS (169 combinations) and 158 on Linux/Windows (188 combinations), addressing gap #24 |
 | 2026-10-13 | trivial | Web/Draft long-page blur fixed with visible full-resolution raster tiles |
 | 2026-10-14 | trivial | Progress log: VML freeforms read and kept on save |
