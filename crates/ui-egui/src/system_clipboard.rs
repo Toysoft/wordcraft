@@ -271,4 +271,30 @@ mod tests {
         assert_eq!(got_now.len(), 2);
         assert!(got_now[1].0.contains("Speed") && !got_now[1].0.contains("<math") && got_now[1].1 == "Speed", "{got_now:?}");
     }
+
+    #[test]
+    fn cutting_an_equation_puts_its_html_on_the_system_clipboard_and_deletes() {
+        // #1710: the Cut buttons publish the command result the way Copy does, and the selection
+        // goes with the cut.
+        let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, String)>::new()));
+        let sink = got.clone();
+        let mut a = app(Services {
+            set_clipboard_html: Some(Box::new(move |h, t| {
+                sink.borrow_mut().push((h.to_string(), t.to_string()));
+                true
+            })),
+            ..Default::default()
+        });
+        a.run("document.setText", json!({"text": "Speed "})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        a.run("insert.equation", json!({"linear": "y=2x_s", "edit": false})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        let ctx = egui::Context::default();
+        let r = a.run("edit.cut", json!({})).unwrap();
+        put_result(&a, &ctx, &r);
+        let got_now = got.borrow().clone();
+        assert_eq!(got_now.len(), 1);
+        assert!(got_now[0].0.contains("<math") && got_now[0].1.contains("y=2x_s"), "{got_now:?}");
+        assert!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim().is_empty(), "the selection is deleted");
+    }
 }
