@@ -110,6 +110,10 @@ fn refresh_wordcount_fields_for(session: &mut Session, profile_id: Option<&str>,
 
 /// Hook for [`wordcraft_engine::hooks::register_on_update_fields`].
 pub fn on_update_fields(session: &mut Session) -> Result<(), CmdError> {
+    // The hook stays registered for the process; with LawCraft off it does nothing.
+    if !session.module_enabled(crate::MODULE) {
+        return Ok(());
+    }
     if session.doc.custom_prop(PROP_PROFILE).is_some() && session.doc.custom_prop(PROP_DOC_TYPE).is_some() {
         refresh_wordcount_fields(session)?;
     }
@@ -245,12 +249,11 @@ fn write_certificate(
     let heading_block = top_level_block_index(&body_paths[hi]);
     let next_block =
         if next_para_i < body_paths.len() { top_level_block_index(&body_paths[next_para_i]) } else { top_level_block_count(&session.doc) };
-    for bi in ((heading_block + 1)..next_block).rev() {
-        session.doc.remove_block(StoryRef::Body, &Path::top(bi)).map_err(|e| LawError::Failed(e.to_string()))?;
-    }
-    for (insert_at, para) in (heading_block + 1..).zip(paragraphs_from_template(template, values, style_id.as_deref())) {
-        session.doc.insert_block(StoryRef::Body, &Path::top(insert_at), Block::Para(para)).map_err(|e| LawError::Failed(e.to_string()))?;
-    }
+    // One replacement of the certificate's paragraphs: a tracked change while Track Changes is on,
+    // so Reject All brings the old certificate back.
+    let blocks: Vec<Block> = paragraphs_from_template(template, values, style_id.as_deref()).into_iter().map(Block::Para).collect();
+    wordcraft_engine::cmd::replace_blocks(session, StoryRef::Body, heading_block + 1, next_block, blocks)
+        .map_err(|e| LawError::Failed(e.to_string()))?;
     session.touch();
     Ok(())
 }
@@ -271,10 +274,9 @@ fn append_certificate(session: &mut Session, heading: &str, style_id: Option<&st
     if let Some(id) = style_id {
         head.props.style = Some(id.to_string());
     }
-    session.doc.insert_block(StoryRef::Body, &Path::top(at), Block::Para(head)).map_err(|e| LawError::Failed(e.to_string()))?;
-    for (insert_at, para) in (at + 1..).zip(paragraphs_from_template(template, values, style_id)) {
-        session.doc.insert_block(StoryRef::Body, &Path::top(insert_at), Block::Para(para)).map_err(|e| LawError::Failed(e.to_string()))?;
-    }
+    // Added as a tracked insertion while Track Changes is on.
+    let blocks: Vec<Block> = std::iter::once(head).chain(paragraphs_from_template(template, values, style_id)).map(Block::Para).collect();
+    wordcraft_engine::cmd::replace_blocks(session, StoryRef::Body, at, at, blocks).map_err(|e| LawError::Failed(e.to_string()))?;
     session.touch();
     Ok(())
 }

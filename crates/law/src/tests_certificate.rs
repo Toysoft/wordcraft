@@ -307,3 +307,30 @@ fn export_succeeds_when_profile_has_no_word_limit_and_no_certificate_field() {
     run(&mut s, "file.save", json!({"path": path.to_string_lossy()}));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// With Track Changes on, replacing the certificate is a tracked change: Reject All brings the old
+/// certificate back, Accept All keeps the new one.
+#[test]
+fn replacing_the_certificate_is_tracked_while_tracking() {
+    let profile = store().get(MISSOURI).expect("profile").clone();
+    for answer in ["review.rejectAll", "review.acceptAll"] {
+        let mut s = apply_session(MISSOURI, "brief");
+        write_skeleton(&mut s, &profile, "brief");
+        compliance(&mut s, MISSOURI, "brief");
+        let old_count = cert_wordcount_in_doc(&s.doc);
+        run(&mut s, "caret.docStart", json!({}));
+        run(&mut s, "text.insert", json!({"text": "extra extra extra words.\r"}));
+        let before = s.doc.plain_text(StoryRef::Body);
+        run(&mut s, "review.trackChanges", json!({"value": true}));
+        let new_count = compliance(&mut s, MISSOURI, "brief")["wordCount"].as_u64().expect("count") as u32;
+        assert_ne!(Some(new_count), old_count, "the count moved");
+        assert!(!s.doc.revisions.is_empty(), "recorded as revisions");
+        run(&mut s, answer, json!({}));
+        // One certificate either way, nothing else changed; its word count is a live field, so
+        // it shows the document's current count whichever certificate stays.
+        let digits = |t: &str| t.chars().filter(|c| !c.is_ascii_digit()).collect::<String>();
+        assert_eq!(digits(&s.doc.plain_text(StoryRef::Body)), digits(&before), "{answer}");
+        assert_eq!(s.doc.plain_text(StoryRef::Body).matches("I certify").count(), 1, "{answer}");
+        let _ = (old_count, new_count);
+    }
+}
