@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (VML freeforms read and kept on save; previously trivial: consistent preferred cell widths; previously trivial: multi-paragraph field instructions no longer add blank lines; previously trivial: page-break-only list paragraphs hide their labels; previously trivial: floating-table overlap ignores empty line-break lines; previously trivial: copies keep their formatting on the clipboard as HTML, #1523; previously trivial: sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** trivial (UI/UX gaps: Border Styles landed on Table Design › Borders and in the table context menu, with a Border Painter that paints one border per click; previously trivial: VML freeforms read and kept on save; previously trivial: consistent preferred cell widths; previously trivial: multi-paragraph field instructions no longer add blank lines; previously trivial: page-break-only list paragraphs hide their labels; previously trivial: floating-table overlap ignores empty line-break lines; previously trivial: copies keep their formatting on the clipboard as HTML, #1523; previously trivial: sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -69,6 +69,11 @@ The same gaps grouped the way the parity documents are, for agents working in on
   styles, and Draw Table and Eraser (#303) landed on 2026-10-10. Paste from other programs keeps
   their formatting (system clipboard HTML/RTF), Merge Formatting keeps emphasis, Paste Special lists
   what the system clipboard holds, and Linux/Wayland clipboard pictures paste (#687, #833);
+  still missing: the Paste Options button after a paste, and RTF on macOS and X11. Copying an
+  equation puts MathML in HTML on the clipboard (#816; pasting into Word/LibreOffice not yet
+  verified; OMML on the clipboard is #1297); only copies containing an equation get HTML,
+  text-only copies stay plain text.
+- **UI/UX gaps:** #7, #18, #24; context menus for objects (the table's landed, with Border Styles); Linux title bar theming (#78); File ›
 - **UI/UX gaps:** #7, #18, #24; context menus for objects (the table's landed; it still lacks Border Styles); Linux title bar theming (#78); File ›
   still missing: the Paste Options button after a paste, and RTF on macOS and X11. Copy puts
   HTML beside the text on the clipboard, so other programs keep the formatting (#1523), with
@@ -86,6 +91,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | UI/UX gaps: Border Styles (a pen gallery on Table Design › Borders and in the table context menu) and a Border Painter mode that paints the clicked border; `table.borders` takes a line style |
 | 2026-10-12 | minor | Gap #24 default shortcuts expanded (140 commands on macOS / 158 on Linux/Windows); stale gaps #9 (DOCX agile encryption already works, only encrypted .doc missing) and #15 (DOCX bibliography sources already saved, only desktop integrations missing) updated |
 | 2026-10-13 | trivial | Previously untracked long Web/Draft page blur resolved with visible high-resolution raster tiling; no gap remains for this issue |
 | 2026-10-14 | trivial | #1: VML freeforms (rule lines in headers) read and kept on save |
