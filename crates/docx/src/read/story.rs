@@ -73,6 +73,85 @@ struct FieldState {
     sizes: Vec<(usize, Option<f32>)>,
     /// A legacy form field's `w:ffData`, as raw XML.
     form: String,
+    /// Once a field ends inside this one's code (`{ IF { REF a } = 0 … }`): the code as run XML,
+    /// nested fields complete, so the field is kept verbatim (#1671). Empty without nesting.
+    code_xml: String,
+    /// The code can't be kept as XML (too long, or tracked changes in it): the nested fields'
+    /// results stand in for them in `instr`, as before.
+    code_xml_lost: bool,
+}
+
+/// Whether a run carries a tracked change (kept fields' XML has no revision marks).
+fn tracked(p: &CharProps) -> bool {
+    p.ins.is_some() || p.del.is_some() || p.fmt_change.is_some()
+}
+
+/// One run of a field's code or result, as XML: text with tabs and breaks.
+fn run_xml(w: &mut crate::xml::W, props: &CharProps, tag: &str, s: &str) {
+    if s.is_empty() {
+        return;
+    }
+    w.open("w:r", &[]);
+    crate::write::props::rpr(w, props);
+    let mut buf = String::new();
+    let flush = |w: &mut crate::xml::W, buf: &mut String| {
+        if !buf.is_empty() {
+            w.leaf(tag, &[("xml:space", "preserve")], buf);
+            buf.clear();
+        }
+    };
+    for c in s.chars() {
+        match c {
+            '\t' if tag == "w:t" => {
+                flush(w, &mut buf);
+                w.empty("w:tab", &[]);
+            }
+            '\n' | '\r' if tag == "w:t" => {
+                flush(w, &mut buf);
+                w.empty("w:br", &[]);
+            }
+            c if (c as u32) < 0x20 && c != '\t' || c == wordcraft_doc::para::OBJ => {}
+            c => buf.push(c),
+        }
+    }
+    flush(w, &mut buf);
+    w.close("w:r");
+}
+
+/// A field with a field nested in its code, as run XML (ECMA-376 §17.16.18): begin, code
+/// (nested fields complete), separate and cached result, end.
+fn field_xml(f: &FieldState) -> String {
+    let mut w = crate::xml::W::default();
+    let fld = |w: &mut crate::xml::W, kind: &str, lock: bool, form: &str| {
+        w.open("w:r", &[]);
+        crate::write::props::rpr(w, &f.props);
+        let attrs: &[(&str, &str)] = if lock { &[("w:fldCharType", kind), ("w:fldLock", "1")] } else { &[("w:fldCharType", kind)] };
+        if form.is_empty() {
+            w.empty("w:fldChar", attrs);
+        } else {
+            w.open("w:fldChar", attrs);
+            w.raw(form);
+            w.close("w:fldChar");
+        }
+        w.close("w:r");
+    };
+    fld(&mut w, "begin", f.locked, &f.form);
+    if f.code_xml.is_empty() {
+        run_xml(&mut w, &f.props, "w:instrText", &f.instr);
+    } else {
+        w.raw(&f.code_xml);
+    }
+    if f.phase == Phase::Result {
+        fld(&mut w, "separate", false, "");
+        for (it, p) in &f.buf {
+            match it {
+                Item::Text(t) => run_xml(&mut w, p, "w:t", t),
+                Item::Obj(o) => run_xml(&mut w, p, "w:t", o.plain_text()),
+            }
+        }
+    }
+    fld(&mut w, "end", false, "");
+    w.s
 }
 
 /// Enclosed characters (`eq \o\ac(○,字)`), with their style from the code's font sizes: Word
@@ -615,7 +694,18 @@ impl Reader<'_> {
                     if f.sizes.len() < 64 {
                         f.sizes.push((f.instr.len(), props.size));
                     }
-                    f.instr.push_str(&k.text());
+                    let text = k.text();
+                    f.instr.push_str(&text);
+                    if !f.code_xml.is_empty() && !f.code_xml_lost {
+                        if tracked(props) || f.code_xml.len() >= MAX_INSTR {
+                            f.code_xml_lost = true;
+                            f.code_xml = String::new();
+                        } else {
+                            let mut w = crate::xml::W::default();
+                            run_xml(&mut w, props, "w:instrText", &text);
+                            f.code_xml.push_str(&w.s);
+                        }
+                    }
                 }
             }
             "w:tab" | "w:ptab" => self.emit_text(sc, pb, "\t", props),
@@ -801,6 +891,8 @@ impl Reader<'_> {
             range: false,
             sizes: Vec::new(),
             form,
+            code_xml: String::new(),
+            code_xml_lost: false,
         });
     }
 
@@ -874,6 +966,16 @@ impl Reader<'_> {
                 Item::Obj(o) => result.push_str(o.plain_text()),
             }
         }
+        let parent_takes_code = sc.fields.last().is_some_and(|p| !p.spilled && p.phase == Phase::Instr);
+        // A field nested in this one's code: kept verbatim, showing its cached result (#1671).
+        if !parent_takes_code && !f.code_xml.is_empty() && !f.code_xml_lost {
+            let obj = InlineObject::Opaque { format: "docx".into(), xml: field_xml(&f), text: result };
+            self.emit_obj(sc, pb, obj, &f.props);
+            return;
+        }
+        // This field nested in its parent's code: the parent keeps it as XML.
+        let nested_xml =
+            (parent_takes_code && !tracked(&f.props) && !f.code_xml_lost && !f.buf.iter().any(|(_, p)| tracked(p))).then(|| field_xml(&f));
         let (instr, result) = match enclosure(&f) {
             // Word writes no result for enclosed characters: the text is their plain text.
             Some(e) => (e.instr(), if result.is_empty() { e.text } else { result }),
@@ -884,6 +986,23 @@ impl Reader<'_> {
             && !parent.spilled
             && parent.phase == Phase::Instr
         {
+            if !parent.code_xml_lost {
+                match nested_xml {
+                    Some(x) if !tracked(&parent.props) && parent.code_xml.len().saturating_add(x.len()) < MAX_INSTR => {
+                        if parent.code_xml.is_empty() {
+                            // The code so far, in the field's own formatting.
+                            let mut w = crate::xml::W::default();
+                            run_xml(&mut w, &parent.props, "w:instrText", &parent.instr);
+                            parent.code_xml = w.s;
+                        }
+                        parent.code_xml.push_str(&x);
+                    }
+                    _ => {
+                        parent.code_xml_lost = true;
+                        parent.code_xml = String::new();
+                    }
+                }
+            }
             parent.instr.push_str(obj.plain_text());
             return;
         }

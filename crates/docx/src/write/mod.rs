@@ -4,7 +4,7 @@ mod embed;
 mod settings_merge;
 pub(crate) use settings_merge::has_unowned as settings_has_unowned;
 mod math;
-mod props;
+pub(crate) mod props;
 mod sdt;
 mod story;
 mod watermark;
