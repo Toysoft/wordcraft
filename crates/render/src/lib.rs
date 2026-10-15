@@ -697,7 +697,8 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             ctx.set_transform(view);
             ctx.set_paint(color(opts.ink_text(*c, *text_bg), *alpha));
             let w = *width as f64;
-            let mut st = kurbo::Stroke::new(w);
+            // Flat ends, as in PDF export: the layout extends lines that must meet at corners.
+            let mut st = kurbo::Stroke::new(w).with_caps(kurbo::Cap::Butt);
             match stroke {
                 Stroke::Dotted => st = st.with_dashes(0.0, [w, w * 2.0]),
                 Stroke::Dashed => st = st.with_dashes(0.0, [w * 4.0, w * 2.0]),
@@ -718,7 +719,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 return;
             }
             if *stroke == Stroke::Double {
-                ctx.set_stroke(kurbo::Stroke::new(w * 0.6));
+                ctx.set_stroke(kurbo::Stroke::new(w * 0.6).with_caps(kurbo::Cap::Butt));
                 line(ctx, -w * 0.9);
                 line(ctx, w * 0.9);
                 return;
