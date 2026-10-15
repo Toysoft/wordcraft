@@ -1161,7 +1161,7 @@ fn layout_box(
     }
     let floats_bottom = float_tables.iter().map(|r| r.bottom()).fold(0.0, f32::max);
     ctx.hide_deleted = outer_hide;
-    BoxLayout { items, height: y.max(0.0), floats_bottom, last_top: last_top.max(0.0) }
+    BoxLayout { items, height: y.max(0.0), floats_bottom, last_top: last_top.max(0.0), exclusions: excl }
 }
 
 /// The width a text frame without one takes: its widest line, with the paragraph's indents.
@@ -1216,6 +1216,7 @@ fn frame_float(fr: &wordcraft_doc::props::TextFrame) -> Float {
 /// height without it).
 struct BoxLayout {
     items: Vec<Placed>,
+    exclusions: Vec<WrapArea>,
     height: f32,
     floats_bottom: f32,
     last_top: f32,
@@ -2640,8 +2641,22 @@ fn foot_top_for(ctx: &mut Ctx, sect: &SectionProps, footer: Option<u32>) -> f32 
     // make the body lay out again.
     let track = std::mem::replace(&mut ctx.track_totals, false);
     let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, None).height;
+    let top = sect.page_h - sect.footer - h;
+    let x = sect.margin_left + sect.gutter;
+    let frame = PageFrame { sect, origin: (x, top), number: ctx.fields.page, mirror: ctx.mirror };
+    let counters = std::mem::take(&mut ctx.counters);
+    let boxes = std::mem::take(&mut ctx.boxes);
+    let chains = std::mem::take(&mut ctx.chains);
+    let fields = ctx.fields.clone();
+    let areas =
+        again(ctx, 0, |ctx| layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, Some(frame))).exclusions;
+    ctx.counters = counters;
+    ctx.boxes = boxes;
+    ctx.chains = chains;
+    ctx.fields = fields;
     ctx.track_totals = track;
-    sect.page_h - sect.footer - h
+    // A positioned footer band reserves space where it is drawn, above the footer paragraph.
+    areas.iter().filter(|(r, tb, ..)| *tb && r.bottom() + top > sect.margin_top).map(|(r, ..)| top + r.y).fold(top, f32::min)
 }
 
 /// Where a box of laid-out items sits on its page, for floating objects positioned relative to
