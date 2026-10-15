@@ -84,8 +84,10 @@ display_name = "cyril265"
 [people.webdevtodayjason]
 display_name = "Jason Brashear"
 sync_github_name = false
-[people.Nael-Nathanael]
+
+[people.lupant]
 sync_github_name = true
+[people.Nael-Nathanael]
 
 [people.rbr48]
 real_name = "M S Rana"
@@ -98,6 +100,9 @@ real_name = "Martin Ball"
 display_name = "Martin Ball"
 
 [people.Nghiathan13]
+
+[people.finwarman]
+real_name = "Fin Warman"
 
 [people.albayazid]
 real_name = "Sazid Al Bayazid"
@@ -112,5 +117,4 @@ display_name = "The Legend Of MTS Dev"
 [people.dotCooCoo]
 real_name = "Robert Lee"
 
-[people.finwarman]
-real_name = "Fin Warman"
+
