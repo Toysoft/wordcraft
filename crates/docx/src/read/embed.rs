@@ -147,12 +147,17 @@ impl Reader<'_> {
     }
 
     /// Keep part `root` and every part it reaches through its relationships. False when `root`
-    /// itself can't be kept.
+    /// itself can't be kept. A part it reaches that can't be kept (missing, past
+    /// [`MAX_EMBEDDED_PARTS`], or not a part we carry) and relationships past
+    /// [`MAX_EMBEDDED_RELS`] are left out, never related, and noted in the manifest's `dropped`
+    /// (see [`crate::incomplete_objects`]). Parts already kept count as reached, so a cycle ends.
     pub(super) fn keep_part_tree(&mut self, root: &str) -> bool {
         if self.embedded.parts.contains_key(root) {
             return true;
         }
-        if !self.keep_part(root) {
+        if let Err(why) = self.keep_part(root) {
+            let main = self.main.clone();
+            self.embedded.note(main, format!("relates to {root}, {why}; it isn't kept"));
             return false;
         }
         let mut todo = vec![root.to_string()];
@@ -161,13 +166,19 @@ impl Reader<'_> {
             for r in self.pkg.rels(&part).list {
                 if kept.len() >= MAX_EMBEDDED_RELS {
                     log::warn!("docx: part {part} has more than {MAX_EMBEDDED_RELS} relationships; the rest are dropped");
+                    self.embedded.note(part.clone(), format!("has more than {MAX_EMBEDDED_RELS} relationships; the rest aren't kept"));
                     break;
                 }
-                if ![&r.id, &r.kind, &r.target].iter().all(|f| manifest_field_ok(f)) || kept.iter().any(|k| k.id == r.id) {
+                if ![&r.id, &r.kind, &r.target].iter().all(|f| manifest_field_ok(f)) {
+                    self.embedded.note(part.clone(), "has a relationship that can't be kept (an empty or unreadable id, type or target)".into());
+                    continue;
+                }
+                if kept.iter().any(|k| k.id == r.id) {
                     continue;
                 }
                 if !r.external && !self.embedded.parts.contains_key(&r.target) {
-                    if !self.keep_part(&r.target) {
+                    if let Err(why) = self.keep_part(&r.target) {
+                        self.embedded.note(part.clone(), format!("relates to {}, {why}", r.target));
                         continue;
                     }
                     todo.push(r.target.clone());
@@ -181,27 +192,27 @@ impl Reader<'_> {
         true
     }
 
-    /// Keep one part's bytes and content type (not its relationships).
-    fn keep_part(&mut self, part: &str) -> bool {
+    /// Keep one part's bytes and content type (not its relationships). `Err` says why not.
+    fn keep_part(&mut self, part: &str) -> Result<(), String> {
         let lower = part.to_ascii_lowercase();
         if !manifest_field_ok(part) || lower.ends_with(".rels") || lower == "[content_types].xml" || part.eq_ignore_ascii_case(&self.main) {
             log::warn!("docx: not carrying part {part:?} for an embedded object");
-            return false;
+            return Err("which isn't a part an object can carry".into());
         }
         if self.embedded.parts.len() >= MAX_EMBEDDED_PARTS {
             log::warn!("docx: more than {MAX_EMBEDDED_PARTS} parts for embedded objects; the rest are dropped");
-            return false;
+            return Err(format!("past the limit of {MAX_EMBEDDED_PARTS} parts kept for embedded objects"));
         }
         let Some(bytes) = self.pkg.get(part) else {
             log::warn!("docx: part {part} of an embedded object is missing");
-            return false;
+            return Err("which the file doesn't hold".into());
         };
         let pkg = self.pkg;
         let ct = self.content_types.get_or_insert_with(|| ContentTypes::read(pkg)).of(part).unwrap_or("application/octet-stream");
         let content_type = if manifest_field_ok(ct) { ct.to_string() } else { "application/octet-stream".to_string() };
         self.doc.passthrough.entry(part.to_string()).or_insert_with(|| Arc::new(bytes.to_vec()));
         self.embedded.parts.insert(part.to_string(), crate::package::EmbeddedPart { content_type, rels: Vec::new() });
-        true
+        Ok(())
     }
 }
 

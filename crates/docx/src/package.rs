@@ -95,12 +95,19 @@ pub struct EmbeddedPart {
     pub rels: Vec<Rel>,
 }
 
+/// Most notes kept on what the kept parts' graph lacks ([`EmbeddedManifest::dropped`]).
+pub const MAX_DROPPED: usize = 256;
+
 /// The parts kept for embedded objects, by part name (see [`EMBEDDED_PARTS`]). Stored as text:
 /// `P\tpart\tcontent type` per part, then `R\tpart\tid\ttype\ttarget\tI|E` per relationship of
-/// that part (`E`: `target` is an external URL).
+/// that part (`E`: `target` is an external URL), then `X\tpart\twhat` per note in `dropped`.
 #[derive(Clone, Debug, Default)]
 pub struct EmbeddedManifest {
     pub parts: BTreeMap<String, EmbeddedPart>,
+    /// What the file's graph of these parts lacked when read: (part, what it lost), e.g. a
+    /// relationship to a part the file doesn't hold. The part is the one whose relationship was
+    /// dropped (the main document part, for an object's own part).
+    pub dropped: Vec<(String, String)>,
 }
 
 /// Can `s` be a field of a manifest line?
@@ -125,10 +132,22 @@ impl EmbeddedManifest {
                         p.rels.push(Rel { id: (*id).to_string(), kind: (*kind).to_string(), target: (*target).to_string(), external: *mode == "E" });
                     }
                 }
+                ["X", part, what] => m.note((*part).to_string(), (*what).to_string()),
                 _ => {}
             }
         }
         m
+    }
+
+    /// Record that `part` lost `what` (once; bounded by [`MAX_DROPPED`]).
+    pub fn note(&mut self, part: String, what: String) {
+        if self.dropped.len() < MAX_DROPPED
+            && manifest_field_ok(&part)
+            && manifest_field_ok(&what)
+            && !self.dropped.iter().any(|(p, w)| *p == part && *w == what)
+        {
+            self.dropped.push((part, what));
+        }
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -143,6 +162,9 @@ impl EmbeddedManifest {
             for r in p.rels.iter().filter(|r| [&r.id, &r.kind, &r.target].iter().all(|f| manifest_field_ok(f))) {
                 s.push_str(&format!("R\t{part}\t{}\t{}\t{}\t{}\n", r.id, r.kind, r.target, if r.external { "E" } else { "I" }));
             }
+        }
+        for (part, what) in self.dropped.iter().filter(|(p, w)| manifest_field_ok(p) && manifest_field_ok(w)) {
+            s.push_str(&format!("X\t{part}\t{what}\n"));
         }
         s.into_bytes()
     }

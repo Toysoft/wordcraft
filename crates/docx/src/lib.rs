@@ -31,7 +31,25 @@ pub use fonts::embedded_fonts;
 pub use read::read;
 pub use smart_art::smart_art_items;
 pub use wordml2003_write::write as write_wordml2003;
-pub use write::{write, write_as};
+pub use write::{write, write_as, write_as_with_report, write_with_report};
+
+/// Something a package didn't carry whole: a part of an embedded object (chart, diagram, OLE
+/// object, kept custom XML…) that was missing, over a limit, or left out. Read: see
+/// [`incomplete_objects`]; written: see [`write_with_report`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Loss {
+    /// The part (or object) concerned.
+    pub part: String,
+    /// What was lost, in a short sentence.
+    pub reason: String,
+}
+
+/// The embedded objects of a document read from a file that weren't read whole: each part one
+/// of them relates to but the file lacked (or that was over a limit), so it can't be saved back.
+pub fn incomplete_objects(doc: &wordcraft_doc::Document) -> Vec<Loss> {
+    let Some(m) = doc.passthrough.get(package::EMBEDDED_PARTS) else { return Vec::new() };
+    package::EmbeddedManifest::parse(m).dropped.into_iter().map(|(part, reason)| Loss { part, reason }).collect()
+}
 
 /// Largest `.xml` file read as a Word XML document.
 pub const MAX_XML_FILE: usize = 1 << 30;

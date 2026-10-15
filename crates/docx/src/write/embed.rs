@@ -14,8 +14,8 @@ use wordcraft_doc::para::Float;
 
 use super::PartRels;
 use crate::package::{
-    CUSTOM_XML_ROOTS, EMBEDDED_PARTS, EmbeddedManifest, FONT_TABLE_PART, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, VBA_PROJECT_PART, VBA_RELATED,
-    rel_is, relative, rt,
+    CUSTOM_XML_ROOTS, EMBEDDED_PARTS, EmbeddedManifest, FONT_TABLE_PART, MAX_DROPPED, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, VBA_PROJECT_PART,
+    VBA_RELATED, rel_is, relative, rt,
 };
 use crate::units::{MAX_LEN_PT, emu, int};
 use crate::xml::{self, El, MAX_DEPTH};
@@ -26,6 +26,14 @@ const MAX_COPY_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_MARKUP_BYTES: u64 = 128 * 1024 * 1024;
 /// What one part copy costs at least against [`MAX_COPY_BYTES`] (its relationships, entry…).
 const PART_COST: u64 = 4096;
+
+/// What [`EmbedWriter::losses`] says of an object that couldn't be written back.
+const LEFT_OUT: &str = "the object couldn't be written back whole and is left out (an OLE object keeps only its picture)";
+
+/// The name a loss gives object `src`: its first part, else its kind of markup.
+fn object_name(src: &Embedded) -> String {
+    src.refs.iter().find(|r| !r.external).map_or_else(|| "embedded object".to_string(), |r| r.target.clone())
+}
 
 /// Where the stories' parts live: every story this writer makes is a part in `word/`.
 const STORY_PART: &str = "word/document.xml";
@@ -46,6 +54,8 @@ pub(crate) struct EmbedWriter<'d> {
     markup_bytes: u64,
     /// Parts to write: (name, bytes, content type, relationships).
     pub parts: Vec<(String, Vec<u8>, String, PartRels)>,
+    /// What couldn't be written whole (see [`crate::write_with_report`]).
+    pub losses: Vec<crate::Loss>,
 }
 
 impl<'d> EmbedWriter<'d> {
@@ -90,6 +100,7 @@ impl<'d> EmbedWriter<'d> {
             copy_bytes: MAX_COPY_BYTES,
             markup_bytes: MAX_MARKUP_BYTES,
             parts: Vec::new(),
+            losses: Vec::new(),
         }
     }
 
@@ -172,6 +183,13 @@ impl<'d> EmbedWriter<'d> {
         }
     }
 
+    /// Report that `part` lost `reason` (once; bounded by [`MAX_DROPPED`]).
+    fn lose(&mut self, part: &str, reason: String) {
+        if self.losses.len() < MAX_DROPPED && !self.losses.iter().any(|l| l.part == part && l.reason == reason) {
+            self.losses.push(crate::Loss { part: part.to_string(), reason });
+        }
+    }
+
     /// Can part `name` be written (bytes and manifest entry both kept)?
     fn available(&self, name: &str) -> bool {
         self.manifest.parts.contains_key(name) && self.passthrough.contains_key(name)
@@ -188,9 +206,12 @@ impl<'d> EmbedWriter<'d> {
             if *source != owner || !rel_is(kind, rt::CUSTOM_XML) {
                 continue;
             }
-            if let Some(name) = self.copy_tree(target, &mut memo, &mut written) {
-                let source_part = if owner == "P" { "" } else { STORY_PART };
-                rels.add(kind, &relative(source_part, &name), false);
+            match self.copy_tree(target, &mut memo, &mut written) {
+                Some(name) => {
+                    let source_part = if owner == "P" { "" } else { STORY_PART };
+                    rels.add(kind, &relative(source_part, &name), false);
+                }
+                None => self.lose(target, "was kept from the file but its bytes are gone; it is left out".into()),
             }
         }
         self.first = memo;
@@ -208,9 +229,12 @@ impl<'d> EmbedWriter<'d> {
             if *source != owner {
                 continue;
             }
-            if let Some(name) = self.copy_tree(target, &mut memo, &mut written) {
-                let source_part = if owner == "P" { "" } else { STORY_PART };
-                rels.add(kind, &relative(source_part, &name), false);
+            match self.copy_tree(target, &mut memo, &mut written) {
+                Some(name) => {
+                    let source_part = if owner == "P" { "" } else { STORY_PART };
+                    rels.add(kind, &relative(source_part, &name), false);
+                }
+                None => self.lose(target, "was kept from the file but its bytes are gone; it is left out".into()),
             }
         }
         self.first = memo;
@@ -249,6 +273,11 @@ impl<'d> EmbedWriter<'d> {
         while let Some(orig) = todo.pop() {
             let (Some(info), Some(bytes)) = (self.manifest.parts.get(&orig).cloned(), self.passthrough.get(&orig)) else { continue };
             let Some(new) = memo.get(&orig).cloned() else { continue };
+            // What the file's graph already lacked under this part (noted by the reader).
+            let lacked: Vec<String> = self.manifest.dropped.iter().filter(|(p, _)| *p == orig).map(|(_, w)| w.clone()).collect();
+            for what in lacked {
+                self.lose(&orig, format!("{what} (in the file read)"));
+            }
             let mut rels = PartRels::default();
             for r in &info.rels {
                 if r.external {
@@ -263,8 +292,11 @@ impl<'d> EmbedWriter<'d> {
                         todo.push(r.target.clone());
                         t
                     }
-                    // A part that wasn't kept: leave the relationship out.
-                    None => continue,
+                    // A part that wasn't kept: leave the relationship out (never dangling).
+                    None => {
+                        self.lose(&orig, format!("relates to {}, which is gone; the relationship is left out", r.target));
+                        continue;
+                    }
                 };
                 rels.add_with_id(&r.id, &r.kind, &relative(&new, &target), false);
             }
@@ -290,6 +322,7 @@ impl super::Writer<'_> {
     pub(super) fn embedded_tree(&mut self, src: &Embedded, rels: &mut PartRels, resize: Option<(f32, f32, &Float, &str)>) -> Option<El> {
         let Some(left) = self.embeds.markup_bytes.checked_sub(src.xml.len() as u64) else {
             log::warn!("docx: too much embedded-object markup; the rest is left out");
+            self.embeds.lose(&object_name(src), LEFT_OUT.into());
             return None;
         };
         self.embeds.markup_bytes = left;
@@ -300,6 +333,7 @@ impl super::Writer<'_> {
         let writable = |id: &String| src.refs.iter().any(|r| r.id == *id && (r.external || self.embeds.available(&r.target)));
         if !used.iter().all(writable) {
             log::warn!("docx: an embedded object's parts are missing; it is left out");
+            self.embeds.lose(&object_name(src), LEFT_OUT.into());
             return None;
         }
         let roots: Vec<&str> = src.refs.iter().filter(|r| !r.external).map(|r| r.target.as_str()).collect();
@@ -317,7 +351,11 @@ impl super::Writer<'_> {
             let new_id = if r.external {
                 Some(rels.add(&r.kind, &r.target, true))
             } else {
-                self.embeds.copy_tree(&r.target, &mut memo, &mut written).map(|name| rels.add(&r.kind, &relative(STORY_PART, &name), false))
+                let copied = self.embeds.copy_tree(&r.target, &mut memo, &mut written);
+                if copied.is_none() {
+                    self.embeds.lose(&r.target, "is gone; the object's relationship to it is left out".into());
+                }
+                copied.map(|name| rels.add(&r.kind, &relative(STORY_PART, &name), false))
             };
             if let Some(id) = new_id {
                 ids.insert(r.id.clone(), id);
@@ -328,6 +366,7 @@ impl super::Writer<'_> {
         }
         if used.iter().any(|u| !ids.contains_key(u)) {
             log::warn!("docx: an embedded object lost a part; it is left out");
+            self.embeds.lose(&object_name(src), LEFT_OUT.into());
             return None;
         }
         // A SmartArt data part names its drawing's relationship (of the story part) by id.

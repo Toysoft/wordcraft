@@ -227,6 +227,8 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
     {
         doc.styles.default_chr.lang = Some(lang.clone());
     }
+    // Embedded objects the file doesn't hold whole (#1343).
+    let incomplete = wordcraft_docx::incomplete_objects(&doc);
     s.set_document(doc);
     if let Some(z) = s.doc.settings.zoom {
         super::view::restore_zoom(s, z);
@@ -236,7 +238,16 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
     if encrypted {
         s.password = password.map(crate::io::Password::new);
     }
-    Ok(json!({"path": path, "paragraphs": s.doc.paragraph_count(), "words": s.doc.word_count(), "encrypted": encrypted}))
+    let mut out = json!({"path": path, "paragraphs": s.doc.paragraph_count(), "words": s.doc.word_count(), "encrypted": encrypted});
+    if !incomplete.is_empty() {
+        out["incomplete"] = losses_json(&incomplete);
+    }
+    Ok(out)
+}
+
+/// `[{"part", "reason"}…]` for what a Word package lacked or lost.
+fn losses_json(losses: &[wordcraft_docx::Loss]) -> Value {
+    losses.iter().map(|l| json!({"part": l.part, "reason": l.reason})).collect()
 }
 
 /// File › Info › Protect Document › Encrypt with Password: the password Word documents are saved
@@ -296,13 +307,18 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     let password = s.password.as_ref().map(crate::io::Password::as_str);
     // A header/footer just made and left empty isn't saved (#960).
     let copy = super::insert::saved_copy(s);
-    crate::io::save_path_with(&path, copy.as_ref().unwrap_or(&s.doc), password, &opts).map_err(CmdError::Failed)?;
+    let losses = crate::io::save_path_report(&path, copy.as_ref().unwrap_or(&s.doc), password, &opts).map_err(CmdError::Failed)?;
     let encrypted = password.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
     if ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
         s.path = Some(path.clone());
         s.dirty = false;
     }
-    Ok(json!({"saved": true, "path": path.to_string_lossy(), "encrypted": encrypted}))
+    let mut out = json!({"saved": true, "path": path.to_string_lossy(), "encrypted": encrypted});
+    // What a Word package couldn't carry of the embedded objects (#1343).
+    if !losses.is_empty() {
+        out["dropped"] = losses_json(&losses);
+    }
+    Ok(out)
 }
 
 /// Does `path` hold a Word 2003 XML Document already (so a plain save keeps that format)?
