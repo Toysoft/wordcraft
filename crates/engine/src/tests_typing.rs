@@ -1140,3 +1140,65 @@ fn typing_after_a_citation_goes_outside_its_field() {
     let inside = Pos { off: f[0].start.off + wordcraft_doc::para::OBJ.len_utf8(), ..f[0].start.clone() };
     assert_eq!(s.doc.copy_range(&inside, &f[0].end).plain_text(), "(Smith 2020)");
 }
+
+/// A .docx of two paragraphs in two sections, as Word writes it: the first section's properties
+/// in the first paragraph's mark (portrait), the last section's in the body (landscape, starting
+/// as `kind`).
+fn two_section_docx(kind: &str) -> Vec<u8> {
+    const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    let files = [
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#.to_string(),
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#.to_string(),
+        ),
+        (
+            "word/document.xml",
+            format!(
+                r#"<w:document xmlns:w="{W}"><w:body><w:p><w:pPr><w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr></w:pPr><w:r><w:t>One.</w:t></w:r></w:p><w:p><w:r><w:t>Two.</w:t></w:r></w:p><w:sectPr><w:type w:val="{kind}"/><w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/></w:sectPr></w:body></w:document>"#
+            ),
+        ),
+    ];
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data) in files {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, data.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+/// #2127: Backspace just after a section break, or Delete just before it, removes the break, as
+/// in Word: the two paragraphs join, the text before the break takes the following section's
+/// page setup, and Undo brings the break back. Imported breaks and ones made here alike.
+#[test]
+fn backspace_and_delete_remove_a_section_break() {
+    let made_here = || {
+        let mut s = typed("One.Two.");
+        s.sel = crate::Selection::caret(Pos::body(0, 4));
+        run(&mut s, "layout.break", json!({"kind": "nextPage"}));
+        s
+    };
+    for source in ["nextPage", "continuous", "made here"] {
+        for (key, caret) in [("text.backspace", Pos::body(1, 0)), ("text.delete", Pos::body(0, 4))] {
+            let mut s = match source {
+                "made here" => made_here(),
+                kind => Session::new(crate::io::open_bytes("s.docx", &two_section_docx(kind)).unwrap()),
+            };
+            assert_eq!(s.doc.sections().len(), 2, "{source}");
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "One.\nTwo.", "{source}");
+            let after = s.doc.sections().last().map(|(_, sp)| (**sp).clone()).unwrap();
+            s.sel = crate::Selection::caret(caret);
+            run(&mut s, key, json!({}));
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "One.Two.", "{source} {key}");
+            let sections = s.doc.sections();
+            assert_eq!(sections.len(), 1, "{source} {key}: the break is gone");
+            assert_eq!(*sections[0].1, after, "{source} {key}: the following section's setup");
+            run(&mut s, "edit.undo", json!({}));
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "One.\nTwo.", "{source} {key}: undo");
+            assert_eq!(s.doc.sections().len(), 2, "{source} {key}: undo brings the break back");
+        }
+    }
+}

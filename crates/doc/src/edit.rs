@@ -376,10 +376,15 @@ impl Document {
                 bl.drain(ia + 1..=ib);
             }
             tail.props = ParaProps::default();
+            // The deleted marks include `a`'s, so a section break there goes too: the joined
+            // paragraph ends where `b`'s mark did, and its text takes the following section's
+            // setup, as in Word (#2127).
+            let sect = tail.section.take();
             let pa = self.para_mut(a.story, &a.path)?;
             let keep_props = pa.props.clone();
             pa.append(tail);
             pa.props = keep_props;
+            pa.section = sect;
             return Ok(a);
         }
         // Different containers (range enters or leaves a table): clear text in every paragraph
