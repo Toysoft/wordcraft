@@ -140,6 +140,12 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"id": string, "doc"?: string (a document type of the profile)} → {"profile", "doc", "applied": [command], "styles": [style id]}"#),
         CommandSpec::new("law.checks.run", "Run Court Checks", CHECKS_LOC, |s, v| {
+            // An export check names no profile and follows the document: when no profile is
+            // applied any more (it was undone), there is nothing to check.
+            if p::str(v, "id").is_none() && s.doc.custom_prop(checks::PROP_PROFILE).is_none() && p::bool(v, "forExport") == Some(true) {
+                s.set_lint_findings(checks::FINDINGS_SOURCE, Vec::new());
+                return Ok(json!({"findings": []}));
+            }
             let profile_id = match p::str(v, "id") {
                 Some(id) => id.to_string(),
                 None => s
@@ -172,7 +178,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 .map_err(|e| CmdError::Failed(e.to_string()))?;
             let json_findings = checks::findings_json(&findings);
             if p::bool(v, "store").unwrap_or(true) {
-                s.set_lint_findings(findings);
+                s.set_lint_findings(checks::FINDINGS_SOURCE, findings);
             }
             Ok(json!({"profile": profile_id, "doc": doc_type, "findings": json_findings}))
         })
@@ -182,7 +188,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         // The court-check findings last stored for this document. LawCraft's own command, so
         // core's Review menu and its interface catalogs carry no court-specific entry.
-        CommandSpec::new("law.checks.findings", "Court Check Findings", CHECKS_LOC, |s, _| Ok(serde_json::Value::Array(s.lint_findings().to_vec())))
+        CommandSpec::new("law.checks.findings", "Court Check Findings", CHECKS_LOC, |s, _| Ok(serde_json::Value::Array(s.lint_findings_of(checks::FINDINGS_SOURCE).to_vec())))
             .params(r#"{} → [{checkId, severity, message, start?, end?}] (the findings the last law.checks.run stored)"#)
             .pure(),
     ]

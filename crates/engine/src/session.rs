@@ -466,8 +466,9 @@ pub struct Session {
     edit_marks: Vec<Pos>,
     /// How many Go Back presses since the last edit (which place comes next).
     go_back_step: usize,
-    /// Document-level lint findings (modules such as LawCraft set these; Review › Proofing reads them).
-    lint_findings: Vec<serde_json::Value>,
+    /// Document-level lint findings by source (each module check keeps its own; Review ›
+    /// Proofing reads them all).
+    lint_findings: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
     /// Commands to run before a PDF export (`(id, params)`); modules register checks here.
     export_check_commands: Vec<(String, serde_json::Value)>,
 }
@@ -696,20 +697,55 @@ impl Session {
             widened: None,
             edit_marks: Vec::new(),
             go_back_step: 0,
-            lint_findings: Vec::new(),
+            lint_findings: Default::default(),
             export_check_commands: Vec::new(),
         }
     }
 
-    /// Document-level lint findings for Review › Proofing (`review.issues`).
-    pub fn lint_findings(&self) -> &[serde_json::Value] {
-        &self.lint_findings
+    /// Document-level lint findings for Review › Proofing (`review.issues`): every source's, in
+    /// source order, at most [`crate::lint::MAX_FINDINGS`].
+    pub fn lint_findings(&self) -> Vec<serde_json::Value> {
+        self.lint_findings.values().flatten().take(crate::lint::MAX_FINDINGS).cloned().collect()
     }
 
-    /// Replace document-level lint findings (modules call this from their check commands).
-    pub fn set_lint_findings(&mut self, findings: Vec<crate::lint::Finding>) {
-        self.lint_findings =
+    /// The findings one source stored last.
+    pub fn lint_findings_of(&self, source: &str) -> &[serde_json::Value] {
+        self.lint_findings.get(source).map_or(&[], Vec::as_slice)
+    }
+
+    /// Replace one source's document-level lint findings (a module's check command calls this
+    /// with its own `source`, so separate checks don't overwrite each other).
+    pub fn set_lint_findings(&mut self, source: &str, findings: Vec<crate::lint::Finding>) {
+        let json: Vec<serde_json::Value> =
             findings.into_iter().take(crate::lint::MAX_FINDINGS).map(|f| crate::lint::finding_json(&f, crate::cmd::pos_json)).collect();
+        if json.is_empty() {
+            self.lint_findings.remove(source);
+        } else {
+            self.lint_findings.insert(source.to_string(), json);
+        }
+    }
+
+    /// Forget every source whose name starts with `prefix` (a module turned off).
+    pub fn clear_lint_findings(&mut self, prefix: &str) {
+        self.lint_findings.retain(|k, _| !k.starts_with(prefix));
+    }
+
+    /// Keep only the export checks whose command id passes `keep` (a module turned off drops its own).
+    pub fn retain_export_check_commands(&mut self, keep: impl Fn(&str) -> bool) {
+        self.export_check_commands.retain(|(id, _)| keep(id));
+    }
+
+    /// Remove module commands by id (a module turned off). Core commands are never removed: a
+    /// module can't have installed one ([`Session::install_commands`] skips them). Returns how
+    /// many were removed.
+    pub fn uninstall_commands(&mut self, ids: &[&str]) -> usize {
+        let core = crate::cmd::registry();
+        let all: Vec<CommandSpec> = self.registry.all().iter().filter(|c| !ids.contains(&c.id) || core.get(c.id).is_some()).cloned().collect();
+        let removed = self.registry.all().len() - all.len();
+        if removed > 0 {
+            self.registry = Arc::new(crate::Registry::new(all));
+        }
+        removed
     }
 
     /// Commands run before a save or export; each command's result may include a `findings` array.
@@ -718,7 +754,8 @@ impl Session {
     }
 
     /// Run [`export_check_commands`] with the export's own options and target `format` (a lower-case
-    /// extension such as `pdf`, `docx`, `png`), and store merged findings in [`lint_findings`].
+    /// extension such as `pdf`, `docx`, `png`) and return their findings. Each check stores its own
+    /// findings; a check that fails outright is stored as a finding of its own source.
     /// Each command's parameters carry the actual `markup` option and the output `format`, so a
     /// check that re-exports the document (such as `textSearchablePdf`) verifies what is being
     /// written and only the checks that apply to that format run.
@@ -745,8 +782,9 @@ impl Session {
                 Err(e) => {
                     // The same shape as any other lint finding, so Review › Proofing and
                     // `review.issues` can show a failed check beside the rest.
-                    let finding = crate::lint::Finding::error(id, e.to_string());
+                    let finding = crate::lint::Finding::error(id.clone(), e.to_string());
                     all.push(crate::lint::finding_json(&finding, crate::cmd::pos_json));
+                    self.set_lint_findings(&format!("export:{id}"), vec![finding]);
                     if all.len() >= crate::lint::MAX_FINDINGS {
                         break;
                     }
@@ -756,7 +794,6 @@ impl Session {
                 break;
             }
         }
-        self.lint_findings = all.clone();
         all
     }
 

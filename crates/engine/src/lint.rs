@@ -65,7 +65,7 @@ mod tests {
         let warn = Finding::warning("warnRule", "careful");
         assert_eq!(warn.severity, "warning");
         assert!(warn.start.is_none() && warn.end.is_none());
-        s.set_lint_findings(vec![Finding::at("testRule", "warning", "example", start, end), warn]);
+        s.set_lint_findings("test", vec![Finding::at("testRule", "warning", "example", start, end), warn]);
         assert_eq!(s.lint_findings().len(), 2);
         let issues = s.run("review.issues", &serde_json::json!({})).expect("issues");
         assert!(issues.as_array().is_some_and(|a| a.iter().any(|i| i["kind"] == "lint")));

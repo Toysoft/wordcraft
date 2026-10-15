@@ -56,6 +56,7 @@ pub const MODULE: &str = "law";
 /// profiles folder first ([`set_profiles_dir`]).
 pub fn install(session: &mut Session) -> usize {
     if !session.module_enabled(MODULE) {
+        uninstall(session);
         return 0;
     }
     checks::register_document_hook();
@@ -64,6 +65,15 @@ pub fn install(session: &mut Session) -> usize {
     // the document's own metadata at installation, the same way `set_document` would.
     checks::restore_export_registration(session);
     session.install_commands(specs())
+}
+
+/// Take back everything [`install`] added: the `law.*` commands, LawCraft's export checks and
+/// its findings. Run when the module is off, so turning it off in the options leaves nothing behind.
+fn uninstall(session: &mut Session) {
+    let ids: Vec<&'static str> = specs().iter().map(|c| c.id).collect();
+    session.uninstall_commands(&ids);
+    session.retain_export_check_commands(|id| !id.starts_with("law."));
+    session.clear_lint_findings("law.");
 }
 
 #[cfg(test)]

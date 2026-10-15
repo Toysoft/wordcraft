@@ -487,6 +487,10 @@ pub fn findings_json(findings: &[Finding]) -> Vec<Value> {
     findings.iter().map(|f| wordcraft_engine::lint::finding_json(f, wordcraft_engine::cmd::pos_json)).collect()
 }
 
+/// The lint source court checks store their findings under ([`Session::set_lint_findings`]).
+/// Every LawCraft source starts with `law.`, so turning LawCraft off clears them together.
+pub const FINDINGS_SOURCE: &str = "law.checks";
+
 /// Store applied profile metadata on the document and register export checks on the session.
 pub fn remember_applied(session: &mut Session, profile_id: &str, doc_type: &str) {
     session.doc.set_custom_prop(PROP_PROFILE, profile_id);
@@ -494,12 +498,15 @@ pub fn remember_applied(session: &mut Session, profile_id: &str, doc_type: &str)
     restore_export_registration(session);
 }
 
-/// Re-register export checks from document metadata (after open / `set_document`).
+/// Re-register export checks from document metadata (after open / `set_document`). The check
+/// names no profile: it reads the one the document has applied when it runs, so undoing a
+/// profile change (the document's metadata goes back with it) also changes which rules apply.
 pub fn restore_export_registration(session: &mut Session) {
-    let profile_id = session.doc.custom_prop(PROP_PROFILE);
-    let doc_type = session.doc.custom_prop(PROP_DOC_TYPE);
-    if let (Some(profile_id), Some(doc_type)) = (profile_id, doc_type) {
-        session.set_export_check_commands(vec![("law.checks.run".into(), json!({"id": profile_id, "doc": doc_type, "forExport": true}))]);
+    if !session.module_enabled(crate::MODULE) {
+        return;
+    }
+    if session.doc.custom_prop(PROP_PROFILE).is_some() {
+        session.set_export_check_commands(vec![("law.checks.run".into(), json!({"forExport": true}))]);
     }
 }
 

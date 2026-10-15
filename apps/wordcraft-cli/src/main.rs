@@ -151,6 +151,16 @@ fn enable_law(s: &mut Session) {
     }
 }
 
+/// Print an export's check findings (an applied court profile's, say) to standard error, one per
+/// line; the export itself still went through.
+fn report_findings(r: &serde_json::Value) {
+    for f in r.get("findings").and_then(serde_json::Value::as_array).into_iter().flatten() {
+        let severity = f.get("severity").and_then(serde_json::Value::as_str).unwrap_or("note");
+        let message = f.get("message").and_then(serde_json::Value::as_str).unwrap_or("");
+        eprintln!("{severity}: {message}");
+    }
+}
+
 /// `--author NAME`: the author recorded on tracked changes and comments (`file.setAuthor`).
 fn set_author(s: &mut Session, name: &str) -> Result<(), String> {
     s.run("file.setAuthor", &json!({"name": name})).map(|_| ()).map_err(|e| format!("--author: {e}"))
@@ -351,7 +361,8 @@ fn run<S: AsRef<OsStr>>(args: &[S]) -> Result<(), Failure> {
             let missing = || format!("missing argument\n\n{USAGE}");
             let (i, o) = (paths.first().ok_or_else(missing)?.to_string(), paths.get(1).ok_or_else(missing)?.to_string());
             let markup = rest.iter().any(|a| a == "--markup");
-            let mut s = open(&i)?;
+            // With LawCraft on, the applied court profile's checks run on the export, as in the app.
+            let mut s = with_law(open(&i)?);
             let r = if o.to_ascii_lowercase().ends_with(".png") {
                 s.run("file.exportPng", &json!({"path": o, "page": 1, "markup": markup}))
             } else {
@@ -361,7 +372,8 @@ fn run<S: AsRef<OsStr>>(args: &[S]) -> Result<(), Failure> {
                 }
                 s.run("file.save", &params)
             };
-            r.map_err(|e| e.to_string())?;
+            let r = r.map_err(|e| e.to_string())?;
+            report_findings(&r);
             eprintln!("wrote {o}");
             Ok(())
         }
@@ -388,8 +400,9 @@ fn run<S: AsRef<OsStr>>(args: &[S]) -> Result<(), Failure> {
             let (i, o) = (pos(0)?, pos(1)?);
             let page = parse_page_arg("render", &rest)?.unwrap_or(1);
             let scale = parse_scale_arg("render", &rest)?.unwrap_or(2.0);
-            let mut s = open(&i)?;
+            let mut s = with_law(open(&i)?);
             let r = s.run("file.exportPng", &json!({"path": o, "page": page, "scale": scale})).map_err(|e| e.to_string())?;
+            report_findings(&r);
             write_stdout(|o| writeln!(o, "{r}"))
         }
         "run" => {

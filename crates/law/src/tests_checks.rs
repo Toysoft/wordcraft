@@ -708,3 +708,53 @@ fn federal_word_limit_violation_is_reported() {
     let f = crate::checks::evaluate(&s.doc, &profile, "reply", false, false, None).expect("evaluate");
     assert!(f.iter().any(|x| x.check_id == "wordLimit"), "over-limit federal reply: {f:?}");
 }
+
+/// Apply profile A, then B, then Undo: the document is back on A, and so are the export checks,
+/// which read the applied profile from the document when they run.
+#[test]
+fn undoing_a_profile_change_brings_its_checks_back_too() {
+    let mut s = law();
+    run(&mut s, "law.profiles.apply", json!({"id": MISSOURI, "doc": "brief"}));
+    run(&mut s, "law.profiles.apply", json!({"id": FEDERAL, "doc": "brief"}));
+    assert_eq!(run(&mut s, "law.checks.run", json!({"forExport": true}))["profile"], json!(FEDERAL));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.custom_prop(crate::checks::PROP_PROFILE), Some(MISSOURI));
+    assert_eq!(run(&mut s, "law.checks.run", json!({"forExport": true}))["profile"], json!(MISSOURI));
+
+    // Undo the first one too: no profile, so an export checks nothing and reports no failure.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.custom_prop(crate::checks::PROP_PROFILE), None);
+    let findings = s.run_export_checks(&wordcraft_engine::io::ExportOptions::default(), "docx");
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+/// Each check keeps its own findings: court checks don't wipe another check's, and the other way.
+#[test]
+fn court_check_findings_sit_beside_other_checks_findings() {
+    let mut s = apply_session(MISSOURI, "brief");
+    s.set_lint_findings("law.other", vec![wordcraft_engine::lint::Finding::error("otherRule", "from another check")]);
+    run(&mut s, "law.checks.run", json!({}));
+    let all = s.lint_findings();
+    assert!(all.iter().any(|f| f["checkId"] == json!("otherRule")), "the other check's finding stays");
+    let court = run(&mut s, "law.checks.findings", json!({}));
+    assert!(court.as_array().is_some_and(|a| !a.is_empty() && a.iter().all(|f| f["checkId"] != json!("otherRule"))), "{court}");
+}
+
+/// Turning LawCraft off takes back what it added: its commands, its export checks and its findings.
+#[test]
+fn turning_lawcraft_off_leaves_nothing_behind() {
+    let mut s = apply_session(MISSOURI, "brief");
+    run(&mut s, "law.checks.run", json!({}));
+    assert!(!s.lint_findings().is_empty());
+    s.prefs.modules.remove(crate::MODULE);
+    crate::install(&mut s);
+    assert!(s.registry.all().iter().all(|c| !c.id.starts_with("law.")), "no law.* command is left");
+    assert!(s.lint_findings().is_empty(), "its findings are cleared");
+    let findings = s.run_export_checks(&wordcraft_engine::io::ExportOptions::default(), "pdf");
+    assert!(findings.is_empty(), "no court check runs on export: {findings:?}");
+    // On again: everything comes back, with the document's profile.
+    s.prefs.modules.insert(crate::MODULE.into(), true);
+    crate::install(&mut s);
+    assert!(s.registry.get("law.checks.run").is_some());
+    assert!(!s.run_export_checks(&wordcraft_engine::io::ExportOptions::default(), "docx").is_empty());
+}
