@@ -2630,3 +2630,23 @@ preview	Title	Пример
 # Reading Mode column widths (#1040)
 	Narrow	Узкая
 	Medium	Средняя
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Настроить цвета
+	Customize Fonts	Настроить шрифты
+	Save Current Theme	Сохранить текущую тему
+	Browse for Themes	Поиск тем
+	Customize Colors…	Настроить цвета…
+	Customize Fonts…	Настроить шрифты…
+	Save Current Theme…	Сохранить текущую тему…
+	Browse for Themes…	Поиск тем…
+	Theme colors	Цвета темы
+	Text/Background - Dark 1	Текст/фон — темный 1
+	Text/Background - Light 1	Текст/фон — светлый 1
+	Text/Background - Dark 2	Текст/фон — темный 2
+	Text/Background - Light 2	Текст/фон — светлый 2
+	Followed Hyperlink	Просмотренная гиперссылка
+	Sample	Образец
+	Heading font:	Шрифт заголовка:
+	Body font:	Шрифт основного текста:
+	Office Theme	Тема Office
+	Custom theme settings could not be saved.	Не удалось сохранить настройки пользовательских тем.

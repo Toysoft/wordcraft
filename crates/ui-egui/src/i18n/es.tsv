@@ -2599,3 +2599,24 @@ preview	Title	Título
 # Reading Mode column widths (#1040)
 	Narrow	Estrecha
 	Medium	Media
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Personalizar colores
+	Customize Fonts	Personalizar fuentes
+	Save Current Theme	Guardar tema actual
+	Browse for Themes	Buscar temas
+	Customize Colors…	Personalizar colores…
+	Customize Fonts…	Personalizar fuentes…
+	Save Current Theme…	Guardar tema actual…
+	Browse for Themes…	Buscar temas…
+	Theme colors	Colores del tema
+	Text/Background - Dark 1	Texto/fondo - oscuro 1
+	Text/Background - Light 1	Texto/fondo - claro 1
+	Text/Background - Dark 2	Texto/fondo - oscuro 2
+	Text/Background - Light 2	Texto/fondo - claro 2
+	Followed Hyperlink	Hipervínculo visitado
+	Sample	Muestra
+	Heading	Título
+	Heading font:	Fuente de encabezado:
+	Body font:	Fuente de cuerpo:
+	Office Theme	Tema de Office
+	Custom theme settings could not be saved.	No se pudo guardar la configuración de temas personalizados.

@@ -2267,3 +2267,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Kitsas
 	Medium	Keskmine
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Kohanda värve
+	Customize Fonts	Kohanda fonte
+	Save Current Theme	Salvesta praegune kujundus
+	Browse for Themes	Otsi kujundusi
+	Customize Colors…	Kohanda värve…
+	Customize Fonts…	Kohanda fonte…
+	Save Current Theme…	Salvesta praegune kujundus…
+	Browse for Themes…	Otsi kujundusi…
+	Theme colors	Kujunduse värvid
+	Text/Background - Dark 1	Tekst/taust – tume 1
+	Text/Background - Light 1	Tekst/taust – hele 1
+	Text/Background - Dark 2	Tekst/taust – tume 2
+	Text/Background - Light 2	Tekst/taust – hele 2
+	Followed Hyperlink	Külastatud hüperlink
+	Sample	Näidis
+	Heading	Pealkiri
+	Heading font:	Pealkirja font:
+	Body font:	Põhiteksti font:
+	Office Theme	Office'i kujundus
+	Custom theme settings could not be saved.	Kohandatud kujunduste sätteid ei saanud salvestada.

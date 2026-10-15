@@ -2624,3 +2624,23 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Přizpůsobit barvy
+	Customize Fonts	Přizpůsobit písma
+	Save Current Theme	Uložit aktuální motiv
+	Browse for Themes	Vyhledat motivy
+	Customize Colors…	Přizpůsobit barvy…
+	Customize Fonts…	Přizpůsobit písma…
+	Save Current Theme…	Uložit aktuální motiv…
+	Browse for Themes…	Vyhledat motivy…
+	Theme colors	Barvy motivu
+	Text/Background - Dark 1	Text/pozadí – tmavá 1
+	Text/Background - Light 1	Text/pozadí – světlá 1
+	Text/Background - Dark 2	Text/pozadí – tmavá 2
+	Text/Background - Light 2	Text/pozadí – světlá 2
+	Followed Hyperlink	Navštívený hypertextový odkaz
+	Sample	Ukázka
+	Heading font:	Písmo nadpisu:
+	Body font:	Písmo textu:
+	Office Theme	Motiv Office
+	Custom theme settings could not be saved.	Nastavení vlastních motivů se nepodařilo uložit.

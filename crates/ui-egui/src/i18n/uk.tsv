@@ -2245,3 +2245,25 @@
 # Reading Mode column widths (#1040)
 	Narrow	Вузька
 	Medium	Середня
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Налаштувати кольори
+	Customize Fonts	Налаштувати шрифти
+	Save Current Theme	Зберегти поточну тему
+	Browse for Themes	Пошук тем
+	Customize Colors…	Налаштувати кольори…
+	Customize Fonts…	Налаштувати шрифти…
+	Save Current Theme…	Зберегти поточну тему…
+	Browse for Themes…	Пошук тем…
+	Theme colors	Кольори теми
+	Text/Background - Dark 1	Текст/тло – темний 1
+	Text/Background - Light 1	Текст/тло – світлий 1
+	Text/Background - Dark 2	Текст/тло – темний 2
+	Text/Background - Light 2	Текст/тло – світлий 2
+	Hyperlink	Гіперпосилання
+	Followed Hyperlink	Переглянуте гіперпосилання
+	Sample	Зразок
+	Heading	Заголовок
+	Heading font:	Шрифт заголовків:
+	Body font:	Шрифт основного тексту:
+	Office Theme	Тема Office
+	Custom theme settings could not be saved.	Не вдалося зберегти налаштування власних тем.

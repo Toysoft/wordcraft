@@ -49,20 +49,11 @@ pub const THEMES: &[(&str, &str, &str, [Rgb; 6])] = &[
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("design.theme", "Themes", "Design › Document Formatting", theme).params(r#"{"name": string}"#),
-        CommandSpec::new("design.themeFonts", "Fonts", "Design › Document Formatting", |s, v| {
-            let heading = p::req_str(v, "heading")?.to_string();
-            let body = p::str(v, "body").unwrap_or(&heading).to_string();
-            set_fonts(s, &heading, &body);
-            sel_result(s)
-        })
-        .params(r#"{"heading": string, "body"?: string}"#),
-        CommandSpec::new("design.themeColors", "Colors", "Design › Document Formatting", |s, v| {
-            let name = p::req_str(v, "name")?;
-            let t = THEMES.iter().find(|t| t.0.eq_ignore_ascii_case(name)).ok_or_else(|| CmdError::Params(format!("unknown colours `{name}`")))?;
-            set_accent(s, t.3[0]);
-            sel_result(s)
-        }),
+        CommandSpec::new("design.theme", "Themes", "Design › Document Formatting", theme).params(r#"{"name": string (a built-in or custom theme)}"#),
+        CommandSpec::new("design.themeFonts", "Fonts", "Design › Document Formatting", theme_fonts)
+            .params(r#"{"name": string (a built-in theme's or a custom font set)} | {"heading": string, "body"?: string}"#),
+        CommandSpec::new("design.themeColors", "Colors", "Design › Document Formatting", theme_colors)
+            .params(r#"{"name": string (a built-in theme's or a custom colour set)}"#),
         CommandSpec::new("design.styleSet", "Style Set", "Design › Document Formatting", style_set)
             .params(r#"{"name": "default|basic|lines|shaded|casual|centered|minimalist|title"}"#),
         CommandSpec::new("design.paragraphSpacing", "Paragraph Spacing", "Design › Document Formatting", para_spacing)
@@ -90,7 +81,7 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
-fn set_fonts(s: &mut Session, heading: &str, body: &str) {
+pub(crate) fn set_fonts(s: &mut Session, heading: &str, body: &str) {
     s.doc.settings.major_font = heading.into();
     s.doc.settings.minor_font = body.into();
     s.doc.styles.default_chr.font = Some(body.into());
@@ -105,7 +96,7 @@ fn set_fonts(s: &mut Session, heading: &str, body: &str) {
     }
 }
 
-fn set_accent(s: &mut Session, accent: Rgb) {
+pub(crate) fn set_accent(s: &mut Session, accent: Rgb) {
     for st in &mut s.doc.styles.styles {
         if st.id.starts_with("Heading") && st.id.len() == 8 && st.id.as_bytes().get(7).is_some_and(|d| *d <= b'5')
             || st.id == "IntenseQuote"
@@ -125,9 +116,43 @@ fn set_accent(s: &mut Session, accent: Rgb) {
     }
 }
 
+fn theme_fonts(s: &mut Session, v: &Value) -> CmdResult {
+    let (heading, body) = match p::str(v, "name") {
+        Some(name) => match THEMES.iter().find(|t| t.0.eq_ignore_ascii_case(name)) {
+            Some(t) => (t.1.to_string(), t.2.to_string()),
+            None => {
+                let f = s.custom_themes.find_fonts(name).ok_or_else(|| CmdError::Params(format!("unknown fonts `{name}`")))?;
+                (f.heading.clone(), f.body.clone())
+            }
+        },
+        None => {
+            let heading = p::req_str(v, "heading")?.to_string();
+            let body = p::str(v, "body").unwrap_or(&heading).to_string();
+            (heading, body)
+        }
+    };
+    set_fonts(s, &heading, &body);
+    sel_result(s)
+}
+
+fn theme_colors(s: &mut Session, v: &Value) -> CmdResult {
+    let name = p::req_str(v, "name")?;
+    if let Some(t) = THEMES.iter().find(|t| t.0.eq_ignore_ascii_case(name)) {
+        set_accent(s, t.3[0]);
+    } else {
+        let c = s.custom_themes.find_colors(name).ok_or_else(|| CmdError::Params(format!("unknown colours `{name}`")))?.colors;
+        super::themes::apply_colors(s, &c);
+    }
+    sel_result(s)
+}
+
 fn theme(s: &mut Session, v: &Value) -> CmdResult {
     let name = p::req_str(v, "name")?;
-    let t = THEMES.iter().find(|t| t.0.eq_ignore_ascii_case(name)).ok_or_else(|| CmdError::Params(format!("unknown theme `{name}`")))?;
+    let Some(t) = THEMES.iter().find(|t| t.0.eq_ignore_ascii_case(name)) else {
+        let t = s.custom_themes.find_theme(name).cloned().ok_or_else(|| CmdError::Params(format!("unknown theme `{name}`")))?;
+        super::themes::apply_theme(s, &t);
+        return sel_result(s);
+    };
     set_fonts(s, t.1, t.2);
     set_accent(s, t.3[0]);
     s.doc.settings.theme_name = t.0.into();

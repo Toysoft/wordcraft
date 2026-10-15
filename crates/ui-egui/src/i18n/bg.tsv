@@ -2621,3 +2621,23 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Персонализиране на цветовете
+	Customize Fonts	Персонализиране на шрифтовете
+	Save Current Theme	Записване на текущата тема
+	Browse for Themes	Търсене на теми
+	Customize Colors…	Персонализиране на цветовете…
+	Customize Fonts…	Персонализиране на шрифтовете…
+	Save Current Theme…	Записване на текущата тема…
+	Browse for Themes…	Търсене на теми…
+	Theme colors	Цветове на темата
+	Text/Background - Dark 1	Текст/фон - тъмно 1
+	Text/Background - Light 1	Текст/фон - светло 1
+	Text/Background - Dark 2	Текст/фон - тъмно 2
+	Text/Background - Light 2	Текст/фон - светло 2
+	Followed Hyperlink	Посетена хипервръзка
+	Sample	Образец
+	Heading font:	Шрифт за заглавия:
+	Body font:	Шрифт за основен текст:
+	Office Theme	Тема на Office
+	Custom theme settings could not be saved.	Настройките на персонализираните теми не можаха да бъдат записани.

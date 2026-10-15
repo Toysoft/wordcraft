@@ -2622,3 +2622,23 @@ preview	Title	Tytuł
 # Reading Mode column widths (#1040)
 	Narrow	Wąska
 	Medium	Średnia
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Dostosuj kolory
+	Customize Fonts	Dostosuj czcionki
+	Save Current Theme	Zapisz bieżący motyw
+	Browse for Themes	Wyszukaj motywy
+	Customize Colors…	Dostosuj kolory…
+	Customize Fonts…	Dostosuj czcionki…
+	Save Current Theme…	Zapisz bieżący motyw…
+	Browse for Themes…	Wyszukaj motywy…
+	Theme colors	Kolory motywu
+	Text/Background - Dark 1	Tekst/tło – ciemny 1
+	Text/Background - Light 1	Tekst/tło – jasny 1
+	Text/Background - Dark 2	Tekst/tło – ciemny 2
+	Text/Background - Light 2	Tekst/tło – jasny 2
+	Followed Hyperlink	Odwiedzone hiperłącze
+	Sample	Przykład
+	Heading font:	Czcionka nagłówka:
+	Body font:	Czcionka tekstu:
+	Office Theme	Motyw pakietu Office
+	Custom theme settings could not be saved.	Nie można zapisać ustawień motywów niestandardowych.
