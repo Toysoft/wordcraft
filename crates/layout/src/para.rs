@@ -666,6 +666,17 @@ fn east_asian(c: char) -> bool {
     crate::kinsoku::is_east_asian(c) || matches!(u32::from(c), 0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7AF)
 }
 
+/// Word draws a font that isn't installed in Cambria when the document's font table classes it
+/// as roman (measured in Word; Calibri otherwise, which our own substitutes already match).
+const MISSING_ROMAN_FONT: &str = "Cambria";
+
+/// The family to look `font` up as: [`MISSING_ROMAN_FONT`] for a missing roman font, else `font`.
+fn lookup_family<'f>(doc: &Document, font: &'f str) -> &'f str {
+    let db = wordcraft_fonts::FontDb::global();
+    let roman = doc.settings.roman_fonts.iter().any(|f| f.eq_ignore_ascii_case(font));
+    if roman && !db.has_family(font) && !db.has_family(wordcraft_fonts::word::charset_base_family(font)) { MISSING_ROMAN_FONT } else { font }
+}
+
 impl<'a> Builder<'a> {
     /// Displayed form of `c` at run-relative byte `at` (Word › Numeral): one char in, one
     /// char out. `rtl` is the shaping direction; in Context mode `context` (from
@@ -678,7 +689,7 @@ impl<'a> Builder<'a> {
 
     /// Style index for a resolved char in `face` (caps-scaled `size` override for small caps).
     fn style(&mut self, rc: &Arc<ResolvedChar>, face_override: Option<FaceRef>, small: bool) -> u32 {
-        let r = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic);
+        let r = wordcraft_fonts::word::resolve(lookup_family(self.env.doc, &rc.font), rc.bold, rc.italic);
         let face = face_override.unwrap_or(r.face);
         // The display list reads every run's format (link target, strike kind, underline colour,
         // baseline shift…) from its StyleRun, so runs share one only when their formats are equal.
@@ -744,12 +755,12 @@ impl<'a> Builder<'a> {
         // Complex-script characters (Persian, Arabic…) use the run's complex-script font, size,
         // bold and italic.
         let rc_cs: Option<Arc<ResolvedChar>> = text.chars().any(|c| rc.uses_complex(c)).then(|| Arc::new(rc.complex()));
-        let resolved = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic);
+        let resolved = wordcraft_fonts::word::resolve(lookup_family(self.env.doc, &rc.font), rc.bold, rc.italic);
         let primary = resolved.face;
         // Symbol-font characters are laid out as their Unicode equivalents.
         let sym = SymbolRun::of(&rc.font, &resolved);
         let show = |c: char| sym.map_or(c, |m| m.show(c));
-        let primary_cs = rc_cs.as_ref().map(|r| wordcraft_fonts::word::resolve(&r.font, r.bold, r.italic).face);
+        let primary_cs = rc_cs.as_ref().map(|r| wordcraft_fonts::word::resolve(lookup_family(self.env.doc, &r.font), r.bold, r.italic).face);
         // Chinese, Japanese and Korean characters use the run's East Asian font (`w:eastAsia`) when
         // it is installed and has them.
         let primary_ea = rc
@@ -1493,8 +1504,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         c.break_after = opps.contains(&c.end) || matches!(c.kind, ClKind::Object(_) | ClKind::Tab);
     }
 
-    // List label.
-    let label = env.label.as_ref().map(|(text, lvl)| {
+    // Word hides a list label on a paragraph containing only a page break. The list counter
+    // has already advanced, so the following item keeps its number.
+    let break_only =
+        b.clusters.iter().any(|c| c.kind == ClKind::PageBreak) && b.clusters.iter().all(|c| matches!(c.kind, ClKind::PageBreak | ClKind::Marker));
+    let label = env.label.as_ref().filter(|_| !break_only).map(|(text, lvl)| {
         let lc = p.mark.clone().overlaid(&lvl.chr);
         let rc = resolve(&lc);
         // A Symbol/Wingdings bullet (U+F0B7…) is drawn as its Unicode equivalent when the font
@@ -2408,7 +2422,9 @@ fn hyphen_glyph(pl: &ParaLayout, style: u32, cache: &mut Vec<(u32, u32, f32)>) -
 /// paragraph's text.
 fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool, caps: bool, runs: &[ProofRun]) -> Vec<u32> {
     let mut bytes: Vec<usize> = text.char_indices().filter(|(_, c)| *c == SOFT_HYPHEN).map(|(i, c)| i + c.len_utf8()).collect();
-    if auto {
+    // Vietnamese words are single syllables and never take a hyphen: no automatic hyphenation in
+    // a Vietnamese paragraph, nor in a word written with a Vietnamese-only letter (`Nguyễn`).
+    if auto && !wordcraft_proof::vi::looks_vietnamese(text) {
         let lim = wordcraft_proof::hyphen::Limits::default();
         let mut start: Option<usize> = None;
         for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
@@ -2422,6 +2438,7 @@ fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: 
                     if let Some(w) = text.get(a..i)
                         && w.chars().count() >= lim.min_word
                         && !w.chars().any(wordcraft_fonts::is_rtl)
+                        && !wordcraft_proof::vi::is_vietnamese_word(w)
                         && (caps || !all_caps(w))
                     {
                         // The word's language: its first letter's run, found by its place in `p.text`.
@@ -2484,6 +2501,16 @@ fn resolve_tab(pl: &mut ParaLayout, pending: &mut Option<(usize, TabStop, f32)>,
 }
 
 impl ParaLayout {
+    /// The line the list label is drawn on: the first, unless the paragraph opens with a page
+    /// break, when Word draws it with the text on the next page.
+    pub fn label_line(&self) -> usize {
+        let opens_with_break = self.lines.len() > 1
+            && self.lines.first().is_some_and(|l| {
+                l.end == LineEnd::PageBreak
+                    && self.clusters.get(l.c0..l.c1).is_some_and(|cs| cs.iter().all(|c| matches!(c.kind, ClKind::PageBreak | ClKind::Marker)))
+            });
+        usize::from(opens_with_break)
+    }
     /// x of byte offset `off` within line `li` (clamped to the line).
     pub fn x_of(&self, li: usize, off: usize) -> Option<f32> {
         let l = self.lines.get(li)?;
