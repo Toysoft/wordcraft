@@ -2018,6 +2018,11 @@ impl PageBuilder<'_> {
             self.bottom = self.bottom.min(self.top + h);
         }
     }
+    /// How far a last line's leading may hang below the body: into the bottom margin, not into a
+    /// footer reaching above it (that footer already pushed the body up).
+    fn hang_room(&self) -> f32 {
+        (self.foot_top - self.orig_bottom).max(0.0)
+    }
     /// The bottom of the columns without balancing: above the footnotes.
     fn uncapped_bottom(&self) -> f32 {
         self.orig_bottom - self.notes_h()
@@ -3304,7 +3309,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     // next alone moves a paragraph only when it would fit here by itself (Word for Windows): one
     // that doesn't breaks as usual, its last lines going over with the next paragraph.
     // (Its last line's text has to fit, not the leading below it: see the line loop below.)
-    let hang = if bands.bottom > 0.0 || !pb.notes.is_empty() { 0.0 } else { pl.lines.last().map_or(0.0, |l| l.hang) };
+    let hang = if bands.bottom > 0.0 || !pb.notes.is_empty() { 0.0 } else { pl.lines.last().map_or(0.0, |l| l.hang.min(pb.hang_room())) };
     let full_h = pl.height + bands.bottom;
     if pl.rp.keep_lines || (pl.rp.keep_next && pb.y + full_h - hang <= pb.bottom + 0.01) {
         let need = if pl.rp.keep_next { full_h + next_first_line(ctx, block, width, 0) } else { full_h - hang };
@@ -3434,9 +3439,9 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
                 0.0
             };
             // The line fits when its text does: the extra leading of multiple spacing may hang
-            // into the bottom margin (Word), but not into the footnotes, which need the whole
-            // line, nor past a bottom border, which has to be on the page.
-            let hang = if band <= 0.0 && !has_notes { l.hang } else { 0.0 };
+            // into the bottom margin (Word), but not into a tall footer or the footnotes, which
+            // need the whole line, nor past a bottom border, which has to be on the page.
+            let hang = if band <= 0.0 && !has_notes { l.hang.min(pb.hang_room()) } else { 0.0 };
             let over = bottom + tail - hang > limit + 0.01;
             // Notes too long for the rest of the page continue on the next one: the line still
             // fits if the notes before its last one, and that one's first line, fit below it.
