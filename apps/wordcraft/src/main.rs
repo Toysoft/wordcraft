@@ -16,6 +16,8 @@ mod clipboard;
 mod control_server;
 mod default_apps;
 mod file_dialogs;
+#[cfg(target_os = "macos")]
+mod gpu_startup;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
 mod logging;
@@ -389,6 +391,10 @@ fn main() -> eframe::Result {
     // FXC, which needs no DLL of ours (#603; see graphics.rs).
     #[cfg(target_os = "windows")]
     graphics::configure(&mut options, eframe::wgpu::Backends::from_env());
+    // macOS: create the device here so wgpu errors during renderer setup stop the app with a
+    // message instead of wgpu's panicking default handler (see gpu_startup.rs).
+    #[cfg(target_os = "macos")]
+    let startup_errors = gpu_startup::precreate_device(&mut options.wgpu_options.wgpu_setup);
     load_user_fonts();
     let restored = saved_window();
     if let Some(window) = restored {
@@ -414,6 +420,10 @@ fn main() -> eframe::Result {
         "WordCraft",
         options,
         Box::new(move |cc| {
+            #[cfg(target_os = "macos")]
+            if let Some(message) = startup_errors.as_ref().and_then(gpu_startup::startup_failure) {
+                return Err(message.into());
+            }
             // The system region picks the new document's paper, the units and the decimal
             // separator (#838).
             let region = region::system();
