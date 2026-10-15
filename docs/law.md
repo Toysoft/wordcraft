@@ -43,6 +43,11 @@ dictionary lives beside), one file per profile.
 | `law.checks.run` | `{"id"?, "doc"?, "forExport"?, "format"?, "store"?}`: run the profile's checks for a document type and return `{"profile", "doc", "findings": [{checkId, severity, message, start?, end?}]}`; it never edits the document |
 | `law.checks.findings` | `{}`: the findings the last `law.checks.run` stored for the document (the same entries `review.issues` lists as `kind: "lint"`) |
 | `law.citations.check` | `{"pack"?, "store"?}`: check citation form against a citation pack (defaults to the applied profile's `citationPack`); returns `{"pack", "findings"}` and never edits the document |
+| `law.toa.build` | `{"pack"?, "id"?, "doc"?, "at"?, "passim"?}`: mark each citation the pack's finder rules accept with Word's citation mark (a hidden `TA` field, category by kind: 1 Cases, 2 Statutes, 3 Other Authorities, 4 Rules, 7 Constitutional Provisions), then insert WordCraft's table of authorities (one `TOA` field per category) or update the one already there |
+
+The table of authorities is WordCraft's own (References › Table of Authorities): **Update Table**
+keeps it current after edits, and Word reads the marks and the table. Only citations in the main
+text are marked.
 
 Applying a profile runs WordCraft's own commands (`layout.size`, `layout.margins`,
 `layout.lineNumbers`, `insert.pageNumber`, `layout.pageNumberFormat`, `styles.create`,

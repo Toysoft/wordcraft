@@ -79,6 +79,10 @@ pub struct DocSpec {
     pub sections: Vec<SectionSpec>,
     /// Rules that are not styles (word limits, minimum type size…).
     pub checks: Vec<CheckSpec>,
+    /// Table of authorities: print `passim` for an authority cited on five or more pages (TOA
+    /// `\p`); `law.toa.build` uses it when the call doesn't say (default true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toa_passim: Option<bool>,
     /// The rule these formatting rules come from (`Mo. Sup. Ct. R. 84.03`).
     pub source: String,
     /// When the rule took effect (`2025-01-01`).
