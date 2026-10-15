@@ -890,6 +890,10 @@ impl Session {
         core.last_modified_by = self.author.clone();
         core.revision = core.revision.saturating_add(1);
     }
+    /// Whether typing is still collecting into one undo step (no other command since).
+    pub fn typing_open(&self) -> bool {
+        self.typing_open
+    }
     /// Close an open typing group (caret moved, other command).
     pub fn close_typing(&mut self) {
         self.typing_open = false;

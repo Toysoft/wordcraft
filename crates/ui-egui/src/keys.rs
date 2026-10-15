@@ -239,6 +239,8 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         return;
     }
     let alt_codes = alt_codes_supported(ctx);
+    // `DeleteSurrounding` and the text replacing what it erased arrive in the same frame.
+    app.canvas.ime_join_text = false;
     for e in events {
         // An Alt shortcut (Alt+Shift+D, Alt+F7…) may also send its key's text; it isn't typed.
         match &e {
@@ -318,9 +320,13 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                 if t.chars().all(|c| !c.is_control()) && !t.is_empty() {
                     // Typing with a text box selected types into it.
                     crate::objects::enter_text_box(app);
+                    if std::mem::take(&mut app.canvas.ime_join_text) {
+                        app.session.join_next_undo();
+                    }
                     let _ = app.run("text.insert", json!({"text": t}));
                 }
             }
+            egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars, after_chars }) => delete_surrounding(app, before_chars, after_chars),
             egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => app.canvas.ime_preedit = text,
             egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
                 app.canvas.ime_preedit.clear();
@@ -531,6 +537,45 @@ fn finish_alt_code(app: &mut WordApp) {
     if let Ok(r) = app.run("text.typeCode", params) {
         let byte_code = code.trim_start_matches('0').parse::<u32>().is_ok_and(|v| v <= 255);
         app.canvas.alt_code_echo = r.get("char").and_then(Value::as_str).map(|c| AltCodeEcho { typed: c.to_string(), system_composes, byte_code });
+    }
+}
+
+/// An input method's `DeleteSurrounding`: erase `before` characters (Unicode scalar values, as
+/// the input method counts them) before the caret and `after` after it, as Backspace does over a
+/// selection. The web build's text agent (eframe's hidden `<input>`) sends it, then the new
+/// text, whenever its value changes other than by an addition at its end (#1480); some desktop
+/// input methods do too. The counts come from outside: they stop at the paragraph's ends, so a
+/// paragraph mark or list number is never erased. The erasure joins an open typing group and
+/// the text that follows joins it too, so one Undo takes back the typing with its correction.
+/// With a selection (the agent starts afresh on any click or editing key, so it doesn't send
+/// one then) nothing is erased: the text that follows replaces the selection as typing does.
+/// Nor inside an equation, whose text the agent's characters went to.
+fn delete_surrounding(app: &mut WordApp, before: usize, after: usize) {
+    let s = &app.session;
+    // Inside an equation the document's text isn't what the input method typed into.
+    if !s.sel.is_collapsed() || s.math.is_some() {
+        return;
+    }
+    let f = s.sel.focus.clone();
+    let Some(text) = s.doc.para_at(&f).map(|p| p.text.as_str()) else { return };
+    let (Some(head), Some(tail)) = (text.get(..f.off), text.get(f.off..)) else { return };
+    let start = f.off.saturating_sub(head.chars().rev().take(before).map(char::len_utf8).sum::<usize>());
+    let end = f.off.saturating_add(tail.chars().take(after).map(char::len_utf8).sum::<usize>());
+    if start == end {
+        return;
+    }
+    let join = s.typing_open();
+    app.session.sel =
+        wordcraft_engine::Selection { anchor: wordcraft_doc::Pos { off: start, ..f.clone() }, focus: wordcraft_doc::Pos { off: end, ..f.clone() } };
+    let caret = f;
+    if join {
+        app.session.join_next_undo();
+    }
+    if app.run("text.backspace", json!({})).is_ok() {
+        app.canvas.ime_join_text = true;
+    } else {
+        // Refused (a protected document): leave the caret where it was.
+        app.session.sel = wordcraft_engine::Selection::caret(caret);
     }
 }
 
@@ -773,5 +818,82 @@ mod tests {
         a.canvas.alt_code_echo = Some(AltCodeEcho { typed: "€".into(), system_composes: false, byte_code: false });
         alt_frame(&ctx, &mut a, vec![egui::Event::Text("x".into())]);
         assert_eq!(text(&a), "ą€x");
+    }
+
+    fn body(a: &WordApp) -> String {
+        a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end_matches(['\r', '\n']).to_string()
+    }
+
+    fn surround(before_chars: usize, after_chars: usize) -> egui::Event {
+        egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars, after_chars })
+    }
+
+    /// The web's text agent keeps what it typed and, when its value changes other than by an
+    /// addition at the end, sends `DeleteSurrounding` for the changed tail and then the new text
+    /// (#1480). The document follows the agent's value instead of repeating it.
+    #[test]
+    fn delete_surrounding_from_the_web_text_agent_does_not_repeat_text() {
+        let (ctx, mut a) = alt_frame_app();
+        // The trace from #1480: the agent's caret jumped to 0 after `м`, so it reported `иabм`
+        // and `риabм` as its whole new tail.
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("a".into())]);
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("b".into())]);
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("м".into())]);
+        alt_frame(&ctx, &mut a, vec![surround(3, 0), egui::Event::Text("иabм".into())]);
+        alt_frame(&ctx, &mut a, vec![surround(4, 0), egui::Event::Text("риabм".into())]);
+        assert_eq!(body(&a), "риabм");
+        // A correction (`teh` -> `the`): erase three characters, type the replacement.
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text(" teh".into())]);
+        alt_frame(&ctx, &mut a, vec![surround(3, 0), egui::Event::Text("the".into())]);
+        assert_eq!(body(&a), "риabм the");
+        // A plain deletion (Android Backspace): no text follows, or an empty one.
+        alt_frame(&ctx, &mut a, vec![surround(1, 0), egui::Event::Text(String::new())]);
+        assert_eq!(body(&a), "риabм th");
+        alt_frame(&ctx, &mut a, vec![surround(2, 0)]);
+        assert_eq!(body(&a), "риabм ");
+    }
+
+    /// `after_chars` erases after the caret; both counts are characters, not bytes.
+    #[test]
+    fn delete_surrounding_erases_characters_on_both_sides_of_the_caret() {
+        let (ctx, mut a) = alt_frame_app();
+        a.run("text.insert", json!({"text": "мир дом"})).unwrap();
+        for _ in 0..3 {
+            a.run("caret.left", json!({})).unwrap();
+        }
+        // The caret is after `мир `: two before (`р `) and one after (`д`).
+        alt_frame(&ctx, &mut a, vec![surround(2, 1)]);
+        assert_eq!(body(&a), "миом");
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("X".into())]);
+        assert_eq!(body(&a), "миXом", "the caret stays where the deletion was");
+    }
+
+    /// The counts come from outside: larger than the paragraph they stop at its ends, never
+    /// joining paragraphs or panicking.
+    #[test]
+    fn delete_surrounding_stays_inside_the_paragraph() {
+        let (ctx, mut a) = alt_frame_app();
+        a.run("document.setText", json!({"text": "one\ntwo\nthree"})).unwrap();
+        a.run("caret.docStart", json!({})).unwrap();
+        // After the `t` of `two`.
+        for _ in 0..5 {
+            a.run("caret.right", json!({})).unwrap();
+        }
+        alt_frame(&ctx, &mut a, vec![surround(usize::MAX, usize::MAX)]);
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "one\n\nthree");
+        alt_frame(&ctx, &mut a, vec![surround(5, 5), egui::Event::Text("2".into())]);
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), "one\n2\nthree");
+    }
+
+    /// The agent's rewrite belongs to the typing it corrects: one Undo takes back the typing
+    /// and its correction together, not a half-erased word.
+    #[test]
+    fn delete_surrounding_joins_the_typing_undo_step() {
+        let (ctx, mut a) = alt_frame_app();
+        alt_frame(&ctx, &mut a, vec![egui::Event::Text("teh".into())]);
+        alt_frame(&ctx, &mut a, vec![surround(3, 0), egui::Event::Text("the".into())]);
+        assert_eq!(body(&a), "the");
+        a.run("edit.undo", json!({})).unwrap();
+        assert_eq!(body(&a), "");
     }
 }

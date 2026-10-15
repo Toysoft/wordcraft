@@ -148,6 +148,9 @@ pub struct CanvasState {
     /// The last key ran an Alt shortcut: the text its key sends (it may arrive a frame later)
     /// isn't typed. The next key press clears it.
     pub(crate) swallow_text: bool,
+    /// An input method's `DeleteSurrounding` just erased text: the text it sends next replaces
+    /// it and joins the same undo step (`keys::delete_surrounding`, #1480).
+    pub(crate) ime_join_text: bool,
     /// Alt+numpad entry in progress: the digits typed while Alt is held (#961).
     pub(crate) alt_code: String,
     /// The character an Alt code just typed: if the platform also sends its own composed
@@ -229,6 +232,7 @@ impl Default for CanvasState {
             mini_dismissed: None,
             pasted: false,
             swallow_text: false,
+            ime_join_text: false,
             alt_code: String::new(),
             alt_code_echo: None,
             wheel: Default::default(),
