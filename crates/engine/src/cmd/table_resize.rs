@@ -4,14 +4,15 @@
 //! only in their rows. The geometry comes from the layout (what is on the page, in
 //! page points), so the result is what the drag showed even when autofit or a percentage width
 //! made the drawn columns differ from the stored grid. The app sends each finished drag here,
-//! so every drag is one undo step.
+//! so every drag is one undo step. A header's or footer's tables resize the same way while it's
+//! being edited (`Layer`).
 
 use serde_json::Value;
 use wordcraft_doc::props::{Align, HeightRule, VMerge};
 use wordcraft_doc::table::MAX_COLS;
-use wordcraft_doc::{Cell, Document, Path, StoryRef, Table};
+use wordcraft_doc::{Cell, Document, PartKind, Path, StoryRef, Table};
 use wordcraft_geom::Rect;
-use wordcraft_layout::{DocLayout, Placed};
+use wordcraft_layout::{DocLayout, Page, Placed};
 
 use super::sel_result;
 use crate::{CmdError, CmdResult, CommandSpec, Session, p};
@@ -29,7 +30,7 @@ const MAX_LEN: f32 = 1584.0;
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![CommandSpec::new("table.resizeDrag", "Resize Table by Dragging", "Table Layout › Cell Size", resize_drag).params(
-        r#"{"page": n, "x": pt, "y": pt, "toX": pt, "toY": pt, "shift"?: bool, "ctrl"?: bool, "reach"?: pt} (a mouse drag in page points, 0-based page, starting on a table border or the resize handle: a column border moves (the column to its right gives or takes the difference, so the table keeps its width; with ctrl the columns right of it share it in proportion; with shift, or on the table's right edge, only the column left of it changes); the table's left edge moves a left-aligned table's indent, the first column making up the difference (a centred or right-aligned table keeps its alignment: only the first column changes); with cells of the table selected, a border of theirs moves only in their rows; a row's bottom border sets that row's height; the handle just outside the bottom-right corner scales every column and the rows on that page. `reach` (default 3) is how near the start has to be.)"#,
+        r#"{"page": n, "x": pt, "y": pt, "toX": pt, "toY": pt, "shift"?: bool, "ctrl"?: bool, "reach"?: pt} (a mouse drag in page points, 0-based page, starting on a table border or the resize handle: a column border moves (the column to its right gives or takes the difference, so the table keeps its width; with ctrl the columns right of it share it in proportion; with shift, or on the table's right edge, only the column left of it changes); the table's left edge moves a left-aligned table's indent, the first column making up the difference (a centred or right-aligned table keeps its alignment: only the first column changes); with cells of the table selected, a border of theirs moves only in their rows; a row's bottom border sets that row's height; the handle just outside the bottom-right corner scales every column and the rows on that page. `reach` (default 3) is how near the start has to be. The header's and footer's tables are in reach while the caret is in one of them, the rest of the page's otherwise.)"#,
     )]
 }
 
@@ -63,6 +64,47 @@ pub enum Share {
 impl From<bool> for Share {
     fn from(shift: bool) -> Share {
         if shift { Share::LeftOnly } else { Share::Neighbour }
+    }
+}
+
+/// The part of a page whose tables the mouse reaches. The header and footer are dimmed while the
+/// main text is edited, and the main text while they are; only what isn't dimmed resizes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Layer {
+    /// The main text (its notes too).
+    #[default]
+    Body,
+    /// The header and footer.
+    HeaderFooter,
+}
+
+impl Layer {
+    /// The layer story `story` is drawn in.
+    pub fn of(doc: &Document, story: StoryRef) -> Layer {
+        match story {
+            StoryRef::Part(id) if doc.parts.get(&id).is_some_and(|p| matches!(p.kind, PartKind::Header | PartKind::Footer)) => Layer::HeaderFooter,
+            _ => Layer::Body,
+        }
+    }
+
+    /// The layer being edited: the caret's, or for a caret in a text box, the layer the box is in.
+    pub fn editing(s: &Session, l: &DocLayout) -> Layer {
+        let story = match s.sel.focus.story {
+            StoryRef::Part(id) if s.doc.parts.get(&id).is_some_and(|p| p.kind == PartKind::TextBox) => {
+                l.text_box(id, s.page_hint).map_or(StoryRef::Part(id), |o| o.story)
+            }
+            story => story,
+        };
+        Layer::of(&s.doc, story)
+    }
+
+    /// What page `pg` draws in this layer.
+    fn items(self, pg: &Page) -> impl Iterator<Item = &Placed> {
+        let (first, then) = match self {
+            Layer::Body => (&pg.items, None),
+            Layer::HeaderFooter => (&pg.header, Some(&pg.footer)),
+        };
+        first.iter().chain(then.into_iter().flatten())
     }
 }
 
@@ -327,10 +369,11 @@ pub(crate) struct CellBox {
     pub(crate) cell: usize,
 }
 
-pub(crate) fn cell_boxes(l: &DocLayout, page: usize) -> Vec<CellBox> {
+/// The table cells page `page` draws in `layer`.
+pub(crate) fn cell_boxes(l: &DocLayout, page: usize, layer: Layer) -> Vec<CellBox> {
     let Some(pg) = l.pages.get(page) else { return Vec::new() };
-    pg.items
-        .iter()
+    layer
+        .items(pg)
         .filter_map(|it| match it {
             Placed::Cell { rect, table, row, cell, story, .. } => {
                 Some(CellBox { rect: *rect, table: table.clone(), story: *story, row: *row, cell: *cell })
@@ -402,9 +445,9 @@ fn geometry(t: &Table, boxes: &[&CellBox]) -> Option<(Vec<f32>, Vec<DrawnRow>)> 
     Some((cols, rows))
 }
 
-/// Every table drawn on a page, with its geometry there (`edge` is a placeholder).
-pub(crate) fn tables_on(l: &DocLayout, doc: &Document, page: usize) -> Vec<ResizeTarget> {
-    let boxes = cell_boxes(l, page);
+/// Every table drawn on a page in `layer`, with its geometry there (`edge` is a placeholder).
+pub(crate) fn tables_on(l: &DocLayout, doc: &Document, page: usize, layer: Layer) -> Vec<ResizeTarget> {
+    let boxes = cell_boxes(l, page, layer);
     let mut tables: Vec<(StoryRef, &Path)> = Vec::new();
     for b in &boxes {
         if !tables.iter().any(|(s, p)| *s == b.story && **p == b.table) {
@@ -428,28 +471,28 @@ fn on_handle(t: &ResizeTarget, x: f32, y: f32, reach: f32) -> bool {
     t.ends_here && x >= h.x - reach / 2.0 && x <= h.right() + reach / 2.0 && y >= h.y - reach / 2.0 && y <= h.bottom() + reach / 2.0
 }
 
-/// The innermost table under page point (`x`, `y`) whose resize handle is on this page, or whose
-/// handle is under the point: the one whose handle the app shows.
-pub fn table_under(l: &DocLayout, doc: &Document, page: usize, x: f32, y: f32, reach: f32) -> Option<ResizeTarget> {
+/// The innermost table in `layer` under page point (`x`, `y`) whose resize handle is on this page,
+/// or whose handle is under the point: the one whose handle the app shows.
+pub fn table_under(l: &DocLayout, doc: &Document, page: usize, x: f32, y: f32, reach: f32, layer: Layer) -> Option<ResizeTarget> {
     if !x.is_finite() || !y.is_finite() {
         return None;
     }
     let reach = if reach.is_finite() { reach.clamp(0.5, 24.0) } else { REACH };
-    tables_on(l, doc, page)
+    tables_on(l, doc, page, layer)
         .into_iter()
         .filter(|t| t.ends_here && ((x >= t.left() && x <= t.right() && y >= t.top() && y <= t.bottom()) || on_handle(t, x, y, reach)))
         .max_by_key(|t| t.table.0.len())
 }
 
-/// The table border or resize handle within `reach` points of page point (`x`, `y`): the
-/// nearest, and of nested tables the innermost.
-pub fn resize_target(l: &DocLayout, doc: &Document, page: usize, x: f32, y: f32, reach: f32) -> Option<ResizeTarget> {
+/// The border or resize handle of a table in `layer` within `reach` points of page point (`x`,
+/// `y`): the nearest, and of nested tables the innermost.
+pub fn resize_target(l: &DocLayout, doc: &Document, page: usize, x: f32, y: f32, reach: f32, layer: Layer) -> Option<ResizeTarget> {
     if !x.is_finite() || !y.is_finite() {
         return None;
     }
     let reach = if reach.is_finite() { reach.clamp(0.5, 24.0) } else { REACH };
     let mut best: Option<(f32, usize, ResizeTarget)> = None;
-    for mut target in tables_on(l, doc, page) {
+    for mut target in tables_on(l, doc, page, layer) {
         let depth = target.table.0.len();
         let mut offer = |d: f32, edge: Edge, target: &mut ResizeTarget| {
             if d <= reach && best.as_ref().is_none_or(|(bd, bdepth, _)| d < *bd - 0.01 || (d <= *bd + 0.01 && depth > *bdepth)) {
@@ -500,8 +543,9 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
     if l.pages.get(page).is_none() {
         return Err(CmdError::Params(format!("no page {page}")));
     }
-    let mut target =
-        resize_target(&l, &s.doc, page, x, y, reach).ok_or_else(|| CmdError::Failed("there's no table border or resize handle there".into()))?;
+    let layer = Layer::editing(s, &l);
+    let mut target = resize_target(&l, &s.doc, page, x, y, reach, layer)
+        .ok_or_else(|| CmdError::Failed("there's no table border or resize handle there".into()))?;
     target.limit_to_selection(s, y);
     let plan = target.plan(to_x - x, to_y - y, share);
     if plan.widths.is_none() && plan.heights.is_empty() && plan.cells.is_empty() {
@@ -528,7 +572,7 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
     // anchor): measure where it came to and put it right once.
     if moved
         && let Some(d) = plan.indent_by
-        && let Some(got) = drawn_left(&s.layout(), page, &target)
+        && let Some(got) = drawn_left(&s.layout(), page, &target, layer)
         && (got - (target.left() + d)).abs() > 0.05
     {
         move_left_edge(s.doc.table_mut(target.story, &target.table)?, target.left() + d - got);
@@ -541,7 +585,7 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
     // (and which depend on the table style), and an exact one the bottom margin: measure what the
     // rows came to and take the extra off once. A row its text holds taller keeps the dragged
     // height.
-    let drawn = drawn_heights(&s.layout(), &s.doc, page, &target);
+    let drawn = drawn_heights(&s.layout(), &s.doc, page, &target, layer);
     let mut fixed = Vec::new();
     let t = s.doc.table_mut(target.story, &target.table)?;
     for (r, want) in &plan.heights {
@@ -558,7 +602,7 @@ fn resize_drag(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     }
     touch(s, &target)?;
-    let again = drawn_heights(&s.layout(), &s.doc, page, &target);
+    let again = drawn_heights(&s.layout(), &s.doc, page, &target, layer);
     let t = s.doc.table_mut(target.story, &target.table)?;
     for (r, want, got) in fixed {
         let now = again.iter().find(|(i, _)| *i == r).map_or(got, |(_, h)| *h);
@@ -645,9 +689,9 @@ fn regrid(t: &mut Table, cols: &[f32], rows: &[(usize, Vec<f32>)]) -> Result<(),
     Ok(())
 }
 
-/// The page x of the target table's left edge on `page`, as drawn.
-fn drawn_left(l: &DocLayout, page: usize, target: &ResizeTarget) -> Option<f32> {
-    cell_boxes(l, page).iter().filter(|b| b.story == target.story && b.table == target.table).map(|b| b.rect.x).min_by(f32::total_cmp)
+/// The page x of the target table's left edge on `page` (drawn in `layer`), as drawn.
+fn drawn_left(l: &DocLayout, page: usize, target: &ResizeTarget, layer: Layer) -> Option<f32> {
+    cell_boxes(l, page, layer).iter().filter(|b| b.story == target.story && b.table == target.table).map(|b| b.rect.x).min_by(f32::total_cmp)
 }
 
 /// Make `widths` (one per grid column) the table's column widths, as drawn: no preferred table
@@ -661,9 +705,9 @@ pub(crate) fn set_widths(t: &mut Table, widths: Vec<f32>) {
     }
 }
 
-/// The drawn height of each of the target table's rows on `page`.
-fn drawn_heights(l: &DocLayout, doc: &Document, page: usize, target: &ResizeTarget) -> Vec<(usize, f32)> {
-    tables_on(l, doc, page)
+/// The drawn height of each of the target table's rows on `page` (drawn in `layer`).
+fn drawn_heights(l: &DocLayout, doc: &Document, page: usize, target: &ResizeTarget, layer: Layer) -> Vec<(usize, f32)> {
+    tables_on(l, doc, page, layer)
         .into_iter()
         .find(|t| t.story == target.story && t.table == target.table)
         .map(|t| t.rows.iter().map(|r| (r.row, r.bottom - r.top)).collect())
@@ -708,6 +752,45 @@ mod tests {
         let mut s = Session::new(wordcraft_doc::Document::new());
         s.run("insert.table", &json!({"rows": rows, "cols": cols})).unwrap();
         s
+    }
+
+    /// #1930: while the header is being edited, its table's borders drag like a body table's (a
+    /// column border, a row's bottom border, a double-click fitting a column); editing the main
+    /// text, the dimmed header is out of reach.
+    #[test]
+    fn a_header_tables_borders_drag_while_the_header_is_edited() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.editHeader", &json!({})).unwrap();
+        let story = s.sel.focus.story;
+        s.run("insert.table", &json!({"rows": 2, "cols": 3})).unwrap();
+        s.run("text.insert", &json!({"text": "Logo"})).unwrap();
+        let header_cell = |s: &mut Session, row: usize, cell: usize| {
+            s.layout().pages[0]
+                .header
+                .iter()
+                .find_map(|it| match it {
+                    Placed::Cell { rect, row: r, cell: c, story: st, .. } if *r == row && *c == cell && *st == story => Some(*rect),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let (a, b) = (header_cell(&mut s, 0, 0), header_cell(&mut s, 0, 1));
+        let y = a.y + a.h / 2.0;
+        s.run("table.resizeDrag", &json!({"page": 0, "x": a.right(), "y": y, "toX": a.right() + 30.0, "toY": y})).unwrap();
+        let (a1, b1) = (header_cell(&mut s, 0, 0), header_cell(&mut s, 0, 1));
+        assert!((a1.w - (a.w + 30.0)).abs() < 1.0, "{a:?} → {a1:?}");
+        assert!((b1.w - (b.w - 30.0)).abs() < 1.0, "{b:?} → {b1:?}");
+        let x = a1.x + a1.w / 2.0;
+        s.run("table.resizeDrag", &json!({"page": 0, "x": x, "y": a1.bottom(), "toX": x, "toY": a1.bottom() + 20.0})).unwrap();
+        let a2 = header_cell(&mut s, 0, 0);
+        assert!((a2.h - (a1.h + 20.0)).abs() < 0.5, "{a1:?} → {a2:?}");
+        s.run("table.fitColumn", &json!({"page": 0, "x": a2.right(), "y": a2.y + a2.h / 2.0})).unwrap();
+        let a3 = header_cell(&mut s, 0, 0);
+        assert!(a3.w < a2.w - 40.0, "the column fits its text: {a2:?} → {a3:?}");
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        let y = a3.y + a3.h / 2.0;
+        assert!(s.run("table.resizeDrag", &json!({"page": 0, "x": a3.right(), "y": y, "toX": a3.right() + 30.0, "toY": y})).is_err());
+        assert_eq!(header_cell(&mut s, 0, 0), a3, "the header's table is untouched");
     }
 
     /// Dragging the border between two columns moves it; the right neighbour gives up the room,
@@ -807,7 +890,7 @@ mod tests {
         let (w, h) = (d.right() - a.x, d.bottom() - a.y);
         let (hx, hy) = (d.right() + 1.0 + HANDLE / 2.0, d.bottom() + 1.0 + HANDLE / 2.0);
         let l = s.layout();
-        let tgt = resize_target(&l, &s.doc, 0, hx, hy, REACH).unwrap();
+        let tgt = resize_target(&l, &s.doc, 0, hx, hy, REACH, Layer::Body).unwrap();
         assert_eq!(tgt.edge, Edge::Corner);
         // Half as wide, twice as tall: the handle moves by that much.
         s.run("table.resizeDrag", &json!({"page": 0, "x": hx, "y": hy, "toX": hx - w * 0.5, "toY": hy + h})).unwrap();
@@ -824,11 +907,11 @@ mod tests {
         s.run("table.eraser", &json!({"page": 0, "x": a.right(), "y": a.y + a.h / 2.0})).unwrap();
         let l = s.layout();
         let m = cell_rect(&mut s, 0, 0);
-        let mid = resize_target(&l, &s.doc, 0, a.right(), m.y + m.h / 2.0, REACH);
+        let mid = resize_target(&l, &s.doc, 0, a.right(), m.y + m.h / 2.0, REACH, Layer::Body);
         assert!(mid.as_ref().is_none_or(|t| t.edge != Edge::Column(1)), "{mid:?}");
         // The second row still has it.
         let b = cell_rect(&mut s, 1, 0);
-        let t = resize_target(&l, &s.doc, 0, b.right(), b.y + b.h / 2.0, REACH).unwrap();
+        let t = resize_target(&l, &s.doc, 0, b.right(), b.y + b.h / 2.0, REACH, Layer::Body).unwrap();
         assert_eq!(t.edge, Edge::Column(1));
     }
 
@@ -842,9 +925,9 @@ mod tests {
         assert_eq!(first_table(&s).rows[1].cells[0].props.vmerge, wordcraft_doc::props::VMerge::Continue);
         let l = s.layout();
         let x = b.x + b.w / 2.0;
-        let t = resize_target(&l, &s.doc, 0, x, a.bottom() + 1.0, REACH).unwrap();
+        let t = resize_target(&l, &s.doc, 0, x, a.bottom() + 1.0, REACH, Layer::Body).unwrap();
         assert_eq!(t.edge, Edge::Row(0), "the border between the merged rows is still there");
-        let t = resize_target(&l, &s.doc, 0, x, b.bottom() + 1.0, REACH).unwrap();
+        let t = resize_target(&l, &s.doc, 0, x, b.bottom() + 1.0, REACH, Layer::Body).unwrap();
         assert_eq!(t.edge, Edge::Row(1), "the merge's bottom is the second row's border");
         s.run("table.resizeDrag", &json!({"page": 0, "x": x, "y": a.bottom() + 1.0, "toX": x, "toY": a.bottom() + 21.0})).unwrap();
         let t = first_table(&s);
@@ -911,8 +994,8 @@ mod tests {
         let (a, b) = (cell_rect(&mut s, 0, 0), cell_rect(&mut s, 0, 1));
         let y = a.y + a.h / 2.0;
         let l = s.layout();
-        assert_eq!(resize_target(&l, &s.doc, 0, a.x - 2.0, y, REACH).map(|t| t.edge), Some(Edge::Column(0)));
-        assert!(resize_target(&l, &s.doc, 0, a.x + 2.5, y, REACH).is_none(), "inside the first cell");
+        assert_eq!(resize_target(&l, &s.doc, 0, a.x - 2.0, y, REACH, Layer::Body).map(|t| t.edge), Some(Edge::Column(0)));
+        assert!(resize_target(&l, &s.doc, 0, a.x + 2.5, y, REACH, Layer::Body).is_none(), "inside the first cell");
         s.run("table.resizeDrag", &json!({"page": 0, "x": a.x - 1.0, "y": y, "toX": a.x + 35.0, "toY": y})).unwrap();
         let (a1, b1) = (cell_rect(&mut s, 0, 0), cell_rect(&mut s, 0, 1));
         assert!((a1.x - (a.x + 36.0)).abs() < 0.5 && (a1.right() - a.right()).abs() < 0.5, "{a:?} → {a1:?}");
