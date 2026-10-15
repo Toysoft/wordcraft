@@ -1201,30 +1201,32 @@ impl ListCounter {
     }
 }
 
-/// Parse a CSS / HTML colour: `#rgb`, `#rrggbb`, `rgb(r,g,b)` or a basic name.
+/// Parse a CSS / HTML colour: `#rgb`, `#rrggbb`, `#rgba`, `#rrggbbaa`, hex without `#`, `rgb(r,g,b)`, `rgb(r g b)` or a basic name.
 pub fn parse_color(s: &str) -> Option<Rgb> {
     let s = s.trim().to_ascii_lowercase();
-    if let Some(h) = s.strip_prefix('#') {
-        if h.len() == 3 && h.is_ascii() {
-            let d = |i: usize| h.get(i..i + 1).and_then(|x| u8::from_str_radix(x, 16).ok()).map(|v| v * 17);
-            return Some(Rgb(d(0)?, d(1)?, d(2)?));
-        }
-        return Rgb::parse(h);
+    let h = s.strip_prefix('#').unwrap_or(&s);
+    if (h.len() == 3 || (s.starts_with('#') && h.len() == 4)) && h.chars().all(|c| c.is_ascii_hexdigit()) {
+        let d = |i: usize| h.get(i..i + 1).and_then(|x| u8::from_str_radix(x, 16).ok()).map(|v| v * 17);
+        return Some(Rgb(d(0)?, d(1)?, d(2)?));
+    }
+    if (h.len() == 6 || (s.starts_with('#') && h.len() == 8)) && h.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Rgb::parse(&h[..6]);
     }
     if let Some(inner) = s.strip_prefix("rgb(").or_else(|| s.strip_prefix("rgba(")) {
-        let v: Vec<u8> = inner
-            .trim_end_matches(')')
-            .split(',')
-            .take(3)
-            .filter_map(|x| {
-                let x = x.trim();
-                if let Some(p) = x.strip_suffix('%') {
-                    p.trim().parse::<f32>().ok().map(|f| (f.clamp(0.0, 100.0) * 2.55).round() as u8)
-                } else {
-                    x.parse::<f32>().ok().map(|f| f.clamp(0.0, 255.0).round() as u8)
-                }
-            })
-            .collect();
+        let inner = inner.trim_end_matches(')');
+        let parse_part = |x: &str| {
+            let x = x.trim();
+            if let Some(p) = x.strip_suffix('%') {
+                p.trim().parse::<f32>().ok().map(|f| (f.clamp(0.0, 100.0) * 2.55).round() as u8)
+            } else {
+                x.parse::<f32>().ok().map(|f| f.clamp(0.0, 255.0).round() as u8)
+            }
+        };
+        let v: Vec<u8> = if inner.contains(',') {
+            inner.split(',').take(3).filter_map(parse_part).collect()
+        } else {
+            inner.split_whitespace().take_while(|x| *x != "/").take(3).filter_map(parse_part).collect()
+        };
         if let [r, g, b] = v[..] {
             return Some(Rgb(r, g, b));
         }
@@ -1248,6 +1250,9 @@ pub fn parse_color(s: &str) -> Option<Rgb> {
         "purple" => Rgb(128, 0, 128),
         "teal" => Rgb(0, 128, 128),
         "orange" => Rgb(255, 165, 0),
+        "brown" => Rgb(165, 42, 42),
+        "pink" => Rgb(255, 192, 203),
+        "gold" => Rgb(255, 215, 0),
         _ => return None,
     })
 }
@@ -1281,8 +1286,17 @@ mod tests {
     fn colors() {
         assert_eq!(parse_color("#f00"), Some(Rgb(255, 0, 0)));
         assert_eq!(parse_color("#0080FF"), Some(Rgb(0, 128, 255)));
+        assert_eq!(parse_color("0080ff"), Some(Rgb(0, 128, 255)));
+        assert_eq!(parse_color("ff0000"), Some(Rgb(255, 0, 0)));
+        assert_eq!(parse_color("#f00f"), Some(Rgb(255, 0, 0)));
+        assert_eq!(parse_color("#ff000080"), Some(Rgb(255, 0, 0)));
         assert_eq!(parse_color("rgb(1, 2, 3)"), Some(Rgb(1, 2, 3)));
+        assert_eq!(parse_color("rgb(10 20 30)"), Some(Rgb(10, 20, 30)));
+        assert_eq!(parse_color("rgb(10 20 30 / 0.5)"), Some(Rgb(10, 20, 30)));
         assert_eq!(parse_color("navy"), Some(Rgb(0, 0, 128)));
+        assert_eq!(parse_color("pink"), Some(Rgb(255, 192, 203)));
+        assert_eq!(parse_color("brown"), Some(Rgb(165, 42, 42)));
+        assert_eq!(parse_color("gold"), Some(Rgb(255, 215, 0)));
         assert_eq!(parse_color("#zz"), None);
         assert_eq!(parse_color("rgb(1)"), None);
     }
