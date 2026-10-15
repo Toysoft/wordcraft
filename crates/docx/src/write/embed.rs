@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use wordcraft_doc::graphic::Embedded;
+
+use crate::{Loss, LossKind};
 use wordcraft_doc::para::Float;
 
 use super::PartRels;
@@ -56,7 +58,24 @@ pub(crate) struct EmbedWriter<'d> {
     pub parts: Vec<(String, Vec<u8>, String, PartRels)>,
     /// What couldn't be written whole (see [`crate::write_with_report`]).
     pub losses: Vec<crate::Loss>,
+    /// Parts that lost relationships, checked for ids their markup still uses (see `check`).
+    checked: HashMap<String, PartCheck>,
 }
+
+/// Whether a part that lost relationships can still be written (see [`EmbedWriter::check`]).
+#[derive(Clone)]
+enum PartCheck {
+    /// As it is.
+    Fine,
+    /// With these bytes: optional elements naming a lost relationship removed.
+    Fixed(Vec<u8>),
+    /// Not without a relationship it needs: whatever reaches it is left out.
+    Broken,
+}
+
+/// Elements that only link to something optional (a chart's data workbook or drawn shapes, a
+/// font table's embedded fonts) and can go when their relationship is lost.
+const OPTIONAL_LINKS: &[&str] = &["externalData", "userShapes", "embedRegular", "embedBold", "embedItalic", "embedBoldItalic"];
 
 impl<'d> EmbedWriter<'d> {
     pub fn new(doc: &'d wordcraft_doc::Document) -> EmbedWriter<'d> {
@@ -101,11 +120,16 @@ impl<'d> EmbedWriter<'d> {
             markup_bytes: MAX_MARKUP_BYTES,
             parts: Vec::new(),
             losses: Vec::new(),
+            checked: HashMap::new(),
         }
     }
 
     /// Write the font table kept from a file, with the fonts it embeds, relating it from `rels`.
     pub fn font_table(&mut self, rels: &mut PartRels) {
+        if self.tree_broken(&[FONT_TABLE_PART]) {
+            self.lose(FONT_TABLE_PART, LossKind::LeftOut, "names a relationship that is gone; it is left out".into());
+            return;
+        }
         let mut written = Vec::new();
         if let Some(name) = self.copy_tree(FONT_TABLE_PART, &mut HashMap::new(), &mut written) {
             rels.add(rt::FONT_TABLE, &relative(STORY_PART, &name), false);
@@ -183,11 +207,73 @@ impl<'d> EmbedWriter<'d> {
         }
     }
 
-    /// Report that `part` lost `reason` (once; bounded by [`MAX_DROPPED`]).
-    fn lose(&mut self, part: &str, reason: String) {
-        if self.losses.len() < MAX_DROPPED && !self.losses.iter().any(|l| l.part == part && l.reason == reason) {
-            self.losses.push(crate::Loss { part: part.to_string(), reason });
+    /// Report that `part` lost `reason` (once; bounded by [`MAX_DROPPED`], the last of which says
+    /// more weren't listed).
+    fn lose(&mut self, part: &str, kind: LossKind, reason: String) {
+        if self.losses.iter().any(|l| l.part == part && l.kind == kind && l.reason == reason) {
+            return;
         }
+        let n = self.losses.len();
+        if n + 1 < MAX_DROPPED {
+            self.losses.push(Loss { part: part.to_string(), kind, reason });
+        } else if n + 1 == MAX_DROPPED {
+            self.losses.push(Loss { part: part.to_string(), kind: LossKind::Truncated, reason: crate::package::TRUNCATED.into() });
+        }
+    }
+
+    /// Can `part` be written without naming a relationship that won't be written? Only a part
+    /// that lost relationships (in the file read, or here) is looked at; optional links naming a
+    /// lost relationship are removed from its bytes.
+    fn check(&mut self, part: &str) -> PartCheck {
+        if let Some(c) = self.checked.get(part) {
+            return c.clone();
+        }
+        let result = self.check_uncached(part);
+        if matches!(result, PartCheck::Broken) {
+            self.lose(part, LossKind::DanglingReference, "names a relationship that is gone".into());
+        }
+        self.checked.insert(part.to_string(), result.clone());
+        result
+    }
+
+    fn check_uncached(&self, part: &str) -> PartCheck {
+        let (Some(info), Some(bytes)) = (self.manifest.parts.get(part), self.passthrough.get(part)) else { return PartCheck::Fine };
+        let kept: Vec<&str> = info.rels.iter().filter(|r| r.external || self.available(&r.target)).map(|r| r.id.as_str()).collect();
+        let lacked = self.manifest.dropped.iter().any(|(p, _, _)| p == part);
+        if kept.len() == info.rels.len() && !lacked {
+            return PartCheck::Fine;
+        }
+        // Not XML: it can't name relationships.
+        let Some(missing) = missing_ids(bytes, &kept) else { return PartCheck::Fine };
+        if missing.is_empty() {
+            return PartCheck::Fine;
+        }
+        let mut fixed = bytes.to_vec();
+        for id in &missing {
+            fixed = remove_optional_links(&fixed, id);
+        }
+        match missing_ids(&fixed, &kept) {
+            Some(m) if m.is_empty() => PartCheck::Fixed(fixed),
+            _ => PartCheck::Broken,
+        }
+    }
+
+    /// Does any part reached from `roots` name a relationship that won't be written?
+    fn tree_broken(&mut self, roots: &[&str]) -> bool {
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut todo: Vec<String> = roots.iter().map(|r| r.to_string()).collect();
+        while let Some(p) = todo.pop() {
+            if seen.len() > MAX_EMBEDDED_PARTS || !seen.insert(p.clone()) {
+                continue;
+            }
+            if matches!(self.check(&p), PartCheck::Broken) {
+                return true;
+            }
+            if let Some(info) = self.manifest.parts.get(&p) {
+                todo.extend(info.rels.iter().filter(|r| !r.external && self.available(&r.target)).map(|r| r.target.clone()));
+            }
+        }
+        false
     }
 
     /// Can part `name` be written (bytes and manifest entry both kept)?
@@ -206,12 +292,16 @@ impl<'d> EmbedWriter<'d> {
             if *source != owner || !rel_is(kind, rt::CUSTOM_XML) {
                 continue;
             }
+            if self.tree_broken(&[target]) {
+                self.lose(target, LossKind::LeftOut, "names a relationship that is gone; it is left out".into());
+                continue;
+            }
             match self.copy_tree(target, &mut memo, &mut written) {
                 Some(name) => {
                     let source_part = if owner == "P" { "" } else { STORY_PART };
                     rels.add(kind, &relative(source_part, &name), false);
                 }
-                None => self.lose(target, "was kept from the file but its bytes are gone; it is left out".into()),
+                None => self.lose(target, LossKind::MissingPart, "was kept from the file but its bytes are gone; it is left out".into()),
             }
         }
         self.first = memo;
@@ -229,12 +319,16 @@ impl<'d> EmbedWriter<'d> {
             if *source != owner {
                 continue;
             }
+            if self.tree_broken(&[target]) {
+                self.lose(target, LossKind::LeftOut, "names a relationship that is gone; it is left out".into());
+                continue;
+            }
             match self.copy_tree(target, &mut memo, &mut written) {
                 Some(name) => {
                     let source_part = if owner == "P" { "" } else { STORY_PART };
                     rels.add(kind, &relative(source_part, &name), false);
                 }
-                None => self.lose(target, "was kept from the file but its bytes are gone; it is left out".into()),
+                None => self.lose(target, LossKind::MissingPart, "was kept from the file but its bytes are gone; it is left out".into()),
             }
         }
         self.first = memo;
@@ -274,10 +368,15 @@ impl<'d> EmbedWriter<'d> {
             let (Some(info), Some(bytes)) = (self.manifest.parts.get(&orig).cloned(), self.passthrough.get(&orig)) else { continue };
             let Some(new) = memo.get(&orig).cloned() else { continue };
             // What the file's graph already lacked under this part (noted by the reader).
-            let lacked: Vec<String> = self.manifest.dropped.iter().filter(|(p, _)| *p == orig).map(|(_, w)| w.clone()).collect();
-            for what in lacked {
-                self.lose(&orig, format!("{what} (in the file read)"));
+            let lacked: Vec<(LossKind, String)> =
+                self.manifest.dropped.iter().filter(|(p, _, _)| *p == orig).map(|(_, k, w)| (*k, w.clone())).collect();
+            for (kind, what) in lacked {
+                self.lose(&orig, kind, format!("{what} (in the file read)"));
             }
+            let bytes = match self.check(&orig) {
+                PartCheck::Fixed(fixed) => fixed,
+                _ => bytes.to_vec(),
+            };
             let mut rels = PartRels::default();
             for r in &info.rels {
                 if r.external {
@@ -294,7 +393,7 @@ impl<'d> EmbedWriter<'d> {
                     }
                     // A part that wasn't kept: leave the relationship out (never dangling).
                     None => {
-                        self.lose(&orig, format!("relates to {}, which is gone; the relationship is left out", r.target));
+                        self.lose(&orig, LossKind::MissingPart, format!("relates to {}, which is gone; the relationship is left out", r.target));
                         continue;
                     }
                 };
@@ -302,7 +401,7 @@ impl<'d> EmbedWriter<'d> {
             }
             let ct = if info.content_type.is_empty() { "application/octet-stream".to_string() } else { info.content_type };
             written.push(self.parts.len());
-            self.parts.push((new, bytes.to_vec(), ct, rels));
+            self.parts.push((new, bytes, ct, rels));
         }
         Some(name)
     }
@@ -322,7 +421,7 @@ impl super::Writer<'_> {
     pub(super) fn embedded_tree(&mut self, src: &Embedded, rels: &mut PartRels, resize: Option<(f32, f32, &Float, &str)>) -> Option<El> {
         let Some(left) = self.embeds.markup_bytes.checked_sub(src.xml.len() as u64) else {
             log::warn!("docx: too much embedded-object markup; the rest is left out");
-            self.embeds.lose(&object_name(src), LEFT_OUT.into());
+            self.embeds.lose(&object_name(src), LossKind::LeftOut, LEFT_OUT.into());
             return None;
         };
         self.embeds.markup_bytes = left;
@@ -333,10 +432,15 @@ impl super::Writer<'_> {
         let writable = |id: &String| src.refs.iter().any(|r| r.id == *id && (r.external || self.embeds.available(&r.target)));
         if !used.iter().all(writable) {
             log::warn!("docx: an embedded object's parts are missing; it is left out");
-            self.embeds.lose(&object_name(src), LEFT_OUT.into());
+            self.embeds.lose(&object_name(src), LossKind::LeftOut, LEFT_OUT.into());
             return None;
         }
         let roots: Vec<&str> = src.refs.iter().filter(|r| !r.external).map(|r| r.target.as_str()).collect();
+        // A part it reaches names a relationship that's gone: it can't be written whole.
+        if self.embeds.tree_broken(&roots) {
+            self.embeds.lose(&object_name(src), LossKind::LeftOut, LEFT_OUT.into());
+            return None;
+        }
         // Written before (a copy of this object): give this one its own parts while the budget lasts.
         let again = roots.iter().any(|r| self.embeds.first.contains_key(*r));
         let cost = if again { self.embeds.tree_cost(&roots) } else { 0 };
@@ -353,7 +457,7 @@ impl super::Writer<'_> {
             } else {
                 let copied = self.embeds.copy_tree(&r.target, &mut memo, &mut written);
                 if copied.is_none() {
-                    self.embeds.lose(&r.target, "is gone; the object's relationship to it is left out".into());
+                    self.embeds.lose(&r.target, LossKind::MissingPart, "is gone; the object's relationship to it is left out".into());
                 }
                 copied.map(|name| rels.add(&r.kind, &relative(STORY_PART, &name), false))
             };
@@ -366,7 +470,7 @@ impl super::Writer<'_> {
         }
         if used.iter().any(|u| !ids.contains_key(u)) {
             log::warn!("docx: an embedded object lost a part; it is left out");
-            self.embeds.lose(&object_name(src), LEFT_OUT.into());
+            self.embeds.lose(&object_name(src), LossKind::LeftOut, LEFT_OUT.into());
             return None;
         }
         // A SmartArt data part names its drawing's relationship (of the story part) by id.
@@ -581,6 +685,50 @@ fn set_attr(e: &mut El, k: &str, v: &str) {
 }
 
 /// Is attribute `k` a relationship id (see `read::embed::rel_ids`)?
+/// The relationship ids XML part `bytes` uses that aren't in `kept`; `None` when it isn't XML.
+fn missing_ids(bytes: &[u8], kept: &[&str]) -> Option<Vec<String>> {
+    let root = xml::parse(bytes).ok()?;
+    let mut used = Vec::new();
+    rel_attr_values(&root, &mut used, 0);
+    Some(used.into_iter().filter(|u| !kept.contains(&u.as_str())).collect())
+}
+
+/// `xml` without the [`OPTIONAL_LINKS`] elements (any prefix) whose start tag names relationship
+/// `id`. Unchanged when it isn't UTF-8 or has none.
+fn remove_optional_links(xml: &[u8], id: &str) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(xml) else { return xml.to_vec() };
+    let needle = format!("=\"{id}\"");
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(lt) = rest.find('<') {
+        let (before, tag_on) = rest.split_at(lt);
+        out.push_str(before);
+        let name_len = tag_on.get(1..).and_then(|t| t.find(|c: char| c.is_whitespace() || c == '/' || c == '>')).unwrap_or(0);
+        let name = tag_on.get(1..1 + name_len).unwrap_or("");
+        let local = name.rsplit(':').next().unwrap_or(name);
+        let start_end = tag_on.find('>');
+        if let (true, Some(gt)) = (OPTIONAL_LINKS.contains(&local), start_end) {
+            let start = tag_on.get(..=gt).unwrap_or("");
+            if start.contains(&needle) {
+                if start.ends_with("/>") {
+                    rest = tag_on.get(gt + 1..).unwrap_or("");
+                    continue;
+                }
+                let close = format!("</{name}>");
+                if let Some(c) = tag_on.find(&close) {
+                    rest = tag_on.get(c + close.len()..).unwrap_or("");
+                    continue;
+                }
+            }
+        }
+        // Not one to remove: keep the `<` and go on.
+        out.push('<');
+        rest = tag_on.get(1..).unwrap_or("");
+    }
+    out.push_str(rest);
+    out.into_bytes()
+}
+
 fn is_rel_attr(k: &str) -> bool {
     k.starts_with("r:") || k == "o:relid"
 }

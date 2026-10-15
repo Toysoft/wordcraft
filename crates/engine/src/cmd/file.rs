@@ -67,13 +67,13 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report"}"#).pure(),
         CommandSpec::new("file.open", "Open", "File", open)
             .key("Mod+O / Mod+F12 / Mod+Alt+F2")
-            .params(r#"{"path": string, "data"?: base64 (the file's bytes; `path` then only names it), "password"?: string (for a password-protected Word document)}"#)
+            .params(r#"{"path": string, "data"?: base64 (the file's bytes; `path` then only names it), "password"?: string (for a password-protected Word document)} → {path, paragraphs, words, encrypted, "incomplete"?: [{part, kind, reason}] (Word embedded objects — charts, diagrams, OLE objects, kept parts — the file doesn't hold whole; kind: missingPart|partLimit|relationshipLimit|notCarried|truncated)}"#)
             .pure(),
         CommandSpec::new("file.save", "Save", "File", save)
             .key("Mod+S / Shift+F12 / Alt+Shift+F2")
-            .params(r#"{"path"?: string, "password"?: string (encrypt this and later saves with it, as file.encrypt does), "markup"?: bool (Print Markup for a PDF, PNG, HTML, Markdown or text copy: comments shown; default file.printMarkup), "format"?: "wordml2003" (an .xml file as a Word 2003 XML Document) | "flatopc" (as a Word XML Document, the default; saving over a Word 2003 XML file keeps that format)}"#)
+            .params(r#"{"path"?: string, "password"?: string (encrypt this and later saves with it, as file.encrypt does), "markup"?: bool (Print Markup for a PDF, PNG, HTML, Markdown or text copy: comments shown; default file.printMarkup), "format"?: "wordml2003" (an .xml file as a Word 2003 XML Document) | "flatopc" (as a Word XML Document, the default; saving over a Word 2003 XML file keeps that format)} → {saved, path, encrypted, "dropped"?: [{part, kind, reason}] (what a Word package couldn't carry of embedded objects; kind: missingPart|partLimit|relationshipLimit|notCarried|leftOut|danglingReference|truncated)}"#)
             .pure(),
-        CommandSpec::new("file.saveAs", "Save As", "File", save_as).key(super::mac_or("F12 / Mod+Shift+S", "F12 / Alt+F2")).params(r#"{"path": string, "password"?: string, "markup"?: bool, "format"?: string (as file.save)}"#).pure(),
+        CommandSpec::new("file.saveAs", "Save As", "File", save_as).key(super::mac_or("F12 / Mod+Shift+S", "F12 / Alt+F2")).params(r#"{"path": string, "password"?: string, "markup"?: bool, "format"?: string (as file.save)} → as file.save, "dropped" included"#).pure(),
         // Pure: the password must not land in Repeat or a recorded macro, and it isn't an edit
         // to undo; it marks the document as changed itself.
         CommandSpec::new("file.encrypt", "Encrypt with Password", "File › Info › Protect Document", encrypt)
@@ -245,9 +245,10 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
     Ok(out)
 }
 
-/// `[{"part", "reason"}…]` for what a Word package lacked or lost.
-fn losses_json(losses: &[wordcraft_docx::Loss]) -> Value {
-    losses.iter().map(|l| json!({"part": l.part, "reason": l.reason})).collect()
+/// `[{"part", "kind", "reason"}…]` for what a Word package lacked or lost (`kind`: see
+/// [`wordcraft_docx::LossKind::as_str`]).
+pub(crate) fn losses_json(losses: &[wordcraft_docx::Loss]) -> Value {
+    losses.iter().map(|l| json!({"part": l.part, "kind": l.kind.as_str(), "reason": l.reason})).collect()
 }
 
 /// File › Info › Protect Document › Encrypt with Password: the password Word documents are saved

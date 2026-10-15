@@ -7277,7 +7277,11 @@ fn incomplete_embedded_object_is_reported_on_open_and_save() {
     let saved = run(&mut s, "file.saveAs", json!({"path": out.to_string_lossy()}));
     assert_eq!(saved["saved"], true);
     let dropped = saved["dropped"].as_array().unwrap_or_else(|| panic!("no dropped in {saved}"));
-    assert!(dropped.iter().any(|l| l["reason"].as_str().unwrap().contains("book.xlsx")), "{saved}");
+    assert!(dropped.iter().any(|l| l["kind"] == "missingPart" && l["reason"].as_str().unwrap().contains("book.xlsx")), "{saved}");
+    assert!(incomplete.iter().all(|l| l["kind"].is_string()), "{opened}");
+    // Save as Template writes the same package, so it says the same.
+    let template = run(&mut s, "file.saveTemplate", json!({"path": dir.join("chart.dotx").to_string_lossy()}));
+    assert!(template["dropped"].as_array().is_some_and(|d| !d.is_empty()), "{template}");
 
     // A complete document reports neither.
     let mut clean = Session::new(wordcraft_doc::Document::new());

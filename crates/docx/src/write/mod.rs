@@ -152,7 +152,7 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
 }
 
 /// [`write_parts`], with what the embedded objects lost (see [`write_as_with_report`]).
-fn write_parts_report(doc: &Document, flavor: Flavor) -> Result<(Vec<(String, Vec<u8>)>, Vec<crate::Loss>), DocxError> {
+pub(crate) fn write_parts_report(doc: &Document, flavor: Flavor) -> Result<(Vec<(String, Vec<u8>)>, Vec<crate::Loss>), DocxError> {
     // A range field must be whole in the file: drop markers that lost their partner in editing.
     let balanced;
     let doc = if doc.has_unbalanced_field_ranges() {

@@ -27,6 +27,10 @@ pub fn save_report(ext: &str, doc: &Document, opts: &crate::io::ExportOptions) -
     if let Some(flavor) = wordcraft_docx::Flavor::from_ext(ext) {
         return Some(wordcraft_docx::write_as_with_report(doc, flavor).map_err(|e| e.to_string()));
     }
+    // A Word XML Document (Flat OPC) carries embedded objects the same way.
+    if ext == "xml" && !opts.word2003 {
+        return Some(wordcraft_docx::write_flat_with_report(doc).map_err(|e| e.to_string()));
+    }
     save_other(ext, doc, opts).map(|r| r.map(|bytes| (bytes, Vec::new())))
 }
 
