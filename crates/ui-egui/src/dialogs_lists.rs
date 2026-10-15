@@ -475,15 +475,31 @@ const INSERT_MARKS: &[(&str, &str)] = &[
     ("none", "None"),
 ];
 
-/// How deletions (and the place moved text was taken from) can be marked: (value, label).
+/// How deletions (and the place moved text was taken from) can be marked, in Word for Mac's
+/// order: (value, label).
 const DELETE_MARKS: &[(&str, &str)] = &[
+    ("none", "(none)"),
+    ("colorOnly", "Color only"),
+    ("bold", "Bold"),
+    ("italic", "Italic"),
+    ("underline", "Underline"),
+    ("doubleUnderline", "Double Underline"),
     ("strikethrough", "Strikethrough"),
-    ("doubleStrikethrough", "Double Strikethrough"),
     ("hidden", "Hidden"),
     ("caret", "^"),
     ("hash", "#"),
-    ("underline", "Underline"),
+    ("doubleStrikethrough", "Double Strikethrough"),
+];
+
+/// How moved text is marked where it went, in Word for Mac's order: (value, label).
+const MOVE_TO_MARKS: &[(&str, &str)] = &[
+    ("none", "(none)"),
     ("colorOnly", "Color only"),
+    ("bold", "Bold"),
+    ("italic", "Italic"),
+    ("underline", "Underline"),
+    ("doubleUnderline", "Double Underline"),
+    ("strikethrough", "Strikethrough"),
 ];
 
 /// Track Changes Options. Returns true to close.
@@ -541,7 +557,7 @@ pub fn track_options(app: &mut WordApp, ui: &mut Ui, f: &mut TrackForm) -> bool 
         ui.push_id("tco_move_from_color", |ui| color(ui, &theme, &mut f.move_from_color, "By author", None));
         ui.end_row();
         ui.label(tl!("Moved to:"));
-        choice(ui, "tco_move_to", &mut f.move_to_mark, INSERT_MARKS);
+        choice(ui, "tco_move_to", &mut f.move_to_mark, MOVE_TO_MARKS);
         ui.push_id("tco_move_to_color", |ui| color(ui, &theme, &mut f.move_to_color, "By author", None));
         ui.end_row();
     });
@@ -646,5 +662,36 @@ mod tests {
         assert_eq!((m.move_from_mark, m.move_from_color), (DeleteMark::Strikethrough, Some(wordcraft_doc::Rgb(0xFF, 0, 0))));
         assert_eq!((m.move_to_mark, m.move_to_color), (InsertMark::Bold, None), "empty = by author");
         assert!(!a.session.doc.settings.track_moves, "the document setting is untouched");
+    }
+
+    /// Gap #5, Word for Mac 16.113.4 (2026-10-15): the Deletions and Moved from lists, and the
+    /// Moved to list, in Word's order; every choice is one `review.trackingOptions` takes.
+    #[test]
+    fn track_changes_options_mark_lists_follow_word() {
+        use wordcraft_layout::display::{DeleteMark, InsertMark};
+        let values = |l: &[(&str, &str)]| l.iter().map(|(v, _)| v.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            values(super::DELETE_MARKS),
+            [
+                "none",
+                "colorOnly",
+                "bold",
+                "italic",
+                "underline",
+                "doubleUnderline",
+                "strikethrough",
+                "hidden",
+                "caret",
+                "hash",
+                "doubleStrikethrough"
+            ]
+        );
+        assert_eq!(values(super::MOVE_TO_MARKS), ["none", "colorOnly", "bold", "italic", "underline", "doubleUnderline", "strikethrough"]);
+        assert!(super::DELETE_MARKS.iter().all(|(v, _)| DeleteMark::parse(v).is_some()));
+        assert!(super::MOVE_TO_MARKS.iter().chain(super::INSERT_MARKS).all(|(v, _)| InsertMark::parse(v).is_some()));
+        let mut a = app();
+        for (v, _) in super::DELETE_MARKS {
+            a.run("review.trackingOptions", json!({"deleteMark": v, "moveFromMark": v})).unwrap();
+        }
     }
 }

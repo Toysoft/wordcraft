@@ -51,7 +51,7 @@ Document title opens Rename Document; the account badge opens Options › Genera
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-15 | trivial | Track Changes Options › Moves: Moved from and Moved to rows (mark and colour; green double strikethrough and double underline by default, as in Word for Mac, which has no Track moves checkbox). `review.trackingOptions {"moveFromMark", "moveFromColor", "moveToMark", "moveToColor"}`, saved per user; `"trackMoves"` sets the document's setting |
+| 2026-10-15 | trivial | Track Changes Options › Moves: Moved from and Moved to rows (mark and colour; green double strikethrough and double underline by default, as in Word for Mac, which has no Track moves checkbox). `review.trackingOptions {"moveFromMark", "moveFromColor", "moveToMark", "moveToColor"}`, saved per user; `"trackMoves"` sets the document's setting. Mark lists in Word for Mac's order; Deletions and Moved from gain (none), Bold, Italic and Double underline; moved text marked (none) is plain text |
 | 2026-10-13 | trivial | Page Setup: a Vertical alignment box (Top, Center, Justified, Bottom), applied on OK only if changed (#1320) |
 | 2026-10-13 | trivial | macOS shortcuts as in Word for Mac: ⌘⇧S Save As (Apply Styles keeps Ctrl+Shift+S elsewhere), ⌘⌥E Insert Endnote (macOS takes ⌘⌥D for the Dock), ⌘⌥A New Comment, ⌃H Replace, ⌘⌥R collapse the ribbon |
 | 2026-10-13 | trivial | On-canvas objects: regression-tested dragging Behind Text pictures and shapes across overlapping text (body and header/footer), selected or not, without stealing ordinary text clicks; In Front of Text covered too |

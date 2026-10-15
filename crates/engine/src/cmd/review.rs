@@ -45,7 +45,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("review.trackingOptions", "Track Changes Options", "Review › Tracking", tracking_options)
             .params(
-                r#"{"comments"?: bool, "ink"?: bool, "insertionsDeletions"?: bool, "formatting"?: bool, "balloons"?: "revisions|inline|commentsAndFormatting", "commentDisplay"?: "margin|selected", "insertMark"?: "underline|doubleUnderline|bold|italic|strikethrough|colorOnly|none", "insertColor"?: "byAuthor" | "RRGGBB", "deleteMark"?: "strikethrough|doubleStrikethrough|hidden|caret|hash|underline|colorOnly", "deleteColor"?: "byAuthor" | "RRGGBB", "changedLines"?: "outside|left|right|none", "changedLinesColor"?: "auto" | "RRGGBB", "trackFormatting"?: bool, "moveFromMark"?: (as deleteMark), "moveFromColor"?: "byAuthor" | "RRGGBB", "moveToMark"?: (as insertMark), "moveToColor"?: "byAuthor" | "RRGGBB", "trackMoves"?: bool (the document's setting; off = a cut and paste is a deletion and an insertion, not a move)} → the options (omit all to read them)"#,
+                r#"{"comments"?: bool, "ink"?: bool, "insertionsDeletions"?: bool, "formatting"?: bool, "balloons"?: "revisions|inline|commentsAndFormatting", "commentDisplay"?: "margin|selected", "insertMark"?: "underline|doubleUnderline|bold|italic|strikethrough|colorOnly|none", "insertColor"?: "byAuthor" | "RRGGBB", "deleteMark"?: "strikethrough|doubleStrikethrough|hidden|caret|hash|underline|doubleUnderline|bold|italic|colorOnly|none", "deleteColor"?: "byAuthor" | "RRGGBB", "changedLines"?: "outside|left|right|none", "changedLinesColor"?: "auto" | "RRGGBB", "trackFormatting"?: bool, "moveFromMark"?: (as deleteMark; none = plain text, no colour), "moveFromColor"?: "byAuthor" | "RRGGBB", "moveToMark"?: (as insertMark; none = plain text, no colour), "moveToColor"?: "byAuthor" | "RRGGBB", "trackMoves"?: bool (the document's setting; off = a cut and paste is a deletion and an insertion, not a move)} → the options (omit all to read them)"#,
             )
             .pure(),
         CommandSpec::new("review.wordCount", "Word Count", "Review › Proofing", word_count)
@@ -1222,9 +1222,94 @@ mod tests {
         assert_eq!(d.iter().filter(|x| matches!(x, Draw::Mark { ch: '¶', .. })).count(), 3);
     }
 
+    /// Each "Second" run drawn, in page order (the moved-to paragraph first, then the moved-from
+    /// one): (colour, bold, italic).
+    fn seconds(d: &[Draw]) -> Vec<(wordcraft_doc::Rgb, bool, bool)> {
+        d.iter()
+            .filter_map(|x| match x {
+                Draw::Glyphs { text, color, synth_bold, synth_italic, .. } if text.starts_with("Second") => {
+                    Some((*color, *synth_bold, *synth_italic))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Horizontal lines (underlines and strikethroughs): their strokes.
+    fn h_strokes(d: &[Draw]) -> Vec<wordcraft_layout::display::Stroke> {
+        d.iter().filter_map(|x| if let Draw::Line { y0, y1, stroke, .. } = x { (y0 == y1).then_some(*stroke) } else { None }).collect()
+    }
+
+    /// Change bars: vertical lines left of the body.
+    fn bars(d: &[Draw], body_x: f32) -> usize {
+        lines(d).into_iter().filter(|(x0, _, x1, _)| x0 == x1 && *x0 < body_x).count()
+    }
+
+    /// Gap #5, Word for Mac 16.113.4 (2026-10-15): Moved to = (none) draws the moved text as
+    /// plain text, no mark and no colour, although the colour stays set; the change bar stays.
+    #[test]
+    fn moved_to_none_is_plain_text_with_its_change_bar() {
+        use wordcraft_layout::display::{MOVE_COLOR, Stroke};
+        let mut s = moved_with(json!({}));
+        let (d, body_x) = draws(&mut s);
+        let default_bars = bars(&d, body_x);
+        assert!(default_bars > 0);
+        let mut s = moved_with(json!({"moveToMark": "none"}));
+        assert_eq!(s.run("review.trackingOptions", &json!({})).unwrap()["moveToColor"], MOVE_COLOR.hex());
+        let (d, body_x) = draws(&mut s);
+        let sec = seconds(&d);
+        assert_eq!(sec.first().map(|c| c.0), Some(wordcraft_doc::Rgb::BLACK), "{sec:?}");
+        assert_eq!(sec.get(1).map(|c| c.0), Some(MOVE_COLOR), "the moved-from end keeps its colour");
+        assert_eq!(h_strokes(&d), vec![Stroke::Double], "only the moved-from strikethrough");
+        assert_eq!(bars(&d, body_x), default_bars, "the change bars stay");
+    }
+
+    /// Gap #5, Word for Mac 16.113.4: Deletions and Moved from offer (none), Bold, Italic and
+    /// Double underline too. Moved from (none) is plain text, as Moved to (none); an ordinary
+    /// deletion marked (none) keeps its colour.
+    #[test]
+    fn deletion_marks_none_bold_italic_and_double_underline() {
+        use wordcraft_layout::display::{MOVE_COLOR, Stroke};
+        let plain = json!({"moveToMark": "none", "moveToColor": "byAuthor"});
+        let with = |extra: serde_json::Value| {
+            let mut o = plain.clone();
+            o.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            moved_with(o)
+        };
+        let mut s = with(json!({"moveFromMark": "none"}));
+        let (d, _) = draws(&mut s);
+        assert_eq!(seconds(&d).get(1).map(|c| c.0), Some(wordcraft_doc::Rgb::BLACK), "{:?}", seconds(&d));
+        assert!(h_strokes(&d).is_empty(), "{:?}", h_strokes(&d));
+        let mut s = with(json!({"moveFromMark": "bold"}));
+        let (d, _) = draws(&mut s);
+        assert_eq!(seconds(&d).get(1), Some(&(MOVE_COLOR, true, false)));
+        assert!(h_strokes(&d).is_empty());
+        let mut s = with(json!({"moveFromMark": "italic"}));
+        let (d, _) = draws(&mut s);
+        assert_eq!(seconds(&d).get(1), Some(&(MOVE_COLOR, false, true)));
+        let mut s = with(json!({"moveFromMark": "doubleUnderline"}));
+        let (d, _) = draws(&mut s);
+        assert_eq!(h_strokes(&d), vec![Stroke::Double]);
+        let r = s.run("review.trackingOptions", &json!({"deleteMark": "none"})).unwrap();
+        assert_eq!((r["deleteMark"].as_str(), r["moveFromMark"].as_str()), (Some("none"), Some("doubleUnderline")));
+
+        // An ordinary deletion marked (none): no line, the author's colour.
+        let mut s = Session::new(Document::new());
+        s.view.proofing = false;
+        s.run("document.setText", &json!({"text": "keep gone"})).unwrap();
+        s.run("review.trackChanges", &json!({"value": true})).unwrap();
+        s.run("select.range", &json!({"anchor": {"block": 0, "off": 5}, "focus": {"block": 0, "off": 9}})).unwrap();
+        s.run("text.delete", &json!({})).unwrap();
+        s.run("review.trackingOptions", &json!({"deleteMark": "none"})).unwrap();
+        let (d, _) = draws(&mut s);
+        assert!(h_strokes(&d).is_empty());
+        let gone = d.iter().find_map(|x| if let Draw::Glyphs { text, color, .. } = x { text.contains("gone").then_some(*color) } else { None });
+        assert_eq!(gone, Some(wordcraft_layout::display::revision_color(0)));
+    }
+
     /// Review of gap #5: Deletions = Hidden hides deletions, not moved-away text, which follows
-    /// Moved from (left at its default: shown, green, double strikethrough) and keeps its room.
-    /// Word's behaviour for this combination is unverified; see `MarkupOptions::hides_deletion`.
+    /// Moved from (left at its default: shown, green, double strikethrough) and keeps its room,
+    /// as in Word for Mac 16.113.4 (user-checked 2026-10-15).
     #[test]
     fn hidden_deletions_leave_moved_from_text_shown() {
         use wordcraft_layout::display::{MOVE_COLOR, Stroke};

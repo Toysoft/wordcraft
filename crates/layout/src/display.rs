@@ -229,6 +229,11 @@ named! {
         Hash = "hash",
         Underline = "underline",
         ColorOnly = "colorOnly",
+        /// No mark (an ordinary deletion keeps its colour; moved-away text is plain, as in Word).
+        None = "none",
+        Bold = "bold",
+        Italic = "italic",
+        DoubleUnderline = "doubleUnderline",
     }
 }
 
@@ -866,7 +871,10 @@ fn lines(
             // where it was, double underline where it went).
             let moved_to = doc.move_name(ins).is_some();
             let moved_from = del.is_some() && doc.move_name(del).is_some();
+            // Moved text marked (none) is plain text, its colour setting aside (Word for Mac).
+            let plain_move = (moved_from && m.move_from_mark == DeleteMark::None) || (moved_to && m.move_to_mark == InsertMark::None);
             let color = match (ins, del) {
+                _ if plain_move => text_color(&rc.color, rc.shading.or(rc.highlight)),
                 (_, Some(r)) if moved_from => m.move_from_color.unwrap_or_else(|| author(r)),
                 (Some(r), _) if moved_to => m.move_to_color.unwrap_or_else(|| author(r)),
                 (Some(r), _) => m.insert_color.unwrap_or_else(|| author(r)),
@@ -928,8 +936,8 @@ fn lines(
                     glyphs,
                     color,
                     alpha: if art.is_some() { 0.0 } else { alpha },
-                    synth_bold: st.synth_bold || ins_mark == Some(InsertMark::Bold),
-                    synth_italic: st.synth_italic || ins_mark == Some(InsertMark::Italic),
+                    synth_bold: st.synth_bold || ins_mark == Some(InsertMark::Bold) || del_mark == Some(DeleteMark::Bold),
+                    synth_italic: st.synth_italic || ins_mark == Some(InsertMark::Italic) || del_mark == Some(DeleteMark::Italic),
                     text,
                     link: rc.link.clone(),
                     ranges,
@@ -948,7 +956,7 @@ fn lines(
             let thick = (st.size / 18.0).max(0.5);
             let underline = match (ins_mark, del_mark) {
                 (Some(InsertMark::Underline), _) | (_, Some(DeleteMark::Underline)) => Underline::Single,
-                (Some(InsertMark::DoubleUnderline), _) => Underline::Double,
+                (Some(InsertMark::DoubleUnderline), _) | (_, Some(DeleteMark::DoubleUnderline)) => Underline::Double,
                 _ => rc.underline,
             };
             let double = rc.double_strike || del_mark == Some(DeleteMark::DoubleStrikethrough);
