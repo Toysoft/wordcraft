@@ -87,7 +87,7 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
 
 - First letter of a sentence (paragraph or list item start, after `. ! ?`) is capitalised; not
   after abbreviations (`e.g.`, `Dr.`, …) or initials (`J.`), and not for mixed-case words
-  (`iPhone`) or single-letter labels (`a.`). `teh`→`the`, `i`→`I`, `(c)`→`©`, `(tm)`→`™`,
+  (`iPhone`), single-letter labels (`a.`) or Georgian, which has no sentence capitals. `teh`→`the`, `i`→`I`, `(c)`→`©`, `(tm)`→`™`,
   `wait...`→`wait…`, smart quotes (`autocorrect_as_you_type`).
 - Correct TWo INitial CApitals: a finished word of three or more letters with two capitals and
   the rest lowercase loses its second capital (`WOrd`→`Word`, `TEh`→`The`); not the exceptions
@@ -196,6 +196,7 @@ Word.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | AutoCorrect: Georgian sentences aren't capitalised (Mtavruli is only for all-caps text) |
 | 2026-10-14 | trivial | Shift+Delete cuts the selection, and does nothing without one, on macOS and Linux too, as in Word for Windows (#1669); Shift+Backspace already erased (#707) |
 | 2026-10-13 | trivial | Select All then Delete or Backspace removes a table the document starts with (#1198) |
 | 2026-10-12 | trivial | Editing keys: Down and Up from the start of a line beside a table go into it instead of skipping it (#1007) |
