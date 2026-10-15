@@ -4971,6 +4971,19 @@ fn table_formula_reads_and_writes_decimal_comma_in_polish() {
     assert_eq!(run(&mut s, "table.formula", json!({"formula": "=SUM(ABOVE)"}))["result"], "1253.75");
 }
 
+#[test]
+fn table_formulas_handle_empty_cells_and_extrema() {
+    let mut s = column_table("en-US", &["", "", ""]);
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=MAX(ABOVE)"}))["result"], "0");
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=MIN(ABOVE)"}))["result"], "0");
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=PRODUCT(ABOVE)"}))["result"], "0");
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=AVERAGE(ABOVE)"}))["result"], "0");
+
+    let mut s = column_table("en-US", &["-15", "-5", ""]);
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=MAX(ABOVE)"}))["result"], "-5");
+    assert_eq!(run(&mut s, "table.formula", json!({"formula": "=MIN(ABOVE)"}))["result"], "-15");
+}
+
 /// #837: text sorts follow the language's alphabet: Polish `ł` after `l`, `ć` after `c`.
 #[test]
 fn table_and_paragraph_sort_use_polish_alphabet() {

@@ -727,11 +727,11 @@ fn formula(s: &mut Session, v: &Value) -> CmdResult {
     } else if f.starts_with("=COUNT") {
         nums.len() as f64
     } else if f.starts_with("=MAX") {
-        nums.iter().copied().fold(f64::MIN, f64::max)
+        nums.into_iter().reduce(f64::max).unwrap_or(0.0)
     } else if f.starts_with("=MIN") {
-        nums.iter().copied().fold(f64::MAX, f64::min)
+        nums.into_iter().reduce(f64::min).unwrap_or(0.0)
     } else if f.starts_with("=PRODUCT") {
-        nums.iter().product()
+        if nums.is_empty() { 0.0 } else { nums.iter().product() }
     } else {
         nums.iter().sum()
     };
