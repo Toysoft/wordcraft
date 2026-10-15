@@ -82,15 +82,14 @@ fn keytip_badge(ui: &Ui, resp: &Response, id: &str, name: &str) {
     if let Some(l) = letter {
         // Screen readers announce the letters as the control's access key (#1012).
         ui.ctx().accesskit_node_builder(resp.id, |n| n.set_access_key(l.clone()));
-        let first = ui.data_mut(|d| {
+        ui.data_mut(|d| {
             let mut v: Vec<(Rect, String)> = d.get_temp::<Vec<(Rect, String)>>(crate::keytips::rects_id()).unwrap_or_default();
             v.push((resp.rect, l));
-            let first = v.len() == 1;
             d.insert_temp(crate::keytips::rects_id(), v);
-            first
         });
-        // Choosing a tab moves the keyboard focus to its first command.
-        if first {
+        // Choosing a tab moves the keyboard focus to its first command (the first to ask while
+        // the focus is pending); never to a combo's text box, which would start editing.
+        if id != "combo" {
             crate::keytips::take_focus(ui.ctx(), resp, crate::keytips::Phase::Commands);
         }
     }
@@ -169,6 +168,11 @@ pub fn big(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str, pa
 /// A large ribbon button for a mode that stays on (`checked` draws it pressed), run without params.
 pub fn big_toggle(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str, checked: bool) -> Response {
     big_button(ui, app, icon, label, id, Value::Object(Default::default()), false, Some(checked))
+}
+
+/// [`big_toggle`] run with `params` (Show Comments says which way it switches).
+pub fn big_toggle_with(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str, params: Value, checked: bool) -> Response {
+    big_button(ui, app, icon, label, id, params, false, Some(checked))
 }
 
 /// Size of the drop-down marker drawn after a label or beside a split button (#659: one marker,

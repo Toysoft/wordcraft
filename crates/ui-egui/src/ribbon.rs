@@ -1822,12 +1822,12 @@ fn review(app: &mut WordApp, ui: &mut Ui) {
             small(ui, app, "nextComment", Some("Next"), "Next Comment", "review.nextComment", json!({}), false);
         });
         let shown = app.session.view.comments_pane;
-        big(ui, app, "showComments", "Show\nComments", "view.commentsPane", json!({"value": !shown}), false);
+        crate::widgets::big_toggle_with(ui, app, "showComments", "Show\nComments", "view.commentsPane", json!({"value": !shown}), shown);
     });
     group(ui, "Tracking", Some("review.trackingOptions"), app, |ui, app| {
         let on = app.session.doc.settings.track_changes;
-        let r = big(ui, app, "trackChanges", if on { "Track\nChanges ✓" } else { "Track\nChanges" }, "review.trackChanges", json!({}), false);
-        let _ = r;
+        // Drawn pressed while on, and a toggle to screen readers (#1012 review).
+        big_toggle(ui, app, "trackChanges", "Track\nChanges", "review.trackChanges", on);
         stack(ui, |ui| {
             menu_button(
                 ui,
@@ -3130,6 +3130,29 @@ mod tests {
         assert!(bullets.iter().any(|n| n.toggled() == Some(Toggled::True)), "Bullets are on");
         let paste: Vec<_> = h.query_all(By::new().role(Role::Button).label_contains(tl!("Paste"))).map(|n| n.accesskit_node()).collect();
         assert!(paste.iter().any(|n| n.has_popup() == Some(HasPopup::Menu)), "Paste opens a menu");
+
+        // Review: Track Changes and Show Comments say whether they're on (#1012 review).
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        app.run("review.trackChanges", json!({"value": true})).unwrap();
+        app.run("view.commentsPane", json!({"value": true})).unwrap();
+        app.ui.tab = "Review".into();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(4000.0, 200.0)).build_ui_state(tab_only, app);
+        h.run_steps(4);
+        assert_eq!(toggled(&h, tl!("Track Changes")), Some(Toggled::True), "Track Changes is on");
+        assert_eq!(toggled(&h, tl!("Show Comments")), Some(Toggled::True), "Show Comments is on");
+        h.state_mut().run("review.trackChanges", json!({"value": false})).unwrap();
+        h.run_steps(2);
+        assert_eq!(toggled(&h, tl!("Track Changes")), Some(Toggled::False), "Track Changes is off");
+
+        // Design: the style-set tiles are read by their display names, not their ids.
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        app.ui.tab = "Design".into();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(4000.0, 200.0)).build_ui_state(tab_only, app);
+        h.run_steps(4);
+        for (id, label) in crate::previews::STYLE_SET_LABELS {
+            assert!(h.query(By::new().role(Role::Button).label(id)).is_none(), "{id}: not read out by its id");
+            assert!(h.query(By::new().role(Role::Button).label(tl!(label))).is_some(), "{label}: a style-set tile");
+        }
     }
 
     fn app_harness(app: WordApp) -> egui_kittest::Harness<'static, WordApp> {
