@@ -78,9 +78,9 @@ mod checker_tests {
     fn vietnamese_paragraphs_under_english_get_no_marks() {
         let text = "Hôm nay tôi đi học, trời rất đẹp và mát mẻ.";
         let spans = [(0..text.len(), ProofLang::En)];
-        assert!(check_text_with(text, &spans, &Options::default(), true).is_empty());
+        assert!(check_text_with(text, &spans, &Options::default(), true, false).is_empty());
         // No language at all (the document default) behaves the same.
-        assert!(check_text_with(text, &[], &Options::default(), true).is_empty());
+        assert!(check_text_with(text, &[], &Options::default(), true, false).is_empty());
     }
 
     #[test]
