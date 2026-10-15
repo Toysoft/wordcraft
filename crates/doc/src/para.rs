@@ -212,6 +212,10 @@ pub struct Float {
     /// decorative mark). See [`InlineObject::alt_text`].
     #[serde(skip_serializing_if = "AltText::is_empty")]
     pub alt: AltText,
+    /// Hidden (`wp:docPr/@hidden`, VML `visibility:hidden`): kept and saved, but neither drawn nor
+    /// laid out, as Word for Windows does (Word for Mac draws hidden VML shapes).
+    #[serde(skip_serializing_if = "is_false")]
+    pub hidden: bool,
 }
 
 /// Longest alternative text kept (characters): hostile files and commands are capped.
@@ -284,7 +288,11 @@ pub enum ShapeKind {
     Rectangle,
     RoundedRectangle,
     Ellipse,
+    /// Flowchart OR preset: an ellipse with horizontal and vertical spokes.
+    FlowchartOr,
     Triangle,
+    /// A right triangle (DrawingML's `rtTriangle`): the right angle at the bottom left.
+    RightTriangle,
     Diamond,
     Line,
     Arrow,
@@ -376,7 +384,7 @@ pub enum InlineObject {
         crop: [f32; 4],
         /// The OLE object (embedded or linked file) this picture shows, as read from a file:
         /// saving writes the object back, not only its picture. See [`crate::graphic::Embedded`].
-        #[serde(skip)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         ole: Option<std::sync::Arc<crate::graphic::Embedded>>,
     },
     /// A chart or SmartArt diagram (see [`crate::graphic`]).
@@ -445,6 +453,10 @@ pub enum InlineObject {
         /// toggle: never written to files.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         code: bool,
+        /// A legacy form field's definition (`FORMCHECKBOX`, `FORMTEXT`, `FORMDROPDOWN`): the
+        /// source's `w:ffData`, raw OOXML kept for round trip. Empty for other fields.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        form: String,
     },
     /// The start of a field whose result is ordinary content — formatted, possibly spanning
     /// paragraphs — up to the matching [`InlineObject::FieldEnd`]. Imported TOCs and citation
@@ -831,6 +843,30 @@ impl Paragraph {
         }
         out
     }
+    /// [`Self::plain_text`] as it reads on screen: characters in runs set in a symbol font
+    /// (Symbol, Wingdings…) become their standard Unicode equivalents
+    /// ([`crate::symbol_fonts`]). For copying as text and plain-text export; the stored text is
+    /// unchanged.
+    pub fn shown_text(&self) -> String {
+        let mut out = String::with_capacity(self.text.len());
+        let mut k = 0;
+        let mut runs = self.run_ranges().peekable();
+        for (i, c) in self.text.char_indices() {
+            while runs.peek().is_some_and(|(r, _)| r.end <= i) {
+                runs.next();
+            }
+            if c == OBJ {
+                if let Some(o) = self.objects.get(k) {
+                    out.push_str(o.plain_text());
+                }
+                k += 1;
+                continue;
+            }
+            let font = runs.peek().filter(|(r, _)| r.contains(&i)).and_then(|(_, p)| p.font.as_deref());
+            out.push(font.and_then(|f| crate::symbol_fonts::symbol_char(f, c)).unwrap_or(c));
+        }
+        out
+    }
     /// [`Self::plain_text`] without tracked deletions: the text as it reads with every change accepted.
     pub fn final_text(&self) -> String {
         self.text_without(&self.deleted_ranges())
@@ -1001,32 +1037,32 @@ impl Paragraph {
 
     /// Merge adjacent equal runs and drop empty ones.
     pub fn normalize(&mut self) {
+        // Runs must end on character boundaries and cover the text exactly (never expected, but
+        // files lie): clamp each end to the text, push it past a split character, pad the tail.
+        let n = self.text.len();
+        let mut end = 0usize;
         let mut out: Vec<Run> = Vec::with_capacity(self.runs.len());
         for r in self.runs.drain(..) {
-            if r.len == 0 {
+            let mut e = end.saturating_add(r.len).min(n);
+            while !self.text.is_char_boundary(e) {
+                e += 1;
+            }
+            if e == end {
                 continue;
             }
             match out.last_mut() {
-                Some(l) if l.props == r.props => l.len += r.len,
-                _ => out.push(r),
+                Some(l) if l.props == r.props => l.len += e - end,
+                _ => out.push(Run { len: e - end, props: r.props }),
+            }
+            end = e;
+        }
+        if end < n {
+            match out.last_mut() {
+                Some(l) => l.len += n - end,
+                None => out.push(Run { len: n, props: self.mark.clone() }),
             }
         }
         self.runs = out;
-        // Repair a run list that doesn't cover the text exactly (never expected, but files lie).
-        let total: usize = self.runs.iter().map(|r| r.len).sum();
-        if total != self.text.len() {
-            if total < self.text.len() {
-                let p = self.runs.last().map(|r| r.props.clone()).unwrap_or_else(|| self.mark.clone());
-                self.runs.push(Run { len: self.text.len() - total, props: p });
-            } else {
-                let mut keep = self.text.len();
-                for r in &mut self.runs {
-                    r.len = r.len.min(keep);
-                    keep -= r.len;
-                }
-                self.runs.retain(|r| r.len > 0);
-            }
-        }
     }
 
     /// Delete `a..b` (bytes). Objects inside are removed.
@@ -1040,7 +1076,12 @@ impl Paragraph {
         if self.runs.is_empty() || a == 0 {
             // Keep the formatting of what's deleted for the mark when emptying.
             if b == self.text.len() {
-                self.mark = self.props_of_char(a).clone();
+                // Formatting only: the mark is a tracked change of its own or it is not, whatever
+                // revision the deleted text was part of.
+                let revisions = (self.mark.ins, self.mark.del, self.mark.fmt_change.clone());
+                let mut mark = self.props_of_char(a).clone();
+                (mark.ins, mark.del, mark.fmt_change) = revisions;
+                self.mark = mark;
             }
         }
         let k0 = self.objects_before(a);
@@ -1312,8 +1353,12 @@ mod tests {
     fn text_without_takes_ranges_in_any_order() {
         // Multi-byte chars at range edges, an object, and ranges unsorted, overlapping, nested and empty.
         let mut p = Paragraph::with_text("añb€c", CharProps::default());
-        p.insert_object(3, InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, code: false }, &CharProps::default())
-            .unwrap();
+        p.insert_object(
+            3,
+            InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, code: false, form: String::new() },
+            &CharProps::default(),
+        )
+        .unwrap();
         let text = p.text.clone();
         let naive = |dropped: &[std::ops::Range<usize>]| {
             let mut out = String::new();
@@ -1382,8 +1427,12 @@ mod tests {
     #[test]
     fn objects_track_text() {
         let mut p = Paragraph::with_text("ab", CharProps::default());
-        p.insert_object(1, InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false }, &CharProps::default())
-            .unwrap();
+        p.insert_object(
+            1,
+            InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+            &CharProps::default(),
+        )
+        .unwrap();
         p.insert_object(0, InlineObject::BookmarkStart { name: "x".into() }, &CharProps::default()).unwrap();
         assert_eq!(p.objects.len(), 2);
         assert!(matches!(p.object_at(0), Some(InlineObject::BookmarkStart { .. })));
@@ -1410,6 +1459,24 @@ mod tests {
         let t = p.split_off(p.len()).unwrap();
         assert!(t.is_empty());
         assert_eq!(t.mark.bold, Some(true));
+    }
+
+    #[test]
+    fn emptying_a_paragraph_keeps_the_formatting_but_not_the_revisions_of_its_text() {
+        let mut props = bold();
+        props.ins = Some(3);
+        props.del = Some(4);
+        let mut p = Paragraph::with_text("Hello", props);
+        p.mark = bold();
+        p.delete(0, 5).unwrap();
+        assert!(p.is_empty());
+        assert_eq!(p.mark.bold, Some(true));
+        assert_eq!((p.mark.ins, p.mark.del), (None, None));
+        // A mark that is itself a tracked change keeps its own revision.
+        let mut p = Paragraph::with_text("Hello", bold());
+        p.mark.del = Some(7);
+        p.delete(0, 5).unwrap();
+        assert_eq!((p.mark.ins, p.mark.del), (None, Some(7)));
     }
 
     #[test]

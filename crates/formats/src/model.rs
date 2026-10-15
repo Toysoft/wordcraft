@@ -11,7 +11,7 @@ use wordcraft_doc::props::{
 };
 use wordcraft_doc::section::NumFormat;
 use wordcraft_doc::styles::{Style, StyleKind};
-use wordcraft_doc::{Align, Block, Blocks, Document, Paragraph, Rgb, Table, para_block};
+use wordcraft_doc::{Align, Block, Blocks, Document, Paragraph, Revision, RevisionKind, Rgb, Table, para_block};
 
 /// Font used for code spans and code blocks.
 pub const MONO_FONT: &str = "Courier New";
@@ -37,6 +37,21 @@ pub struct Fmt {
     pub font: Option<String>,
     /// Background (highlight / shading).
     pub background: Option<Rgb>,
+    /// Tracked insertion of this text (formats that keep revisions: RTF).
+    pub ins: Option<RevMark>,
+    /// Tracked deletion of this text. Only [`from_doc_tracked`] keeps deleted text in a flow.
+    pub del: Option<RevMark>,
+}
+
+/// Who made a tracked change and when (ISO 8601; empty = unknown).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct RevMark {
+    pub author: String,
+    pub date: String,
+    /// The source's identity of the change, when it has one (an ODT changed region; the
+    /// revision index in [`from_doc_tracked`]): marks with different ids stay separate
+    /// revisions. `None` (RTF) = one revision per kind, author and date.
+    pub id: Option<u32>,
 }
 
 /// An embedded picture.
@@ -89,6 +104,19 @@ pub struct ListInfo {
     pub level: u8,
 }
 
+/// Paragraph spacing and indents (points) that a source states on the paragraph itself (RTF);
+/// left out, they come from the style.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Spacing {
+    pub before: Option<f32>,
+    pub after: Option<f32>,
+    pub line: Option<wordcraft_doc::props::LineSpacing>,
+    pub left: Option<f32>,
+    pub right: Option<f32>,
+    /// First-line indent; negative = hanging.
+    pub first: Option<f32>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Para {
     pub kind: Kind,
@@ -96,6 +124,16 @@ pub struct Para {
     pub align: Option<Align>,
     pub page_break: bool,
     pub inlines: Vec<Inline>,
+    pub spacing: Spacing,
+    /// Borders the source puts on the paragraph itself (RTF `\brdrb`…).
+    pub borders: Option<wordcraft_doc::props::Borders>,
+    /// The section this paragraph ends (RTF `\sect`), as the document's last paragraph of it.
+    pub section: Option<Box<wordcraft_doc::SectionProps>>,
+    /// Tracked insertion of the paragraph mark.
+    pub mark_ins: Option<Box<RevMark>>,
+    /// Tracked deletion of the paragraph mark (only [`from_doc_tracked`] and formats that keep
+    /// revisions set it).
+    pub mark_del: Option<Box<RevMark>>,
 }
 
 impl Para {
@@ -121,6 +159,22 @@ impl Para {
         for i in &self.inlines {
             match i {
                 Inline::Text(t, _) | Inline::Equation { linear: t, .. } => s.push_str(t),
+                Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
+            }
+        }
+        s
+    }
+    /// [`Self::text`] as it reads on screen: text set in a symbol font (Symbol, Wingdings…) as
+    /// its Unicode equivalents ([`wordcraft_doc::symbol_fonts`]), for plain-text export.
+    pub fn shown_text(&self) -> String {
+        let mut s = String::new();
+        for i in &self.inlines {
+            match i {
+                Inline::Text(t, f) => match f.font.as_deref() {
+                    Some(font) if wordcraft_doc::symbol_fonts::is_symbol_font(font) => s.push_str(&wordcraft_doc::symbol_fonts::map_text(font, t)),
+                    _ => s.push_str(t),
+                },
+                Inline::Equation { linear: t, .. } => s.push_str(t),
                 Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
             }
         }
@@ -171,11 +225,13 @@ pub struct Cell {
     pub covered: bool,
     pub header: bool,
     pub shading: Option<Rgb>,
+    /// The cell's own borders (RTF `\clbrdr…`), drawn whatever the table's style.
+    pub borders: Option<wordcraft_doc::props::Borders>,
 }
 
 impl Default for Cell {
     fn default() -> Self {
-        Cell { blocks: Vec::new(), colspan: 1, rowspan: 1, covered: false, header: false, shading: None }
+        Cell { blocks: Vec::new(), colspan: 1, rowspan: 1, covered: false, header: false, shading: None, borders: None }
     }
 }
 
@@ -209,6 +265,12 @@ impl FTable {
     /// After an importer that gives `rowspan` but no placeholder cells (HTML): insert covered
     /// cells into the rows below each spanning cell.
     pub fn insert_covered(&mut self) {
+        // Each spanning cell touches up to `rowspan - 1` rows below it; a table of many rows each
+        // carrying a large rowspan would otherwise be O(rows × rowspan) covered cells, each of
+        // which becomes a document cell downstream. Cap the total touched so a small file can't
+        // multiply into a huge table, whatever the rowspans claim.
+        const MAX_COVERED_WORK: usize = 1 << 17;
+        let mut work = 0usize;
         let nrows = self.rows.len();
         for r in 0..nrows {
             let mut g = 0usize;
@@ -217,6 +279,10 @@ impl FTable {
                 let (span, rs, covered) = (c.colspan.clamp(1, 63) as usize, c.rowspan.clamp(1, 1000) as usize, c.covered);
                 if rs > 1 && !covered {
                     for k in 1..rs {
+                        work += 1;
+                        if work > MAX_COVERED_WORK {
+                            return;
+                        }
                         let Some(row) = self.rows.get_mut(r + k) else { break };
                         // Find the index in that row at grid column `g`.
                         let mut x = 0usize;
@@ -350,9 +416,42 @@ fn append(p: &mut Paragraph, text: &str, props: &CharProps, obj: Option<InlineOb
 
 struct Builder<'a> {
     doc: &'a mut Document,
+    /// Revisions already in `doc` by (kind, author, date), so each change is added once.
+    revs: std::collections::HashMap<(u8, RevMark), u32>,
 }
 
-impl Builder<'_> {
+fn rev_key(kind: RevisionKind) -> u8 {
+    match kind {
+        RevisionKind::Insert => 0,
+        RevisionKind::Delete => 1,
+        RevisionKind::Format => 2,
+    }
+}
+
+impl<'a> Builder<'a> {
+    fn new(doc: &'a mut Document) -> Builder<'a> {
+        let mut revs = std::collections::HashMap::new();
+        for (i, r) in doc.revisions.iter().enumerate() {
+            if r.move_name.is_none() {
+                let mark = RevMark { author: r.author.clone(), date: r.date.clone(), id: None };
+                revs.entry((rev_key(r.kind), mark)).or_insert(i as u32);
+            }
+        }
+        Builder { doc, revs }
+    }
+
+    /// The document revision for a tracked change, added the first time it is seen.
+    fn revision(&mut self, kind: RevisionKind, m: &RevMark) -> u32 {
+        let key = (rev_key(kind), m.clone());
+        if let Some(i) = self.revs.get(&key) {
+            return *i;
+        }
+        let i = u32::try_from(self.doc.revisions.len()).unwrap_or(u32::MAX);
+        self.doc.revisions.push(Revision::new(kind, m.author.clone(), m.date.clone()));
+        self.revs.insert(key, i);
+        i
+    }
+
     fn para(&mut self, p: &Para, list_num: Option<u32>) -> Paragraph {
         let mut out = Paragraph::new();
         let style = match p.kind {
@@ -365,6 +464,8 @@ impl Builder<'_> {
         out.props.style = style;
         if p.kind == Kind::Rule {
             out.props.borders = Some(rule_borders());
+        } else if p.borders.is_some() {
+            out.props.borders = p.borders;
         }
         if let (Some(li), Some(num)) = (p.list, list_num) {
             if out.props.style.is_none() {
@@ -373,9 +474,17 @@ impl Builder<'_> {
             out.props.numbering = Some(NumRef { num, level: li.level.min(8) });
         }
         out.props.align = p.align;
+        let sp = p.spacing;
+        out.props.space_before = sp.before.or(out.props.space_before);
+        out.props.space_after = sp.after.or(out.props.space_after);
+        out.props.line_spacing = sp.line.or(out.props.line_spacing);
+        out.props.indent_left = sp.left.or(out.props.indent_left);
+        out.props.indent_right = sp.right.or(out.props.indent_right);
+        out.props.indent_first = sp.first.or(out.props.indent_first);
         if p.page_break {
             out.props.page_break_before = Some(true);
         }
+        out.section.clone_from(&p.section);
         // Inlines are appended in order, so build the runs directly: inserting each one through
         // `Paragraph::insert_text` rescans every earlier run and is quadratic in their number.
         for i in &p.inlines {
@@ -383,6 +492,8 @@ impl Builder<'_> {
                 Inline::Text(t, f) => {
                     let t = clean_text(t);
                     let mut cp = char_props(f);
+                    cp.ins = f.ins.as_ref().map(|m| self.revision(RevisionKind::Insert, m));
+                    cp.del = f.del.as_ref().map(|m| self.revision(RevisionKind::Delete, m));
                     if p.kind == Kind::Code && cp.font.as_deref() == Some(MONO_FONT) {
                         cp.font = None;
                     }
@@ -408,6 +519,8 @@ impl Builder<'_> {
                 }
             }
         }
+        out.mark.ins = p.mark_ins.as_deref().map(|m| self.revision(RevisionKind::Insert, m));
+        out.mark.del = p.mark_del.as_deref().map(|m| self.revision(RevisionKind::Delete, m));
         out.normalize();
         out.touch();
         out
@@ -436,7 +549,7 @@ impl Builder<'_> {
             .collect();
         let numbering = &mut self.doc.numbering;
         let aid = numbering.abstracts.iter().map(|a| a.id + 1).max().unwrap_or(0);
-        numbering.abstracts.push(AbstractNum { id: aid, name: None, levels });
+        numbering.abstracts.push(AbstractNum { id: aid, name: None, levels, ..Default::default() });
         let nid = numbering.nums.iter().map(|n| n.id + 1).max().unwrap_or(1).max(1);
         numbering.nums.push(Num { id: nid, abstract_id: aid, ..Default::default() });
         nid
@@ -500,7 +613,10 @@ impl Builder<'_> {
         }
         let cols = t.cols().clamp(1, wordcraft_doc::table::MAX_COLS);
         let width = self.doc.last_section.text_width().max(72.0);
-        let mut tb = Table::new(rows.len(), cols, width);
+        // One template row for the grid widths and props; the real rows are built below. Sizing it
+        // to `rows.len()` would allocate a full rows × cols cell grid only to clear it, which a
+        // tall table (many rows, wide from merged cells) turns into a large transient spike.
+        let mut tb = Table::new(1, cols, width);
         if t.borderless {
             tb.props.style = None;
         }
@@ -528,7 +644,7 @@ impl Builder<'_> {
                     VMerge::None
                 };
                 row.cells.push(wordcraft_doc::Cell {
-                    props: CellProps { width: Some(w), span: span as u32, vmerge, shading: c.shading, ..Default::default() },
+                    props: CellProps { width: Some(w), span: span as u32, vmerge, shading: c.shading, borders: c.borders, ..Default::default() },
                     blocks,
                     controls: Default::default(),
                 });
@@ -548,13 +664,19 @@ fn finite_or(v: f32, d: f32) -> f32 {
 
 /// Build a document from a flow.
 pub fn to_doc(flow: &Flow) -> Document {
+    to_doc_in(flow, wordcraft_doc::SectionProps::default())
+}
+
+/// [`to_doc`] on a page of the source's own size and margins (`section`), which tables size to.
+pub fn to_doc_in(flow: &Flow, section: wordcraft_doc::SectionProps) -> Document {
     let mut doc = Document::new();
+    doc.last_section = section;
     doc.numbering = Default::default();
     let uses_code = uses_kind(&flow.blocks, Kind::Code, 0);
     if uses_code {
         doc.styles.upsert(code_style());
     }
-    let body = Builder { doc: &mut doc }.blocks(&flow.blocks, 0);
+    let body = Builder::new(&mut doc).blocks(&flow.blocks, 0);
     doc.body = body;
     let m = &flow.meta;
     doc.core.title = m.title.clone();
@@ -565,6 +687,16 @@ pub fn to_doc(flow: &Flow) -> Document {
     doc.core.created = m.created.clone();
     doc.ensure_nonempty();
     doc
+}
+
+/// `blocks` as document blocks of `doc` (their pictures go into its media), for a header,
+/// footer or other part an importer adds itself.
+pub fn part_blocks(doc: &mut Document, blocks: &[FBlock]) -> Blocks {
+    let mut out = Builder::new(doc).blocks(blocks, 0);
+    if out.is_empty() {
+        out.push(para_block(Paragraph::new()));
+    }
+    out
 }
 
 fn uses_kind(blocks: &[FBlock], k: Kind, depth: usize) -> bool {
@@ -628,7 +760,17 @@ fn fmt_of(doc: &Document, cp: &CharProps, in_code: bool) -> Fmt {
         size: e.size,
         font: if code || in_code { None } else { e.font.clone() },
         background: e.highlight.and_then(|h| h.rgb()).or(e.shading),
+        ins: None,
+        del: None,
     }
+}
+
+/// The insertion and deletion `cp` tracks, as flow marks.
+fn rev_marks(doc: &Document, cp: &CharProps) -> (Option<RevMark>, Option<RevMark>) {
+    let mark = |i: Option<u32>| {
+        i.map(|i| doc.revisions.get(i as usize).map(|r| RevMark { author: r.author.clone(), date: r.date.clone(), id: Some(i) }).unwrap_or_default())
+    };
+    (mark(cp.ins), mark(cp.del))
 }
 
 /// Paragraph kind and list membership of a document paragraph.
@@ -672,21 +814,54 @@ fn media_ext(key: &str, data: &[u8]) -> String {
 /// A document paragraph as flow paragraphs: a page break character inside the text ends the
 /// paragraph, and the text after it starts a new one that carries `page_break`.
 pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
+    flow_paras_in(doc, p, false)
+}
+
+/// [`flow_paras`]; `tracked` keeps tracked changes: deleted text stays, and text carries its
+/// insertion and deletion marks.
+fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
     let (kind, list) = para_kind(doc, p);
     let mut done: Vec<Para> = Vec::new();
-    let mut out = Para { kind, list, align: p.props.align, page_break: p.props.page_break_before.unwrap_or(false), inlines: Vec::new() };
+    let mut out = Para {
+        kind,
+        list,
+        align: p.props.align,
+        page_break: p.props.page_break_before.unwrap_or(false),
+        inlines: Vec::new(),
+        spacing: Spacing::default(),
+        borders: None,
+        section: None,
+        mark_ins: None,
+        mark_del: None,
+    };
     let in_code = kind == Kind::Code;
     let mut k = 0usize;
     for (range, props) in p.run_ranges() {
         let Some(text) = p.text.get(range.clone()) else { continue };
+        // Deleted objects and page breaks stay out even when tracking: the flow has no marks for them.
         let hidden = props.hidden.unwrap_or(false) || props.del.is_some();
-        let f = fmt_of(doc, props, in_code);
+        let hidden_text = props.hidden.unwrap_or(false) || (props.del.is_some() && !tracked);
+        let mut f = fmt_of(doc, props, in_code);
+        if tracked {
+            (f.ins, f.del) = rev_marks(doc, props);
+        }
         let mut buf = String::new();
         for c in text.chars() {
             if c == PAGE_BREAK {
                 if !hidden {
                     out.push_text(&std::mem::take(&mut buf), &f);
-                    let next = Para { kind, list: None, align: p.props.align, page_break: true, inlines: Vec::new() };
+                    let next = Para {
+                        kind,
+                        list: None,
+                        align: p.props.align,
+                        page_break: true,
+                        inlines: Vec::new(),
+                        spacing: Spacing::default(),
+                        borders: None,
+                        section: None,
+                        mark_ins: None,
+                        mark_del: None,
+                    };
                     let prev = std::mem::replace(&mut out, next);
                     if prev.inlines.is_empty() {
                         out.page_break |= prev.page_break;
@@ -703,7 +878,8 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
             }
             let obj = p.objects.get(k);
             k += 1;
-            if hidden {
+            // Hidden text, or a hidden drawing: not in the copy.
+            if hidden || obj.and_then(InlineObject::frame).is_some_and(|(_, _, f)| f.hidden) {
                 continue;
             }
             match obj {
@@ -746,24 +922,28 @@ pub fn flow_paras(doc: &Document, p: &Paragraph) -> Vec<Para> {
                 None => {}
             }
         }
-        if !hidden {
+        if !hidden_text {
             out.push_text(&buf, &f);
         }
+    }
+    if tracked {
+        let (ins, del) = rev_marks(doc, &p.mark);
+        (out.mark_ins, out.mark_del) = (ins.map(Box::new), del.map(Box::new));
     }
     done.push(out);
     done
 }
 
-fn flow_blocks(doc: &Document, bl: &Blocks, depth: usize) -> Vec<FBlock> {
+fn flow_blocks(doc: &Document, bl: &Blocks, depth: usize, tracked: bool) -> Vec<FBlock> {
     let mut out = Vec::new();
     for b in bl {
         match &**b {
-            Block::Para(p) => out.extend(flow_paras(doc, p).into_iter().map(FBlock::Para)),
-            Block::Table(t) if depth < MAX_DEPTH => out.push(FBlock::Table(flow_table(doc, t, depth))),
+            Block::Para(p) => out.extend(flow_paras_in(doc, p, tracked).into_iter().map(FBlock::Para)),
+            Block::Table(t) if depth < MAX_DEPTH => out.push(FBlock::Table(flow_table(doc, t, depth, tracked))),
             Block::Table(t) => {
                 for r in &t.rows {
                     for c in &r.cells {
-                        out.extend(flow_blocks(doc, &c.blocks, depth));
+                        out.extend(flow_blocks(doc, &c.blocks, depth, tracked));
                     }
                 }
             }
@@ -772,7 +952,7 @@ fn flow_blocks(doc: &Document, bl: &Blocks, depth: usize) -> Vec<FBlock> {
     out
 }
 
-fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
+fn flow_table(doc: &Document, t: &Table, depth: usize, tracked: bool) -> FTable {
     let mut rows = Vec::new();
     for (ri, r) in t.rows.iter().enumerate() {
         let header = r.props.header || (ri == 0 && t.props.look.header_row && t.rows.len() > 1);
@@ -790,12 +970,13 @@ fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
                 }
             }
             cells.push(Cell {
-                blocks: flow_blocks(doc, &c.blocks, depth + 1),
+                blocks: flow_blocks(doc, &c.blocks, depth + 1, tracked),
                 colspan: c.span() as u32,
                 rowspan,
                 covered: c.props.vmerge == VMerge::Continue,
                 header,
                 shading: c.props.shading,
+                borders: c.props.borders,
             });
         }
         rows.push(cells);
@@ -809,9 +990,19 @@ fn flow_table(doc: &Document, t: &Table, depth: usize) -> FTable {
 
 /// The document body as a flow.
 pub fn from_doc(doc: &Document) -> Flow {
+    flow_of(doc, false)
+}
+
+/// [`from_doc`] keeping tracked changes: deleted text stays, and text carries its insertion and
+/// deletion marks ([`Fmt::ins`], [`Fmt::del`]), for formats that can write revisions (RTF).
+pub fn from_doc_tracked(doc: &Document) -> Flow {
+    flow_of(doc, true)
+}
+
+fn flow_of(doc: &Document, tracked: bool) -> Flow {
     let c = &doc.core;
     Flow {
-        blocks: flow_blocks(doc, &doc.body, 0),
+        blocks: flow_blocks(doc, &doc.body, 0, tracked),
         meta: Meta {
             title: c.title.clone(),
             author: c.creator.clone(),
@@ -841,6 +1032,21 @@ pub fn sniff_image(data: &[u8]) -> Option<&'static str> {
 /// Pixel size of encoded image bytes.
 pub fn image_px(data: &[u8]) -> Option<(u32, u32)> {
     image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format().ok()?.into_dimensions().ok()
+}
+
+/// Largest allocation one decoded picture may make when it is re-encoded on export: the `image`
+/// crate's default, stated here so the bound doesn't depend on a library default that may change.
+const MAX_DECODE_ALLOC: u64 = 512 << 20;
+
+/// Decode an encoded image with a bounded allocation, so a small file that declares huge
+/// dimensions can't exhaust memory when a picture is re-encoded on export. `None` when it would
+/// be too large or doesn't decode.
+pub fn decode_bounded(data: &[u8]) -> Option<image::DynamicImage> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    reader.limits(limits);
+    reader.decode().ok()
 }
 
 /// A picture from bytes with an optional display size (points); the natural size (96 dpi) is
@@ -923,7 +1129,8 @@ pub fn percent_decode(s: &str) -> Vec<u8> {
     while let Some(&c) = b.get(i) {
         if c == b'%'
             && let Some(h) = b.get(i + 1..i + 3)
-            && let Ok(v) = u8::from_str_radix(std::str::from_utf8(h).unwrap_or("zz"), 16)
+            && let Some(hex) = std::str::from_utf8(h).ok()
+            && let Ok(v) = u8::from_str_radix(hex, 16)
         {
             out.push(v);
             i += 3;
@@ -942,6 +1149,8 @@ pub fn mime_of(ext: &str) -> &'static str {
         "gif" => "image/gif",
         "webp" => "image/webp",
         "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
         _ => "application/octet-stream",
     }
 }
@@ -1046,6 +1255,16 @@ pub fn parse_color(s: &str) -> Option<Rgb> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn insert_covered_is_bounded_on_hostile_rowspan() {
+        // Many rows each carrying the maximum rowspan would be O(rows × rowspan) covered cells;
+        // the work cap must keep insertion bounded (and quick) instead of exhausting memory.
+        let mut t =
+            FTable { rows: (0..20_000).map(|_| vec![Cell { rowspan: 1000, ..Default::default() }]).collect(), widths: Vec::new(), borderless: false };
+        t.insert_covered();
+        assert!(t.rows.iter().all(|r| r.len() <= 64), "a row grew past the column cap");
+    }
 
     #[test]
     fn base64_round_trip() {
