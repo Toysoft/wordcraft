@@ -523,6 +523,10 @@ pub struct Prefs {
     pub ignore_uppercase: bool,
     pub ignore_numbers: bool,
     pub ignore_internet: bool,
+    /// Automatically convert legacy Bijoy / ANSI documents to Unicode on open.
+    /// When disabled, raw Bijoy ANSI bytes and font names are preserved for backward compatibility
+    /// with legacy Microsoft Word.
+    pub convert_bijoy_on_open: bool,
     /// AutoCorrect Options: replacements, capitalization and AutoFormat As You Type (per user, as
     /// in Word). A damaged saved value reads as the defaults.
     #[serde(deserialize_with = "crate::cmd::tools::lenient_autocorrect")]
@@ -546,6 +550,7 @@ impl Default for Prefs {
             ignore_uppercase: true,
             ignore_numbers: true,
             ignore_internet: true,
+            convert_bijoy_on_open: true,
             detect_language: true,
             autocorrect: Default::default(),
         }

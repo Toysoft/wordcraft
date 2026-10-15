@@ -65,6 +65,12 @@ pub fn chinese_fonts() -> impl Iterator<Item = &'static CraftFont> {
     CRAFT_FONTS.iter().filter(|f| f.scripts.contains(&"Hans"))
 }
 
+/// The craft-fonts faces for Bengali (`"Beng"`), in manifest order. Empty without
+/// craft-fonts.
+pub fn bengali_fonts() -> impl Iterator<Item = &'static CraftFont> {
+    CRAFT_FONTS.iter().filter(|f| f.scripts.contains(&"Beng"))
+}
+
 /// The CJK interface faces, Regular styles only (the UI fakes no bold): the Japanese UI face and
 /// the Chinese face, Chinese first when `prefer_hans` (a Chinese interface), Japanese first
 /// otherwise. Mixing the two within a line would mix glyph styles, so the first face should

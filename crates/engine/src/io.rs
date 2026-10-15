@@ -151,13 +151,37 @@ pub fn region_page(region: &wordcraft_geom::Region) -> wordcraft_doc::SectionPro
     wordcraft_doc::SectionProps { page_w: w, page_h: h, ..Default::default() }
 }
 
+/// Settings when opening a document.
+#[derive(Clone, Copy, Debug)]
+pub struct DocOpenSettings {
+    /// Automatically convert legacy Bijoy / ANSI documents to Unicode on open (default: `true`).
+    pub convert_bijoy: bool,
+}
+
+impl Default for DocOpenSettings {
+    fn default() -> Self {
+        DocOpenSettings { convert_bijoy: true }
+    }
+}
+
+/// [`open_bytes_in`] with custom settings (e.g. Bijoy conversion preferences).
+pub fn open_bytes_opts(
+    name: &str,
+    bytes: &[u8],
+    password: Option<&str>,
+    region: &wordcraft_geom::Region,
+    settings: &DocOpenSettings,
+) -> Result<(Document, bool), String> {
+    let page = region_page(region);
+    let (doc, encrypted) = read_bytes(name, bytes, password, &page, settings.convert_bijoy)?;
+    load_embedded_fonts(&doc);
+    Ok((doc, encrypted))
+}
+
 /// [`open_bytes_with`] in `region`: a file that gives no page size opens on the region's paper
 /// (see [`region_page`]); a document with its own page size keeps it.
 pub fn open_bytes_in(name: &str, bytes: &[u8], password: Option<&str>, region: &wordcraft_geom::Region) -> Result<(Document, bool), String> {
-    let page = region_page(region);
-    let (doc, encrypted) = read_bytes(name, bytes, password, &page)?;
-    load_embedded_fonts(&doc);
-    Ok((doc, encrypted))
+    open_bytes_opts(name, bytes, password, region, &DocOpenSettings::default())
 }
 
 /// Load the fonts `doc` embeds (#1171) for this run, in memory only: text set in a font that isn't
@@ -170,16 +194,24 @@ fn load_embedded_fonts(doc: &Document) {
     }
 }
 
-fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft_doc::SectionProps) -> Result<(Document, bool), String> {
+fn read_bytes(
+    name: &str,
+    bytes: &[u8],
+    password: Option<&str>,
+    page: &wordcraft_doc::SectionProps,
+    convert_bijoy: bool,
+) -> Result<(Document, bool), String> {
     let ext = ext_of(name);
     if matches!(ext.as_str(), "docx" | "docm" | "dotx" | "dotm" | "doc" | "dot") && wordcraft_docx::is_encrypted(bytes) {
         let mut doc = wordcraft_docx::read_with_password(bytes, password).map_err(|e| e.to_string())?;
-        normalize_bijoy_fonts(&mut doc);
+        if convert_bijoy {
+            normalize_bijoy_fonts(&mut doc);
+        }
         doc.ensure_nonempty();
         return Ok((doc, true));
     }
     if ext.is_empty() || signature_contradicts(&ext, bytes) {
-        return open_by_content(name, &ext, bytes, password, page);
+        return open_by_content(name, &ext, bytes, password, page, convert_bijoy);
     }
     let (mut doc, encrypted) = match ext.as_str() {
         "doc" | "dot" => open_binary_doc(bytes, password)?,
@@ -192,10 +224,12 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
         }
         other => match crate::io_ext::open(other, bytes, page) {
             Some(r) => (r?, false),
-            None => return open_by_content(name, other, bytes, password, page),
+            None => return open_by_content(name, other, bytes, password, page, convert_bijoy),
         },
     };
-    normalize_bijoy_fonts(&mut doc);
+    if convert_bijoy {
+        normalize_bijoy_fonts(&mut doc);
+    }
     doc.ensure_nonempty();
     Ok((doc, encrypted))
 }
@@ -270,6 +304,7 @@ fn open_by_content(
     bytes: &[u8],
     password: Option<&str>,
     page: &wordcraft_doc::SectionProps,
+    convert_bijoy: bool,
 ) -> Result<(Document, bool), String> {
     let (mut doc, encrypted) = if bytes.starts_with(OLE_SIG) && wordcraft_docx::is_encrypted(bytes) {
         (wordcraft_docx::read_with_password(bytes, password).map_err(|e| e.to_string())?, true)
@@ -287,7 +322,9 @@ fn open_by_content(
     } else {
         return Err(format!("{name}: unsupported format `.{ext}` (not a document or text file)"));
     };
-    normalize_bijoy_fonts(&mut doc);
+    if convert_bijoy {
+        normalize_bijoy_fonts(&mut doc);
+    }
     doc.ensure_nonempty();
     Ok((doc, encrypted))
 }
@@ -335,8 +372,14 @@ pub fn open_path_with(path: &std::path::Path, password: Option<&str>) -> Result<
 }
 
 /// [`open_path_with`] in `region` (see [`open_bytes_in`]).
+/// [`open_path_in`] with custom settings (e.g. Bijoy conversion preferences).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn open_path_in(path: &std::path::Path, password: Option<&str>, region: &wordcraft_geom::Region) -> Result<(Document, bool), String> {
+pub fn open_path_opts(
+    path: &std::path::Path,
+    password: Option<&str>,
+    region: &wordcraft_geom::Region,
+    settings: &DocOpenSettings,
+) -> Result<(Document, bool), String> {
     crate::file_access::check_read(&path.to_string_lossy())?;
     let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if meta.len() > 2 << 30 {
@@ -353,7 +396,13 @@ pub fn open_path_in(path: &std::path::Path, password: Option<&str>, region: &wor
         doc.ensure_nonempty();
         return Ok((doc, false));
     }
-    open_bytes_in(&name, &bytes, password, region)
+    open_bytes_opts(&name, &bytes, password, region, settings)
+}
+
+/// [`open_path_with`] in `region` (see [`open_bytes_in`]).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_path_in(path: &std::path::Path, password: Option<&str>, region: &wordcraft_geom::Region) -> Result<(Document, bool), String> {
+    open_path_opts(path, password, region, &DocOpenSettings::default())
 }
 
 /// The pictures an HTML file names by a path relative to its folder.
@@ -550,6 +599,16 @@ pub fn write_file(path: &str, _bytes: &[u8]) -> Result<(), String> {
 #[cfg(target_arch = "wasm32")]
 pub fn open_path_with(path: &std::path::Path, _password: Option<&str>) -> Result<(Document, bool), String> {
     Err(format!("{}: files are opened through the browser on the web", path.display()))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn open_path_opts(
+    path: &std::path::Path,
+    password: Option<&str>,
+    _region: &wordcraft_geom::Region,
+    _settings: &DocOpenSettings,
+) -> Result<(Document, bool), String> {
+    open_path_with(path, password)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1714,5 +1773,28 @@ mod tests {
         let p_enc_no_ext = doc_enc_no_ext.body[0].as_para().expect("paragraph");
         assert_eq!(p_enc.text, p_enc_no_ext.text, "encrypted extension vs no extension text must match");
         assert_eq!(p_enc.runs[0].props.font, p_enc_no_ext.runs[0].props.font, "encrypted extension vs no extension font must match");
+    }
+
+    #[test]
+    fn open_with_convert_bijoy_disabled_preserves_raw_ansi() {
+        let text = "evsjv‡`k\r";
+        let (word, table) = make_synthetic_doc_streams(text, "SutonnyMJ");
+        let doc_bytes = cfb_file(&[("WordDocument", &word), ("0Table", &table)]);
+
+        // 1. With convert_bijoy = false: raw ANSI and SutonnyMJ font are strictly preserved
+        let preserve_settings = DocOpenSettings { convert_bijoy: false };
+        let (doc_raw, _) = open_bytes_opts("test.doc", &doc_bytes, None, &wordcraft_geom::Region::default(), &preserve_settings)
+            .expect("opens test.doc with convert_bijoy=false");
+        let p_raw = doc_raw.body[0].as_para().expect("paragraph");
+        assert_eq!(p_raw.text.trim_end(), "evsjv‡`k", "raw Bijoy ANSI bytes must be preserved");
+        assert_eq!(p_raw.runs[0].props.font.as_deref(), Some("SutonnyMJ"), "original SutonnyMJ font name must be preserved");
+
+        // 2. With convert_bijoy = true (default): converted to Unicode Kalpurush
+        let default_settings = DocOpenSettings::default();
+        let (doc_norm, _) = open_bytes_opts("test.doc", &doc_bytes, None, &wordcraft_geom::Region::default(), &default_settings)
+            .expect("opens test.doc with default settings");
+        let p_norm = doc_norm.body[0].as_para().expect("paragraph");
+        assert_eq!(p_norm.text, "বাংলাদেশ", "converted to Unicode Bengali");
+        assert_eq!(p_norm.runs[0].props.font.as_deref(), Some("Kalpurush"), "font normalized to Kalpurush");
     }
 }

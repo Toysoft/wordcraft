@@ -66,8 +66,27 @@ fn substitutes(family: &str) -> &'static [&'static str] {
         "DejaVu Serif",
         "Source Serif 4",
     ];
+    const BENGALI_ANSI: &[&str] = &[
+        "SutonnyMJ",
+        "Kalpurush ANSI",
+        "BijoyMJ",
+        "SutonnyBanglaOMJ",
+        "SutonnyCMJ",
+        "SutonnySushreeMJ",
+        "Classic Bangla",
+        "Kalpurush",
+        "Nirmala UI",
+        "SolaimanLipi",
+        "Siyam Rupali",
+        "Vrinda",
+        "Noto Sans Bengali",
+        "Noto Serif Bengali",
+    ];
     const BENGALI: &[&str] = &["Kalpurush", "Nirmala UI", "SolaimanLipi", "Siyam Rupali", "Vrinda", "Noto Sans Bengali", "Noto Serif Bengali"];
     let f = family.to_ascii_lowercase();
+    if is_bengali_ansi_family(&f) {
+        return BENGALI_ANSI;
+    }
     if is_bengali_family(&f) {
         return BENGALI;
     }
@@ -198,6 +217,25 @@ fn is_persian_sans(f: &str) -> bool {
     NAMES.contains(&f) || f.starts_with("iransans") || f.starts_with("iranyekan")
 }
 
+/// True for legacy Bijoy / ANSI Bengali font families (e.g. SutonnyMJ, BijoyMJ, Kalpurush ANSI).
+pub fn is_bengali_ansi_family(family: &str) -> bool {
+    let f = family.to_ascii_lowercase();
+    const NAMES: &[&str] = &[
+        "sutonnymj",
+        "sutonny bangla omj",
+        "sutonny",
+        "kalpurush ansi",
+        "bijoy",
+        "bijoymj",
+        "classic bangla",
+        "durgamj",
+        "sutonnycmj",
+        "sutonnysushreemj",
+    ];
+    let f_str = f.as_str();
+    NAMES.contains(&f_str) || f_str.contains("sutonny") || f_str.contains("bijoy") || f_str.contains("ansi") || f_str.ends_with("mj")
+}
+
 /// Bengali fonts (both ANSI/Bijoy legacy and Unicode faces).
 pub fn is_bengali_family(family: &str) -> bool {
     let f = family.to_ascii_lowercase();
@@ -206,6 +244,7 @@ pub fn is_bengali_family(family: &str) -> bool {
         "sutonny bangla omj",
         "sutonny",
         "kalpurush",
+        "kalpurush ansi",
         "solaimanlipi",
         "nikosh",
         "vrinda",
@@ -389,18 +428,27 @@ mod tests {
 
     #[test]
     fn bengali_font_substitutes() {
+        assert!(is_bengali_ansi_family("sutonnymj"));
+        assert!(is_bengali_ansi_family("SutonnyMJ"));
+        assert!(is_bengali_ansi_family("Sutonny Bangla OMJ"));
+        assert!(is_bengali_ansi_family("Bijoy"));
+        assert!(is_bengali_ansi_family("Classic Bangla"));
+        assert!(is_bengali_ansi_family("Kalpurush ANSI"));
+        assert!(!is_bengali_ansi_family("SolaimanLipi"));
+        assert!(!is_bengali_ansi_family("Nikosh"));
+
         assert!(is_bengali_family("sutonnymj"));
-        assert!(is_bengali_family("SutonnyMJ"));
-        assert!(is_bengali_family("Sutonny Bangla OMJ"));
-        assert!(is_bengali_family("Bijoy"));
-        assert!(is_bengali_family("Classic Bangla"));
         assert!(is_bengali_family("Kalpurush"));
         assert!(is_bengali_family("SolaimanLipi"));
         assert!(is_bengali_family("Nikosh"));
         assert!(is_bengali_family("Vrinda"));
 
-        let subs = substitutes("SutonnyMJ");
-        assert_eq!(subs[0], "Kalpurush");
+        let subs_ansi = substitutes("SutonnyMJ");
+        assert_eq!(subs_ansi[0], "SutonnyMJ");
+        assert_eq!(subs_ansi[1], "Kalpurush ANSI");
+
+        let subs_uni = substitutes("SolaimanLipi");
+        assert_eq!(subs_uni[0], "Kalpurush");
     }
 
     #[test]
