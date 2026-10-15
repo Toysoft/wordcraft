@@ -3532,6 +3532,8 @@ mod tests {
         h.event(Event::PointerMoved(left));
         h.step();
         assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Text);
+        click(&mut h, left);
+        assert!(h.state().session.sel.is_collapsed(), "a click in the left margin beside it is a caret, not a line");
     }
 
     /// #1085: a selected balloon's buttons work (pressing them is not a click on the page that

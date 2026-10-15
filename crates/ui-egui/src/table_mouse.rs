@@ -95,6 +95,11 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
     let Some(p) = latest else { return false };
     let Some((page, x, y, reach, target)) = target_at(app, layout, rects, scale, p) else { return false };
     let extend = matches!(target.spot, Spot::Row(_)) && ui.input(|i| i.modifiers.shift);
+    // Shift+click with the selection started outside the table is the ordinary Shift+click into
+    // a table (the caret logic extends it by whole rows); only the table's own selection extends here.
+    if extend && !in_table(app, &target.geom.table) {
+        return false;
+    }
     let at = json!({"page": page, "x": x, "y": y, "reach": reach, "extend": extend});
     match target.spot {
         Spot::InsertRow(_) | Spot::InsertColumn(_) => {
@@ -113,6 +118,11 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
         }
     }
     true
+}
+
+/// Whether the selection's anchor (or its selected cells) is in the table at `tp`.
+fn in_table(app: &WordApp, tp: &wordcraft_doc::Path) -> bool {
+    app.session.cell_range().is_some_and(|c| &c.table == tp) || app.session.sel.anchor.path.cell().is_some_and(|(t, ..)| &t == tp)
 }
 
 /// The pointer: the move arrows on the handle, the plain arrow on an insert button; over a
@@ -351,6 +361,37 @@ mod tests {
         h.event(egui::Event::ModifiersChanged(egui::Modifiers::default()));
         h.step();
         assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (0, 2))), "extended by rows");
+    }
+
+    /// Shift+click in the bar beside a row, with the selection started above the table, extends
+    /// that selection (the ordinary Shift+click into a table), instead of selecting only the row.
+    #[test]
+    fn shift_click_beside_a_row_extends_a_selection_from_above() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Above"})).unwrap();
+        a.run("insert.table", json!({"rows": 3, "cols": 2})).unwrap();
+        a.run("caret.set", json!({"pos": serde_json::to_value(wordcraft_doc::Pos::body(0, 0)).unwrap()})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        let b = cell(&mut h, 1, 0);
+        let at = screen(&mut h, 20.0, b.y + b.h / 2.0);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+        h.step();
+        click(&mut h, at);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::default()));
+        h.step();
+        let sel = h.state().session.sel.clone();
+        assert_eq!(sel.anchor, wordcraft_doc::Pos::body(0, 0), "the selection still starts above the table");
+        assert!(!sel.is_collapsed());
+        assert!(sel.focus.path.cell().is_some_and(|(_, r, _)| r == 1), "and runs into the clicked row: {:?}", sel.focus);
     }
 
     /// An ordinary drag from one cell's text into another's selects the rectangle of whole cells

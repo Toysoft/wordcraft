@@ -169,15 +169,28 @@ fn spot_in(geom: &ResizeTarget, cells: &[&CellBox], x: f32, y: f32, reach: f32, 
     cells.iter().find(|b| x >= b.rect.x && x <= b.rect.x + edge && y >= b.rect.y && y <= b.rect.bottom()).map(|b| Spot::Cell(b.row, b.cell))
 }
 
-/// The x range of the selection bar beside a table's rows: the page margin on the table's
-/// leading side (left, or right for a right-to-left table). Only a table of the main text
-/// column has one (a nested table's rows are the outermost table's).
-fn row_bar(l: &DocLayout, doc: &Document, page: usize, geom: &ResizeTarget) -> Option<(f32, f32)> {
+/// The x range of the selection bar beside the table's row at page height `y`: the page margin
+/// on the table's leading side (left, or right for a right-to-left table). Only a non-floating
+/// table of the main text has one, and only where it is what stands beside that margin: no line
+/// of the text (another column, text wrapped round the table) lies between the two at that
+/// height. A nested table's rows are the outermost table's.
+fn row_bar(l: &DocLayout, doc: &Document, page: usize, geom: &ResizeTarget, y: f32) -> Option<(f32, f32)> {
     let p = l.pages.get(page)?;
-    if geom.table.0.len() != 1 {
+    if geom.story != StoryRef::Body || geom.table.0.len() != 1 {
         return None;
     }
-    let rtl = doc.table(geom.story, &geom.table).is_some_and(|t| t.props.bidi_visual);
+    let t = doc.table(geom.story, &geom.table)?;
+    let row = geom.rows.iter().find(|r| y >= r.top && y <= r.bottom)?;
+    if t.props.float.is_some() {
+        return None;
+    }
+    let rtl = t.props.bidi_visual;
+    let blocked = wordcraft_layout::hit::page_lines(p, StoryRef::Body).iter().any(|ln| {
+        ln.path.0.len() <= 1 && ln.top < row.bottom && ln.bottom > row.top && if rtl { ln.right > geom.right() } else { ln.left < geom.left() }
+    });
+    if blocked {
+        return None;
+    }
     Some(if rtl { (geom.right().max(p.body.right()), p.w) } else { (0.0, geom.left().min(p.body.x)) })
 }
 
@@ -198,7 +211,7 @@ pub fn target_at(l: &DocLayout, doc: &Document, story: StoryRef, page: usize, x:
         .filter(|g| g.story == story)
         .filter_map(|geom| {
             let cells: Vec<&CellBox> = boxes.iter().filter(|b| b.story == geom.story && b.table == geom.table).collect();
-            spot_in(&geom, &cells, x, y, reach, row_bar(l, doc, page, &geom)).map(|spot| Target { spot, geom })
+            spot_in(&geom, &cells, x, y, reach, row_bar(l, doc, page, &geom, y)).map(|spot| Target { spot, geom })
         })
         .max_by_key(|t| t.geom.table.0.len())
 }
@@ -806,6 +819,38 @@ mod tests {
         let r0 = cell_rect(&mut s, 0, 0);
         s.run("table.selectAt", &json!({"page": 0, "x": right + 30.0, "y": mid_y(r0), "extend": true})).unwrap();
         assert_eq!(s.cell_range().map(|r| r.rows), Some((0, 2)), "the far edge of the old rows stays");
+    }
+
+    /// The margin is the row bar only where the table is what's beside it: not at a column-2
+    /// table's height beside column 1's lines (the selection bar's lines), nor beside text
+    /// wrapped round a floating table.
+    #[test]
+    fn the_row_bar_needs_the_table_beside_the_margin() {
+        // A two-column section: 36 short lines fill column 1 and start column 2, then a table.
+        let mut s = Session::new(Document::new());
+        s.run("layout.columns", &json!({"count": 2})).unwrap();
+        let lines: Vec<String> = (0..36).map(|i| format!("Line {i}")).collect();
+        s.run("text.insert", &json!({"text": format!("{}\r", lines.join("\r"))})).unwrap();
+        s.run("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        let r0 = cell_rect(&mut s, 0, 0);
+        let body = s.layout().pages[0].body;
+        assert!(r0.x > body.x + body.w / 2.0, "the table is in column 2: {r0:?}");
+        assert_eq!(spot_at(&mut s, 10.0, mid_y(r0)), None, "column 1's line is the selection bar's");
+        // A floating table with text wrapped to its left.
+        let mut d = Document::from_text(&"Words that wrap round the floating table beside them. ".repeat(40));
+        let mut t = Table::new(3, 1, 150.0);
+        t.props.float = Some(wordcraft_doc::props::TableFloat {
+            h_rel: wordcraft_doc::para::Anchor::Margin,
+            v_rel: wordcraft_doc::para::Anchor::Paragraph,
+            x: 300.0,
+            overlap: false,
+            ..Default::default()
+        });
+        d.insert_block(StoryRef::Body, &Path(vec![0]), wordcraft_doc::Block::Table(t)).unwrap();
+        let mut s = Session::new(d);
+        let r0 = cell_rect(&mut s, 0, 0);
+        assert!(r0.x > 300.0, "the table floats at the right: {r0:?}");
+        assert_eq!(spot_at(&mut s, 10.0, mid_y(r0)), None, "the text wrapped beside it has the line bar");
     }
 
     /// The insert buttons add a row or column at their border, one undo step, and select it (as
