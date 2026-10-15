@@ -339,7 +339,7 @@ mod ui_tests {
 
     /// Whether a control called `label` is on screen (a popup laid out off screen doesn't count).
     fn shown(h: &egui_kittest::Harness<'static, WordApp>, label: &str) -> bool {
-        h.get_all_by_label(label).any(|n| n.rect().min.y >= 0.0)
+        h.query_all_by_label(label).any(|n| n.rect().min.y >= 0.0)
     }
 
     fn click_shown(h: &egui_kittest::Harness<'static, WordApp>, label: &str) {
