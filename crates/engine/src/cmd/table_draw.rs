@@ -406,6 +406,9 @@ fn split_rows(s: &mut Session, l: &DocLayout, page: usize, y: f32, (xa, xb): (f3
     let Some(row) = t.rows.get_mut(r) else { return Err(CmdError::Failed("the row isn't there any more".into())) };
     let mut new_row = wordcraft_doc::Row { props: row.props.clone(), cells: Vec::with_capacity(row.cells.len()), controls: Default::default() };
     new_row.props.header = false;
+    // The new row is not part of the split row's tracked insertion or deletion (#1317).
+    new_row.props.ins = None;
+    new_row.props.del = None;
     if top.is_finite() && bottom.is_finite() && bottom > top {
         let rule = if row.props.height_rule == HeightRule::Exact { HeightRule::Exact } else { HeightRule::AtLeast };
         let less = if rule == HeightRule::Exact { row_bottom } else { 0.0 };
