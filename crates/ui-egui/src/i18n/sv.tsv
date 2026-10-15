@@ -2627,3 +2627,9 @@ preview	Title	Titel
 	My list has	Min lista har
 	Formula:	Formel:
 	Paste function:	Klistra in funktion:
+# Cross-reference dialog (added while landing #1219)
+	For which item:	För vilket objekt:
+	Heading	Rubrik
+	Heading text	Rubriktext
+	Insert reference to:	Infoga referens till:
+	Reference type:	Referenstyp:
