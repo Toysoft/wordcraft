@@ -534,13 +534,48 @@ fn apply_style(css: &str, f: &mut Fmt, align: &mut Option<Align>, preserve: &mut
                 }
             }
             "background-color" | "background" => {
-                if let Some(c) = v.split_whitespace().find_map(parse_color) {
+                // The whole value first: browsers write `rgb(255, 255, 0)`, whose spaces would
+                // split a function apart. A shorthand (`#ff0 url(…) no-repeat`) goes word by word.
+                if let Some(c) = parse_color(v).or_else(|| v.split_whitespace().find_map(parse_color)) {
                     f.background = Some(c);
                 }
             }
             "font-size" => {
                 if let Some(p) = css_len_pt(v).filter(|p| *p >= 1.0 && *p <= 1638.0) {
                     f.size = Some(p);
+                }
+            }
+            // The shorthand (`bold italic 22px/1.2 "Courier New", monospace`) resets style, weight,
+            // size and family together: read it as the longhands it stands for.
+            "font" => {
+                let (mut weight, mut style, mut size) = ("normal", "normal", None);
+                let mut rest = lv.as_str();
+                let mut family = "";
+                while let Some(tok) = rest.split_whitespace().next() {
+                    let after = rest.trim_start().strip_prefix(tok).unwrap_or("");
+                    let head = tok.split('/').next().unwrap_or(tok);
+                    match tok {
+                        "italic" | "oblique" => style = "italic",
+                        "bold" | "bolder" => weight = "bold",
+                        "normal" | "lighter" | "small-caps" => {}
+                        _ if tok.parse::<u32>().is_ok_and(|w| (1..=1000).contains(&w) && tok.len() == 3) => {
+                            weight = if tok.parse::<u32>().is_ok_and(|w| w >= 600) { "bold" } else { "normal" };
+                        }
+                        _ if css_len_pt(head).is_some() => {
+                            size = css_len_pt(head);
+                            family = after.trim();
+                            break;
+                        }
+                        _ => break,
+                    }
+                    rest = after;
+                }
+                if let Some(pt) = size {
+                    // Keep the family's original case (the match above was on the lowercased text).
+                    let at = v.len().saturating_sub(family.len());
+                    let family = v.get(at..).unwrap_or("");
+                    let css = format!("font-weight:{weight};font-style:{style};font-size:{pt}pt;font-family:{family}");
+                    apply_style(&css, f, align, preserve, page_break);
                 }
             }
             "font-family" => {
@@ -1704,6 +1739,43 @@ mod tests {
             assert_eq!(f.meta.author, "Ann");
             assert_eq!(texts(&f), vec!["NormalNone:Hello world"], "{body}");
         }
+    }
+
+    #[test]
+    fn background_colour_functions_and_shorthands_become_character_shading() {
+        // Browsers copy highlighted text as `rgb(255, 255, 0)`, spaces included.
+        for css in ["background-color: rgb(255, 255, 0);", "background-color:#ffff00", "background:#ff0 none no-repeat"] {
+            let f = parse(&format!("<p><span style=\"{css}\">hi</span></p>"));
+            let FBlock::Para(p) = &f.blocks[0] else { panic!() };
+            assert!(
+                matches!(&p.inlines[0], Inline::Text(t, f) if t == "hi" && f.background == Some(wordcraft_doc::Rgb(255, 255, 0))),
+                "{css}: {:?}",
+                p.inlines
+            );
+        }
+    }
+
+    #[test]
+    fn font_shorthand_sets_weight_size_and_family() {
+        let f =
+            parse("<p><span style=\"font:bold 22px 'Courier New'\">big</span> <span style=\"font: italic 600 12pt/1.4 Georgia, serif\">g</span></p>");
+        let FBlock::Para(p) = &f.blocks[0] else { panic!() };
+        assert!(matches!(&p.inlines[0], Inline::Text(t, f) if t == "big" && f.bold && f.code && f.size == Some(16.5)), "{:?}", p.inlines);
+        assert!(
+            p.inlines.iter().any(
+                |i| matches!(i, Inline::Text(t, f) if t == "g" && f.italic && f.bold && f.size == Some(12.0) && f.font.as_deref() == Some("Georgia"))
+            ),
+            "{:?}",
+            p.inlines
+        );
+    }
+
+    #[test]
+    fn a_table_without_widths_follows_its_content() {
+        let d = crate::html::import("<table><tr><td>a</td><td>b</td></tr></table>");
+        let t = d.body.iter().find_map(|b| if let wordcraft_doc::Block::Table(t) = &**b { Some(t) } else { None }).unwrap();
+        assert_eq!(t.props.width, None);
+        assert!(t.rows[0].cells.iter().all(|c| c.props.width.is_none()), "automatic widths, so AutoFit sizes them");
     }
 
     #[test]

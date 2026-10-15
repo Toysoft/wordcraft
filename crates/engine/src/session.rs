@@ -349,6 +349,8 @@ pub struct Session {
     pub clipboard: Option<Fragment>,
     /// A tracked cut the next paste can turn into a move (see `cmd::moves`).
     pub pending_move: Option<crate::cmd::moves::PendingMove>,
+    /// The paste just made, which the Paste Options button can redo another way (#1747).
+    pub last_paste: Option<crate::cmd::paste::LastPaste>,
     /// Plain text mirror of the clipboard (for the system clipboard).
     pub clipboard_text: String,
     /// HTML for the system clipboard beside [`Self::clipboard_text`]: the copy's formatting for
@@ -601,6 +603,7 @@ impl Session {
             dirty: false,
             clipboard: None,
             pending_move: None,
+            last_paste: None,
             clipboard_text: String::new(),
             clipboard_html: String::new(),
             clip_history: Default::default(),
@@ -1047,6 +1050,7 @@ impl Session {
             clipboard: _,
             // Like the clipboard: what the next paste can make a move of.
             pending_move: _,
+            last_paste: _,
             clipboard_text: _,
             clipboard_html: _,
             clip_history: _,
@@ -1262,6 +1266,12 @@ impl Session {
                         crate::cmd::fmt_revisions::record(self, id, before);
                     }
                     self.touch();
+                    // The paste that just ran is valid for the revision it produced.
+                    if let Some(lp) = self.last_paste.as_mut()
+                        && lp.rev.is_none()
+                    {
+                        lp.rev = Some(self.rev);
+                    }
                     self.doc.ensure_nonempty();
                     self.doc.prune_text_boxes();
                     // Glued connectors follow the shapes they join.

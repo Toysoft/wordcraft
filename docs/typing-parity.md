@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** trivial (Shift+Delete cuts the selection on every platform, #1669; previously trivial: Select All then Delete removes a table the document starts with, #1198; previously trivial: Alt+numpad character codes, #961; previously trivial: Down and Up from a line start beside a table go into it, #1007; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-15 · **Change:** minor (Paste Options: change the last paste in place, #1747; previously trivial: Shift+Delete cuts the selection on every platform, #1669; previously trivial: Select All then Delete removes a table the document starts with, #1198; previously trivial: Alt+numpad character codes, #961; previously trivial: Down and Up from a line start beside a table go into it, #1007; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -37,6 +37,7 @@ formatting use the existing editing primitives. Tests: `sample_text_formulas_exp
 | Enter mid-item / at item start | splits the item / inserts an empty item above | `enter_in_the_middle_or_at_the_start_of_an_item` |
 | Shift+Enter in an item | line break inside the same item | `shift_enter_stays_inside_the_list_item` |
 | Paste: Keep Text Only `A`, empty line, `B` into an empty item | three paragraphs `A`, empty, `B`: pasted paragraph breaks are text, not Enter (they never end the list) | `plain_text_paste_keeps_an_empty_paragraph_in_a_list` |
+| Paste: Paste Options button (Keep Source, Keep Text Only, Merge, Picture) | after a paste with a choice the paste is redone in place; plain text offers none; typing, Esc or moving away ends the offer; Keep Text Only and Merge take the formatting the paste landed in; unaligned pasted paragraphs take the destination's alignment | `paste_options_change_the_last_paste_in_place`, `paste_options_at_the_document_start_take_the_destination_formatting`, `pasted_formatted_paragraphs_without_alignment_take_the_destination_alignment` |
 | `* ` `- ` `1. ` `1) ` `a. ` `a) ` `A. ` `i. ` `I. ` + text | bullet, dash bullet, 1. 1) a. a) A. i. I. lists | `list_autoformat_triggers` |
 | `> ` `-> ` `=> ` + text | bulleted list with an arrow bullet (➢ ➔ ⇨; Word takes them from a symbol font, we use the Unicode arrows) ¹ | `arrow_bullets` |
 | `1. ` after other text | a new list restarting at 1 (never continues an earlier list) | `typing_1_dot_starts_numbering_again` |
@@ -197,6 +198,7 @@ Word.
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-14 | trivial | Shift+Delete cuts the selection, and does nothing without one, on macOS and Linux too, as in Word for Windows (#1669); Shift+Backspace already erased (#707) |
+| 2026-10-15 | minor | Paste Options: change the last paste in place; pasted paragraphs without their own alignment take the destination's (#1747) |
 | 2026-10-13 | trivial | Select All then Delete or Backspace removes a table the document starts with (#1198) |
 | 2026-10-12 | trivial | Editing keys: Down and Up from the start of a line beside a table go into it instead of skipping it (#1007) |
 | 2026-10-12 | trivial | Sample-text formulas on Enter (#1067), exact matching, bounded parameters, original English and one-step undo |
