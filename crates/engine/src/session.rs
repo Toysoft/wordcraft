@@ -384,6 +384,8 @@ pub struct Session {
     typing_open: bool,
     /// The next mutating command joins the previous undo step (later frames of a drag).
     join_next: bool,
+    /// The newest automatic capitalisation, for Word's "Automatically add words to list" (#1857).
+    pub(crate) autocap: Option<crate::cmd::tools::AutoCap>,
     rev: u64,
     /// Which document this is: changes when [`Session::set_document`] replaces it (open, new,
     /// mail merge, recover), never on an edit.
@@ -618,6 +620,7 @@ impl Session {
             redo: Vec::new(),
             typing_open: false,
             join_next: false,
+            autocap: None,
             rev: 1,
             document_id: 1,
             cache: LayoutCache::new(),
@@ -930,6 +933,10 @@ impl Session {
     }
     pub fn undo(&mut self) -> bool {
         self.typing_open = false;
+        // Undoing an automatic capitalisation right after it makes its word an exception.
+        if let Some(c) = self.autocap.take_if(|c| c.depth == self.history.len()) {
+            c.add_exceptions(&mut self.prefs.autocorrect);
+        }
         let Some(u) = self.history.pop().map(Arc::unwrap_or_clone) else { return false };
         let cur = Undo {
             label: u.label.clone(),
@@ -1065,6 +1072,7 @@ impl Session {
             redo,
             typing_open,
             join_next,
+            autocap: _,
             rev: _,
             cache: _,
             layout: _,

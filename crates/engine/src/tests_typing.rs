@@ -1140,3 +1140,65 @@ fn typing_after_a_citation_goes_outside_its_field() {
     let inside = Pos { off: f[0].start.off + wordcraft_doc::para::OBJ.len_utf8(), ..f[0].start.clone() };
     assert_eq!(s.doc.copy_range(&inside, &f[0].end).plain_text(), "(Smith 2020)");
 }
+
+fn first_letter_list(s: &Session) -> Vec<String> {
+    s.prefs.autocorrect.exceptions.clone()
+}
+
+/// Undoing an automatic sentence capital adds the word before it to the First Letter exceptions
+/// (Word: "Automatically add words to list", #1857); typing the line again isn't capitalised.
+#[test]
+fn undoing_a_sentence_capital_adds_a_first_letter_exception() {
+    let mut s = typed("hello there. world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. World ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world ");
+    assert_eq!(first_letter_list(&s), ["there."]);
+    run(&mut s, "text.newParagraph", json!({}));
+    typ(&mut s, "x there. world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world \nX there. world ");
+}
+
+#[test]
+fn backspacing_a_sentence_capital_and_retyping_adds_a_first_letter_exception() {
+    let mut s = typed("hello there. world ");
+    typ(&mut s, "\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world ");
+    assert_eq!(first_letter_list(&s), ["there."]);
+}
+
+#[test]
+fn automatic_exceptions_can_be_turned_off() {
+    let mut s = typed("");
+    run(&mut s, "tools.autocorrect", json!({"autoAddFirstLetter": false}));
+    typ(&mut s, "hello there. world ");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+    let mut s = typed("");
+    run(&mut s, "tools.autocorrect", json!({"autoAddFirstLetter": false}));
+    typ(&mut s, "hello there. world \u{8}\u{8}\u{8}\u{8}\u{8}\u{8}world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. World ");
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn undoing_a_replacement_adds_no_exception() {
+    let mut s = typed("so teh ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So the ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So teh ");
+    assert!(first_letter_list(&s).is_empty());
+    assert!(s.prefs.autocorrect.entries.is_empty() && s.prefs.autocorrect.removed.is_empty());
+    typ(&mut s, "and teh ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So teh and the ");
+}
+
+/// Not observed in Word; it falls out of the same rule.
+#[test]
+fn undoing_an_initial_caps_fix_adds_an_initial_caps_exception() {
+    let mut s = typed("so TWo ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.prefs.autocorrect.initial_caps_exceptions, ["TWo"]);
+    typ(&mut s, "and TWo ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So TWo and TWo ");
+}
