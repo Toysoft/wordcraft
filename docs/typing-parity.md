@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** trivial (Shift+Delete cuts the selection on every platform, #1669; previously trivial: Select All then Delete removes a table the document starts with, #1198; previously trivial: Alt+numpad character codes, #961; previously trivial: Down and Up from a line start beside a table go into it, #1007; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-15 · **Change:** trivial (spelling as you type: the word being typed is not marked until the caret leaves it, #1552; previously trivial: Shift+Delete cuts the selection on every platform, #1669; previously trivial: Select All then Delete removes a table the document starts with, #1198; previously trivial: Alt+numpad character codes, #961; previously trivial: Down and Up from a line start beside a table go into it, #1007; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -140,6 +140,34 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
 
 ¹ From Word's documented AutoFormat and AutoCorrect options; not yet keystroke-compared with
 Word.
+## Spelling as you type (#1552)
+
+Word draws no red squiggle under the word being typed. The squiggle comes when the word ends
+(space, punctuation, Enter, Tab) or when the caret leaves it any other way (arrow keys, Home,
+End, a click, a selection). Only the word being typed is exempt: clicking into a misspelled word
+that is already there does not hide its squiggle, and typing into it makes it the word being
+typed again. F7 and the Spelling pane report the word all the while. Grammar marks are not held
+back.
+
+| Keys | Result | Test |
+|---|---|---|
+| `The helo` | no squiggle under `helo`; `review.issues` and F7 (`review.spelling`) still list it | `the_word_being_typed_is_not_marked_until_it_ends` |
+| `The helo` then space, `.`, Enter or Tab | `helo` underlined | same |
+| `The helo` then Left, Home, Ctrl+Left, Ctrl+Home or Select All; End after that | `helo` underlined, and still underlined when the caret comes back | `moving_the_caret_out_of_the_typed_word_marks_it` |
+| `The helo` in one paragraph, a click into another, a click back, `o` typed into it | underlined on leaving; still underlined on return ¹; typing into it hides the mark again until the next space ¹ | `a_click_elsewhere_marks_the_typed_word_and_a_click_back_keeps_the_mark` |
+| `The helo ` then Backspace | the mark goes while the word is edited again ¹ | `backspace_into_a_finished_word_edits_it_again` |
+| `I typed teh ` (AutoCorrect); a phrase by one `text.insert`; Undo | AutoCorrect's result is checked as usual; of inserted text only the word the caret ends in is exempt; Undo moves the caret, so what is left is marked | `autocorrect_and_inserted_text_are_marked_as_usual` |
+| `It doesn'` (smart quotes make it `doesn’`); `The nonn-` then `exist` | no squiggle until the word ends: the apostrophe and the hyphen stay part of the word, as in the spelling check ¹ | `apostrophes_and_hyphens_stay_part_of_the_word_being_typed` |
+| A click at the end of `helo`, then Insert, Delete with nothing after the caret, or Shift+Tab | `helo` stays underlined: only an edit to the text makes it the word being typed ¹ | `text_commands_that_edit_nothing_leave_an_existing_word_marked` |
+
+¹ Follows the rule above; not yet keystroke-compared with Word.
+
+The exemption is a layout input (`LayoutOptions::typing_word`, filtered in
+`crates/layout/src/para.rs`). The Session records the word after a `text.*` command that changes
+the caret's paragraph, and drops it once the caret is anywhere else or the word changed under it
+(`crates/engine/src/session.rs`), so a caret move without an edit lays only that paragraph out
+again.
+
 ## Editing options (File › Options › Advanced)
 
 | Keys / setting | Result | Test |
@@ -196,6 +224,7 @@ Word.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Spelling as you type: the word being typed, apostrophes and hyphens included, is not marked until the caret leaves it; F7 and the Spelling pane still report it (#1552) |
 | 2026-10-14 | trivial | Shift+Delete cuts the selection, and does nothing without one, on macOS and Linux too, as in Word for Windows (#1669); Shift+Backspace already erased (#707) |
 | 2026-10-13 | trivial | Select All then Delete or Backspace removes a table the document starts with (#1198) |
 | 2026-10-12 | trivial | Editing keys: Down and Up from the start of a line beside a table go into it instead of skipping it (#1007) |

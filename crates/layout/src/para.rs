@@ -395,6 +395,9 @@ pub struct ParaEnv<'a> {
     pub table: Option<&'a CellText>,
     /// Check spelling (and grammar, as the options say) for squiggles; `None` = no squiggles.
     pub proofing: Option<crate::ProofOptions>,
+    /// The byte range of the word being typed in this paragraph: it gets no spelling squiggle
+    /// until the caret leaves it ([`crate::LayoutOptions::typing_word`]).
+    pub typing_word: Option<(usize, usize)>,
     /// How digits look on screen (an unresolved `System` shows Western digits).
     pub numeral: NumeralMode,
     /// Areas text must flow around (floating objects), relative to the paragraph: x from the
@@ -1567,7 +1570,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         text_len: p.text.len(),
         has_page_fields,
         notes,
-        issues: env.proofing.map(|o| proof_issues(p, &runs, &o)).unwrap_or_default(),
+        issues: env.proofing.map(|o| proof_issues(p, &runs, &o, env.typing_word)).unwrap_or_default(),
         drop_cap,
         hyph_after: Vec::new(),
         bidi_levels: b.levels,
@@ -2675,11 +2678,12 @@ pub fn paragraph_issues(p: &Paragraph, runs: &[ProofRun], spelling: &wordcraft_p
     wordcraft_proof::check_text_with(&text, &spans, spelling, grammar).into_iter().filter(|i| !skip(i.start, i.end)).collect()
 }
 
-/// Spelling and grammar issues in a paragraph as squiggles: (start, end, is grammar).
-fn proof_issues(p: &Paragraph, runs: &[ProofRun], opts: &crate::ProofOptions) -> Vec<(usize, usize, bool)> {
+/// Spelling and grammar issues as squiggles (start, end, is grammar), less spelling issues overlapping `typing`.
+fn proof_issues(p: &Paragraph, runs: &[ProofRun], opts: &crate::ProofOptions, typing: Option<(usize, usize)>) -> Vec<(usize, usize, bool)> {
     paragraph_issues(p, runs, &opts.spelling, opts.grammar)
         .into_iter()
         .map(|i| (i.start, i.end, i.kind == wordcraft_proof::IssueKind::Grammar))
+        .filter(|&(a, b, grammar)| grammar || !typing.is_some_and(|(s, e)| a < e && s < b))
         .collect()
 }
 
@@ -2719,6 +2723,7 @@ mod label_spacing_tests {
             hide_deleted: false,
             table: None,
             proofing: None,
+            typing_word: None,
             field_codes: false,
             grid: Grid::default(),
             exclusions: &[],
