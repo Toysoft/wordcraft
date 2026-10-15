@@ -1759,19 +1759,30 @@ pub fn unicode_to_ansi(text: &str) -> String {
 /// [`unicode_to_ansi`] on tagged text. Each output glyph carries the tag of the character it comes
 /// from; a glyph written for several characters (a conjunct) takes the tag of the first of them.
 pub(crate) fn unicode_to_ansi_tagged(mut s: Tagged) -> Tagged {
-    // 1. Common Conjuncts (যুক্তবর্ণ), from UNICODE_CONJUNCTS.
-    for &(u, a) in UNICODE_CONJUNCTS {
-        s.replace(u, a);
+    // 0a. Decomposed nuktas: a consonant followed by U+09BC (which NFC leaves decomposed for ড়, ঢ়, য়)
+    // becomes the precomposed letter the glyph table has. One glyph can't show two runs' formatting, so the
+    // pair always fuses (as Av does).
+    for (from, to) in [("ড\u{09BC}", "\u{09DC}"), ("ঢ\u{09BC}", "\u{09DD}"), ("য\u{09BC}", "\u{09DF}")] {
+        s.replace_fused(from, to);
     }
 
-    // 2. Reph reordering: র + ্ + X -> X + ©. The reph glyph keeps the র's tag; a র and ্ of
-    // different classes are not joined. A tracked replacement of X (X deleted, Y inserted) takes the
-    // reph after both, so it reads right whichever is kept.
+    // 0b. Reph: র + ্ + X -> X + ©, before the conjunct table turns ্X into a phala glyph (সর্বোচ্চ is
+    // m‡ev©”P). The reph follows the whole cluster it belongs to: X with the conjuncts after it (র্ক্ত becomes
+    // ক্ত©) and a tracked replacement of X. The reph keeps the র's tag, and a র and ্ of different classes are
+    // not joined. A র that is the second half of a conjunct (ক্র) is not a reph.
     let mut out = s.empty_like();
     let mut i = 0;
     while let Some(ch) = s.char_at(i) {
-        if ch == 'র' && s.char_at(i + 1) == Some('্') && s.char_at(i + 2).is_some() && s.one_class([i, i + 1]) {
+        let starts_reph = ch == 'র'
+            && s.char_at(i + 1) == Some('্')
+            && s.char_at(i + 2).is_some()
+            && s.one_class([i, i + 1])
+            && i.checked_sub(1).and_then(|k| s.char_at(k)) != Some('্');
+        if starts_reph {
             let mut end = i + 3;
+            while s.char_at(end) == Some('্') && s.char_at(end + 1).is_some_and(is_bn_consonant) && s.one_class([end - 1, end, end + 1]) {
+                end += 2;
+            }
             if s.char_at(end).is_some_and(|c| !is_bn_vowel_sign(c)) && s.replacement_pair(end - 1, end) {
                 end += 1;
             }
@@ -1789,7 +1800,12 @@ pub(crate) fn unicode_to_ansi_tagged(mut s: Tagged) -> Tagged {
     }
     s = out;
 
-    // 3. Pre-kar reordering:
+    // 1. Common Conjuncts (যুক্তবর্ণ), from UNICODE_CONJUNCTS.
+    for &(u, a) in UNICODE_CONJUNCTS {
+        s.replace(u, a);
+    }
+
+    // 2. Pre-kar reordering:
     // Unicode has: Consonant + ি/ে/ৈ/ো/ৌ
     // SutonnyMJ requires:
     // ি: 'w' + Consonant
@@ -1815,23 +1831,16 @@ pub(crate) fn unicode_to_ansi_tagged(mut s: Tagged) -> Tagged {
         let is_medial = i.checked_sub(1).and_then(|k| s.char_at(k)).is_some_and(|prev| !is_word_boundary(prev));
         let e_glyph = if is_medial { '‡' } else { '†' };
         let glyphs_of = |k: usize| s.char_at(k).and_then(|c| pre_kar_glyphs(c, e_glyph));
-        if !(end..signs_end).any(|k| glyphs_of(k).is_some()) {
-            // No pre-base vowel: the cluster stays as it is (every position inside it reaches this end).
-            for k in i..end {
-                if let Some(c) = s.char_at(k) {
-                    out.push(c, s.tag_at(k));
-                }
-            }
-            i = end;
-            continue;
-        }
+        // The reph (if the cluster has one) is written after everything else in its syllable: after the
+        // consonant, its phalas and its vowel signs, so it sits over the whole syllable (m‡ev©”P).
+        let reph = (i..end).find_map(|k| (s.char_at(k) == Some('©')).then(|| s.tag_at(k)));
         for k in end..signs_end {
             if let Some((before, _)) = glyphs_of(k) {
                 out.push(before, s.tag_at(k));
             }
         }
         for k in i..end {
-            if let Some(c) = s.char_at(k) {
+            if let Some(c) = s.char_at(k).filter(|&c| c != '©') {
                 out.push(c, s.tag_at(k));
             }
         }
@@ -1842,11 +1851,14 @@ pub(crate) fn unicode_to_ansi_tagged(mut s: Tagged) -> Tagged {
                 (None, Some(c)) => out.push(c, s.tag_at(k)),
             }
         }
+        if let Some(tag) = reph {
+            out.push('©', tag);
+        }
         i = signs_end;
     }
     s = out;
 
-    // 4. Character Mapping to SutonnyMJ ASCII
+    // 3. Character Mapping to SutonnyMJ ASCII
     let mut out = s.empty_like();
     for &(ch, tag) in s.chars() {
         let mapped = unicode_glyph(ch);
@@ -3482,6 +3494,31 @@ mod run_conversion_tests {
         let (accepted, rejected) = both_states(&split);
         assert_eq!(ansi_to_unicode(&accepted), "গি", "{:?}", runs_with_marks(&split));
         assert_eq!(ansi_to_unicode(&rejected), ansi_to_unicode(&unicode_to_ansi("কর্ম")), "{:?}", runs_with_marks(&split));
+    }
+
+    #[test]
+    fn reph_forms_before_a_phala_consonant_as_it_does_for_ta() {
+        // The reph is formed before the phala table gets its hold of ্ব, য and ম, and it is written after the
+        // whole syllable (after the vowel sign, as in m‡ev©”P).
+        assert_eq!(unicode_to_ansi("সর্বোচ্চ"), "m\u{2021}ev\u{00A9}\u{201D}P");
+        assert_eq!(unicode_to_ansi("সূর্য"), "m~h\u{00A9}");
+        for word in ["সর্বোচ্চ", "সূর্য", "কার্য", "শর্ম্মা", "ধর্ম্মে", "অকীর্তি", "র্ক্ত"]
+        {
+            assert_eq!(ansi_to_unicode(&unicode_to_ansi(word)), word, "{}", unicode_to_ansi(word));
+        }
+    }
+
+    #[test]
+    fn decomposed_nukta_letters_convert_like_their_precomposed_forms() {
+        // NFC leaves ড়, ঢ়, য় decomposed: the nukta is part of the letter, not a character of its own.
+        assert_eq!(unicode_to_ansi("হয়ে"), "n\u{2021}q");
+        assert_eq!(unicode_to_ansi("এশিয়ার"), "Gwkqvi");
+        assert_eq!(unicode_to_ansi("অঞ্চলজুড়ে"), "AÂjRy\u{2021}o");
+        let decomposed = "আষাঢ\u{09BC}ে";
+        let precomposed = "আষা\u{09DD}ে";
+        assert_eq!(unicode_to_ansi(decomposed), unicode_to_ansi(precomposed));
+        assert!(!unicode_to_ansi(decomposed).contains('\u{09BC}'));
+        assert_eq!(ansi_to_unicode(&unicode_to_ansi(decomposed)), precomposed);
     }
 
     #[test]

@@ -584,6 +584,20 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         panic!("the record never loaded: {last}");
+
+    /// A session reopened on `root` that lists its recovery copy. A session dropped a moment before still
+    /// holds the copy's lock until its worker thread exits, and a scan skips a record it cannot lock, so
+    /// reopen again for up to a second rather than read the empty list as no copy.
+    fn reopen_listing_recovery(root: &Path) -> Session {
+        for _ in 0..50 {
+            let s = session(root);
+            if !s.recovery_documents().is_empty() {
+                return s;
+            }
+            drop(s);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("the recovery copy never became visible to a scan");
     }
     fn snapshot(id: &str, text: &str) -> Snapshot {
         Snapshot {
@@ -850,7 +864,7 @@ mod tests {
         s.run("text.insert", &json!({"text": "Saved draft"})).unwrap();
         save_now(&mut s);
         drop(s);
-        let mut s = session(&t.0);
+        let mut s = reopen_listing_recovery(&t.0);
         let id = s.recovery_documents()[0].id.clone();
         s.run("file.recover", &json!({"restore": id})).unwrap();
         s.run("text.insert", &json!({"text": "New work"})).unwrap();
