@@ -382,7 +382,8 @@ mod tests {
         h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::Equals);
         steps(&mut h, 3);
         assert!(h.state().equation.is_open(), "the editor opened on the new equation");
-        assert!(h.query_by_label("Insert").is_none() && h.query_by_label("Cancel").is_none(), "no window");
+        // "Insert" is also the ribbon tab's name now, so only the dialog's Cancel tells a window apart.
+        assert!(h.query_by_label("Cancel").is_none(), "no window");
         let canvas = h.state().equation.widget().map(|w| w.canvas_id());
         assert!(canvas.is_some_and(|c| h.ctx.memory(|m| m.has_focus(c))), "typing goes to the widget");
         let depth = h.state().session.undo_depth();
