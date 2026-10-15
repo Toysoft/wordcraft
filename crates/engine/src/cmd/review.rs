@@ -880,7 +880,7 @@ fn next_issue(s: &mut Session, _: &Value) -> CmdResult {
 }
 
 fn all_issues(s: &mut Session, _: &Value) -> CmdResult {
-    let mut out = Vec::new();
+    let mut out: Vec<Value> = s.lint_findings().to_vec();
     for path in s.doc.para_paths(StoryRef::Body) {
         for (a, b, i) in para_issues(s, StoryRef::Body, &path) {
             out.push(issue_json(s, &a, &b, &i));
