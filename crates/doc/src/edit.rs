@@ -384,7 +384,13 @@ impl Document {
             let keep_props = pa.props.clone();
             pa.append(tail);
             pa.props = keep_props;
-            pa.section = sect;
+            let before = std::mem::replace(&mut pa.section, sect);
+            if let Some(before) = before
+                && a.story == crate::StoryRef::Body
+                && a.path.0.len() == 1
+            {
+                self.section_mut(a.path.last()).absorb(&before);
+            }
             return Ok(a);
         }
         // Different containers (range enters or leaves a table): clear text in every paragraph
