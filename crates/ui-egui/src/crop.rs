@@ -52,10 +52,11 @@ const MAX_SIZE: f32 = 4000.0;
 fn axis(len: f32, lo: f32, hi: f32, grab: i8, d: f32) -> (f32, f32, f32, f32) {
     // The source's full length at this scale; the visible part is 1-lo-hi of it.
     let full = len / (1.0 - lo - hi).max(0.1);
-    // How far the grabbed side's crop may go: at most MAX_SIDE, and the length within its range.
+    // How far the grabbed side's crop may go: at most MAX_SIDE inward, down to the most padding
+    // (negative crop) outward, and the length within its range.
     let range = |cur: f32, other: f32| {
         let most = (1.0 - other - MIN_SIZE / full).min(MAX_SIDE).max(cur);
-        let least = (1.0 - other - MAX_SIZE / full).max(0.0).min(cur);
+        let least = (1.0 - other - MAX_SIZE / full).max(wordcraft_doc::para::MIN_CROP).min(cur);
         (least, most)
     };
     let (mut lo2, mut hi2) = (lo, hi);
@@ -421,11 +422,34 @@ mod tests {
         // At most 0.45 a side.
         let r = cropped(200.0, 100.0, [0.0; 4], H(-1, 0), 1000.0, 0.0);
         assert!((r.crop[0] - 0.45).abs() < 1e-4 && (r.w - 110.0).abs() < 1e-3 && (r.dx - 90.0).abs() < 1e-3, "{r:?}");
-        // Out past the original edge: back to uncropped, no further.
+    }
+
+    /// Dragged outward past the picture's edge a handle adds padding (a negative crop), as in
+    /// Word; the box grows with it, and dragging back in works through 0.
+    #[test]
+    fn outward_drag_past_the_edge_adds_padding() {
+        // Right handle out by 50 of a 200 pt picture: a quarter of the source as padding.
+        let r = cropped(200.0, 100.0, [0.0; 4], H(1, 0), 50.0, 0.0);
+        assert!(close(r, Cropped { crop: [0.0, 0.0, -0.25, 0.0], w: 250.0, h: 100.0, dx: 0.0, dy: 0.0 }), "{r:?}");
+        // Cropped 0.2 on the right: 40 pt restore it, the other 60 pad.
         let r = cropped(160.0, 100.0, [0.0, 0.0, 0.2, 0.0], H(1, 0), 100.0, 0.0);
-        assert!(close(r, Cropped { crop: [0.0; 4], w: 200.0, h: 100.0, dx: 0.0, dy: 0.0 }), "{r:?}");
-        let r = cropped(200.0, 90.0, [0.0, 0.1, 0.0, 0.0], H(0, -1), 0.0, -500.0);
-        assert!(close(r, Cropped { crop: [0.0; 4], w: 200.0, h: 100.0, dx: 0.0, dy: -10.0 }), "{r:?}");
+        assert!(close(r, Cropped { crop: [0.0, 0.0, -0.3, 0.0], w: 260.0, h: 100.0, dx: 0.0, dy: 0.0 }), "{r:?}");
+        // Top handle out by 10: the frame's corner moves up.
+        let r = cropped(200.0, 100.0, [0.0; 4], H(0, -1), 0.0, -10.0);
+        assert!(close(r, Cropped { crop: [0.0, -0.1, 0.0, 0.0], w: 200.0, h: 110.0, dx: 0.0, dy: -10.0 }), "{r:?}");
+        // And back in past 0 trims again.
+        let a = cropped(200.0, 100.0, [0.0; 4], H(1, 0), 50.0, 0.0);
+        let b = cropped(a.w, a.h, a.crop, H(1, 0), -100.0, 0.0);
+        assert!(close(b, Cropped { crop: [0.0, 0.0, 0.25, 0.0], w: 150.0, h: 100.0, dx: 0.0, dy: 0.0 }), "{b:?}");
+    }
+
+    /// A huge outward drag stops at the engine's most padding (and at 4000 pt), all finite.
+    #[test]
+    fn outward_drag_clamps_at_the_most_padding() {
+        let r = cropped(100.0, 100.0, [0.0; 4], H(1, 0), 1.0e9, 0.0);
+        assert!(r.crop[2] >= wordcraft_doc::para::MIN_CROP && r.crop[2] < 0.0 && r.w <= 4000.01 && r.w.is_finite(), "{r:?}");
+        let r = cropped(10.0, 10.0, [0.0; 4], H(-1, -1), -1.0e30, -1.0e30);
+        assert!(r.crop.iter().all(|c| (wordcraft_doc::para::MIN_CROP..=MAX_SIDE).contains(c)) && r.w <= 4000.01, "{r:?}");
     }
 
     #[test]
