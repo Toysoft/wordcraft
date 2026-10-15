@@ -314,6 +314,9 @@ impl Writer<'_> {
                 if let Some(l) = props.link.as_deref().filter(|l| !l.is_empty()) {
                     if let Some(anchor) = l.strip_prefix('#') {
                         w.open("w:hyperlink", &[("w:anchor", anchor), ("w:history", "1")]);
+                    } else if let Some((base, anchor)) = l.split_once('#') {
+                        let id = rels.add(rt::HYPERLINK, base, true);
+                        w.open("w:hyperlink", &[("r:id", &id), ("w:anchor", anchor), ("w:history", "1")]);
                     } else {
                         let id = rels.add(rt::HYPERLINK, l, true);
                         w.open("w:hyperlink", &[("r:id", &id), ("w:history", "1")]);

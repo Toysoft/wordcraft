@@ -455,9 +455,12 @@ impl Reader<'_> {
             "w:hyperlink" => {
                 let mut c = ctx.clone();
                 let url = k.attr("r:id").and_then(|id| rels.by_id(id)).map(|r| r.target.trim().to_string()).filter(|u| !u.is_empty());
-                let anchor = k.attr("w:anchor").filter(|a| !a.is_empty());
+                let anchor = k.attr("w:anchor").map(|a| a.trim().trim_start_matches('#')).filter(|a| !a.is_empty());
                 c.link = match (url, anchor) {
-                    (Some(u), Some(a)) => Some(format!("{u}#{a}")),
+                    (Some(u), Some(a)) => {
+                        let base = u.split('#').next().unwrap_or(&u);
+                        Some(format!("{base}#{a}"))
+                    }
                     (Some(u), None) => Some(u),
                     (None, Some(a)) => Some(format!("#{a}")),
                     (None, None) => ctx.link.clone(),
