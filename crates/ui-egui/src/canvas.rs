@@ -75,6 +75,9 @@ pub struct CanvasState {
     pub scale: f32,
     pub canvas_rect: Option<Rect>,
     pub focused: bool,
+    /// The page's widget id last frame, so a click elsewhere can hand the keyboard straight back to
+    /// it (`WordApp::refocus_after_chrome_click`).
+    pub(crate) widget_id: Option<egui::Id>,
     pub render_ms: f64,
     pub ime_preedit: String,
     /// Document faces added to the interface fonts so the input method's composition (#565) and a
@@ -197,6 +200,7 @@ impl Default for CanvasState {
             scale: PX_PER_PT,
             canvas_rect: None,
             focused: false,
+            widget_id: None,
             render_ms: 0.0,
             ime_preedit: String::new(),
             ime_faces: Vec::new(),
@@ -717,6 +721,15 @@ fn drawing_grid(body: wordcraft_geom::Rect, step: (f32, f32)) -> (Vec<f32>, Vec<
     (axis(body.x, body.w, step.0), axis(body.y, body.h, step.1))
 }
 
+/// The cells Table Layout › View Gridlines outlines on a page: the body's tables and the
+/// header's and footer's (#1628), skipping cells covered by a merge.
+fn gridline_cells(page: &Page) -> impl Iterator<Item = wordcraft_geom::Rect> + '_ {
+    page.items.iter().chain(&page.header).chain(&page.footer).filter_map(|it| match it {
+        Placed::Cell { rect, covered: false, .. } => Some(*rect),
+        _ => None,
+    })
+}
+
 /// The drawing grid's spacing in points at a screen scale: the document's spacing (`w:drawingGrid*Spacing`;
 /// ECMA-376's 1/8 inch when it doesn't say), doubled until the lines are at least
 /// [`DRAWING_GRID_MIN_PX`] apart on screen.
@@ -1105,14 +1118,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
             // Table Layout › View Gridlines: table cell outlines (on screen only).
             if app.session.view.table_gridlines {
-                for it in &page.items {
-                    if let Placed::Cell { rect, covered: false, .. } = it {
-                        let r = Rect::from_min_size(
-                            pos2(visual_sr.min.x + rect.x * page_scale, visual_sr.min.y + rect.y * page_scale),
-                            vec2(rect.w * page_scale, rect.h * page_scale),
-                        );
-                        painter.rect_stroke(r, 0.0, Stroke::new(0.5, t.blue.linear_multiply(0.6)), egui::StrokeKind::Middle);
-                    }
+                for rect in gridline_cells(page) {
+                    let r = Rect::from_min_size(
+                        pos2(visual_sr.min.x + rect.x * page_scale, visual_sr.min.y + rect.y * page_scale),
+                        vec2(rect.w * page_scale, rect.h * page_scale),
+                    );
+                    painter.rect_stroke(r, 0.0, Stroke::new(0.5, t.blue.linear_multiply(0.6)), egui::StrokeKind::Middle);
                 }
             }
         }
@@ -1346,6 +1357,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if focus_click || app.canvas.want_focus {
         app.canvas.want_focus = false;
     }
+    app.canvas.widget_id = Some(resp.id);
     if resp.has_focus() {
         ui.memory_mut(|m| {
             m.set_focus_lock_filter(resp.id, egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true })
@@ -4047,6 +4059,27 @@ mod tests {
 
     /// 0.5 cm in points.
     const HALF_CM: f32 = 72.0 * 0.5 / 2.54;
+
+    #[test]
+    fn table_gridlines_include_header_and_footer_tables() {
+        let cell = |y: f32, covered: bool, story: StoryRef| Placed::Cell {
+            rect: wordcraft_geom::Rect::new(0.0, y, 10.0, 10.0),
+            covered,
+            table: Default::default(),
+            row: 0,
+            cell: 0,
+            story,
+            clip: false,
+        };
+        let page = Page {
+            items: vec![cell(100.0, false, StoryRef::Body), cell(110.0, true, StoryRef::Body)],
+            header: vec![cell(10.0, false, StoryRef::Part(1))],
+            footer: vec![cell(200.0, false, StoryRef::Part(2))],
+            ..Default::default()
+        };
+        let ys: Vec<f32> = gridline_cells(&page).map(|r| r.y).collect();
+        assert_eq!(ys, [100.0, 10.0, 200.0]);
+    }
 
     #[test]
     fn drawing_grid_starts_at_the_margins_and_stays_inside_them() {
