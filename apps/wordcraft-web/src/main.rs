@@ -9,8 +9,12 @@
 //! URL flags: `?webgl` forces WebGL2; `?sample` opens the sample document.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+#[cfg(any(target_arch = "wasm32", test))]
+mod size_gate;
 #[cfg(target_arch = "wasm32")]
 mod web;
+#[cfg(any(target_arch = "wasm32", test))]
+mod write_gate;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
