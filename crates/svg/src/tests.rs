@@ -94,7 +94,70 @@ fn oversized_files_are_refused() {
 #[test]
 fn billion_laughs_is_bounded() {
     let lol = r#"<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;"><!ENTITY d "&c;&c;&c;&c;&c;&c;&c;&c;&c;&c;"><!ENTITY e "&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;"><!ENTITY f "&e;&e;&e;&e;&e;&e;&e;&e;&e;&e;"><!ENTITY g "&f;&f;&f;&f;&f;&f;&f;&f;&f;&f;"><!ENTITY h "&g;&g;&g;&g;&g;&g;&g;&g;&g;&g;">]><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>&h;</text></svg>"#;
-    let _ = parse(lol.as_bytes());
+    assert!(parse(lol.as_bytes()).is_err(), "100 MB of expanded text is refused");
+}
+
+/// Review 1 #1: one wide entity referenced many times at depth 0 (which roxmltree allows without
+/// limit) would expand to gigabytes. Scaled down: 64 KB × 2000 = 128 MB, refused before parsing.
+#[test]
+fn wide_entity_expansion_is_refused() {
+    let doc = format!(
+        r#"<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY e "{}">]><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>{}</text></svg>"#,
+        "a".repeat(16 << 10),
+        "&e;".repeat(8000)
+    );
+    assert!(is_svg(doc.as_bytes()));
+    let t = std::time::Instant::now();
+    let r = parse(doc.as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("entit")), "refused for its entities: {:?}", r.err());
+    assert!(t.elapsed() < std::time::Duration::from_secs(2), "{:?}", t.elapsed());
+}
+
+/// Short entities, as Illustrator writes for its namespaces, still read.
+#[test]
+fn small_namespace_entities_are_accepted() {
+    let doc = r##"<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [
+	<!ENTITY ns_svg "http://www.w3.org/2000/svg">
+	<!ENTITY ns_xlink "http://www.w3.org/1999/xlink">
+]>
+<svg version="1.1" xmlns="&ns_svg;" xmlns:xlink="&ns_xlink;" width="20" height="10"><rect width="10" height="10" fill="#f00"/></svg>"##;
+    let svg = parse(doc.as_bytes()).unwrap();
+    assert_eq!(svg.size_px(), (20.0, 10.0));
+}
+
+/// Review 1 #2: the declaration scan looked for `[` to the end of the file at every `<!`, which
+/// is quadratic: a few MB of `<!a>` never finished.
+#[test]
+fn declarations_scan_in_linear_time() {
+    let doc = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}</svg>"#, "<!a>".repeat(1 << 16));
+    let t = std::time::Instant::now();
+    let _ = parse(doc.as_bytes());
+    assert!(t.elapsed() < std::time::Duration::from_secs(1), "{:?}", t.elapsed());
+    let prolog = format!("{}<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"/>", "<!DOCTYPE a>".repeat(5000));
+    let t = std::time::Instant::now();
+    for _ in 0..20 {
+        let _ = is_svg(prolog.as_bytes());
+    }
+    assert!(t.elapsed() < std::time::Duration::from_secs(1), "{:?}", t.elapsed());
+}
+
+/// Review 1 #3: text in an SVG draws with the fonts documents use.
+#[test]
+fn text_is_drawn_with_document_fonts() {
+    let doc = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><text x="5" y="50" font-family="Arial" font-size="50" fill="black">WW</text></svg>"#;
+    let r = parse(doc).unwrap().render(100, 60, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+    let inked = r.rgba.chunks(4).filter(|p| p[3] > 128).count();
+    assert!(inked > 200, "the text is drawn: {inked} inked pixels");
+}
+
+/// Review 1 #13: a prefixed root element is still an SVG.
+#[test]
+fn prefixed_svg_root_is_accepted() {
+    let doc = br#"<svg:svg xmlns:svg="http://www.w3.org/2000/svg" width="10" height="10"><svg:rect width="10" height="10"/></svg:svg>"#;
+    assert!(is_svg(doc));
+    assert_eq!(natural_size(doc), Some((7.5, 7.5)));
+    assert!(!is_svg(b"<w:svgish/>"));
 }
 
 #[test]

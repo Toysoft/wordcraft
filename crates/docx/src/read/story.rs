@@ -1148,9 +1148,16 @@ impl Reader<'_> {
             .and_then(|e| e.child("asvg:svgBlip"))
             .and_then(|e| e.attr("r:embed"))
             .and_then(|id| self.svg_media_for(rels, id));
+        let fallback = blip.attr("r:embed").and_then(|id| self.media_for(rels, id));
         let media = match svg {
-            Some(m) => m,
-            None => blip.attr("r:embed").and_then(|id| self.media_for(rels, id))?,
+            Some(m) => {
+                // Word's PNG is kept with the SVG and written back on save (#1910).
+                if let Some(png) = fallback.filter(|png| *png != m) {
+                    self.doc.svg_fallbacks.insert(m.clone(), png);
+                }
+                m
+            }
+            None => fallback?,
         };
         let mut crop = [0.0f32; 4];
         if let Some(sr) = pic.find("a:srcRect") {

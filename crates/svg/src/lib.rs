@@ -5,11 +5,14 @@
 //! SVG is untrusted input. The reader never touches the file system or the network: `<image>`
 //! links to files or URLs are ignored and only `data:` pictures are drawn; compressed SVG (SVGZ)
 //! is refused, so a gzip bomb can't expand; the file size, element nesting and raster size are
-//! capped. System fonts are never loaded, so text in an SVG (which needs a font) is not drawn.
+//! capped, and entities that could expand past a bound are refused. Text in an SVG draws with the
+//! fonts documents use (`wordcraft-fonts`, with Word's substitutions), loaded into usvg's otherwise
+//! empty font database on demand; system fonts are never scanned for it.
 //! Every failure is an [`Error`], never a panic.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+mod fonts;
 #[cfg(test)]
 mod tests;
 
@@ -80,6 +83,10 @@ const MAX_NATURAL_PT: f32 = 1584.0;
 /// Whether `bytes` look like an (uncompressed) SVG file: XML text whose first element is `svg`.
 pub fn is_svg(bytes: &[u8]) -> bool {
     let b = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(bytes);
+    // Cheap first: a bitmap (PNG, JPEG…) doesn't start with `<`.
+    if b.iter().find(|c| !c.is_ascii_whitespace()) != Some(&b'<') {
+        return false;
+    }
     let head = String::from_utf8_lossy(b.get(..b.len().min(SNIFF_BYTES)).unwrap_or(b));
     let mut t = head.trim_start();
     // Skip the prolog: the XML declaration, processing instructions, comments and a DOCTYPE.
@@ -89,11 +96,12 @@ pub fn is_svg(bytes: &[u8]) -> bool {
         } else if t.starts_with("<!--") {
             t.find("-->").map(|i| i + 3)
         } else if t.get(..9).is_some_and(|d| d.eq_ignore_ascii_case("<!DOCTYPE")) {
-            // An internal subset ends at `]>`.
-            match (t.find('['), t.find('>')) {
-                (Some(open), Some(close)) if open < close => t.find("]>").map(|i| i + 2),
-                (_, close) => close.map(|i| i + 1),
-            }
+            // An internal subset (a `[` before the first `>`) ends at `]>`. Searches stay within
+            // the declaration, so many declarations scan in linear time.
+            t.find('>').and_then(|close| match t.get(..close).and_then(|d| d.find('[')) {
+                Some(open) => t.get(open..).and_then(|r| r.find("]>")).map(|i| open + i + 2),
+                None => Some(close + 1),
+            })
         } else {
             break;
         };
@@ -102,7 +110,10 @@ pub fn is_svg(bytes: &[u8]) -> bool {
             None => return false,
         }
     }
-    t.strip_prefix("<svg").and_then(|r| r.chars().next()).is_some_and(|c| c.is_whitespace() || c == '>' || c == '/')
+    // The root element's name: `svg`, or `prefix:svg`.
+    let name: &str = t.strip_prefix('<').map_or("", |r| r.split(|c: char| c.is_whitespace() || c == '>' || c == '/').next().unwrap_or(""));
+    let local = name.rsplit_once(':').map_or(name, |(_, l)| l);
+    local == "svg"
 }
 
 /// Parse an SVG file safely (see the crate docs).
@@ -153,6 +164,7 @@ fn parse_nested(bytes: &[u8], level: u32) -> Result<Svg, Error> {
             // Files and URLs are never read.
             resolve_string: Box::new(|_: &str, _: &usvg::Options| None),
         },
+        font_resolver: fonts::resolver(),
         ..usvg::Options::default()
     };
     let tree = usvg::Tree::from_xmltree(&xml, &opts).map_err(|e| Error::Parse(e.to_string()))?;
@@ -176,15 +188,18 @@ fn check_nesting(text: &str) -> Result<(), Error> {
         } else if rest.starts_with(b"<?") {
             find(lt + 2, b"?>").map_or(b.len(), |e| e + 2)
         } else if rest.starts_with(b"<!") {
-            // A declaration; a DOCTYPE's internal subset ends at `]>`.
+            // A declaration; a DOCTYPE's internal subset (a `[` before its first `>`) ends at
+            // `]>`. The `[` is looked for within the declaration only, so a run of declarations
+            // scans in linear time.
             let close = find(lt, b">").unwrap_or(b.len());
-            let end = match find(lt, b"[") {
-                Some(open) if open < close => find(open, b"]>").map_or(b.len(), |e| e + 2),
-                _ => close.saturating_add(1),
+            let open = b.get(lt..close).and_then(|d| d.iter().position(|c| *c == b'[')).map(|p| lt + p);
+            let end = match open {
+                Some(open) => find(open, b"]>").map_or(b.len(), |e| e + 2),
+                None => close.saturating_add(1),
             };
             let decl = b.get(lt..end.min(b.len())).unwrap_or_default();
-            if decl.windows(8).any(|w| w == b"<!ENTITY") && entity_values_hold_markup(decl) {
-                return Err(Error::Parse("entities holding markup are not supported".into()));
+            if decl.windows(8).any(|w| w == b"<!ENTITY") {
+                check_entities(decl, b.iter().filter(|c| **c == b'&').count())?;
             }
             end
         } else if rest.starts_with(b"</") {
@@ -216,19 +231,57 @@ fn check_nesting(text: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// Whether an entity declaration in `decl` has a value holding `<`.
-fn entity_values_hold_markup(decl: &[u8]) -> bool {
-    let mut quote = None;
-    for &c in decl.get(1..).unwrap_or_default() {
-        match quote {
-            Some(q) if c == q => quote = None,
-            Some(_) if c == b'<' => return true,
-            Some(_) => {}
-            None if c == b'"' || c == b'\'' => quote = Some(c),
-            None => {}
+/// Most text entity references may expand to (bytes): the longest entity value (with the
+/// entities it references expanded) times the number of `&` in the file.
+const MAX_ENTITY_EXPANSION: u64 = 16 << 20;
+
+/// Refuses the entity declarations in `decl` when a value holds markup, or when they could expand
+/// past [`MAX_ENTITY_EXPANSION`] given `refs` references in the file. The XML parser only limits
+/// references nested in entities; any number at the top level each expand to a full copy.
+fn check_entities(decl: &[u8], refs: usize) -> Result<(), Error> {
+    let refused = |why: &str| Err(Error::Parse(format!("entities {why} are not supported")));
+    let mut sizes: Vec<(&[u8], u64)> = Vec::new();
+    let mut longest = 0u64;
+    let mut i = 0usize;
+    while let Some(at) = decl.get(i..).and_then(|r| r.windows(8).position(|w| w == b"<!ENTITY")).map(|p| i + p + 8) {
+        let rest = decl.get(at..).unwrap_or_default();
+        // `<!ENTITY [%] name "value">` (an external entity has no quoted value of its own here).
+        let name_start = rest.iter().position(|c| !c.is_ascii_whitespace() && *c != b'%').unwrap_or(rest.len());
+        let name_len = rest.get(name_start..).unwrap_or_default().iter().position(|c| c.is_ascii_whitespace()).unwrap_or(0);
+        let name = rest.get(name_start..name_start + name_len).unwrap_or_default();
+        let after = name_start + name_len;
+        let Some(q) = rest.get(after..).and_then(|r| r.iter().position(|c| *c == b'"' || *c == b'\'' || *c == b'>')).map(|p| after + p) else {
+            break;
+        };
+        let quote = rest.get(q).copied().unwrap_or(b'>');
+        if quote == b'>' {
+            i = at + q + 1;
+            continue;
         }
+        let vlen = rest.get(q + 1..).and_then(|r| r.iter().position(|c| *c == quote)).unwrap_or(0);
+        let value = rest.get(q + 1..q + 1 + vlen).unwrap_or_default();
+        if value.contains(&b'<') {
+            return refused("holding markup");
+        }
+        // The value's expanded length: its text plus the expansions of the entities it names.
+        let mut size = value.len() as u64;
+        let mut k = 0usize;
+        while let Some(amp) = value.get(k..).and_then(|r| r.iter().position(|c| *c == b'&')).map(|p| k + p) {
+            let semi = value.get(amp..).and_then(|r| r.iter().position(|c| *c == b';')).map_or(value.len(), |p| amp + p);
+            let reference = value.get(amp + 1..semi).unwrap_or_default();
+            if let Some((_, n)) = sizes.iter().find(|(nm, _)| *nm == reference) {
+                size = size.saturating_add(*n);
+            }
+            k = semi.saturating_add(1);
+        }
+        sizes.push((name, size));
+        longest = longest.max(size);
+        if longest.saturating_mul(refs as u64) > MAX_ENTITY_EXPANSION {
+            return refused("expanding this far");
+        }
+        i = at + q + 1 + vlen;
     }
-    false
+    Ok(())
 }
 
 /// The natural size of an SVG picture in points (its width and height, or its `viewBox`, as CSS

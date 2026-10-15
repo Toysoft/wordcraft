@@ -75,6 +75,8 @@ pub(crate) struct Writer<'d> {
     media_files: BTreeMap<String, String>,
     /// SVG media key → file name of its PNG fallback under `word/media/` (#1910).
     svg_fallback_files: BTreeMap<String, String>,
+    /// SVG media key → media key of the PNG fallback kept with it ([`Document::svg_fallbacks`]).
+    svg_kept_fallbacks: BTreeMap<String, String>,
     /// PNG fallbacks made for the SVG pictures written: file name → bytes.
     svg_fallbacks: BTreeMap<String, Option<Vec<u8>>>,
     bookmarks: HashMap<String, u32>,
@@ -154,6 +156,7 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         doc,
         media_files: BTreeMap::new(),
         svg_fallback_files: BTreeMap::new(),
+        svg_kept_fallbacks: BTreeMap::new(),
         svg_fallbacks: BTreeMap::new(),
         bookmarks: HashMap::new(),
         next_rev_id: 0,
@@ -626,6 +629,11 @@ impl Writer<'_> {
         // An SVG picture is written with a PNG fallback, as Word writes it: name it now so no
         // other part takes the name.
         for (key, file) in &self.media_files {
+            // A PNG kept with the SVG (Word's own, or one made earlier) is written back as it is.
+            if let Some(png) = self.doc.svg_fallbacks.get(key).filter(|png| *png != key && self.media_files.contains_key(*png)) {
+                self.svg_kept_fallbacks.insert(key.clone(), png.clone());
+                continue;
+            }
             let Some(stem) =
                 file.len().checked_sub(4).filter(|&i| file.get(i..).is_some_and(|e| e.eq_ignore_ascii_case(".svg"))).and_then(|i| file.get(..i))
             else {
@@ -642,9 +650,14 @@ impl Writer<'_> {
         }
     }
 
-    /// The PNG fallback file of SVG media `key`, rasterised once; None when the media isn't an
+    /// The PNG fallback file of SVG media `key`: the one kept with it, else one rasterised once; None when the media isn't an
     /// SVG or doesn't read (it is then written on its own).
     fn svg_fallback(&mut self, key: &str) -> Option<String> {
+        if let Some(png) = self.svg_kept_fallbacks.get(key) {
+            let file = self.media_files.get(png)?.clone();
+            self.used_media.insert(png.clone());
+            return Some(file);
+        }
         let file = self.svg_fallback_files.get(key)?.clone();
         if !self.svg_fallbacks.contains_key(&file) {
             let png = self.doc.media.get(key).and_then(|b| wordcraft_svg::fallback_png(b).ok());

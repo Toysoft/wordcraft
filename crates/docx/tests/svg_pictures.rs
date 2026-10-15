@@ -83,8 +83,20 @@ fn word_svg_picture_reads_as_the_svg() {
     let (media, w, h) = only_picture(&d);
     assert_eq!(d.media.get(&media).map(|m| m.as_slice()), Some(SVG), "the picture is the SVG, not its PNG fallback");
     assert_eq!((w, h), (40.0, 20.0));
-    // The fallback isn't kept: it is made again on save.
-    assert_eq!(d.media.len(), 1);
+    // Word's PNG fallback is kept alongside, to be written back on save.
+    assert_eq!(d.media.len(), 2);
+}
+
+/// Review 1 #3: Word's own PNG fallback (which has any text the SVG holds) is written back as it
+/// was, not drawn again.
+#[test]
+fn word_png_fallback_is_written_back_unchanged() {
+    let d = wordcraft_docx::read(&word_svg_package(SVG)).unwrap();
+    let pkg = wordcraft_docx::write(&d).unwrap();
+    let pngs: Vec<Vec<u8>> = entries(&pkg).into_iter().filter(|(n, _)| n.starts_with("word/media/") && n.ends_with(".png")).map(|(_, b)| b).collect();
+    assert_eq!(pngs, vec![tiny_png()], "one PNG: Word's own fallback");
+    let r = wordcraft_docx::read(&pkg).unwrap();
+    assert_eq!(r.media.get(&only_picture(&r).0).map(|m| m.as_slice()), Some(SVG));
 }
 
 #[test]
@@ -141,11 +153,16 @@ fn svg_picture_round_trips() {
     let (media, w, h) = only_picture(&r);
     assert_eq!(r.media.get(&media).map(|m| m.as_slice()), Some(SVG));
     assert_eq!((w, h), (30.0, 15.0));
-    assert_eq!(r.media.len(), 1);
-    // And again: the second save writes one fallback, not two.
+    // The SVG and the fallback made on the first save.
+    assert_eq!(r.media.len(), 2);
+    // And again: the second save writes that same fallback once, not a new one.
+    let first = wordcraft_docx::write(&d).unwrap();
     let pkg = wordcraft_docx::write(&r).unwrap();
-    let pngs = entries(&pkg).into_iter().filter(|(n, _)| n.starts_with("word/media/") && n.ends_with(".png")).count();
-    assert_eq!(pngs, 1);
+    let pngs = |pkg: &[u8]| -> Vec<Vec<u8>> {
+        entries(pkg).into_iter().filter(|(n, _)| n.starts_with("word/media/") && n.ends_with(".png")).map(|(_, b)| b).collect()
+    };
+    assert_eq!(pngs(&pkg).len(), 1);
+    assert_eq!(pngs(&pkg), pngs(&first));
 }
 
 #[test]

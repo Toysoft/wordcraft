@@ -56,7 +56,11 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 craft-pdf = { git = "https://github.com/storytold/craft-libs", rev = "c3487320b2d1de657b860b3c8abb44e1f2b32bd8", version = "=0.1.0", default-features = false, features = ["write"] }
 # SVG pictures (#1910): usvg parses (pure Rust, MIT OR Apache-2.0), resvg rasterises (tiny-skia),
 # krilla-svg draws the parsed tree into the PDF as vectors (the krilla 0.8 companion crate).
-# System fonts are never loaded: text in an SVG draws only with fonts the file embeds (none).
+# krilla-svg depends on usvg with its default features, so Cargo's feature unification turns on
+# usvg's system-font loading code anyway: `default-features = false` below does not keep it out.
+# What keeps system fonts from being scanned is `wordcraft-svg`: it hands usvg a font database it
+# fills itself, on demand, with the faces WordCraft documents draw with (wordcraft-fonts), and
+# never calls `load_system_fonts`.
 usvg = { version = "0.47", default-features = false, features = ["text"] }
 resvg = { version = "0.47", default-features = false, features = ["text", "raster-images"] }
 krilla-svg = "0.8"

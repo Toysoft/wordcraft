@@ -250,6 +250,18 @@ pub(crate) fn picture_size(bytes: &[u8]) -> Result<(f32, f32, &'static str), Cmd
     }
 }
 
+/// Store a picture's bytes as media; an SVG gets its PNG fallback made now and kept with it, so
+/// saves write it without drawing it again (#1910).
+pub(crate) fn add_picture_media(s: &mut Session, bytes: Vec<u8>, ext: &str) -> String {
+    let fallback = if ext == "svg" { wordcraft_svg::fallback_png(&bytes).ok() } else { None };
+    let key = s.doc.add_media(bytes, ext);
+    if let Some(png) = fallback {
+        let png_key = s.doc.add_media(png, "png");
+        s.doc.svg_fallbacks.insert(key.clone(), png_key);
+    }
+    key
+}
+
 /// Insert an encoded image at the selection as an inline picture, `width` points wide (default:
 /// its natural size at 96 ppi), never wider than the text column. The caret ends after it, so a
 /// script's next typing doesn't replace it (#965); Picture Format commands still act on it. The
@@ -259,7 +271,7 @@ fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str)
         return Err(CmdError::Failed("image is larger than 200 MB".into()));
     }
     let (natural_w, natural_h, ext) = picture_size(&bytes)?;
-    let key = s.doc.add_media(bytes, ext);
+    let key = add_picture_media(s, bytes, ext);
     // Fitted to the text width.
     let max_w = s.doc.sections().first().map(|(_, sp)| sp.text_width()).unwrap_or(468.0);
     let (mut w, mut h) = (natural_w, natural_h);

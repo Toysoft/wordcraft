@@ -135,11 +135,11 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 ## Progress log
 
 | Date | What landed |
-| 2026-10-15 | SVG pictures (#1910): Insert › Picture, paste and drag-and-drop take `.svg` at its own size; the canvas draws it at device resolution (sharp at any zoom) and PDF/print as vectors; DOCX reads Word's `asvg:svgBlip` and writes it the same way with a PNG fallback; RTF, ODT and Word 2003 XML get the PNG. SVG is read without file or network access and with size and nesting caps |
+|---|---|
+| 2026-10-15 | SVG pictures (#1910): Insert › Picture, paste and drag-and-drop take `.svg` at its own size; the canvas draws it at device resolution (sharp at any zoom) and PDF/print as vectors; DOCX reads Word's `asvg:svgBlip` and writes it the same way with a PNG fallback; RTF, ODT and Word 2003 XML get the PNG. Text in an SVG draws with the document fonts, and Word's own PNG fallback is kept and written back. SVG is read without file or network access and with size, nesting and entity-expansion caps |
 | 2026-10-14 | DOCX row table border exceptions render and survive saving. Explicit cell borders win; a row exception does not change other rows. |
 | 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
 | 2026-10-12 | Fields keep `w:dirty` through DOCX saves (#877): a begin marker flagged by a generator that couldn't compute a result (pandoc-style TOC placeholders) keeps the flag on open/save — as a buffered field or a range field — so Word still refreshes it on open; computing a result (Update Field, Update Table) clears it, like Word's F9 |
-|---|---|
 | 2026-10-14 | Consistent preferred cell widths override a stale table grid when both totals agree, for fixed and AutoFit tables. Conflicting widths, spans and percentages remain unchanged. |
 | 2026-10-14 | Legacy VML freeforms (`v:shape` with its own `path`), such as the rule lines in many older headers, are read as freeform shapes: they show on screen and in PDFs and are saved back as DrawingML custom geometry instead of vanishing |
 | 2026-10-14 | Field instructions spanning paragraphs no longer add blank lines during pagination; empty result paragraphs still take a line. |

@@ -7248,7 +7248,8 @@ fn insert_picture_takes_an_svg() {
     for (id, v) in
         [("picture.color", json!({"mode": "grayscale"})), ("picture.compress", json!({})), ("picture.corrections", json!({"brightness": 20}))]
     {
-        assert!(s.run(id, &v).is_err(), "{id} on an SVG is an error");
+        let err = s.run(id, &v).unwrap_err().to_string();
+        assert!(err.contains("This picture is an SVG"), "{id} on an SVG says why: {err}");
     }
     assert_eq!(s.doc.media.get(&key).map(|b| b.as_slice()), Some(svg.as_slice()), "the SVG is untouched");
 }
