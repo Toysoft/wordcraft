@@ -56,11 +56,17 @@ pub fn tw(e: &El, attr: &str) -> Option<f32> {
     e.attr(attr).and_then(|v| measure(v, 20.0))
 }
 
-/// ST_OnOff: absent `w:val` = on; `0`, `false`, `off` = off.
+/// Does `s` represent an off/false value in ECMA-376 `ST_OnOff` (`0`, `false`, `off` case-insensitively)?
+pub fn is_off(s: &str) -> bool {
+    let t = s.trim();
+    t == "0" || t.eq_ignore_ascii_case("false") || t.eq_ignore_ascii_case("off")
+}
+
+/// ST_OnOff: absent `w:val` = on; `0`, `false`, `off` (any case) = off.
 pub fn on_off(e: &El) -> bool {
     match e.attr("w:val") {
         None => true,
-        Some(v) => !matches!(v.trim(), "0" | "false" | "off" | "False" | "FALSE"),
+        Some(v) => !is_off(v),
     }
 }
 
@@ -100,5 +106,15 @@ mod tests {
         assert_eq!(measure("x", 20.0), None);
         assert_eq!(int("12.6"), Some(13));
         assert_eq!(u32_of("-5"), Some(0));
+    }
+
+    #[test]
+    fn on_off_case_insensitivity() {
+        for s in ["0", "false", "False", "FALSE", "off", "Off", "OFF", " false "] {
+            assert!(is_off(s), "{s} should be off");
+        }
+        for s in ["1", "true", "True", "TRUE", "on", "On", "ON", " true "] {
+            assert!(!is_off(s), "{s} should be on");
+        }
     }
 }

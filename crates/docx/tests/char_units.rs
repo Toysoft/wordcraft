@@ -80,3 +80,17 @@ fn automatic_spacing_reads_and_round_trips() {
     let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
     assert_eq!(props(&again)[..3], p[..3]);
 }
+
+#[test]
+fn on_off_case_insensitivity_in_props_and_tables() {
+    let body = r#"<w:p><w:pPr><w:spacing w:beforeAutospacing="Off" w:afterAutospacing="True"/></w:pPr><w:r><w:rPr><w:b w:val="Off"/><w:i w:val="False"/></w:rPr><w:t>a</w:t></w:r></w:p>
+        <w:tbl><w:tblPr><w:tblLook w:val="04A0" w:firstRow="False" w:lastRow="Off" w:firstColumn="True"/></w:tblPr><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>"#;
+    let d = wordcraft_docx::read(&docx(body)).unwrap();
+    let p = props(&d);
+    assert_eq!((p[0].space_before_auto, p[0].space_after_auto), (Some(false), Some(true)));
+    let r = d.body[0].as_para().unwrap().runs[0].props.clone();
+    assert_eq!((r.bold, r.italic), (Some(false), Some(false)));
+    let t = d.body[1].as_table().unwrap();
+    assert_eq!((t.props.look.header_row, t.props.look.total_row, t.props.look.first_column), (false, false, true));
+}
+
