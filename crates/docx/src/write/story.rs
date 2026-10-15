@@ -551,6 +551,12 @@ impl Writer<'_> {
                 let root = match (graphic.chart.as_deref(), graphic.smart_art.as_deref(), graphic.source.as_deref()) {
                     (Some(spec), _, _) => crate::xml::parse(self.chart_graphic(spec, rels).as_bytes()).ok(),
                     (None, Some(spec), _) => crate::xml::parse(self.smart_art_graphic(spec, *gw, *gh, rels).as_bytes()).ok(),
+                    // Ink in a group member's form (no drawing of its own) can't stand alone: left
+                    // out before its parts are queued, so no orphan part or relationship is written.
+                    (None, None, Some(src)) if ink && !standalone_ink(src) => {
+                        log::warn!("docx: group-member ink outside its group can't be written; it is left out");
+                        None
+                    }
                     (None, None, Some(src)) => self.embedded_tree(src, rels, ink.then_some((*gw, *gh, float, alt.as_str()))),
                     (None, None, None) => None,
                 };
@@ -727,6 +733,15 @@ impl Writer<'_> {
                         InlineObject::Shape { extra, .. } => {
                             let id = self.shape_docpr(extra.id);
                             self.wsp(w, &c.obj, Some(&id), at, rels, depth);
+                        }
+                        // Native ink kept from the file, with its fallback, at the member's place.
+                        InlineObject::Graphic { w: iw, h: ih, float, graphic, .. } if graphic.kind == wordcraft_doc::graphic::GraphicKind::Ink => {
+                            if let Some(src) = graphic.source.as_deref()
+                                && let Some(mut root) = self.embedded_tree(src, rels, None)
+                            {
+                                Self::place_member(&mut root, [c.x, c.y, *iw, *ih], float, 0);
+                                w.raw(&root.to_xml());
+                            }
                         }
                         _ => {}
                     }
@@ -1695,4 +1710,18 @@ fn comment_reference_style(doc: &wordcraft_doc::Document) -> &str {
         .iter()
         .find(|s| s.kind == wordcraft_doc::styles::StyleKind::Character && s.name.eq_ignore_ascii_case("annotation reference"))
         .map_or("CommentReference", |s| s.id.as_str())
+}
+
+/// Is kept ink `src` in a form the drawing-level writer writes: its `a:graphic`, a direct run-level
+/// `w:contentPart`, or an `mc:AlternateContent` whose choice holds a drawing (not a group member's
+/// bare `w14:contentPart`, nor one in `mc:AlternateContent` with a `pic:pic` fallback)?
+fn standalone_ink(src: &wordcraft_doc::graphic::Embedded) -> bool {
+    match crate::xml::parse(src.xml.as_bytes()) {
+        Ok(root) => match root.name.as_str() {
+            "a:graphic" | "w:contentPart" => true,
+            "mc:AlternateContent" => root.child("mc:Choice").and_then(|c| c.child("w:drawing")).is_some(),
+            _ => false,
+        },
+        Err(_) => false,
+    }
 }
