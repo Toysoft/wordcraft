@@ -2232,3 +2232,25 @@
 # Reading Mode column widths (#1040)
 	Narrow	Schmal
 	Medium	Mittel
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Farben anpassen
+	Customize Fonts	Schriftarten anpassen
+	Save Current Theme	Aktuelles Design speichern
+	Browse for Themes	Nach Designs suchen
+	Customize Colors…	Farben anpassen…
+	Customize Fonts…	Schriftarten anpassen…
+	Save Current Theme…	Aktuelles Design speichern…
+	Browse for Themes…	Nach Designs suchen…
+	Theme colors	Designfarben
+	Text/Background - Dark 1	Text/Hintergrund – Dunkel 1
+	Text/Background - Light 1	Text/Hintergrund – Hell 1
+	Text/Background - Dark 2	Text/Hintergrund – Dunkel 2
+	Text/Background - Light 2	Text/Hintergrund – Hell 2
+	Hyperlink	Link
+	Followed Hyperlink	Besuchter Link
+	Sample	Beispiel
+	Heading	Überschrift
+	Heading font:	Schriftart für Überschriften:
+	Body font:	Schriftart für Textkörper:
+	Office Theme	Office-Design
+	Custom theme settings could not be saved.	Die benutzerdefinierten Designeinstellungen konnten nicht gespeichert werden.

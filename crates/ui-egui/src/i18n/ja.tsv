@@ -2233,3 +2233,25 @@
 # Reading Mode column widths (#1040)
 	Narrow	狭い
 	Medium	中
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	色のカスタマイズ
+	Customize Fonts	フォントのカスタマイズ
+	Save Current Theme	現在のテーマを保存
+	Browse for Themes	テーマの参照
+	Customize Colors…	色のカスタマイズ…
+	Customize Fonts…	フォントのカスタマイズ…
+	Save Current Theme…	現在のテーマを保存…
+	Browse for Themes…	テーマの参照…
+	Theme colors	テーマの色
+	Text/Background - Dark 1	テキスト/背景 - 濃色 1
+	Text/Background - Light 1	テキスト/背景 - 淡色 1
+	Text/Background - Dark 2	テキスト/背景 - 濃色 2
+	Text/Background - Light 2	テキスト/背景 - 淡色 2
+	Hyperlink	ハイパーリンク
+	Followed Hyperlink	表示済みのハイパーリンク
+	Sample	サンプル
+	Heading	見出し
+	Heading font:	見出しのフォント:
+	Body font:	本文のフォント:
+	Office Theme	Office テーマ
+	Custom theme settings could not be saved.	カスタム テーマの設定を保存できませんでした。

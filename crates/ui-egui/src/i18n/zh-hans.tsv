@@ -2245,3 +2245,25 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	自定义颜色
+	Customize Fonts	自定义字体
+	Save Current Theme	保存当前主题
+	Browse for Themes	浏览主题
+	Customize Colors…	自定义颜色…
+	Customize Fonts…	自定义字体…
+	Save Current Theme…	保存当前主题…
+	Browse for Themes…	浏览主题…
+	Theme colors	主题颜色
+	Text/Background - Dark 1	文字/背景 - 深色 1
+	Text/Background - Light 1	文字/背景 - 浅色 1
+	Text/Background - Dark 2	文字/背景 - 深色 2
+	Text/Background - Light 2	文字/背景 - 浅色 2
+	Hyperlink	超链接
+	Followed Hyperlink	已访问的超链接
+	Sample	示例
+	Heading	标题
+	Heading font:	标题字体:
+	Body font:	正文字体:
+	Office Theme	Office 主题
+	Custom theme settings could not be saved.	无法保存自定义主题设置。

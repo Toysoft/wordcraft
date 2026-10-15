@@ -2632,3 +2632,23 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Prilagodi boje
+	Customize Fonts	Prilagodi fontove
+	Save Current Theme	Spremi trenutnu temu
+	Browse for Themes	Potraži teme
+	Customize Colors…	Prilagodi boje…
+	Customize Fonts…	Prilagodi fontove…
+	Save Current Theme…	Spremi trenutnu temu…
+	Browse for Themes…	Potraži teme…
+	Theme colors	Boje teme
+	Text/Background - Dark 1	Tekst/pozadina – tamna 1
+	Text/Background - Light 1	Tekst/pozadina – svijetla 1
+	Text/Background - Dark 2	Tekst/pozadina – tamna 2
+	Text/Background - Light 2	Tekst/pozadina – svijetla 2
+	Followed Hyperlink	Posjećena hiperveza
+	Sample	Uzorak
+	Heading font:	Font naslova:
+	Body font:	Font tijela teksta:
+	Office Theme	Tema sustava Office
+	Custom theme settings could not be saved.	Postavke prilagođenih tema nije moguće spremiti.

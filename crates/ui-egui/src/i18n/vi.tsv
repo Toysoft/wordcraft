@@ -2672,3 +2672,23 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Tùy chỉnh màu
+	Customize Fonts	Tùy chỉnh phông
+	Save Current Theme	Lưu chủ đề hiện tại
+	Browse for Themes	Duyệt tìm chủ đề
+	Customize Colors…	Tùy chỉnh màu…
+	Customize Fonts…	Tùy chỉnh phông…
+	Save Current Theme…	Lưu chủ đề hiện tại…
+	Browse for Themes…	Duyệt tìm chủ đề…
+	Theme colors	Màu chủ đề
+	Text/Background - Dark 1	Văn bản/Nền - Tối 1
+	Text/Background - Light 1	Văn bản/Nền - Sáng 1
+	Text/Background - Dark 2	Văn bản/Nền - Tối 2
+	Text/Background - Light 2	Văn bản/Nền - Sáng 2
+	Followed Hyperlink	Siêu kết nối đã xem
+	Sample	Mẫu
+	Heading font:	Phông đầu đề:
+	Body font:	Phông nội dung:
+	Office Theme	Chủ đề Office
+	Custom theme settings could not be saved.	Không thể lưu cài đặt chủ đề tùy chỉnh.

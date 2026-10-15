@@ -2234,3 +2234,25 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	自訂色彩
+	Customize Fonts	自訂字型
+	Save Current Theme	儲存目前的佈景主題
+	Browse for Themes	瀏覽佈景主題
+	Customize Colors…	自訂色彩…
+	Customize Fonts…	自訂字型…
+	Save Current Theme…	儲存目前的佈景主題…
+	Browse for Themes…	瀏覽佈景主題…
+	Theme colors	佈景主題色彩
+	Text/Background - Dark 1	文字/背景 - 深色 1
+	Text/Background - Light 1	文字/背景 - 淺色 1
+	Text/Background - Dark 2	文字/背景 - 深色 2
+	Text/Background - Light 2	文字/背景 - 淺色 2
+	Hyperlink	超連結
+	Followed Hyperlink	已瀏覽的超連結
+	Sample	範例
+	Heading	標題
+	Heading font:	標題字型:
+	Body font:	本文字型:
+	Office Theme	Office 佈景主題
+	Custom theme settings could not be saved.	無法儲存自訂佈景主題設定。

@@ -45,6 +45,7 @@ pub mod table_resize;
 pub mod table_style;
 pub mod templates;
 pub mod text;
+pub mod themes;
 pub mod tools;
 pub mod view;
 pub mod wordart;
@@ -83,6 +84,7 @@ pub fn registry() -> Registry {
     v.extend(file::specs());
     v.extend(options::specs());
     v.extend(design::specs());
+    v.extend(themes::specs());
     v.extend(references::specs());
     v.extend(fields::specs());
     v.extend(mailings::specs());

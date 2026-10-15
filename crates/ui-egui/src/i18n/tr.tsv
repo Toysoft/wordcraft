@@ -2629,3 +2629,23 @@ preview	Title	Örnek
 # Reading Mode column widths (#1040)
 	Narrow	Dar
 	Medium	Orta
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Renkleri Özelleştir
+	Customize Fonts	Yazı Tiplerini Özelleştir
+	Save Current Theme	Geçerli Temayı Kaydet
+	Browse for Themes	Temalara Gözat
+	Customize Colors…	Renkleri Özelleştir…
+	Customize Fonts…	Yazı Tiplerini Özelleştir…
+	Save Current Theme…	Geçerli Temayı Kaydet…
+	Browse for Themes…	Temalara Gözat…
+	Theme colors	Tema renkleri
+	Text/Background - Dark 1	Metin/Arka Plan - Koyu 1
+	Text/Background - Light 1	Metin/Arka Plan - Açık 1
+	Text/Background - Dark 2	Metin/Arka Plan - Koyu 2
+	Text/Background - Light 2	Metin/Arka Plan - Açık 2
+	Followed Hyperlink	İzlenen Köprü
+	Sample	Örnek
+	Heading font:	Başlık yazı tipi:
+	Body font:	Gövde yazı tipi:
+	Office Theme	Office Teması
+	Custom theme settings could not be saved.	Özel tema ayarları kaydedilemedi.

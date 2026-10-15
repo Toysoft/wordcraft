@@ -2243,3 +2243,25 @@
 # Reading Mode column widths (#1040)
 	Narrow	Uska
 	Medium	Srednja
+# Custom theme colours, fonts and themes (#1869)
+	Customize Colors	Prilagodi boje
+	Customize Fonts	Prilagodi fontove
+	Save Current Theme	Sačuvaj trenutnu temu
+	Browse for Themes	Potraži teme
+	Customize Colors…	Prilagodi boje…
+	Customize Fonts…	Prilagodi fontove…
+	Save Current Theme…	Sačuvaj trenutnu temu…
+	Browse for Themes…	Potraži teme…
+	Theme colors	Boje teme
+	Text/Background - Dark 1	Tekst/pozadina – tamna 1
+	Text/Background - Light 1	Tekst/pozadina – svetla 1
+	Text/Background - Dark 2	Tekst/pozadina – tamna 2
+	Text/Background - Light 2	Tekst/pozadina – svetla 2
+	Hyperlink	Hiperveza
+	Followed Hyperlink	Posećena hiperveza
+	Sample	Uzorak
+	Heading	Naslov
+	Heading font:	Font naslova:
+	Body font:	Font teksta:
+	Office Theme	Office tema
+	Custom theme settings could not be saved.	Podešavanja prilagođenih tema nije moguće sačuvati.
