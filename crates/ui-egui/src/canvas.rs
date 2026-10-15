@@ -1679,8 +1679,9 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
         let page_scale = layout.pages.get(pi).map_or(scale, |page| page_screen_scale(*pr, page, scale));
         let area = Rect::from_min_max(pos2(pr.max.x, pr.min.y), pos2(pr.max.x + mw * page_scale, pr.max.y));
         if mw > 0.0 && area.intersects(clip) {
-            painter.rect_filled(area, 0.0, Color32::from_rgb(0xF3, 0xF3, 0xF3));
-            painter.line_segment([area.left_top(), area.left_bottom()], Stroke::new(1.0, Color32::from_rgb(0xE0, 0xE0, 0xE0)));
+            // #1907: theme surfaces, so dark mode gets no light strip on a dark canvas.
+            painter.rect_filled(area, 0.0, t.panel);
+            painter.line_segment([area.left_top(), area.left_bottom()], Stroke::new(1.0, t.border));
         }
     }
     let mut pages: Vec<usize> = by_page.keys().copied().collect();
@@ -1828,7 +1829,8 @@ fn author_name(a: &str) -> String {
 fn card_shapes(painter: &egui::Painter, t: &Tokens, card: Rect, color: Color32, selected: bool, slot: Option<egui::layers::ShapeIdx>) {
     let shapes = vec![
         egui::Shape::rect_filled(card.translate(vec2(0.0, 1.0)), 4.0, t.page_shadow),
-        egui::Shape::rect_filled(card, 4.0, if selected { t.checked } else { Color32::WHITE }),
+        // #1907: the menu surface, white in light and dark in dark, so card text stays readable.
+        egui::Shape::rect_filled(card, 4.0, if selected { t.checked } else { t.menu }),
         egui::Shape::rect_stroke(card, 4.0, Stroke::new(if selected { 1.5 } else { 1.0 }, color), egui::StrokeKind::Inside),
         egui::Shape::rect_filled(Rect::from_min_size(card.min, vec2(4.0, card.height())), egui::CornerRadius { nw: 4, sw: 4, ne: 0, se: 0 }, color),
     ];
@@ -4790,5 +4792,30 @@ mod tests {
 
     fn page_at_index(rects: &[Rect], p: Pos2) -> Option<usize> {
         nearest_page(rects, p)
+    }
+
+    /// #1907: balloon cards use the theme menu surface, so card text stays readable in dark mode.
+    #[test]
+    fn balloon_cards_use_the_theme_menu_surface() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, crate::theme::Appearance::Dark);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+        let card = Rect::from_min_size(pos2(10.0, 10.0), vec2(120.0, 60.0));
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let t = crate::theme::Tokens::get(ui.ctx());
+            assert!(t.dark, "dark appearance under test");
+            card_shapes(ui.painter(), &t, card, egui::Color32::RED, false, None);
+        });
+        output.textures_delta.clear();
+        let fills: Vec<egui::Color32> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Rect(rs) if rs.rect == card && rs.fill.a() != 0 => Some(rs.fill),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fills, [crate::theme::Tokens::dark().menu], "card fill is the dark menu surface");
     }
 }
