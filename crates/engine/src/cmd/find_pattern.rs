@@ -94,7 +94,21 @@ fn replace_code(c: char) -> Option<char> {
 }
 
 /// A character code (`^13`, `^0151`, `^u8212`) as the character it stands for here.
-fn code_char(n: u32) -> Option<char> {
+fn code_char(n: u32, is_ansi: bool) -> Option<char> {
+    if is_ansi {
+        let b = u8::try_from(n).ok()?;
+        return match b {
+            0 => None,
+            13 => Some(PARA_MARK),
+            11 => Some('\n'),
+            12 => Some('\u{0C}'),
+            14 => Some('\u{0E}'),
+            b => {
+                let c = wordcraft_doc::encoding::cp1252(b);
+                Some(c).filter(|c| (!c.is_control() || *c == '\t') && *c != '\u{FFFD}')
+            }
+        };
+    }
     Some(match n {
         13 => PARA_MARK,
         11 => '\n',
@@ -109,13 +123,15 @@ fn code_char(n: u32) -> Option<char> {
 /// Read a numeric code after `^` (`13`, `0151`, `u8212`) starting at `chars[i]`; returns the
 /// character and how many characters it took.
 fn numeric_code(chars: &[char], i: usize) -> Option<(char, usize)> {
-    let (start, max) = if chars.get(i) == Some(&'u') { (i + 1, 5) } else { (i, 4) };
+    let is_unicode = matches!(chars.get(i), Some('u' | 'U'));
+    let (start, max) = if is_unicode { (i + 1, 5) } else { (i, 4) };
     let digits: String = chars.get(start..).unwrap_or(&[]).iter().take(max).take_while(|c| c.is_ascii_digit()).collect();
     if digits.is_empty() {
         return None;
     }
     let n: u32 = digits.parse().ok()?;
-    Some((code_char(n)?, start - i + digits.chars().count()))
+    let is_ansi = !is_unicode && digits.starts_with('0');
+    Some((code_char(n, is_ansi)?, start - i + digits.chars().count()))
 }
 
 /// A literal character as a regex atom.
@@ -414,4 +430,31 @@ pub fn expand(pieces: &[Piece], found: &str, group: &dyn Fn(usize) -> Option<Str
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numeric_character_codes() {
+        let opts = Opts::default();
+        let c = compile("^0151", &opts).unwrap();
+        assert_eq!(c.pattern, "—");
+
+        let c_lower = compile("^u8212", &opts).unwrap();
+        assert_eq!(c_lower.pattern, "—");
+
+        let c_upper = compile("^U8212", &opts).unwrap();
+        assert_eq!(c_upper.pattern, "—");
+
+        let c_ellipsis = compile("^0133", &opts).unwrap();
+        assert_eq!(c_ellipsis.pattern, "…");
+
+        let rep = parse_replace("^0151", &opts);
+        assert_eq!(rep, vec![Piece::Lit("—".into())]);
+
+        let rep_u = parse_replace("^U8212", &opts);
+        assert_eq!(rep_u, vec![Piece::Lit("—".into())]);
+    }
 }
