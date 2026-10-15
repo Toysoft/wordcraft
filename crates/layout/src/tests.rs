@@ -1307,7 +1307,7 @@ fn headers_and_page_fields() {
     let mut hp = wordcraft_doc::Paragraph::new();
     hp.insert_object(
         0,
-        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
         &Default::default(),
     )
     .unwrap();
@@ -4995,7 +4995,7 @@ fn enclosed_characters_draw_a_shape_around_the_text() {
         let e = Enclosure { shape, style, text: "A".into() };
         d.insert_object(
             &Pos::body(0, 2),
-            InlineObject::Field { instr: e.instr(), result: "A".into(), locked: false, dirty: false, code: false, form: String::new() },
+            InlineObject::Field { instr: e.instr(), result: "A".into(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
             &Default::default(),
         )
         .unwrap();
@@ -5031,7 +5031,7 @@ fn enclosed_characters_draw_a_shape_around_the_text() {
     let mut d = Document::from_text("x");
     d.insert_object(
         &Pos::body(0, 1),
-        InlineObject::Field { instr: "eq \\o(=,/)".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "eq \\o(=,/)".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
         &Default::default(),
     )
     .unwrap();
@@ -5486,7 +5486,7 @@ fn unproofed_languages_and_no_proof_runs_are_not_marked() {
 fn body_page_totals_count_every_page() {
     let mut d = Document::from_text("Body-1\nBody-2\nBody-3");
     let field =
-        |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
+        |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() };
     for i in 0..3 {
         let p = d.para_mut(StoryRef::Body, &Path::top(i)).unwrap();
         p.props.page_break_before = Some(i > 0);
@@ -5579,7 +5579,7 @@ fn east_asian_text_takes_the_asian_font_and_latin_text_the_latin_font() {
 #[test]
 fn footer_page_total_needs_one_body_pass() {
     let field =
-        || InlineObject::Field { instr: "NUMPAGES".into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
+        || InlineObject::Field { instr: "NUMPAGES".into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() };
     let mut d = Document::from_text("Body-1\nBody-2\nBody-3");
     for i in 1..3 {
         d.para_mut(StoryRef::Body, &Path::top(i)).unwrap().props.page_break_before = Some(true);
@@ -6466,7 +6466,7 @@ fn page_field_doc(before: usize, pieces: &[&str]) -> Document {
         let n = p.len();
         p.insert_object(
             n,
-            InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+            InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
             &Default::default(),
         )
         .unwrap();
@@ -6583,7 +6583,7 @@ fn footnote_page_field_from_a_split_paragraph_shows_its_page() {
     let n = note.len();
     note.insert_object(
         n,
-        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
         &Default::default(),
     )
     .unwrap();
@@ -6662,7 +6662,7 @@ fn relaid_paragraphs_keep_their_equation_numbers() {
     let n = p2.len();
     p2.insert_object(
         n,
-        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
         &Default::default(),
     )
     .unwrap();

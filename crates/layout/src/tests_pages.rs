@@ -265,7 +265,7 @@ fn caret_in_a_continued_footnote_is_found_on_its_page() {
 #[test]
 fn page_references_in_footers_show_their_bookmarks_page() {
     let field =
-        |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
+        |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() };
     let footer = |d: &mut Document, mark: &str| {
         let mut p = Paragraph::with_text("Page  of ", Default::default());
         p.insert_object(5, field("PAGE"), &Default::default()).unwrap();
@@ -363,6 +363,7 @@ fn page_ref_footer(d: &mut Document, marks: &[&str]) -> u32 {
             dirty: false,
             code: false,
             form: String::new(),
+            code_xml: String::new(),
         };
         p.insert_object(n, field, &Default::default()).unwrap();
     }
@@ -427,7 +428,7 @@ fn page_references_in_footer_text_boxes_are_resolved() {
     let text_box = |d: &mut Document| {
         let mut p = Paragraph::new();
         let field =
-            InlineObject::Field { instr: "PAGEREF End".into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
+            InlineObject::Field { instr: "PAGEREF End".into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() };
         p.insert_object(0, field, &Default::default()).unwrap();
         let story = d.add_part(PartKind::TextBox, vec![para_block(p)]);
         InlineObject::Shape {

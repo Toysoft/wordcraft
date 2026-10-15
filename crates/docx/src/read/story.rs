@@ -74,16 +74,17 @@ struct FieldState {
     /// A legacy form field's `w:ffData`, as raw XML.
     form: String,
     /// Once a field ends inside this one's code (`{ IF { REF a } = 0 … }`): the code as run XML,
-    /// nested fields complete, so the field is kept verbatim (#1671). Empty without nesting.
+    /// nested fields complete, kept as the field's `code_xml` (#1671). Empty without nesting.
     code_xml: String,
-    /// The code can't be kept as XML (too long, or tracked changes in it): the nested fields'
-    /// results stand in for them in `instr`, as before.
+    /// The code can't be kept as XML (too long, or a tracked change inside the field that the
+    /// field itself isn't in): the nested fields' results stand in for them in `instr`.
     code_xml_lost: bool,
 }
 
-/// Whether a run carries a tracked change (kept fields' XML has no revision marks).
-fn tracked(p: &CharProps) -> bool {
-    p.ins.is_some() || p.del.is_some() || p.fmt_change.is_some()
+/// Whether two runs are in the same tracked insertion and deletion (or none). The field's own
+/// revision is written around its runs, so its code's XML holds none.
+fn same_rev(a: &CharProps, b: &CharProps) -> bool {
+    (a.ins, a.del) == (b.ins, b.del)
 }
 
 /// One run of a field's code or result, as XML: text with tabs and breaks.
@@ -109,6 +110,10 @@ fn run_xml(w: &mut crate::xml::W, props: &CharProps, tag: &str, s: &str) {
             '\n' | '\r' if tag == "w:t" => {
                 flush(w, &mut buf);
                 w.empty("w:br", &[]);
+            }
+            '\u{000C}' | '\u{000E}' if tag == "w:t" => {
+                flush(w, &mut buf);
+                w.empty("w:br", &[("w:type", if c == '\u{000C}' { "page" } else { "column" })]);
             }
             c if (c as u32) < 0x20 && c != '\t' || c == wordcraft_doc::para::OBJ => {}
             c => buf.push(c),
@@ -697,7 +702,7 @@ impl Reader<'_> {
                     let text = k.text();
                     f.instr.push_str(&text);
                     if !f.code_xml.is_empty() && !f.code_xml_lost {
-                        if tracked(props) || f.code_xml.len() >= MAX_INSTR {
+                        if !same_rev(props, &f.props) || f.code_xml.len() >= MAX_INSTR {
                             f.code_xml_lost = true;
                             f.code_xml = String::new();
                         } else {
@@ -800,7 +805,7 @@ impl Reader<'_> {
             "w:pgNum" => self.emit_obj(
                 sc,
                 pb,
-                InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+                InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() },
                 props,
             ),
             "w:ruby" => self.read_ruby(sc, pb, k, props),
@@ -966,29 +971,29 @@ impl Reader<'_> {
                 Item::Obj(o) => result.push_str(o.plain_text()),
             }
         }
-        let parent_takes_code = sc.fields.last().is_some_and(|p| !p.spilled && p.phase == Phase::Instr);
-        // A field nested in this one's code: kept verbatim, showing its cached result (#1671).
-        if !parent_takes_code && !f.code_xml.is_empty() && !f.code_xml_lost {
-            let obj = InlineObject::Opaque { format: "docx".into(), xml: field_xml(&f), text: result };
-            self.emit_obj(sc, pb, obj, &f.props);
-            return;
-        }
-        // This field nested in its parent's code: the parent keeps it as XML.
-        let nested_xml =
-            (parent_takes_code && !tracked(&f.props) && !f.code_xml_lost && !f.buf.iter().any(|(_, p)| tracked(p))).then(|| field_xml(&f));
+        // This field nested in its parent's code (in the parent's revision, if any): the parent
+        // keeps it as XML.
+        let nested_xml = sc
+            .fields
+            .last()
+            .is_some_and(|p| !p.spilled && p.phase == Phase::Instr && !p.code_xml_lost && same_rev(&f.props, &p.props))
+            .then_some(())
+            .filter(|()| !f.code_xml_lost && f.buf.iter().all(|(_, p)| same_rev(p, &f.props)))
+            .map(|()| field_xml(&f));
         let (instr, result) = match enclosure(&f) {
             // Word writes no result for enclosed characters: the text is their plain text.
             Some(e) => (e.instr(), if result.is_empty() { e.text } else { result }),
             None => (f.instr.trim().to_string(), result),
         };
-        let obj = InlineObject::Field { instr, result, locked: f.locked, dirty: f.dirty, code: false, form: f.form };
+        let code_xml = if f.code_xml_lost { String::new() } else { f.code_xml };
+        let obj = InlineObject::Field { instr, result, locked: f.locked, dirty: f.dirty, code: false, form: f.form, code_xml };
         if let Some(parent) = sc.fields.last_mut()
             && !parent.spilled
             && parent.phase == Phase::Instr
         {
             if !parent.code_xml_lost {
                 match nested_xml {
-                    Some(x) if !tracked(&parent.props) && parent.code_xml.len().saturating_add(x.len()) < MAX_INSTR => {
+                    Some(x) if parent.code_xml.len().saturating_add(x.len()) < MAX_INSTR => {
                         if parent.code_xml.is_empty() {
                             // The code so far, in the field's own formatting.
                             let mut w = crate::xml::W::default();
@@ -1019,7 +1024,7 @@ impl Reader<'_> {
             f.spilled = true;
             let form = std::mem::take(&mut f.form);
             pb.push_obj(
-                InlineObject::Field { instr: f.instr.trim().to_string(), result: String::new(), locked: f.locked, dirty: f.dirty, code: false, form },
+                InlineObject::Field { instr: f.instr.trim().to_string(), result: String::new(), locked: f.locked, dirty: f.dirty, code: false, form, code_xml: String::new() },
                 &f.props,
             );
             for (it, p) in f.buf.drain(..) {

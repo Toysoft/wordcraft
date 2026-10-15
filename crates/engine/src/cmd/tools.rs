@@ -447,6 +447,13 @@ pub fn specs() -> Vec<CommandSpec> {
             {
                 issues.push("Some embedded objects from the original file are shown as text only.");
             }
+            if s.doc.para_paths(StoryRef::Body).iter().any(|p| {
+                s.doc
+                    .para(StoryRef::Body, p)
+                    .is_some_and(|x| x.objects.iter().any(|o| matches!(o, InlineObject::Field { code_xml, .. } if !code_xml.is_empty())))
+            }) {
+                issues.push("Fields nested in other fields show their last result and aren't updated.");
+            }
             Ok(json!({"issues": issues}))
         })
         .pure(),
@@ -479,7 +486,7 @@ pub fn specs() -> Vec<CommandSpec> {
             };
             let props = s.typing_props();
             let at = delete_selection(s)?;
-            let end = s.doc.insert_object(&at, InlineObject::Field { instr, result: val, locked: false, dirty: false, code: false, form: String::new() }, &props)?;
+            let end = s.doc.insert_object(&at, InlineObject::Field { instr, result: val, locked: false, dirty: false, code: false, form: String::new(), code_xml: String::new() }, &props)?;
             s.sel = Selection::caret(end);
             sel_result(s)
         })
