@@ -2401,13 +2401,20 @@ fn picture_format(app: &mut WordApp, ui: &mut Ui) {
                 for (i, side) in ["L", "T", "R", "B"].iter().enumerate() {
                     ui.label(egui::RichText::new(tl!(side)).small());
                     let mut v = crop0[i] * 100.0;
-                    let r = ui.add(egui::DragValue::new(&mut v).speed(0.5).range(0.0..=45.0).suffix("%"));
+                    // Negative is Fit's padding: shown as it is, never clamped to 0 by drawing it.
+                    let r = ui.add(
+                        egui::DragValue::new(&mut v)
+                            .speed(0.5)
+                            .range(wordcraft_doc::para::MIN_CROP * 100.0..=45.0)
+                            .clamp_existing_to_range(false)
+                            .suffix("%"),
+                    );
                     if r.changed() {
                         if r.dragged() && !r.drag_started() {
                             app.session.join_next_undo();
                         }
                         let mut c = crop0;
-                        c[i] = (v / 100.0).clamp(0.0, 0.45);
+                        c[i] = (v / 100.0).clamp(wordcraft_doc::para::MIN_CROP, 0.45);
                         let _ = app.run("picture.crop", json!({"left": c[0], "top": c[1], "right": c[2], "bottom": c[3]}));
                     }
                 }
@@ -2856,6 +2863,33 @@ mod tests {
         s.run("select.collapse", &json!({"end": true})).unwrap();
         s.run("text.insert", &json!({"text": "x"})).unwrap();
         assert!(!has_picture_selected(&s));
+    }
+
+    /// Fit's padding (negative crop) survives the Picture Format tab: its crop boxes show it
+    /// without clamping it to 0, and drawing them changes nothing and adds no undo step.
+    #[test]
+    fn picture_format_keeps_a_padded_crop() {
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("insert.picture", json!({"data": png_data()})).unwrap();
+        app.run("picture.crop", json!({"left": -0.25, "top": -0.5, "bottom": -0.5})).unwrap();
+        let crop = |app: &WordApp| match crate::objects::selected(app) {
+            Some((_, wordcraft_doc::para::InlineObject::Image { crop, .. })) => *crop,
+            other => panic!("expected a picture, got {other:?}"),
+        };
+        assert_eq!(crop(&app), [-0.25, -0.5, 0.0, -0.5]);
+        let depth = app.session.undo_depth();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1600.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.state_mut().run("ui.tab", json!({"tab": "Picture Format"})).unwrap();
+        h.run_steps(4);
+        assert_eq!(crop(h.state()), [-0.25, -0.5, 0.0, -0.5], "the padding is kept");
+        assert_eq!(h.state().session.undo_depth(), depth, "no undo step");
     }
 
     #[test]

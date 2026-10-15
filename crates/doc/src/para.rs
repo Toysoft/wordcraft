@@ -365,8 +365,31 @@ pub fn ruby_raise(offset: f32, base_size: f32, size: f32) -> f32 {
     offset + 0.8 * base_size + 0.2 * size
 }
 
+/// A picture's Crop to Shape outline: the shape WordCraft draws, and the file's own preset
+/// (DrawingML `prst` and its `a:avLst` adjust values) when that isn't exactly `kind`'s, so a
+/// preset WordCraft draws as an approximation is saved back as it was.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PictureShape {
+    /// The outline drawn.
+    pub kind: ShapeKind,
+    /// The file's preset name; empty: `kind`'s own.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prst: String,
+    /// The file's adjust values (`a:gd` `name`, `fmla`), in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub av: Vec<(String, String)>,
+}
+
+impl PictureShape {
+    /// WordCraft's own `kind` outline, nothing kept from a file.
+    pub fn new(kind: ShapeKind) -> PictureShape {
+        PictureShape { kind, prst: String::new(), av: Vec::new() }
+    }
+}
+
 /// The most a picture's side can be padded: crop fractions go no lower (Fit's negative crop).
-pub const MIN_CROP: f32 = -10.0;
+pub const MIN_CROP: f32 = -100.0;
 /// The most a command crops away from one side of a picture (Fill, Aspect Ratio).
 pub const MAX_CROP: f32 = 0.495;
 
@@ -395,7 +418,7 @@ pub enum InlineObject {
         /// Crop to Shape (Picture Format › Crop › Crop to Shape): the outline the picture is
         /// clipped to, DrawingML's `a:prstGeom` in `pic:spPr`. None: a rectangle.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        shape: Option<ShapeKind>,
+        shape: Option<PictureShape>,
     },
     /// A chart or SmartArt diagram (see [`crate::graphic`]).
     Graphic {

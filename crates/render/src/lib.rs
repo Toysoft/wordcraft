@@ -1573,6 +1573,42 @@ mod tests {
         assert!(left[..3].iter().all(|c| *c > 200), "left half should be paper, not the grey box: {left:?}");
     }
 
+    /// Fit on a metafile: padding is left empty, the drawing keeps its proportions (it used to
+    /// be stretched over the whole frame).
+    #[test]
+    fn padded_metafile_picture_keeps_its_proportions() {
+        let mut d = Document::new();
+        let media = d.add_media(red_right_half_emf(), "emf");
+        let mut p = wordcraft_doc::Paragraph::new();
+        let obj = wordcraft_doc::para::InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0, -0.5, 0.0, -0.5],
+            ole: None,
+            shape: None,
+        };
+        p.insert_object(0, obj, &Default::default()).unwrap();
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let opts = RenderOptions::default();
+        let rect = page_display(&d, &l.pages[0], &opts.display)
+            .iter()
+            .find_map(|i| match i {
+                Draw::Image { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("a picture on the page");
+        let img = render_page(&d, &l.pages[0], 1.0, &opts);
+        let at = |fx: f32, fy: f32| img.pixel((rect.x + rect.w * fx) as u32, (rect.y + rect.h * fy) as u32);
+        assert!(at(0.75, 0.5)[0] > 200 && at(0.75, 0.5)[1] < 60, "the red half in the middle: {:?}", at(0.75, 0.5));
+        for fy in [0.1, 0.9] {
+            assert!(at(0.75, fy)[..3].iter().all(|c| *c > 200), "padding at {fy} is paper: {:?}", at(0.75, fy));
+        }
+    }
+
     #[test]
     fn cosmetic_metafile_pen_is_one_device_pixel_wide() {
         // MOVETO (0, 50), LINETO (100, 50) with the default cosmetic black pen: a hairline across the middle.
@@ -1659,7 +1695,7 @@ mod tests {
             float: Default::default(),
             crop,
             ole: None,
-            shape,
+            shape: shape.map(wordcraft_doc::para::PictureShape::new),
         };
         p.insert_object(0, obj, &Default::default()).unwrap();
         d.body = vec![wordcraft_doc::para_block(p)];

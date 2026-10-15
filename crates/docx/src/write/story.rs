@@ -940,7 +940,7 @@ impl Writer<'_> {
         w.open("pic:blipFill", &[]);
         w.empty("a:blip", &[("r:embed", &rid)]);
         // Negative values pad the picture (Fit): ECMA-376 §20.1.8.55 allows them.
-        if crop.iter().any(|c| *c != 0.0) {
+        if crop.iter().any(|c| wordcraft_geom::finite(*c) != 0.0) {
             let c = |v: f32| n((wordcraft_geom::finite(v).clamp(MIN_CROP, 1.0) * 100_000.0).round() as i64);
             w.empty("a:srcRect", &[("l", &c(crop[0])), ("t", &c(crop[1])), ("r", &c(crop[2])), ("b", &c(crop[3]))]);
         }
@@ -951,8 +951,22 @@ impl Writer<'_> {
         w.open("pic:spPr", &[("bwMode", "auto")]);
         xfrm(w, off, *iw, *ih, float.spin());
         // Crop to Shape: the outline the picture is clipped to.
-        w.open("a:prstGeom", &[("prst", shape.map_or("rect", preset_name))]);
-        w.empty("a:avLst", &[]);
+        // A preset read from a file is written back as it was, adjust values included.
+        let (prst, av) = match shape {
+            Some(s) if !s.prst.is_empty() => (s.prst.as_str(), s.av.as_slice()),
+            Some(s) => (preset_name(s.kind), s.av.as_slice()),
+            None => ("rect", &[][..]),
+        };
+        w.open("a:prstGeom", &[("prst", prst)]);
+        if av.is_empty() {
+            w.empty("a:avLst", &[]);
+        } else {
+            w.open("a:avLst", &[]);
+            for (name, fmla) in av {
+                w.empty("a:gd", &[("name", name), ("fmla", fmla)]);
+            }
+            w.close("a:avLst");
+        }
         w.close("a:prstGeom");
         w.close("pic:spPr");
         w.close("pic:pic");
@@ -1687,22 +1701,4 @@ fn comment_reference_style(doc: &wordcraft_doc::Document) -> &str {
 /// The most a picture's side is padded (negative crop), as the model clamps it.
 const MIN_CROP: f32 = wordcraft_doc::para::MIN_CROP;
 
-/// The DrawingML preset geometry (ECMA-376 Part 1 §20.1.10.56) written for a shape kind.
-fn preset_name(kind: ShapeKind) -> &'static str {
-    match kind {
-        ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::Freeform => "rect",
-        ShapeKind::RoundedRectangle => "roundRect",
-        ShapeKind::Ellipse => "ellipse",
-        ShapeKind::FlowchartOr => "flowChartOr",
-        ShapeKind::Triangle => "triangle",
-        ShapeKind::RightTriangle => "rtTriangle",
-        ShapeKind::Diamond => "diamond",
-        ShapeKind::Line => "line",
-        ShapeKind::StraightConnector => "straightConnector1",
-        ShapeKind::ElbowConnector => "bentConnector3",
-        ShapeKind::CurvedConnector => "curvedConnector3",
-        ShapeKind::Arrow => "rightArrow",
-        ShapeKind::Star => "star5",
-        ShapeKind::Heart => "heart",
-    }
-}
+use crate::read::shape_style::preset_name;

@@ -447,10 +447,10 @@ mod tests {
         assert_eq!(cropped(0.0, 100.0, [0.0; 4], H(-1, 0), 10.0, 0.0), same(0.0, 100.0, [0.0; 4]));
         assert_eq!(cropped(-5.0, 100.0, [0.0; 4], H(1, 1), 10.0, 10.0), same(-5.0, 100.0, [0.0; 4]));
         assert_eq!(cropped(200.0, f32::NAN, [0.0; 4], H(0, 1), 0.0, 10.0), same(200.0, 0.0, [0.0; 4]));
-        // A junk crop reads as uncropped / at most 0.45 a side / padded at most 10 times the
+        // A junk crop reads as uncropped / at most 0.45 a side / padded at most 100 times the
         // source (negative is Fit's padding); a zero drag leaves that be.
-        let r = cropped(200.0, 100.0, [f32::NAN, -1.0, 0.7, -50.0], H(-1, -1), 0.0, 0.0);
-        assert_eq!(r, same(200.0, 100.0, [0.0, -1.0, 0.45, -10.0]));
+        let r = cropped(200.0, 100.0, [f32::NAN, -1.0, 0.7, -500.0], H(-1, -1), 0.0, 0.0);
+        assert_eq!(r, same(200.0, 100.0, [0.0, -1.0, 0.45, -100.0]));
     }
 
     /// Sizes stay within what `picture.crop` accepts (1–4000 pt) at the same scale, so the

@@ -4,7 +4,7 @@
 //! caret). Picture adjustments re-encode the bitmap (originals are kept for Reset Picture).
 
 use serde_json::{Value, json};
-use wordcraft_doc::para::{Float, InlineObject, MAX_CROP, MIN_CROP, ShapeKind, Wrap, WrapText};
+use wordcraft_doc::para::{Float, InlineObject, MAX_CROP, MIN_CROP, PictureShape, ShapeKind, Wrap, WrapText};
 use wordcraft_doc::props::{Rgb, TextVert, VAlign};
 use wordcraft_doc::{Pos, StoryRef, TextBody};
 use wordcraft_geom::Spin;
@@ -1008,10 +1008,10 @@ fn crop_to_shape(s: &mut Session, v: &Value) -> CmdResult {
     if kind.is_open() || matches!(kind, ShapeKind::TextBox | ShapeKind::Freeform) {
         return Err(refuse());
     }
-    let outline = (kind != ShapeKind::Rectangle).then_some(kind);
+    let outline = (kind != ShapeKind::Rectangle).then(|| PictureShape::new(kind));
     with_obj(s, |o| {
         if let InlineObject::Image { shape, .. } = o {
-            *shape = outline;
+            *shape = outline.clone();
         }
     })
 }
@@ -2101,7 +2101,7 @@ mod tests {
     /// The selected picture's display size, crop and Crop to Shape outline.
     fn cropped(s: &Session) -> (f32, f32, [f32; 4], Option<wordcraft_doc::para::ShapeKind>) {
         match selected(s) {
-            Some((_, InlineObject::Image { w, h, crop, shape, .. })) => (w, h, crop, shape),
+            Some((_, InlineObject::Image { w, h, crop, shape, .. })) => (w, h, crop, shape.map(|s| s.kind)),
             other => panic!("expected image, got {other:?}"),
         }
     }
@@ -2146,6 +2146,28 @@ mod tests {
         }
         s.run("picture.cropToShape", &json!({"shape": "rectangle"})).unwrap();
         assert_eq!(cropped(&s), (200.0, 100.0, [0.1, 0.0, 0.0, 0.0], None));
+    }
+
+    /// Crop to Shape replaces an outline read from a file (its own preset name and adjust
+    /// values) with WordCraft's own shape: nothing of the old preset is kept.
+    #[test]
+    fn crop_to_shape_drops_the_files_own_preset() {
+        use wordcraft_doc::para::{PictureShape, ShapeKind};
+        let mut s = picture_at(200.0, 100.0);
+        let (pos, _) = selected(&s).unwrap();
+        let cloud = PictureShape { kind: ShapeKind::Ellipse, prst: "cloud".into(), av: vec![("adj".into(), "val 5".into())] };
+        edit_obj(&mut s, &pos, |o| {
+            if let InlineObject::Image { shape, .. } = o {
+                *shape = Some(cloud.clone());
+            }
+        })
+        .unwrap();
+        s.run("picture.cropToShape", &json!({"shape": "ellipse"})).unwrap();
+        let shape = match selected(&s) {
+            Some((_, InlineObject::Image { shape, .. })) => shape,
+            other => panic!("expected image, got {other:?}"),
+        };
+        assert_eq!(shape, Some(PictureShape::new(ShapeKind::Ellipse)));
     }
 
     /// Aspect Ratio crops the visible picture, centred, to the ratio (the longer side cropped
@@ -2215,7 +2237,7 @@ mod tests {
         assert_eq!(cropped(&s).2, [-0.5, -0.25, 0.0, 0.0]);
         s.run("picture.crop", &json!({"left": -1e9, "right": f64::MAX})).unwrap();
         let c = cropped(&s).2;
-        assert!(c.iter().all(|v| v.is_finite() && (-10.0..=0.45).contains(v)), "{c:?}");
+        assert_eq!(c, [-100.0, 0.0, 0.0, 0.0], "padding at most 100 times the picture");
     }
 
     /// A header picture resizes and drags like a body one: the move stays in the header story

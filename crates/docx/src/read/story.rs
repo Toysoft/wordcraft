@@ -1149,18 +1149,13 @@ impl Reader<'_> {
                     && let Some(slot) = crop.get_mut(i)
                 {
                     // Negative: padding (Fit), kept within the model's limit.
-                    *slot = (v.clamp(-10_000_000, 100_000) as f32 / 100_000.0).clamp(wordcraft_doc::para::MIN_CROP, 1.0);
+                    *slot = (v.clamp(-100_000_000, 100_000) as f32 / 100_000.0).clamp(wordcraft_doc::para::MIN_CROP, 1.0);
                 }
             }
         }
         // Crop to Shape: a preset outline other than the plain rectangle, drawn as the nearest
         // shape WordCraft has.
-        let shape = pic
-            .find("pic:spPr")
-            .and_then(|sp| sp.child("a:prstGeom"))
-            .and_then(|g| g.attr("prst"))
-            .map(preset_kind)
-            .filter(|k| *k != ShapeKind::Rectangle && !k.is_open());
+        let shape = pic.find("pic:spPr").and_then(|sp| sp.child("a:prstGeom")).and_then(super::shape_style::picture_shape);
         Some(InlineObject::Image { media, w, h, alt, float, crop, ole: None, shape })
     }
 

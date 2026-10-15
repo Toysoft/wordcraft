@@ -1497,3 +1497,102 @@ fn bundled_unicode_glyphs_are_visible_and_extractable() {
     assert!(String::from_utf8_lossy(&bytes).contains("/ToUnicode"));
     assert_eq!(squash(&extract_text(&bytes).concat()), TEXT);
 }
+
+/// What a page draws, as hayro's interpreter sees it: each image's placement (the image
+/// square's bounds) and whether a curved clip (an outline, not a rectangle) is active around
+/// it; and the bounds of every red filled path.
+#[derive(Default)]
+struct Drawn {
+    images: Vec<(kurbo::Rect, bool)>,
+    red_fills: Vec<kurbo::Rect>,
+}
+
+fn drawn(bytes: &[u8]) -> Drawn {
+    use hayro_interpret::font::Glyph;
+    use hayro_interpret::{
+        BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask,
+        interpret_page,
+    };
+    use hayro_syntax::Pdf;
+    use kurbo::Shape;
+    struct Rec(Drawn, Vec<bool>);
+    impl Device<'_> for Rec {
+        fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+        fn set_blend_mode(&mut self, _: BlendMode) {}
+        fn draw_path(&mut self, p: &kurbo::BezPath, t: kurbo::Affine, paint: &Paint<'_>, mode: &PathDrawMode) {
+            if let (Paint::Color(c), PathDrawMode::Fill(_)) = (paint, mode)
+                && c.to_rgba().to_rgba8() == [255, 0, 0, 255]
+            {
+                self.0.red_fills.push((t * p.clone()).bounding_box());
+            }
+        }
+        fn push_clip_path(&mut self, c: &ClipPath) {
+            self.1.push(c.path.elements().iter().any(|e| matches!(e, kurbo::PathEl::CurveTo(..) | kurbo::PathEl::QuadTo(..))));
+        }
+        fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+        fn draw_glyph(&mut self, _: &Glyph<'_>, _: kurbo::Affine, _: kurbo::Affine, _: &Paint<'_>, _: &GlyphDrawMode) {}
+        fn draw_image(&mut self, _: Image<'_, '_>, t: kurbo::Affine) {
+            let b = t.transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, 1.0, 1.0));
+            self.0.images.push((b, self.1.iter().any(|c| *c)));
+        }
+        fn pop_clip_path(&mut self) {
+            self.1.pop();
+        }
+        fn pop_transparency_group(&mut self) {}
+    }
+    let pdf = Pdf::new(bytes.to_vec()).expect("parse");
+    let cache = InterpreterCache::new();
+    let mut out = Rec(Drawn::default(), Vec::new());
+    for page in pdf.pages().iter() {
+        let mut ctx = Context::new(kurbo::Affine::IDENTITY, kurbo::Rect::new(0.0, 0.0, 1.0, 1.0), &cache, pdf.xref(), InterpreterSettings::default());
+        interpret_page(page, &mut ctx, &mut out);
+    }
+    out.0
+}
+
+/// A document with one 100 × 100 pt picture of `bytes` (`ext`), cropped `crop`, outlined `shape`.
+fn picture_pdf(bytes: Vec<u8>, ext: &str, crop: [f32; 4], shape: Option<wordcraft_doc::para::PictureShape>) -> Vec<u8> {
+    let mut d = Document::new();
+    let media = d.add_media(bytes, ext);
+    let mut p = Paragraph::with_text("", CharProps::default());
+    p.insert_object(
+        0,
+        InlineObject::Image { media, w: 100.0, h: 100.0, alt: String::new(), float: Default::default(), crop, ole: None, shape },
+        &CharProps::default(),
+    )
+    .unwrap();
+    d.body = vec![para_block(p)];
+    export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap()
+}
+
+fn solid_png() -> Vec<u8> {
+    let mut b = Vec::new();
+    image::RgbaImage::from_pixel(40, 40, image::Rgba([0, 0, 255, 255])).write_to(&mut std::io::Cursor::new(&mut b), image::ImageFormat::Png).unwrap();
+    b
+}
+
+/// Crop to Shape in PDF: an ellipse-cropped picture is drawn inside a curved clip, a plain one
+/// inside its rectangle.
+#[test]
+fn shape_cropped_picture_is_clipped_to_its_outline() {
+    use wordcraft_doc::para::{PictureShape, ShapeKind};
+    let d = drawn(&picture_pdf(solid_png(), "png", [0.0; 4], Some(PictureShape::new(ShapeKind::Ellipse))));
+    assert_eq!(d.images.len(), 1);
+    assert!(d.images[0].1, "drawn inside the ellipse's curved clip");
+    let d = drawn(&picture_pdf(solid_png(), "png", [0.0; 4], None));
+    assert!(!d.images[0].1, "a plain picture: a rectangle clip");
+}
+
+/// Fit in PDF: a padded picture is drawn smaller than its frame (the padding stays empty), for
+/// bitmaps and metafiles alike.
+#[test]
+fn padded_picture_is_drawn_smaller_than_its_frame() {
+    // A square picture padded by half its height above and below: twice as wide as tall.
+    let d = drawn(&picture_pdf(solid_png(), "png", [0.0, -0.5, 0.0, -0.5], None));
+    let (b, _) = d.images[0];
+    assert!((b.width() / b.height() - 2.0).abs() < 0.01, "bitmap {b:?}");
+    // The metafile's red right half: 50 × 100 of its 100 × 100 frame, so 50 × 50 pt padded.
+    let d = drawn(&picture_pdf(red_right_half_emf(), "emf", [0.0, -0.5, 0.0, -0.5], None));
+    let b = d.red_fills.first().copied().expect("the red half is drawn");
+    assert!((b.width() - 50.0).abs() < 0.5 && (b.height() - 50.0).abs() < 0.5, "metafile {b:?}");
+}

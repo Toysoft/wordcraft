@@ -2638,7 +2638,7 @@ fn page_background_picture_round_trips() {
 fn picture_shape_and_padding_round_trip() {
     let mut d = Document::new();
     let key = d.add_media(tiny_png(), "png");
-    let pic = |shape, crop| InlineObject::Image {
+    let pic = |shape: Option<ShapeKind>, crop| InlineObject::Image {
         media: key.clone(),
         w: 100.0,
         h: 50.0,
@@ -2646,7 +2646,7 @@ fn picture_shape_and_padding_round_trip() {
         float: Float::default(),
         crop,
         ole: None,
-        shape,
+        shape: shape.map(wordcraft_doc::para::PictureShape::new),
     };
     let objs = [
         pic(Some(ShapeKind::Ellipse), [0.1, -0.2, 0.05, -0.3]),
@@ -2668,13 +2668,15 @@ fn picture_shape_and_padding_round_trip() {
     assert_eq!(paras(&r)[0].objects, objs);
 }
 
-/// A picture cropped to a preset WordCraft draws as another shape reads as that shape;
-/// `rect` reads as no outline, and srcRect padding is read but kept within limits.
+/// A picture outline WordCraft draws only approximately (a cloud as an ellipse, a left arrow
+/// as its right arrow, an octagon as a rectangle) is saved back exactly as the file had it: the
+/// same preset name and adjust values. srcRect padding is read, within limits.
 #[test]
-fn picture_preset_geometry_is_read() {
+fn picture_preset_geometry_round_trips_unchanged() {
+    use wordcraft_doc::para::PictureShape;
     let image = |d: &Document| {
         paras(d).iter().flat_map(|p| p.objects.iter()).find_map(|o| match o {
-            InlineObject::Image { shape, crop, .. } => Some((*shape, *crop)),
+            InlineObject::Image { shape, crop, .. } => Some((shape.clone(), *crop)),
             _ => None,
         })
     };
@@ -2690,16 +2692,47 @@ fn picture_preset_geometry_is_read() {
     d.body = vec![para_block(p)];
     let bytes = wordcraft_docx::write(&d).unwrap();
     let xml = document_xml(&bytes);
-    assert_eq!(xml.matches(r#"<a:prstGeom prst="rect">"#).count(), 1, "the picture's own outline");
-    for (prst, src, want) in [
-        ("cloud", "", (Some(ShapeKind::Ellipse), [0.0; 4])),
-        ("rect", "", (None, [0.0; 4])),
-        ("star5", r#"<a:srcRect l="-25000" r="-99999999" t="10000"/>"#, (Some(ShapeKind::Star), [-0.25, 0.1, -10.0, 0.0])),
+    let plain = r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>"#;
+    assert_eq!(xml.matches(plain).count(), 1, "the picture's own outline: {xml}");
+    let gd = |n: &str, v: &str| format!(r#"<a:gd name="{n}" fmla="val {v}"/>"#);
+    for (geom, drawn) in [
+        (r#"<a:prstGeom prst="cloud"><a:avLst/></a:prstGeom>"#.to_string(), ShapeKind::Ellipse),
+        (format!(r#"<a:prstGeom prst="leftArrow"><a:avLst>{}{}</a:avLst></a:prstGeom>"#, gd("adj1", "30000"), gd("adj2", "70000")), ShapeKind::Arrow),
+        (format!(r#"<a:prstGeom prst="octagon"><a:avLst>{}</a:avLst></a:prstGeom>"#, gd("adj", "20000")), ShapeKind::Rectangle),
     ] {
-        let new = xml
-            .replace(r#"<a:prstGeom prst="rect">"#, &format!(r#"<a:prstGeom prst="{prst}">"#))
-            .replace("<a:stretch>", &format!("{src}<a:stretch>"));
-        let r = wordcraft_docx::read(&replace_part(&bytes, "word/document.xml", new.as_bytes())).unwrap();
-        assert_eq!(image(&r), Some(want), "{prst}");
+        let opened = wordcraft_docx::read(&replace_part(&bytes, "word/document.xml", xml.replace(plain, &geom).as_bytes())).unwrap();
+        let (shape, _) = image(&opened).unwrap();
+        assert_eq!(shape.as_ref().map(|s| s.kind), Some(drawn), "{geom}");
+        let saved = document_xml(&wordcraft_docx::write(&opened).unwrap());
+        assert!(saved.contains(&geom), "{geom} saved back unchanged: {saved}");
     }
+    // Padding beyond the limit is kept at the limit.
+    let src = r#"<a:srcRect l="-25000" r="-99999999" t="10000"/><a:stretch>"#;
+    let opened = wordcraft_docx::read(&replace_part(&bytes, "word/document.xml", xml.replace("<a:stretch>", src).as_bytes())).unwrap();
+    assert_eq!(image(&opened), Some((None::<PictureShape>, [-0.25, 0.1, -100.0, 0.0])));
+}
+
+/// A junk (NaN) crop is no crop: no `a:srcRect` is written.
+#[test]
+fn nan_crop_writes_no_src_rect() {
+    let mut d = Document::new();
+    let key = d.add_media(tiny_png(), "png");
+    let mut p = Paragraph::with_text("", CharProps::default());
+    p.insert_object(
+        0,
+        InlineObject::Image {
+            media: key,
+            w: 10.0,
+            h: 10.0,
+            alt: String::new(),
+            float: Float::default(),
+            crop: [f32::NAN; 4],
+            ole: None,
+            shape: None,
+        },
+        &CharProps::default(),
+    )
+    .unwrap();
+    d.body = vec![para_block(p)];
+    assert!(!document_xml(&wordcraft_docx::write(&d).unwrap()).contains("srcRect"));
 }

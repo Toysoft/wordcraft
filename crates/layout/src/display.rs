@@ -1562,9 +1562,12 @@ fn spun(spin: Spin, rect: Rect, items: Vec<Draw>, out: &mut Vec<Draw>) {
 fn object_draws(o: &InlineObject, rect: Rect, outer: Spin, alpha: f32, opts: &DisplayOptions, out: &mut Vec<Draw>) {
     let own = o.frame().map(|(_, _, f)| f.spin()).unwrap_or_default();
     match o {
-        InlineObject::Image { media, crop, alt, shape, .. } => {
-            spun(own, rect, vec![Draw::Image { rect, media: media.clone(), crop: *crop, alpha, shape: *shape, alt: alt.clone() }], out)
-        }
+        InlineObject::Image { media, crop, alt, shape, .. } => spun(
+            own,
+            rect,
+            vec![Draw::Image { rect, media: media.clone(), crop: *crop, alpha, shape: shape.as_ref().map(|s| s.kind), alt: alt.clone() }],
+            out,
+        ),
         InlineObject::Shape { kind, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
             let effects = effects_in(*effects, own.within(outer));
             let mut items = Vec::new();
