@@ -383,7 +383,9 @@ impl Document {
             return Ok(a);
         }
         // Different containers (range enters or leaves a table): clear text in every paragraph
-        // inside; remove whole tables that are entirely covered when at the same level as `a`.
+        // inside, then remove the tables it covers whole (below).
+        // Whether `b` is at its paragraph's end, before that paragraph is trimmed.
+        let b_at_end = self.para(b.story, &b.path).is_some_and(|p| p.len() == b.off);
         let paths = self.paths_between(&a, &b);
         for p in paths.iter().rev() {
             let (from, to) = {
@@ -394,41 +396,65 @@ impl Document {
             };
             self.para_mut(a.story, p)?.delete_except(from, to, &kept_in(p))?;
         }
-        // Drop top-level tables strictly between a and b at a's level.
-        if a.path.depth() == 0 && b.path.depth() > 0 {
-            let first_b = b.path.0.first().copied().unwrap_or(0) as usize;
-            let ia = a.path.last();
-            let bl = self.container_mut(a.story, &a.path)?;
-            let mut i = first_b;
-            while i > ia + 1 {
-                i -= 1;
+        // Tables the range covers whole, in the innermost container holding both ends, go (#1198,
+        // #1844): those strictly between the ends, the one `a` is in when it starts at that
+        // table's very start, and the one `b` is in when it ends at that table's very end. A range
+        // that is one table and nothing else only empties it (Word's Delete keeps the table).
+        let common = a.path.0.iter().zip(&b.path.0).take_while(|(x, y)| x == y).count();
+        let level = common - common % 3;
+        let (Some(&ia), Some(&ib)) = (a.path.0.get(level), b.path.0.get(level)) else { return Ok(a) };
+        let (ia, ib) = (ia as usize, ib as usize);
+        if ia >= ib {
+            return Ok(a);
+        }
+        let prefix = a.path.0.get(..level).unwrap_or_default().to_vec();
+        let block_path = |i: usize| {
+            let mut v = prefix.clone();
+            v.push(i as u32);
+            Path(v)
+        };
+        // Paragraphs inside the block at index `i` of the container, in document order.
+        let paths = self.para_paths(a.story);
+        let inside = |i: usize| -> Vec<&Path> {
+            let pre = block_path(i);
+            paths.iter().filter(|q| q.0.len() > pre.0.len() && q.0.starts_with(&pre.0)).collect()
+        };
+        let a_covers = a.path.0.len() > level + 1 && a.off == 0 && inside(ia).first() == Some(&&a.path);
+        let b_covers = b.path.0.len() > level + 1 && inside(ib).last() == Some(&&b.path) && b_at_end;
+        let first = if a_covers { ia } else { ia + 1 };
+        let last = if b_covers { ib } else { ib - 1 };
+        let mut removed = 0;
+        {
+            let bl = self.container_mut(a.story, &block_path(ia))?;
+            for i in (first..=last.min(bl.len().saturating_sub(1))).rev() {
                 if matches!(bl.get(i).map(|b| &**b), Some(Block::Table(_))) {
                     bl.remove(i);
+                    removed += 1;
                 }
             }
-        }
-        // From the very start of a top-level table to a top-level paragraph (Select All in a
-        // document that starts with a table, #1198): the tables are covered whole and go too,
-        // and the paragraphs left between join.
-        if a.path.depth() > 0 && b.path.depth() == 0 && a.off == 0 {
-            let ta = a.path.0.first().copied().unwrap_or(0) as usize;
-            let first = self.para_paths(a.story).into_iter().find(|q| q.0.first().is_some_and(|t| *t as usize == ta));
-            if first.as_ref() == Some(&a.path) {
-                let ib = b.path.last();
-                let bl = self.container_mut(a.story, &b.path)?;
-                let mut removed = 0;
-                for i in (ta..ib).rev() {
-                    if matches!(bl.get(i).map(|b| &**b), Some(Block::Table(_))) {
-                        bl.remove(i);
-                        removed += 1;
-                    }
-                }
-                let at = Pos { story: a.story, path: Path::top(ta), off: 0 };
-                let end = Pos { story: a.story, path: Path::top(ib.saturating_sub(removed)), off: 0 };
-                return self.delete_range(&at, &end);
+            if removed == 0 {
+                return Ok(a);
+            }
+            // A story or cell always ends with a paragraph.
+            if bl.is_empty() || matches!(bl.last().map(|b| &**b), Some(Block::Table(_))) {
+                bl.push(para_block(Paragraph::new()));
             }
         }
-        Ok(a)
+        // The paragraphs left between the ends join, as in a range within one container.
+        let at = if a_covers { Pos { story: a.story, path: block_path(ia), off: 0 } } else { a.clone() };
+        let end = if b_covers {
+            Pos { story: a.story, path: block_path((ib + 1).saturating_sub(removed)), off: 0 }
+        } else {
+            Pos { story: a.story, path: block_path(ib.saturating_sub(removed)), off: 0 }
+        };
+        let paras = |p: &Pos| p.path.0.len() == level + 1 && self.para(p.story, &p.path).is_some();
+        if paras(&at) && paras(&end) && at.path <= end.path {
+            return self.delete_range(&at, &end);
+        }
+        if self.para(at.story, &at.path).is_some() {
+            return Ok(at);
+        }
+        Ok(self.clamp(&at))
     }
 
     /// Apply `f` to the character formatting of `a..b`. A collapsed range changes nothing (the
