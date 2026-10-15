@@ -251,6 +251,47 @@ impl Default for ViewState {
     }
 }
 
+/// The page view View › Zoom sets in Print Layout: the zoom, the fit mode (`pageWidth`,
+/// `onePage`, `multiplePages`, `textWidth` or none) and whether pages flow two across or one per
+/// row. A front end keeps it between runs (#2044); the view mode, the panes and the reading
+/// settings are not part of it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PageView {
+    pub zoom: f32,
+    pub fit: String,
+    pub multi_page: bool,
+    pub single_column: bool,
+}
+
+impl Default for PageView {
+    fn default() -> Self {
+        PageView { zoom: 1.0, fit: String::new(), multi_page: false, single_column: false }
+    }
+}
+
+impl ViewState {
+    /// The page view to keep between runs.
+    pub fn page_view(&self) -> PageView {
+        PageView { zoom: self.zoom, fit: self.fit.clone(), multi_page: self.multi_page, single_column: self.single_column }
+    }
+
+    /// Show a page view kept from an earlier run. Saved values are hostile: an unknown fit mode
+    /// is dropped, the zoom is clamped to 10–500%, two pages across go with Multiple Pages only,
+    /// and one page per row follows the fit mode as `view.zoom` sets it. Without a fit mode the
+    /// saved value stands (One Page then a wheel zoom, #768).
+    pub fn set_page_view(&mut self, view: PageView) {
+        self.fit = if crate::cmd::view::ZOOM_FITS.contains(&view.fit.as_str()) { view.fit } else { String::new() };
+        self.zoom = if view.zoom.is_finite() { view.zoom.clamp(0.1, 5.0) } else { 1.0 };
+        self.multi_page = view.multi_page && self.fit == "multiplePages";
+        self.single_column = match self.fit.as_str() {
+            "onePage" | "pageWidth" => true,
+            "multiplePages" | "textWidth" => false,
+            _ => view.single_column,
+        };
+    }
+}
+
 /// Find/replace state.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]

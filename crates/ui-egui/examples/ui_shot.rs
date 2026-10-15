@@ -8,10 +8,12 @@
 //! `{"steps": n}` to run extra frames, or `{"wait": ms}` to keep running frames for a while (for
 //! background work such as a Zotero session). The window is 1440×900 pt at 2× and opens the sample
 //! document unless the first line is `{"empty": true}`; `{"empty": true, "startScreen": true}`
-//! starts the way the desktop app does with nothing to open (File › Home, #766).
+//! starts the way the desktop app does with nothing to open (File › Home, #766). A
+//! `{"prefs": {…}}` line anywhere in the script is applied before the first frame the way the
+//! desktop app applies `ui.json` at launch (`ui.inspect` prints the `ui` object to save).
 
 use wordcraft_engine::Session;
-use wordcraft_ui_egui::{ControlRequest, Services, WordApp};
+use wordcraft_ui_egui::{ControlRequest, Services, UiState, WordApp};
 
 static READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -28,6 +30,10 @@ fn main() {
     };
     let mut app = WordApp::new(Session::new(doc), Services::default()).with_control(rx);
     app.integrated_titlebar = true;
+    if let Some(prefs) = lines.iter().find_map(|l| l.get("prefs")) {
+        let bytes = serde_json::to_vec(prefs).expect("prefs json");
+        app.apply_prefs(UiState::from_json(&bytes).expect("prefs object"));
+    }
     if lines.first().is_some_and(|l| l.get("startScreen").is_some()) {
         app.start_screen();
     }

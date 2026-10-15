@@ -199,9 +199,12 @@ pub(crate) fn restore_zoom(s: &mut Session, z: Zoom) {
     s.view.single_column = fit == "onePage" || fit == "pageWidth";
 }
 
+/// The fit modes `view.zoom` takes (`{"value": fit}`).
+pub const ZOOM_FITS: [&str; 4] = ["pageWidth", "onePage", "multiplePages", "textWidth"];
+
 fn zoom(s: &mut Session, v: &Value) -> CmdResult {
     match v.get("value") {
-        Some(Value::String(f)) if ["pageWidth", "onePage", "multiplePages", "textWidth"].contains(&f.as_str()) => {
+        Some(Value::String(f)) if ZOOM_FITS.contains(&f.as_str()) => {
             s.view.fit = f.clone();
             s.view.multi_page = f == "multiplePages";
             s.view.single_column = f == "onePage" || f == "pageWidth";

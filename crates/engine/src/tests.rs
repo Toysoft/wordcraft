@@ -4085,6 +4085,60 @@ fn one_page_is_restored_when_the_document_is_reopened() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Issue #2044: the page view a front end keeps between runs round-trips through `PageView`,
+/// missing keys are today's view, and junk saved values come back to what View › Zoom can set.
+#[test]
+fn page_view_round_trips_and_rejects_junk() {
+    use crate::PageView;
+    let mut first = s();
+    run(&mut first, "view.onePage", json!({}));
+    let kept = first.view.page_view();
+    assert_eq!(kept, PageView { zoom: 1.0, fit: "onePage".into(), multi_page: false, single_column: true });
+    let mut other = s();
+    other.view.set_page_view(serde_json::from_value(serde_json::to_value(&kept).unwrap()).unwrap());
+    assert_eq!(other.view.page_view(), kept);
+    run(&mut other, "view.multiplePages", json!({}));
+    assert_eq!(other.view.page_view(), PageView { zoom: 1.0, fit: "multiplePages".into(), multi_page: true, single_column: false });
+    assert_eq!(serde_json::from_str::<PageView>("{}").unwrap(), PageView::default());
+    assert_eq!(s().view.page_view(), PageView::default());
+    let junk = [
+        (
+            PageView { zoom: f32::NAN, fit: "sideways".into(), multi_page: true, single_column: true },
+            PageView { zoom: 1.0, fit: String::new(), multi_page: false, single_column: true },
+        ),
+        // One Page and Page Width always show one page per row, as after the ribbon button.
+        (
+            PageView { zoom: 99.0, fit: "onePage".into(), multi_page: true, single_column: false },
+            PageView { zoom: 5.0, fit: "onePage".into(), multi_page: false, single_column: true },
+        ),
+        (
+            PageView { zoom: 1.0, fit: "pageWidth".into(), multi_page: false, single_column: false },
+            PageView { zoom: 1.0, fit: "pageWidth".into(), multi_page: false, single_column: true },
+        ),
+        (
+            PageView { zoom: 0.0, fit: "multiplePages".into(), multi_page: true, single_column: false },
+            PageView { zoom: 0.1, fit: "multiplePages".into(), multi_page: true, single_column: false },
+        ),
+        (
+            PageView { zoom: 1.0, fit: "multiplePages".into(), multi_page: true, single_column: true },
+            PageView { zoom: 1.0, fit: "multiplePages".into(), multi_page: true, single_column: false },
+        ),
+        (
+            PageView { zoom: 1.0, fit: "textWidth".into(), multi_page: true, single_column: true },
+            PageView { zoom: 1.0, fit: "textWidth".into(), multi_page: false, single_column: false },
+        ),
+        // One Page then a wheel zoom (#768): no fit mode, still one page per row.
+        (
+            PageView { zoom: 0.8, fit: String::new(), multi_page: false, single_column: true },
+            PageView { zoom: 0.8, fit: String::new(), multi_page: false, single_column: true },
+        ),
+    ];
+    for (bad, want) in junk {
+        other.view.set_page_view(bad);
+        assert_eq!(other.view.page_view(), want);
+    }
+}
+
 #[test]
 fn navigation_pane_opens_without_changing_view_mode() {
     // Reading Mode's heading navigation is the Navigation pane; Outline is an editing view (#493).

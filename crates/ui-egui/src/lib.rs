@@ -323,6 +323,11 @@ pub struct UiState {
     pub update_fields_before_print: bool,
     /// The custom dictionary (File › Options › Proofing, Add to Dictionary), kept between runs.
     pub dictionary: Vec<String>,
+    /// View › Zoom: the Print Layout page view (One Page, Multiple Pages, Page Width or a zoom
+    /// percentage), kept between runs and across the documents opened in a run (#2044). The
+    /// session owns it while running. A document saved with a zoom of its own shows at that
+    /// zoom when it is opened (#995), and that is the view kept from then on.
+    pub page_view: wordcraft_engine::PageView,
 }
 
 /// The ribbon tab the app opens on, and the one it falls back to when the tab that was showing
@@ -378,6 +383,7 @@ impl Default for UiState {
             print_backgrounds: false,
             update_fields_before_print: false,
             dictionary: Vec::new(),
+            page_view: wordcraft_engine::PageView::default(),
         }
     }
 }
@@ -683,6 +689,7 @@ impl WordApp {
         ui.keyboard = self.session.keymap.clone();
         ui.ribbon = self.session.ribbon.clone();
         ui.ink_pens = self.session.view.draw.pens.clone();
+        ui.page_view = self.session.view.page_view();
         ui
     }
 
@@ -730,6 +737,7 @@ impl WordApp {
         self.session.ribbon = std::mem::take(&mut self.ui.ribbon);
         self.session.ribbon.retain_known(&reg);
         self.session.view.draw.pens = std::mem::take(&mut self.ui.ink_pens);
+        self.session.view.set_page_view(std::mem::take(&mut self.ui.page_view));
     }
 
     /// Select the picture or icon the person just inserted or pasted, so it shows its handles.
@@ -2661,6 +2669,105 @@ mod tests {
         let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
         assert!(old.caret_animation && old.tab == "Insert");
         assert_eq!(a.run("ui.caretAnimation", json!({"value": true})).unwrap()["caretAnimation"], true);
+    }
+
+    /// Issue #2044: the page view picked in View › Zoom (One Page, Multiple Pages, Page Width or
+    /// a percentage) is kept between runs; settings saved before it was kept show today's view.
+    #[test]
+    fn page_view_survives_a_restart() {
+        let cases: [(&str, Value, &str, bool, bool, f32); 4] = [
+            ("view.onePage", json!({}), "onePage", false, true, 1.0),
+            ("view.multiplePages", json!({}), "multiplePages", true, false, 1.0),
+            ("view.pageWidth", json!({}), "pageWidth", false, true, 1.0),
+            ("view.zoom", json!({"value": 150}), "", false, false, 1.5),
+        ];
+        for (cmd, params, fit, multi_page, single_column, zoom) in cases {
+            let mut a = app();
+            a.run(cmd, params).unwrap();
+            let saved = serde_json::to_string(&a.prefs()).unwrap();
+            let v: Value = serde_json::from_str(&saved).unwrap();
+            assert_eq!(v["pageView"], json!({"zoom": zoom, "fit": fit, "multiPage": multi_page, "singleColumn": single_column}), "{cmd}");
+            let mut b = app();
+            b.apply_prefs(serde_json::from_str(&saved).unwrap());
+            let v = &b.session.view;
+            assert_eq!((v.fit.as_str(), v.multi_page, v.single_column), (fit, multi_page, single_column), "{cmd}");
+            assert!((v.zoom - zoom).abs() < 1e-6, "{cmd}: {}", v.zoom);
+        }
+        // Settings saved before the page view was kept: 100%, pages side by side when they fit.
+        let mut c = app();
+        c.run("view.onePage", json!({})).unwrap();
+        c.apply_prefs(serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap());
+        let v = &c.session.view;
+        assert!(v.fit.is_empty() && !v.multi_page && !v.single_column && (v.zoom - 1.0).abs() < 1e-6);
+        // Junk in `ui.json` can't put the view where View › Zoom can't: the fit mode is dropped
+        // (and two across with it), the zoom is clamped, a value of the wrong type is ignored.
+        let mut d = app();
+        d.apply_prefs(UiState::from_json(br#"{"pageView": {"zoom": 1e9, "fit": "sideways", "multiPage": true, "singleColumn": "yes"}}"#).unwrap());
+        let v = &d.session.view;
+        assert_eq!((v.fit.as_str(), v.zoom, v.multi_page, v.single_column), ("", 5.0, false, false));
+    }
+
+    /// Issue #2044: One Page restored at launch shows one page per row and Multiple Pages two
+    /// across, with the zoom following the fitted page as it does after the ribbon button.
+    #[test]
+    fn restored_page_view_lays_out_the_pages() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for (fit, cols) in [("onePage", 1), ("multiplePages", 2)] {
+            let saved =
+                format!(r#"{{"pageView": {{"fit": "{fit}", "multiPage": {}, "singleColumn": {}}}}}"#, fit == "multiplePages", fit == "onePage");
+            let mut a = app();
+            a.apply_prefs(UiState::from_json(saved.as_bytes()).unwrap());
+            for _ in 0..3 {
+                a.run("insert.pageBreak", json!({})).unwrap();
+            }
+            for _ in 0..3 {
+                frame(&mut a);
+            }
+            assert_eq!(a.canvas.cols, cols, "{fit}");
+            assert_eq!(a.session.view.fit, fit);
+            assert!((a.session.view.zoom - a.canvas.scale / canvas::PX_PER_PT).abs() < 1e-3, "{fit}: the zoom follows the fitted page");
+            assert_eq!(a.prefs().page_view.fit, fit, "{fit}: still the view saved next");
+        }
+    }
+
+    /// Issue #2044: the page view stays when another document is created or opened in the same
+    /// run (`Session::set_document` leaves the view alone; this pins it). A document saved with a
+    /// zoom of its own shows at that zoom (#995), and that is the view saved for the next run.
+    #[test]
+    fn page_view_is_kept_when_another_document_opens() {
+        let dir = scratch("page-view");
+        let plain = docx_on_disk(&dir, "Saved at 100%");
+        let zoomed = dir.join("zoomed.docx");
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Saved at 80%"));
+        s.run("view.zoom", &json!({"value": 80})).unwrap();
+        s.run("file.save", &json!({"path": zoomed.to_string_lossy()})).unwrap();
+
+        let mut a = app();
+        a.run("view.onePage", json!({})).unwrap();
+        a.run("file.new", json!({})).unwrap();
+        assert_eq!(a.session.view.fit, "onePage", "file.new");
+        a.run("file.new", json!({"template": "letter"})).unwrap();
+        assert_eq!(a.session.view.fit, "onePage", "a template");
+        a.run("file.new", json!({"template": "sample"})).unwrap();
+        assert_eq!(a.session.view.fit, "onePage", "the sample document");
+        a.run("file.open", json!({"path": plain.to_string_lossy()})).unwrap();
+        assert_eq!(a.session.view.fit, "onePage", "a document saved without a zoom of its own");
+        assert!(a.session.view.single_column);
+        a.run("file.open", json!({"path": zoomed.to_string_lossy()})).unwrap();
+        assert!(a.session.view.fit.is_empty() && (a.session.view.zoom - 0.8).abs() < 1e-6, "the document's own zoom wins");
+        assert!((a.prefs().page_view.zoom - 0.8).abs() < 1e-6, "and is what the next run starts from");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn harness(a: WordApp) -> egui_kittest::Harness<'static, WordApp> {
