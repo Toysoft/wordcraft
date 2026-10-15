@@ -2021,22 +2021,21 @@ fn styled(base: &Fmt, f: &Fmt) -> Fmt {
     e
 }
 
-/// Clear from `f` the formatting a paragraph of kind `kind` gets from its style: its bold,
-/// italic and code font, and its size when it is the style's (another size is the run's own).
+/// Clear from `f` the formatting a paragraph of kind `kind` gets from its style (as main's
+/// import always has: any direct size, bold or code font there is taken as the style's).
 fn drop_style_formatting(kind: Kind, f: &mut Fmt) {
-    let style = style_fmt(kind);
-    if style.size.is_some() && f.size == style.size {
+    if matches!(kind, Kind::Heading(_) | Kind::Code | Kind::Title) {
         f.size = None;
+        if kind != Kind::Title {
+            f.bold = false;
+        }
+        if kind == Kind::Code {
+            f.code = false;
+            f.font = None;
+        }
     }
-    if style.bold {
-        f.bold = false;
-    }
-    if style.italic {
+    if kind == Kind::Quote {
         f.italic = false;
-    }
-    if style.code && f.code {
-        f.code = false;
-        f.font = None;
     }
 }
 
@@ -3205,11 +3204,13 @@ mod tests {
             })
             .collect();
         let head = runs.first().expect("heading run");
-        assert_eq!(head.size, Some(20.0), "{rtf}");
+        // The import takes a heading's direct size as the style's (as on main); the old size
+        // written is the style's, so Reject gives it whichever way the import reads it.
+        assert!(rtf.contains("{\\*\\oldcprops \\fs32\\crauth1"), "{rtf}");
         let old = &head.fmt_change.as_deref().expect("heading change").old;
         assert!(old.size.is_none_or(|s| s == 16.0), "{old:?}\n{rtf}");
         let code = runs.get(1).expect("code run");
-        assert_eq!(code.size, Some(14.0), "{rtf}");
+        assert!(rtf.contains("{\\*\\oldcprops \\fs20\\crauth1"), "{rtf}");
         let old = &code.fmt_change.as_deref().expect("code change").old;
         assert!(old.size.is_none_or(|s| s == 10.0), "{old:?}\n{rtf}");
         assert!(old.font.is_none() || old.code, "{old:?}\n{rtf}");
@@ -3230,6 +3231,28 @@ mod tests {
         w.para(&p, false, None, "\\par", &mut out);
         let mono = w.t.font(model::MONO_FONT);
         assert!(out.contains(&format!("{{\\*\\oldcprops \\f{mono}\\crauth1}}")), "{out}");
+    }
+
+    #[test]
+    fn heading_and_code_runs_take_their_style_formatting_on_import() {
+        // As on main: a heading's or code paragraph's runs drop their direct size, bold and
+        // (code) font; a size set by hand there isn't kept through RTF.
+        let rtf = br"{\rtf1\ansi{\fonttbl{\f0 Times New Roman;}{\f1 Arial;}}{\stylesheet{\s0 Normal;}{\s2 heading 2;}{\s9 Code;}}
+\pard\s2\b\fs26 Head\par
+\pard\s9\f1\b\fs21 code\par}";
+        let f = parse(rtf).unwrap();
+        let runs: Vec<&Fmt> = f
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                FBlock::Para(p) => p.inlines.first().and_then(|i| if let Inline::Text(_, f) = i { Some(f) } else { None }),
+                _ => None,
+            })
+            .collect();
+        let head = runs.first().expect("heading run");
+        assert_eq!((head.size, head.bold), (None, false));
+        let code = runs.get(1).expect("code run");
+        assert_eq!((code.size, code.bold, code.font.as_deref(), code.code), (None, false, None, false));
     }
 
     #[test]
