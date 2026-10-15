@@ -465,6 +465,27 @@ mod tests {
         assert_eq!(h.state().session.sel.focus.off, at.off, "caret right before it");
     }
 
+    /// Text typed after leaving an equation with the arrow looks like the text around it.
+    #[test]
+    fn text_after_the_equation_has_the_surrounding_formatting() {
+        let mut h = harness();
+        h.state_mut().run("format.bold", json!({})).unwrap();
+        h.state_mut().run("text.insert", json!({"text": "ab"})).unwrap();
+        h.state_mut().run("insert.equation", json!({})).unwrap();
+        steps(&mut h, 3);
+        type_text(&mut h, "x");
+        let at = h.state().equation.open.as_ref().map(|o| o.at.clone()).expect("open");
+        h.key_press(egui::Key::ArrowRight);
+        steps(&mut h, 3);
+        assert!(!h.state().equation.is_open());
+        type_text(&mut h, "c");
+        let para = h.state().session.doc.para_at(&at).expect("paragraph").clone();
+        let off_c = para.text.find('c').expect("the typed c");
+        let off_a = para.text.find('a').expect("the a");
+        assert_eq!(para.props_at(off_c).bold, para.props_at(off_a).bold, "c is formatted like ab");
+        assert_eq!(para.props_at(off_c).bold, Some(true), "and both are bold");
+    }
+
     #[test]
     fn alt_equals_opens_the_widget_and_enter_inserts_in_one_undo_step() {
         let mut h = harness();
