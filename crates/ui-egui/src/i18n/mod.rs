@@ -52,7 +52,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
+pub static LANGUAGES: [LangInfo; 24] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -165,6 +165,8 @@ pub static LANGUAGES: [LangInfo; 23] = [
     LangInfo { code: "sv", name: "Svenska", source: include_str!("sv.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
     LangInfo { code: "hr", name: "Hrvatski", source: include_str!("hr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Arabic (Modern Standard Arabic); `ar`, `ar-SA`, `ar-EG` and other regions resolve here.
+    LangInfo { code: "ar", name: "العربية", source: include_str!("ar.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -219,6 +221,13 @@ impl Lang {
     /// The language new blank documents are written in with this interface ([`LangInfo::editing_lang`]).
     pub fn editing_lang(self) -> Option<&'static str> {
         self.0.editing_lang
+    }
+
+    /// Interface languages read right to left. Document direction stays independent: an
+    /// Arabic UI edits left-to-right documents and vice versa. Full chrome mirroring follows
+    /// the shared interface-direction work (#20); locations already join mirrored.
+    pub fn is_rtl(self) -> bool {
+        self.0.code == "ar"
     }
 
     /// Is the interface written in CJK script (its own name is), so it needs a CJK face?
@@ -428,9 +437,11 @@ pub fn builtin_style_name(name: &str) -> String {
     name.to_string()
 }
 
-/// A ribbon location (`Home › Font`) in the current language, segment by segment.
+/// A ribbon location (`Home › Font`) in the current language, segment by segment. Right-to-left
+/// interfaces join the segments mirrored (`‹`).
 pub fn location(loc: &str) -> String {
-    loc.split(" › ").map(t).collect::<Vec<_>>().join(" › ")
+    let sep = if current().is_rtl() { " ‹ " } else { " › " };
+    loc.split(" › ").map(t).collect::<Vec<_>>().join(sep)
 }
 
 /// A label with an action after a fixed English prefix, e.g. `Undo Typing`: both parts translated

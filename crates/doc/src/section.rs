@@ -255,13 +255,16 @@ impl NumFormat {
     pub fn from_ooxml(s: &str) -> NumFormat {
         NumFormat::ALL.into_iter().find(|f| f.ooxml() == s).unwrap_or(NumFormat::Decimal)
     }
-    /// Format `n` (1-based). Formats WordCraft doesn't draw yet (Hebrew, Arabic, Hindi, Thai,
-    /// Vietnamese, text amounts) show decimal, as do values past a sequence's end
-    /// (the 21st item of ①…⑳).
+    /// Format `n` (1-based). Formats WordCraft doesn't draw yet (Hebrew, Hindi vowels,
+    /// consonants and counting, Thai, Vietnamese, text amounts) show decimal, as do
+    /// values past a sequence's end (the 21st item of ①…⑳).
     pub fn format(self, n: u32) -> String {
         use crate::cjk_numbers as cjk;
         match self {
             NumFormat::DecimalZero => format!("{n:02}"),
+            NumFormat::ArabicAlpha => arabic_alpha(n),
+            NumFormat::ArabicAbjad => arabic_abjad(n),
+            NumFormat::HindiNumbers => hindi_numbers(n),
             NumFormat::UpperRoman => roman(n).to_uppercase(),
             NumFormat::LowerRoman => roman(n),
             NumFormat::UpperLetter => letters(n).to_uppercase(),
@@ -308,11 +311,8 @@ impl NumFormat {
             | NumFormat::VietnameseCounting
             | NumFormat::Hebrew1
             | NumFormat::Hebrew2
-            | NumFormat::ArabicAlpha
-            | NumFormat::ArabicAbjad
             | NumFormat::HindiVowels
             | NumFormat::HindiConsonants
-            | NumFormat::HindiNumbers
             | NumFormat::HindiCounting
             | NumFormat::ThaiLetters
             | NumFormat::ThaiNumbers
@@ -397,6 +397,47 @@ pub fn russian_letters(n: u32) -> String {
     let k = (n - 1) / len + 1;
     let c = RUSSIAN_LETTERS.get(((n - 1) % len) as usize).copied().unwrap_or('а');
     std::iter::repeat_n(c, k as usize).collect()
+}
+
+/// The Arabic hija'i alphabet in `arabicAlpha` order (MS-DOCX: أ، ب، ت، … — starting with
+/// alef with hamza, U+0623).
+const AR_ALPHA: [char; 28] =
+    ['أ', 'ب', 'ت', 'ث', 'ج', 'ح', 'خ', 'د', 'ذ', 'ر', 'ز', 'س', 'ش', 'ص', 'ض', 'ط', 'ظ', 'ع', 'غ', 'ف', 'ق', 'ك', 'ل', 'م', 'ن', 'ه', 'و', 'ي'];
+
+/// Arabic alphabet numbering: أ..ي, then repeated letters (`29` → `أأ`), as Word does
+/// (MS-OI29500 §17.18.59 (h): the character is written once, then repeated).
+pub fn arabic_alpha(n: u32) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    let n = n.min(28 * 30);
+    let k = (n - 1) / 28 + 1;
+    let c = AR_ALPHA.get(((n - 1) % 28) as usize).copied().unwrap_or('أ');
+    std::iter::repeat_n(c, k as usize).collect()
+}
+
+/// The abjad sequence in `arabicAbjad` order (MS-DOCX: أ، ب، ج، … — abjad positions, not the
+/// hija'i alphabet).
+const ABJAD: [char; 28] =
+    ['أ', 'ب', 'ج', 'د', 'ه', 'و', 'ز', 'ح', 'ط', 'ي', 'ك', 'ل', 'م', 'ن', 'س', 'ع', 'ف', 'ص', 'ق', 'ر', 'ش', 'ت', 'ث', 'خ', 'ذ', 'ض', 'ظ', 'غ'];
+
+/// Abjad numbering: the 28-letter sequence, then repeated letters (`29` → `أأ`), as Word does
+/// (MS-OI29500 §17.18.59 (g)).
+pub fn arabic_abjad(n: u32) -> String {
+    if n == 0 {
+        return String::new();
+    }
+    let n = n.min(28 * 30);
+    let k = (n - 1) / 28 + 1;
+    let c = ABJAD.get(((n - 1) % 28) as usize).copied().unwrap_or('أ');
+    std::iter::repeat_n(c, k as usize).collect()
+}
+
+/// Devanagari digits (U+0966..U+096F) for OOXML `hindiNumbers` (MS-DOCX: U+0967, U+0968,
+/// U+0969, …): `123` → `१२३`. There is no automatic numeral substitution: typed Arabic-Indic
+/// (U+0660…) or Persian (U+06F0…) digits are preserved as typed.
+pub fn hindi_numbers(n: u32) -> String {
+    n.to_string().chars().map(|c| c.to_digit(10).map(|d| char::from_u32(0x0966 + d).unwrap_or(c)).unwrap_or(c)).collect()
 }
 
 const ONES: [&str; 20] = [
@@ -892,6 +933,14 @@ mod tests {
         assert_eq!(NumFormat::Hebrew1.format(3), "3", "formats not drawn yet show decimal");
         assert_eq!(NumFormat::RussianLower.format(0), "");
         assert_eq!(NumFormat::RussianUpper.format(u32::MAX).chars().count(), 30);
+        assert_eq!(NumFormat::ArabicAlpha.format(1), "أ");
+        assert_eq!(NumFormat::ArabicAlpha.format(28), "ي");
+        assert_eq!(NumFormat::ArabicAlpha.format(29), "أأ");
+        assert_eq!(NumFormat::ArabicAbjad.format(3), "ج");
+        assert_eq!(NumFormat::ArabicAbjad.format(11), "ك");
+        assert_eq!(NumFormat::ArabicAbjad.format(29), "أأ");
+        assert_eq!(NumFormat::HindiNumbers.format(123), "१२३");
+
         for f in NumFormat::ALL {
             assert_eq!(NumFormat::from_ooxml(f.ooxml()), f, "{f:?} round-trips");
             assert!(f == NumFormat::Bullet || f == NumFormat::None || !f.format(u32::MAX).is_empty(), "{f:?}");

@@ -39,6 +39,7 @@ pub struct TableLayout {
     /// Table x offset within the column.
     pub x: f32,
     pub width: f32,
+    pub rtl: bool,
     pub rows: Vec<RowLayout>,
 }
 
@@ -284,7 +285,8 @@ pub(crate) fn first_cell_left_margin(ctx: &Ctx, t: &Table) -> f32 {
 }
 
 fn first_cell_left_margin_in(t: &Table, def: [f32; 4]) -> f32 {
-    t.rows.first().and_then(|r| r.cells.first()).and_then(|c| c.props.margins).unwrap_or(def)[1]
+    let side = if t.props.bidi_visual { 3 } else { 1 };
+    t.rows.first().and_then(|r| r.cells.first()).and_then(|c| c.props.margins).unwrap_or(def)[side]
 }
 
 /// What a table style gives the cells in one set of parts: shading, vertical alignment and each
@@ -419,7 +421,11 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
     let start_offset = if ctx.doc.settings.compat_mode >= 15 {
         // The border is centred on the edge, so half of it sits outside: Word moves the table in
         // by that half.
-        let border = first_cell.and_then(|c| c.props.borders.and_then(|b| b.left)).or(tborders.left);
+        let border = first_cell.and_then(|c| c.props.borders.and_then(|b| if rtl { b.right } else { b.left })).or(if rtl {
+            tborders.right
+        } else {
+            tborders.left
+        });
         indent + border.filter(Border::is_visible).map_or(0.0, |b| b.width.clamp(0.0, 12.0) / 2.0)
     } else {
         indent - first_cell_left_margin_in(t, margins_def)
@@ -749,7 +755,7 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
         }
         out.push(RowLayout { height: rh, items, bottom: bottoms.get(ri).copied().unwrap_or(0.0), cells: parts });
     }
-    TableLayout { x, width: total, rows: out }
+    TableLayout { x, width: total, rtl, rows: out }
 }
 
 /// Split a row at `cut` (points below the row's top) so the part above fits on this page.
