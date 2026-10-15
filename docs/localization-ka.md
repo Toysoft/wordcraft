@@ -8,7 +8,7 @@ language (`ka`, `ka-GE`, `ka_GE.UTF-8`). The catalog code is `ka`; `ui.language`
 screenshot or a launch while the preference is `auto`. The choice is saved with the other interface
 settings. Document text, command ids, CLI/MCP/control responses and file paths do not change.
 
-`crates/ui-egui/src/i18n/ka.tsv` has 2,486 entries: every key of the other catalogs (built-in style
+`crates/ui-egui/src/i18n/ka.tsv` has 2,610 entries: every key of the other catalogs (built-in style
 names, equation gallery labels, paper sizes, watermarks, greetings and citation style names
 included) and everything the interface audit finds. It is written from the meaning of the English
 labels; no proprietary translation resources were consulted. A native speaker reviewed it string by
@@ -98,4 +98,4 @@ Georgian proofing.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-13 | minor | Georgian interface notes: choosing it, coverage (2,486 entries), script notes, conventions, terminology and checks |
+| 2026-10-13 | minor | Georgian interface notes: choosing it, coverage (2,610 entries), script notes, conventions, terminology and checks |
