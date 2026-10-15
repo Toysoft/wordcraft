@@ -181,27 +181,23 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
     if ext.is_empty() || signature_contradicts(&ext, bytes) {
         return open_by_content(name, &ext, bytes, password, page);
     }
-    let mut doc = match ext.as_str() {
-        "doc" | "dot" => {
-            let (mut doc, encrypted) = open_binary_doc(bytes, password)?;
-            doc.ensure_nonempty();
-            return Ok((doc, encrypted));
-        }
+    let (mut doc, encrypted) = match ext.as_str() {
+        "doc" | "dot" => open_binary_doc(bytes, password)?,
         // Plain text goes through the formats importer: BOMs, unmarked UTF-16, Windows-1252.
-        "txt" | "text" => wordcraft_formats::txt::import_on(bytes, page),
+        "txt" | "text" => (wordcraft_formats::txt::import_on(bytes, page), false),
         "json" => {
             let mut d = serde_json::from_slice::<Document>(bytes).map_err(|e| format!("{name}: {e}"))?;
             d.normalize_runs();
-            d
+            (d, false)
         }
         other => match crate::io_ext::open(other, bytes, page) {
-            Some(r) => r?,
+            Some(r) => (r?, false),
             None => return open_by_content(name, other, bytes, password, page),
         },
     };
     normalize_bijoy_fonts(&mut doc);
     doc.ensure_nonempty();
-    Ok((doc, false))
+    Ok((doc, encrypted))
 }
 
 /// The narrowest text width of the document's sections, points: what a picture must fit.
@@ -1402,5 +1398,321 @@ mod tests {
         assert_eq!(p_out.runs[1].props.italic, Some(true));
         assert_eq!(p_out.runs[1].props.bold, None);
         assert_eq!(p_out.runs[1].props.font.as_deref(), Some("Kalpurush"));
+    }
+
+    const TEXT_FC: u32 = 0x600;
+
+    fn fc_of(cp: u32) -> u32 {
+        TEXT_FC + 2 * cp
+    }
+
+    fn grpprl(prls: &[(u16, &[u8])]) -> Vec<u8> {
+        let mut v = Vec::new();
+        for (op, operand) in prls {
+            v.extend_from_slice(&op.to_le_bytes());
+            v.extend_from_slice(operand);
+        }
+        v
+    }
+
+    fn std_bytes(name: &str) -> Vec<u8> {
+        let mut base = vec![0u8; 10];
+        base[0] = 0xFF;
+        base[1] = 0x0F;
+        let w1 = 1u16 | (0x0FFFu16 << 4);
+        base[2..4].copy_from_slice(&w1.to_le_bytes());
+        let w2 = 2u16 | (0x0FFFu16 << 4);
+        base[4..6].copy_from_slice(&w2.to_le_bytes());
+        let mut v = base;
+        let units: Vec<u16> = name.chars().map(|c| c as u16).collect();
+        v.extend_from_slice(&(units.len() as u16).to_le_bytes());
+        for u in &units {
+            v.extend_from_slice(&u.to_le_bytes());
+        }
+        v.extend_from_slice(&0u16.to_le_bytes());
+        v.extend_from_slice(&2u16.to_le_bytes());
+        v.extend_from_slice(&0u16.to_le_bytes());
+        v.extend_from_slice(&0u16.to_le_bytes());
+        let cb = v.len() as u16;
+        let mut out = cb.to_le_bytes().to_vec();
+        out.extend_from_slice(&v);
+        out[6 + 2] = cb as u8;
+        out[7 + 2] = (cb >> 8) as u8;
+        out
+    }
+
+    fn ffn_bytes(name: &str) -> Vec<u8> {
+        let utf16z = |s: &str| -> Vec<u8> { s.chars().chain(['\0']).flat_map(|c| (c as u16).to_le_bytes()).collect() };
+        let mut v = 1u16.to_le_bytes().to_vec();
+        v.extend_from_slice(&0u16.to_le_bytes());
+        let mut ffn = vec![0u8; 39];
+        let primary = utf16z(name);
+        ffn.extend_from_slice(&primary);
+        v.push(ffn.len() as u8);
+        v.extend_from_slice(&ffn);
+        v
+    }
+
+    fn chpx_fkp(runs: &[(u32, Vec<u8>)], end_cp: u32) -> Vec<u8> {
+        let mut page = vec![0u8; 512];
+        let n = runs.len();
+        for (i, r) in runs.iter().enumerate() {
+            page[i * 4..i * 4 + 4].copy_from_slice(&fc_of(r.0).to_le_bytes());
+        }
+        page[n * 4..n * 4 + 4].copy_from_slice(&fc_of(end_cp).to_le_bytes());
+        let rgb_at = (n + 1) * 4;
+        let mut data_at = rgb_at + n + 1;
+        for (i, r) in runs.iter().enumerate() {
+            if r.1.is_empty() {
+                page[rgb_at + i] = 0;
+                continue;
+            }
+            data_at += data_at & 1;
+            let half = (data_at / 2) as u8;
+            page[rgb_at + i] = half;
+            page[data_at] = r.1.len() as u8;
+            page[data_at + 1..data_at + 1 + r.1.len()].copy_from_slice(&r.1);
+            data_at += 1 + r.1.len();
+        }
+        page[511] = n as u8;
+        page
+    }
+
+    fn papx_fkp(entries: &[(u32, u16, Vec<u8>)]) -> Vec<u8> {
+        let mut page = vec![0u8; 512];
+        let n = entries.len();
+        for (i, e) in entries.iter().enumerate() {
+            page[i * 4..i * 4 + 4].copy_from_slice(&fc_of(e.0).to_le_bytes());
+        }
+        page[n * 4..n * 4 + 4].copy_from_slice(&fc_of(0x3FF0_0000).to_le_bytes());
+        let rgbx_at = (n + 1) * 4;
+        let mut data_at = rgbx_at + n * 13;
+        for (i, e) in entries.iter().enumerate() {
+            data_at += data_at & 1;
+            let half = (data_at / 2) as u8;
+            page[rgbx_at + i * 13] = half;
+            let grp = [e.1.to_le_bytes().as_slice(), e.2.as_slice()].concat();
+            let cb = ((grp.len() + 2) / 2) as u8;
+            page[data_at] = cb;
+            page[data_at + 1..data_at + 1 + grp.len()].copy_from_slice(&grp);
+            data_at += 1 + grp.len() + ((1 + grp.len()) & 1);
+        }
+        page[511] = n as u8;
+        page
+    }
+
+    fn plcpcd(text: &str, first_fc: u32) -> Vec<u8> {
+        let mut v = Vec::new();
+        let cp0 = 0u32;
+        let cp1 = text.chars().count() as u32;
+        v.extend_from_slice(&cp0.to_le_bytes());
+        v.extend_from_slice(&cp1.to_le_bytes());
+        v.extend_from_slice(&[0, 0]);
+        v.extend_from_slice(&first_fc.to_le_bytes());
+        v.extend_from_slice(&0u16.to_le_bytes());
+        v
+    }
+
+    fn cfb_file(streams: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut comp = cfb::CompoundFile::create(std::io::Cursor::new(Vec::new())).expect("cfb create");
+        for (name, data) in streams {
+            let mut s = comp.create_stream(format!("/{name}")).expect("cfb stream");
+            std::io::Write::write_all(&mut s, data).expect("cfb write");
+        }
+        comp.into_inner().into_inner()
+    }
+
+    fn make_synthetic_doc_streams(text: &str, font: &str) -> (Vec<u8>, Vec<u8>) {
+        let ccp = text.chars().count() as u32;
+        let plc = plcpcd(text, TEXT_FC);
+        let mut clx = vec![0x02u8];
+        clx.extend_from_slice(&(plc.len() as u32).to_le_bytes());
+        clx.extend_from_slice(&plc);
+
+        let chpx_page_at = (TEXT_FC as usize + text.len() * 2).div_ceil(512) * 512;
+        let papx_page_at = chpx_page_at + 512;
+        let mut word = vec![0u8; TEXT_FC as usize];
+        let units: Vec<u16> = text.chars().map(|c| c as u16).collect();
+        for u in units {
+            word.extend_from_slice(&u.to_le_bytes());
+        }
+        word.resize(chpx_page_at, 0);
+        let chpx = grpprl(&[(0x4A4F, &0u16.to_le_bytes())]); // sprmCRgftc0 -> font index 0
+        word.extend_from_slice(&chpx_fkp(&[(0, chpx)], ccp));
+        word.extend_from_slice(&papx_fkp(&[(0, 0, Vec::new())]));
+
+        let stsh_body = std_bytes("Normal");
+        let stshi = [1u16.to_le_bytes(), 10u16.to_le_bytes()].concat();
+        let mut stsh = (stshi.len() as u16).to_le_bytes().to_vec();
+        stsh.extend_from_slice(&stshi);
+        stsh.extend_from_slice(&stsh_body);
+
+        let ffn = ffn_bytes(font);
+        let clx_at = 0x40;
+        let plcf_chpx =
+            [0u32.to_le_bytes().as_slice(), fc_of(0x3FF0_0000).to_le_bytes().as_slice(), ((chpx_page_at / 512) as u32).to_le_bytes().as_slice()]
+                .concat();
+        let plcf_papx =
+            [0u32.to_le_bytes().as_slice(), fc_of(0x3FF0_0000).to_le_bytes().as_slice(), ((papx_page_at / 512) as u32).to_le_bytes().as_slice()]
+                .concat();
+
+        let mut table = vec![0u8; clx_at];
+        table.extend_from_slice(&clx);
+        let chpx_bins_at = table.len();
+        table.extend_from_slice(&plcf_chpx);
+        let papx_bins_at = table.len();
+        table.extend_from_slice(&plcf_papx);
+        let stsh_at = table.len();
+        table.extend_from_slice(&stsh);
+        let ffn_at = table.len();
+        table.extend_from_slice(&ffn);
+
+        let mut fib = vec![0u8; 0x9A + 0x5D * 8 + 2];
+        fib[0..2].copy_from_slice(&0xA5ECu16.to_le_bytes());
+        fib[2..4].copy_from_slice(&0x00C1u16.to_le_bytes());
+        fib[0x0A..0x0C].copy_from_slice(&0x1000u16.to_le_bytes());
+        fib[0x0C..0x0E].copy_from_slice(&0x00BFu16.to_le_bytes());
+        fib[0x20..0x22].copy_from_slice(&0x000Eu16.to_le_bytes());
+        fib[0x3E..0x40].copy_from_slice(&0x0016u16.to_le_bytes());
+        fib[0x40..0x44].copy_from_slice(&0x1000u32.to_le_bytes());
+        fib[0x4C..0x50].copy_from_slice(&ccp.to_le_bytes());
+        fib[0x98..0x9A].copy_from_slice(&0x005Du16.to_le_bytes());
+
+        let put_pair = |fib: &mut [u8], idx: usize, fc: usize, lcb: usize| {
+            fib[0x9A + idx * 8..0x9A + idx * 8 + 4].copy_from_slice(&(fc as u32).to_le_bytes());
+            fib[0x9A + idx * 8 + 4..0x9A + idx * 8 + 8].copy_from_slice(&(lcb as u32).to_le_bytes());
+        };
+        put_pair(&mut fib, 33, clx_at, clx.len());
+        put_pair(&mut fib, 1, stsh_at, stsh.len());
+        put_pair(&mut fib, 15, ffn_at, ffn.len());
+        put_pair(&mut fib, 12, chpx_bins_at, plcf_chpx.len());
+        put_pair(&mut fib, 13, papx_bins_at, plcf_papx.len());
+
+        word[..fib.len()].copy_from_slice(&fib);
+        (word, table)
+    }
+
+    const PAD_ARRAY: [u8; 15] = [0xBB, 0xFF, 0xFF, 0xBA, 0xFF, 0xFF, 0xB9, 0x80, 0x00, 0xBE, 0x0F, 0x00, 0xBF, 0x0F, 0x00];
+    const INITIAL_CODE: [u16; 15] =
+        [0xE1F0, 0x1D0F, 0xCC9C, 0x84C0, 0x110C, 0x0E10, 0xF1CE, 0x313E, 0x1872, 0xE139, 0xD40F, 0x84F9, 0x280C, 0xA96A, 0x4EC3];
+    const XOR_MATRIX: [u16; 105] = [
+        0xAEFC, 0x4DD9, 0x9BB2, 0x2745, 0x4E8A, 0x9D14, 0x2A09, 0x7B61, 0xF6C2, 0xFDA5, 0xEB6B, 0xC6F7, 0x9DCF, 0x2BBF, 0x4563, 0x8AC6, 0x05AD,
+        0x0B5A, 0x16B4, 0x2D68, 0x5AD0, 0x0375, 0x06EA, 0x0DD4, 0x1BA8, 0x3750, 0x6EA0, 0xDD40, 0xD849, 0xA0B3, 0x5147, 0xA28E, 0x553D, 0xAA7A,
+        0x44D5, 0x6F45, 0xDE8A, 0xAD35, 0x4A4B, 0x9496, 0x390D, 0x721A, 0xEB23, 0xC667, 0x9CEF, 0x29FF, 0x53FE, 0xA7FC, 0x5FD9, 0x47D3, 0x8FA6,
+        0x0F6D, 0x1EDA, 0x3DB4, 0x7B68, 0xF6D0, 0xB861, 0x60E3, 0xC1C6, 0x93AD, 0x377B, 0x6EF6, 0xDDEC, 0x45A0, 0x8B40, 0x06A1, 0x0D42, 0x1A84,
+        0x3508, 0x6A10, 0xAA51, 0x4483, 0x8906, 0x022D, 0x045A, 0x08B4, 0x1168, 0x76B4, 0xED68, 0xCAF1, 0x85C3, 0x1BA7, 0x374E, 0x6E9C, 0x3730,
+        0x6E60, 0xDCC0, 0xA9A1, 0x4363, 0x86C6, 0x1DAD, 0x3331, 0x6662, 0xCCC4, 0x89A9, 0x0373, 0x06E6, 0x0DCC, 0x1021, 0x2042, 0x4084, 0x8108,
+        0x1231, 0x2462, 0x48C4,
+    ];
+
+    fn xor_key(pw: &[u8]) -> u16 {
+        let mut key = INITIAL_CODE.get(pw.len().wrapping_sub(1)).copied().unwrap_or(0);
+        let mut current = 0x68i32;
+        for &ch in pw.iter().rev() {
+            let mut ch = ch;
+            for _ in 0..7 {
+                if ch & 0x40 != 0
+                    && let Some(m) = usize::try_from(current).ok().and_then(|c| XOR_MATRIX.get(c))
+                {
+                    key ^= m;
+                }
+                ch <<= 1;
+                current -= 1;
+            }
+        }
+        key
+    }
+
+    fn verifier_method1(pw: &[u8]) -> u16 {
+        let mut v = 0u16;
+        for &b in pw.iter().rev().chain(std::iter::once(&(pw.len() as u8))) {
+            let i1 = u16::from(v & 0x4000 != 0);
+            let i2 = v.wrapping_mul(2) & 0x7FFF;
+            v = (i1 | i2) ^ u16::from(b);
+        }
+        v ^ 0xCE4B
+    }
+
+    fn xor_verifier(pw: &[u8]) -> u32 {
+        (u32::from(xor_key(pw)) << 16) | u32::from(verifier_method1(pw))
+    }
+
+    fn xor_doc(mut word: Vec<u8>, mut table: Vec<u8>, pw: &[u8]) -> Vec<u8> {
+        let key = (xor_verifier(pw) >> 16) as u16;
+        let (high, low) = ((key >> 8) as u8, key as u8);
+        let mut arr = [0u8; 16];
+        for (i, slot) in arr.iter_mut().enumerate() {
+            *slot = pw.get(i).copied().unwrap_or_else(|| PAD_ARRAY.get(i.saturating_sub(pw.len())).copied().unwrap_or(0));
+        }
+        for chunk in arr.as_chunks_mut::<2>().0 {
+            chunk[0] = (chunk[0] ^ low).rotate_right(1);
+            chunk[1] = (chunk[1] ^ high).rotate_right(1);
+        }
+        let fl = u16::from_le_bytes([word[0x0A], word[0x0B]]) | 0x0100 | 0x8000;
+        word[0x0A..0x0C].copy_from_slice(&fl.to_le_bytes());
+        word[0x0E..0x12].copy_from_slice(&xor_verifier(pw).to_le_bytes());
+
+        for (data, skip) in [(&mut word, 68), (&mut table, 0)] {
+            for (i, b) in data.iter_mut().enumerate().skip(skip) {
+                if *b != 0 && *b ^ arr[i % 16] != 0 {
+                    *b ^= arr[i % 16];
+                }
+            }
+        }
+        cfb_file(&[("WordDocument", &word), ("0Table", &table)])
+    }
+
+    #[test]
+    fn binary_doc_legacy_bijoy_normalization_and_encryption() {
+        let text = "evsjv‡`k\r";
+        let (word, table) = make_synthetic_doc_streams(text, "SutonnyMJ");
+        let plain_doc_bytes = cfb_file(&[("WordDocument", &word), ("0Table", &table)]);
+
+        // 1. Open with .doc extension: must normalize SutonnyMJ to Kalpurush and decode text to "বাংলাদেশ"
+        let (doc_ext, enc_ext) = open_bytes_with("test.doc", &plain_doc_bytes, None).expect("opens test.doc");
+        assert!(!enc_ext, "not encrypted");
+        let p_ext = doc_ext.body[0].as_para().expect("paragraph");
+        assert_eq!(p_ext.text, "বাংলাদেশ", "SutonnyMJ text must be normalized to Unicode in .doc");
+        assert_eq!(p_ext.runs[0].props.font.as_deref(), Some("Kalpurush"));
+
+        // 2. Open with .dot extension: must also normalize
+        let (doc_dot, enc_dot) = open_bytes_with("template.dot", &plain_doc_bytes, None).expect("opens template.dot");
+        assert!(!enc_dot, "not encrypted");
+        let p_dot = doc_dot.body[0].as_para().expect("paragraph");
+        assert_eq!(p_dot.text, "বাংলাদেশ");
+        assert_eq!(p_dot.runs[0].props.font.as_deref(), Some("Kalpurush"));
+
+        // 3. Compare with opening the same bytes without an extension (open_by_content route)
+        let (doc_no_ext, enc_no_ext) = open_bytes_with("test", &plain_doc_bytes, None).expect("opens test without extension");
+        assert!(!enc_no_ext, "not encrypted");
+        let p_no_ext = doc_no_ext.body[0].as_para().expect("paragraph");
+        assert_eq!(p_ext.text, p_no_ext.text, "extension vs no extension text must match");
+        assert_eq!(p_ext.runs[0].props.font, p_no_ext.runs[0].props.font, "extension vs no extension font must match");
+
+        // 4. Password-protected binary .doc input
+        let password = "SecretPassword";
+        let enc_doc_bytes = xor_doc(word, table, password.as_bytes());
+
+        // Opening without password fails with password required
+        let err_missing = open_bytes_with("test.doc", &enc_doc_bytes, None).unwrap_err();
+        assert!(needs_password(&err_missing), "err: {err_missing}");
+
+        // Opening with wrong password fails with wrong password
+        let err_wrong = open_bytes_with("test.doc", &enc_doc_bytes, Some("wrong")).unwrap_err();
+        assert!(wrong_password(&err_wrong), "err: {err_wrong}");
+
+        // Opening with correct password decrypts, reports encrypted: true, and normalizes Bijoy fonts
+        let (doc_enc, was_enc) = open_bytes_with("test.doc", &enc_doc_bytes, Some(password)).expect("decrypts test.doc");
+        assert!(was_enc, "must report encrypted = true");
+        let p_enc = doc_enc.body[0].as_para().expect("paragraph");
+        assert_eq!(p_enc.text, "বাংলাদেশ", "encrypted .doc text must be normalized to Unicode on import");
+        assert_eq!(p_enc.runs[0].props.font.as_deref(), Some("Kalpurush"));
+
+        // Compare encrypted .doc with opening the encrypted bytes without extension
+        let (doc_enc_no_ext, was_enc_no_ext) = open_bytes_with("test", &enc_doc_bytes, Some(password)).expect("decrypts without extension");
+        assert!(was_enc_no_ext, "must report encrypted = true without extension");
+        let p_enc_no_ext = doc_enc_no_ext.body[0].as_para().expect("paragraph");
+        assert_eq!(p_enc.text, p_enc_no_ext.text, "encrypted extension vs no extension text must match");
+        assert_eq!(p_enc.runs[0].props.font, p_enc_no_ext.runs[0].props.font, "encrypted extension vs no extension font must match");
     }
 }
