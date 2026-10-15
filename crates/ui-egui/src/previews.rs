@@ -574,6 +574,12 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
     for (i, (icon, delta)) in [("chevronUp", -1i32), ("chevronDown", 1), ("more", 0)].iter().enumerate() {
         let br = Rect::from_min_size(pos2(ar.min.x, ar.min.y + thirds * i as f32), vec2(ar.width(), thirds));
         let resp = ui.interact(br, ui.id().with(("gal_arrow", i)), Sense::click());
+        let name = match delta {
+            ..0 => tl!("Previous"),
+            0 => tl!("Styles Pane"),
+            _ => tl!("Next"),
+        };
+        crate::widgets::describe_button(&resp, name, ui.is_enabled(), None);
         if resp.hovered() {
             ui.painter().rect_filled(br, 2.0, t.hover);
         }
@@ -623,6 +629,7 @@ pub fn style_set_gallery(app: &mut WordApp, ui: &mut Ui) {
             let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0)));
             ui.painter().image(h.id(), ir, uv, preview_tint(&t, false));
         }
+        crate::widgets::describe_button(&resp, name, ui.is_enabled(), None);
         if resp.on_hover_text(format!("Style set: {name}")).clicked() {
             let _ = app.run("design.styleSet", json!({"name": name}));
         }
