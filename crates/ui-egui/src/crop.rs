@@ -87,7 +87,8 @@ pub fn cropped(w: f32, h: f32, crop: [f32; 4], handle: Handle, dx: f32, dy: f32)
 #[allow(clippy::too_many_arguments)]
 pub fn cropped_on_screen(w: f32, h: f32, crop: [f32; 4], flip_h: bool, flip_v: bool, handle: Handle, dx: f32, dy: f32) -> Cropped {
     let fin = |x: f32| if x.is_finite() { x } else { 0.0 };
-    let crop = crop.map(|c| fin(c).clamp(0.0, MAX_SIDE));
+    // Padding (negative crop, as Fit leaves) is kept on the sides a handle doesn't move.
+    let crop = crop.map(|c| fin(c).clamp(wordcraft_doc::para::MIN_CROP, MAX_SIDE));
     let (w, h) = (fin(w), fin(h));
     let (dx, dy) = (fin(dx), fin(dy));
     if w <= 0.0 || h <= 0.0 || (dx == 0.0 && dy == 0.0) {
@@ -388,6 +389,13 @@ mod tests {
         a.crop.iter().zip(b.crop).all(|(x, y)| n(*x, y)) && n(a.w, b.w) && n(a.h, b.h) && n(a.dx, b.dx) && n(a.dy, b.dy)
     }
 
+    /// A padded (Fit) picture keeps its padding on the sides a handle doesn't move.
+    #[test]
+    fn a_handle_keeps_the_padding_of_the_other_sides() {
+        let r = cropped(100.0, 100.0, [0.0, -0.5, 0.0, -0.5], H(-1, 0), 25.0, 0.0);
+        assert!(close(r, Cropped { crop: [0.25, -0.5, 0.0, -0.5], w: 75.0, h: 100.0, dx: 25.0, dy: 0.0 }), "{r:?}");
+    }
+
     #[test]
     fn each_handle_trims_its_own_sides_and_keeps_the_scale() {
         let c = |crop, w, h, dx, dy| Cropped { crop, w, h, dx, dy };
@@ -439,9 +447,10 @@ mod tests {
         assert_eq!(cropped(0.0, 100.0, [0.0; 4], H(-1, 0), 10.0, 0.0), same(0.0, 100.0, [0.0; 4]));
         assert_eq!(cropped(-5.0, 100.0, [0.0; 4], H(1, 1), 10.0, 10.0), same(-5.0, 100.0, [0.0; 4]));
         assert_eq!(cropped(200.0, f32::NAN, [0.0; 4], H(0, 1), 0.0, 10.0), same(200.0, 0.0, [0.0; 4]));
-        // A junk crop reads as uncropped / at most 0.45 a side; a zero drag leaves that be.
-        let r = cropped(200.0, 100.0, [f32::NAN, -1.0, 0.7, 0.0], H(-1, -1), 0.0, 0.0);
-        assert_eq!(r, same(200.0, 100.0, [0.0, 0.0, 0.45, 0.0]));
+        // A junk crop reads as uncropped / at most 0.45 a side / padded at most 10 times the
+        // source (negative is Fit's padding); a zero drag leaves that be.
+        let r = cropped(200.0, 100.0, [f32::NAN, -1.0, 0.7, -50.0], H(-1, -1), 0.0, 0.0);
+        assert_eq!(r, same(200.0, 100.0, [0.0, -1.0, 0.45, -10.0]));
     }
 
     /// Sizes stay within what `picture.crop` accepts (1–4000 pt) at the same scale, so the
@@ -480,7 +489,7 @@ mod tests {
     fn app_with_picture(rot: f32) -> WordApp {
         let mut app = WordApp::new(wordcraft_engine::Session::new(Document::new()), crate::Services::default());
         let float = wordcraft_doc::para::Float { rot, ..Default::default() };
-        let pic = InlineObject::Image { media: "m".into(), w: 200.0, h: 100.0, alt: String::new(), float, crop: [0.0; 4], ole: None };
+        let pic = InlineObject::Image { media: "m".into(), w: 200.0, h: 100.0, alt: String::new(), float, crop: [0.0; 4], ole: None, shape: None };
         app.session.doc.insert_object(&Pos::body(0, 0), pic, &Default::default()).unwrap();
         let end = Pos::body(0, OBJ.len_utf8());
         app.run("select.range", json!({"anchor": Pos::body(0, 0), "focus": end})).unwrap();
@@ -533,7 +542,16 @@ mod tests {
     }
 
     fn test_picture() -> InlineObject {
-        InlineObject::Image { media: "m".into(), w: 200.0, h: 100.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None }
+        InlineObject::Image {
+            media: "m".into(),
+            w: 200.0,
+            h: 100.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            ole: None,
+            shape: None,
+        }
     }
 
     /// The whole window with `n` 200×100 pt pictures in the first paragraph, the first one

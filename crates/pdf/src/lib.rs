@@ -941,7 +941,7 @@ impl Exporter<'_> {
                 }
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
-            Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
+            Draw::Image { rect, media, crop, alpha, shape, .. } => self.picture(s, rect, media, crop, *alpha, *shape),
             Draw::Path { segs, fill: f, stroke, stroke_width } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
@@ -1192,7 +1192,7 @@ impl Exporter<'_> {
                 while y < h {
                     let mut x = 0.0;
                     while x < w {
-                        self.picture(s, &Rect::new(x, y, tw, th), &pic.media, &[0.0; 4], 1.0);
+                        self.picture(s, &Rect::new(x, y, tw, th), &pic.media, &[0.0; 4], 1.0, None);
                         x += tw;
                     }
                     y += th;
@@ -1200,11 +1200,16 @@ impl Exporter<'_> {
                 return;
             }
         }
-        self.picture(s, &Rect::new(0.0, 0.0, w, h), &pic.media, &[0.0; 4], 1.0);
+        self.picture(s, &Rect::new(0.0, 0.0, w, h), &pic.media, &[0.0; 4], 1.0, None);
     }
 
-    fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32) {
-        let Some(clip) = rect_path(rect) else { return };
+    fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32, shape: Option<ShapeKind>) {
+        // Crop to Shape: the picture shows inside the shape's outline only.
+        let clip = match shape {
+            Some(k) => shape_path(k, rect, None),
+            None => rect_path(rect),
+        };
+        let Some(clip) = clip else { return };
         if let Some(v) = self.vector(media) {
             vector_picture(s, &v, rect, crop, &clip, alpha);
             return;
@@ -1216,7 +1221,8 @@ impl Exporter<'_> {
             s.set_fill(None);
             return;
         };
-        let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { v.clamp(0.0, 0.95) } else { 0.0 });
+        // Negative crop pads the picture (Fit): the image is smaller than its frame.
+        let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { v.clamp(wordcraft_doc::para::MIN_CROP, 0.95) } else { 0.0 });
         let vis_w = (1.0 - cl - cr).max(0.05);
         let vis_h = (1.0 - ct - cb).max(0.05);
         let (fw, fh) = (rect.w / vis_w, rect.h / vis_h);

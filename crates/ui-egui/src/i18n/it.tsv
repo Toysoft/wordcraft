@@ -2641,3 +2641,6 @@ preview	Title	Esempio
 # Reading Mode column widths (#1040)
 	Narrow	Stretta
 	Medium	Media
+	Crop to Shape	Ritaglia a forma
+	Aspect Ratio	Proporzioni
+	Right Triangle	Triangolo rettangolo

@@ -4,7 +4,7 @@
 //! caret). Picture adjustments re-encode the bitmap (originals are kept for Reset Picture).
 
 use serde_json::{Value, json};
-use wordcraft_doc::para::{Float, InlineObject, Wrap, WrapText};
+use wordcraft_doc::para::{Float, InlineObject, MAX_CROP, MIN_CROP, ShapeKind, Wrap, WrapText};
 use wordcraft_doc::props::{Rgb, TextVert, VAlign};
 use wordcraft_doc::{Pos, StoryRef, TextBody};
 use wordcraft_geom::Spin;
@@ -85,8 +85,20 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("picture.size", "Size", "Picture Format › Size", size).params(r#"{"width"?: pt, "height"?: pt, "lockAspect"?: bool, "scale"?: percent}"#).when(has_sizable),
         CommandSpec::new("picture.crop", "Crop", "Picture Format › Size", crop)
             .params(
-                r#"{"left"?, "top"?, "right"?, "bottom"? (fractions of the source 0–0.45; a side left out is uncropped), "width"?: pt, "height"?: pt (the new display size, in the same undo step; a floating picture also moves by what a left/top crop trims, so the visible part stays put)}"#,
+                r#"{"left"?, "top"?, "right"?, "bottom"? (fractions of the source -10–0.45, negative pads that side; a side left out is uncropped), "width"?: pt, "height"?: pt (the new display size, in the same undo step; a floating picture also moves by what a left/top crop trims, so the visible part stays put)}"#,
             )
+            .when(has_picture),
+        CommandSpec::new("picture.cropToShape", "Crop to Shape", "Picture Format › Size", crop_to_shape)
+            .params(r#"{"shape": "rectangle|roundedRectangle|ellipse|flowchartOr|triangle|rightTriangle|diamond|arrow|star|heart" (the outline the picture is clipped to, keeping its crop and size; rectangle takes it off)}"#)
+            .when(has_picture),
+        CommandSpec::new("picture.cropAspect", "Aspect Ratio", "Picture Format › Size", crop_aspect)
+            .params(r#"{"ratio": "1:1|2:3|3:2|3:4|4:3|3:5|5:3|4:5|5:4|16:9|9:16|16:10|10:16"} (crops what shows, centred, to the ratio; the box takes the ratio keeping its width)"#)
+            .when(has_picture),
+        CommandSpec::new("picture.cropFill", "Fill", "Picture Format › Size", |s, _| crop_to_box(s, false))
+            .params("{} (crops the whole picture, centred, so it covers its box keeping its proportions)")
+            .when(has_picture),
+        CommandSpec::new("picture.cropFit", "Fit", "Picture Format › Size", |s, _| crop_to_box(s, true))
+            .params("{} (shows the whole picture inside its box keeping its proportions, the rest of the box empty)")
             .when(has_picture),
         // Kept for scripts written before every object had alt text: `object.altText` on a picture.
         CommandSpec::new("picture.altText", "Alt Text", "Picture Format › Accessibility", |s, v| {
@@ -959,7 +971,7 @@ fn with_float(s: &mut Session, f: impl Fn(&mut Float)) -> CmdResult {
 /// trims (or restores) — for a flipped picture that's the source's right/bottom — so what stays
 /// visible keeps its place on the page: a crop handle drop is one command.
 fn crop(s: &mut Session, v: &Value) -> CmdResult {
-    let c = [p::f32(v, "left"), p::f32(v, "top"), p::f32(v, "right"), p::f32(v, "bottom")].map(|x| x.unwrap_or(0.0).clamp(0.0, 0.45));
+    let c = [p::f32(v, "left"), p::f32(v, "top"), p::f32(v, "right"), p::f32(v, "bottom")].map(|x| x.unwrap_or(0.0).clamp(MIN_CROP, 0.45));
     let size = |k: &str| p::f32(v, k).map(|x| x.clamp(1.0, 4000.0));
     let (nw, nh) = (size("width"), size("height"));
     with_obj(s, |o| {
@@ -980,6 +992,100 @@ fn crop(s: &mut Session, v: &Value) -> CmdResult {
                 }
                 *h = nh;
             }
+            *crop = c;
+        }
+    })
+}
+
+/// The ratios Picture Format › Crop › Aspect Ratio offers (width:height).
+const ASPECT_RATIOS: [&str; 13] = ["1:1", "2:3", "3:2", "3:4", "4:3", "3:5", "5:3", "4:5", "5:4", "16:9", "9:16", "16:10", "10:16"];
+
+/// `picture.cropToShape`: clip the picture to a closed shape's outline (rectangle: none).
+fn crop_to_shape(s: &mut Session, v: &Value) -> CmdResult {
+    let name = p::req_str(v, "shape")?;
+    let refuse = || CmdError::Params(format!("`shape`: a closed shape such as ellipse, star or heart, not `{name}`"));
+    let kind: ShapeKind = serde_json::from_value(json!(name)).map_err(|_| refuse())?;
+    if kind.is_open() || matches!(kind, ShapeKind::TextBox | ShapeKind::Freeform) {
+        return Err(refuse());
+    }
+    let outline = (kind != ShapeKind::Rectangle).then_some(kind);
+    with_obj(s, |o| {
+        if let InlineObject::Image { shape, .. } = o {
+            *shape = outline;
+        }
+    })
+}
+
+/// A crop side within what the model keeps.
+fn crop_side(v: f32) -> f32 {
+    if v.is_finite() { v.clamp(MIN_CROP, MAX_CROP) } else { 0.0 }
+}
+
+/// `picture.cropAspect`: crop what shows, centred, to `ratio` (the longer side cropped equally
+/// on both ends) and make the box that ratio keeping its width.
+fn crop_aspect(s: &mut Session, v: &Value) -> CmdResult {
+    let name = p::req_str(v, "ratio")?;
+    let parsed = ASPECT_RATIOS
+        .contains(&name)
+        .then(|| name.split_once(':'))
+        .flatten()
+        .and_then(|(a, b)| Some((a.parse::<f32>().ok()?, b.parse::<f32>().ok()?)));
+    let Some((a, b)) = parsed.filter(|(a, b)| *a > 0.0 && *b > 0.0) else {
+        return Err(CmdError::Params(format!("`ratio`: one of {}, not `{name}`", ASPECT_RATIOS.join(", "))));
+    };
+    let ratio = a / b;
+    with_obj(s, |o| {
+        if let InlineObject::Image { crop, w, h, .. } = o {
+            let mut c = crop.map(crop_side);
+            let (bw, bh) = (wordcraft_geom::finite(*w).clamp(1.0, 4000.0), wordcraft_geom::finite(*h).clamp(1.0, 4000.0));
+            let shown = bw / bh;
+            if shown > ratio {
+                // Too wide: keep `ratio / shown` of the visible width.
+                let cut = (1.0 - c[0] - c[2]) * (1.0 - ratio / shown) / 2.0;
+                c[0] += cut;
+                c[2] += cut;
+            } else {
+                let cut = (1.0 - c[1] - c[3]) * (1.0 - shown / ratio) / 2.0;
+                c[1] += cut;
+                c[3] += cut;
+            }
+            *crop = c.map(crop_side);
+            *w = bw;
+            *h = (bw / ratio).clamp(1.0, 4000.0);
+        }
+    })
+}
+
+/// The width / height of a picture's source (pixels, or a metafile's frame).
+fn source_aspect(s: &Session, media: &str) -> Option<f32> {
+    let bytes = s.doc.media.get(media)?;
+    let (w, h) = match wordcraft_render::image_size(bytes) {
+        Some((w, h)) => (w as f32, h as f32),
+        None => wordcraft_render::metafile_size(bytes).map(|(w, h, _)| (w, h))?,
+    };
+    let a = w / h;
+    (w > 0.0 && h > 0.0 && a.is_finite() && a > 0.0).then_some(a)
+}
+
+/// `picture.cropFill` (`fit` false): crop the whole picture, centred, so it covers its box;
+/// `picture.cropFit` (`fit` true): show all of it inside the box, padding the rest (negative
+/// crop). Both keep the box and the picture's proportions.
+fn crop_to_box(s: &mut Session, fit: bool) -> CmdResult {
+    let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
+    let InlineObject::Image { media, w, h, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
+    let pic = source_aspect(s, &media).ok_or_else(|| CmdError::Failed("the picture's size can't be read".into()))?;
+    let boxed = wordcraft_geom::finite(w).clamp(1.0, 4000.0) / wordcraft_geom::finite(h).clamp(1.0, 4000.0);
+    // Filling with a wider picture, or fitting a taller one, works on its width.
+    let c = if (pic > boxed) != fit {
+        let cut = (1.0 - boxed / pic) / 2.0;
+        [cut, 0.0, cut, 0.0]
+    } else {
+        let cut = (1.0 - pic / boxed) / 2.0;
+        [0.0, cut, 0.0, cut]
+    }
+    .map(crop_side);
+    with_obj(s, |o| {
+        if let InlineObject::Image { crop, .. } = o {
             *crop = c;
         }
     })
@@ -1940,10 +2046,11 @@ mod tests {
         assert_eq!(image(&s), (150.0, 90.0, [0.25, 0.0, 0.0, 0.1]));
         s.run("edit.undo", &json!({})).unwrap();
         assert_eq!(image(&s), (200.0, 100.0, [0.0; 4]));
-        // Clamps: each side at most 0.45; hostile sizes are ignored or clamped, never applied raw.
+        // Clamps: each side at most 0.45 (negative pads); hostile sizes are ignored or clamped,
+        // never applied raw.
         s.run("picture.crop", &json!({"left": 9.0, "right": -3.0, "width": "x", "height": -5.0})).unwrap();
         let (w, h, crop) = image(&s);
-        assert_eq!(crop, [0.45, 0.0, 0.0, 0.0]);
+        assert_eq!(crop, [0.45, 0.0, -3.0, 0.0]);
         assert_eq!(w, 200.0);
         assert!(h >= 1.0, "{h}");
     }
@@ -1989,6 +2096,126 @@ mod tests {
         assert!((x1 - (x0 + 50.0)).abs() < 1e-3 && (y1 - (y0 + 10.0)).abs() < 1e-3, "{x0},{y0} -> {x1},{y1}");
         s.run("picture.crop", &json!({"left": 0.25, "right": 0.25, "bottom": 0.1, "width": 100.0, "height": 90.0})).unwrap();
         assert!((at(&s).0 - x1).abs() < 1e-3, "the source's left is on the right: no move");
+    }
+
+    /// The selected picture's display size, crop and Crop to Shape outline.
+    fn cropped(s: &Session) -> (f32, f32, [f32; 4], Option<wordcraft_doc::para::ShapeKind>) {
+        match selected(s) {
+            Some((_, InlineObject::Image { w, h, crop, shape, .. })) => (w, h, crop, shape),
+            other => panic!("expected image, got {other:?}"),
+        }
+    }
+
+    /// A 20 × 10 px picture (aspect 2:1) shown `w` × `h` points.
+    fn picture_at(w: f32, h: f32) -> Session {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        let data = super::super::insert::base64_encode(&png(20, 10));
+        s.run("insert.picture", &json!({"data": data})).unwrap();
+        s.run("picture.size", &json!({"width": w, "height": h, "lockAspect": false})).unwrap();
+        s
+    }
+
+    fn close(a: [f32; 4], b: [f32; 4]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4)
+    }
+
+    /// Crop to Shape clips the picture to a shape's outline, keeping its crop and size;
+    /// a rectangle takes the outline off. Open shapes, text boxes, freeforms and junk are refused.
+    #[test]
+    fn crop_to_shape_sets_the_outline_and_rectangle_removes_it() {
+        use wordcraft_doc::para::ShapeKind;
+        let mut s = picture_at(200.0, 100.0);
+        s.run("picture.crop", &json!({"left": 0.1})).unwrap();
+        s.run("picture.cropToShape", &json!({"shape": "ellipse"})).unwrap();
+        assert_eq!(cropped(&s), (200.0, 100.0, [0.1, 0.0, 0.0, 0.0], Some(ShapeKind::Ellipse)));
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(cropped(&s).3, None, "one undo step");
+        s.run("picture.cropToShape", &json!({"shape": "heart"})).unwrap();
+        assert_eq!(cropped(&s).3, Some(ShapeKind::Heart));
+        for bad in [
+            json!({}),
+            json!({"shape": "line"}),
+            json!({"shape": "straightConnector"}),
+            json!({"shape": "textBox"}),
+            json!({"shape": "freeform"}),
+            json!({"shape": "nonsense"}),
+            json!({"shape": 5}),
+        ] {
+            assert!(s.run("picture.cropToShape", &bad).is_err(), "{bad}");
+            assert_eq!(cropped(&s).3, Some(ShapeKind::Heart), "{bad} leaves it");
+        }
+        s.run("picture.cropToShape", &json!({"shape": "rectangle"})).unwrap();
+        assert_eq!(cropped(&s), (200.0, 100.0, [0.1, 0.0, 0.0, 0.0], None));
+    }
+
+    /// Aspect Ratio crops the visible picture, centred, to the ratio (the longer side cropped
+    /// equally on both sides) and resizes the box to it keeping its width.
+    #[test]
+    fn crop_aspect_crops_the_longer_side_centred_and_keeps_the_width() {
+        let mut s = picture_at(200.0, 100.0);
+        s.run("picture.cropAspect", &json!({"ratio": "1:1"})).unwrap();
+        let (w, h, c, _) = cropped(&s);
+        assert_eq!((w, h), (200.0, 200.0));
+        assert!(close(c, [0.25, 0.0, 0.25, 0.0]), "{c:?}");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(cropped(&s), (200.0, 100.0, [0.0; 4], None), "one undo step");
+        // Relative to what is visible: a crop already there is kept and added to.
+        s.run("picture.crop", &json!({"left": 0.2})).unwrap();
+        s.run("picture.cropAspect", &json!({"ratio": "4:3"})).unwrap();
+        let (w, h, c, _) = cropped(&s);
+        assert!((w - 200.0).abs() < 1e-3 && (h - 150.0).abs() < 1e-3, "{w} x {h}");
+        assert!(close(c, [0.2 + 0.8 / 3.0 / 2.0, 0.0, 0.8 / 3.0 / 2.0, 0.0]), "{c:?}");
+        // Taller than the ratio: top and bottom are cropped.
+        let mut s = picture_at(100.0, 200.0);
+        s.run("picture.cropAspect", &json!({"ratio": "16:9"})).unwrap();
+        let (w, h, c, _) = cropped(&s);
+        assert!((w - 100.0).abs() < 1e-3 && (h - 56.25).abs() < 1e-3, "{w} x {h}");
+        assert!(close(c, [0.0, 0.359375, 0.0, 0.359375]), "{c:?}");
+        for bad in
+            [json!({}), json!({"ratio": "0:1"}), json!({"ratio": "1:0"}), json!({"ratio": "7:2"}), json!({"ratio": "abc"}), json!({"ratio": 1.5})]
+        {
+            assert!(s.run("picture.cropAspect", &bad).is_err(), "{bad}");
+        }
+        assert!(close(cropped(&s).2, c), "refused ratios leave the crop");
+    }
+
+    /// Fill crops the whole picture to cover its box (centred); Fit shows all of it inside the
+    /// box, padding the short side (negative crop) equally. Both keep the box.
+    #[test]
+    fn crop_fill_and_fit_follow_the_box() {
+        let mut s = picture_at(100.0, 100.0);
+        s.run("picture.crop", &json!({"top": 0.3})).unwrap();
+        s.run("picture.cropFill", &json!({})).unwrap();
+        let (w, h, c, _) = cropped(&s);
+        assert_eq!((w, h), (100.0, 100.0));
+        assert!(close(c, [0.25, 0.0, 0.25, 0.0]), "fill: {c:?}");
+        s.run("picture.cropFit", &json!({})).unwrap();
+        let (w, h, c, _) = cropped(&s);
+        assert_eq!((w, h), (100.0, 100.0));
+        assert!(close(c, [0.0, -0.5, 0.0, -0.5]), "fit: {c:?}");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert!(close(cropped(&s).2, [0.25, 0.0, 0.25, 0.0]), "one undo step");
+        // A box narrower than the picture: its sides cropped (Fill), its top and bottom padded (Fit).
+        let mut s = picture_at(50.0, 200.0);
+        s.run("picture.cropFill", &json!({})).unwrap();
+        assert!(close(cropped(&s).2, [0.4375, 0.0, 0.4375, 0.0]), "{:?}", cropped(&s).2);
+        s.run("picture.cropFit", &json!({})).unwrap();
+        assert!(close(cropped(&s).2, [0.0, -3.5, 0.0, -3.5]), "{:?}", cropped(&s).2);
+        // A box wider than the picture: Fit pads its sides.
+        let mut s = picture_at(400.0, 100.0);
+        s.run("picture.cropFit", &json!({})).unwrap();
+        assert!(close(cropped(&s).2, [-0.5, 0.0, -0.5, 0.0]), "{:?}", cropped(&s).2);
+    }
+
+    /// `picture.crop` takes negative sides (padding, as a Fit picture has), within limits.
+    #[test]
+    fn picture_crop_takes_padding_within_limits() {
+        let mut s = picture_at(100.0, 100.0);
+        s.run("picture.crop", &json!({"left": -0.5, "top": -0.25})).unwrap();
+        assert_eq!(cropped(&s).2, [-0.5, -0.25, 0.0, 0.0]);
+        s.run("picture.crop", &json!({"left": -1e9, "right": f64::MAX})).unwrap();
+        let c = cropped(&s).2;
+        assert!(c.iter().all(|v| v.is_finite() && (-10.0..=0.45).contains(v)), "{c:?}");
     }
 
     /// A header picture resizes and drags like a body one: the move stays in the header story

@@ -2599,3 +2599,6 @@ preview	Title	Título
 # Reading Mode column widths (#1040)
 	Narrow	Estrecha
 	Medium	Media
+	Crop to Shape	Recortar a la forma
+	Aspect Ratio	Relación de aspecto
+	Right Triangle	Triángulo rectángulo

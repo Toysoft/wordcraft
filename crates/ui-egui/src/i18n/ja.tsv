@@ -2233,3 +2233,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	狭い
 	Medium	中
+	Crop to Shape	図形に合わせてトリミング
+	Aspect Ratio	縦横比
+	Right Triangle	直角三角形

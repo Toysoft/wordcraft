@@ -2245,3 +2245,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Вузька
 	Medium	Середня
+	Crop to Shape	Обітнути за фігурою
+	Aspect Ratio	Пропорції
+	Right Triangle	Прямокутний трикутник

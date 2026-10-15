@@ -2621,3 +2621,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+	Crop to Shape	Изрязване във фигура
+	Aspect Ratio	Съотношение на страните
+	Right Triangle	Правоъгълен триъгълник

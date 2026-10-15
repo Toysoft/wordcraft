@@ -365,6 +365,11 @@ pub fn ruby_raise(offset: f32, base_size: f32, size: f32) -> f32 {
     offset + 0.8 * base_size + 0.2 * size
 }
 
+/// The most a picture's side can be padded: crop fractions go no lower (Fit's negative crop).
+pub const MIN_CROP: f32 = -10.0;
+/// The most a command crops away from one side of a picture (Fill, Aspect Ratio).
+pub const MAX_CROP: f32 = 0.495;
+
 /// An inline object anchored at a U+FFFC in the paragraph text.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -379,13 +384,18 @@ pub enum InlineObject {
         alt: String,
         #[serde(default)]
         float: Float,
-        /// Crop (left, top, right, bottom) fractions 0..1.
+        /// Crop (left, top, right, bottom) fractions of the source: positive trims that side,
+        /// negative pads it (transparent, DrawingML's negative `a:srcRect`; Fit).
         #[serde(default)]
         crop: [f32; 4],
         /// The OLE object (embedded or linked file) this picture shows, as read from a file:
         /// saving writes the object back, not only its picture. See [`crate::graphic::Embedded`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ole: Option<std::sync::Arc<crate::graphic::Embedded>>,
+        /// Crop to Shape (Picture Format › Crop › Crop to Shape): the outline the picture is
+        /// clipped to, DrawingML's `a:prstGeom` in `pic:spPr`. None: a rectangle.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shape: Option<ShapeKind>,
     },
     /// A chart or SmartArt diagram (see [`crate::graphic`]).
     Graphic {

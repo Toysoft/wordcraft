@@ -2232,3 +2232,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Schmal
 	Medium	Mittel
+	Crop to Shape	Auf Form zuschneiden
+	Aspect Ratio	Seitenverhältnis
+	Right Triangle	Rechtwinkliges Dreieck

@@ -927,7 +927,7 @@ impl Writer<'_> {
 
     /// A picture's `pic:pic` (the image in `media/{file}`), at `off` in its group (or 0, 0).
     fn pic(&mut self, w: &mut W, o: &InlineObject, file: &str, off: (f32, f32), rels: &mut PartRels) {
-        let InlineObject::Image { media, w: iw, h: ih, alt, crop, float, .. } = o else { return };
+        let InlineObject::Image { media, w: iw, h: ih, alt, crop, float, shape, .. } = o else { return };
         let rid = rels.add(rt::IMAGE, &format!("media/{file}"), false);
         self.used_media.insert(media.clone());
         w.open("pic:pic", &[]);
@@ -939,8 +939,9 @@ impl Writer<'_> {
         w.close("pic:nvPicPr");
         w.open("pic:blipFill", &[]);
         w.empty("a:blip", &[("r:embed", &rid)]);
-        if crop.iter().any(|c| *c > 0.0) {
-            let c = |v: f32| n((wordcraft_geom::finite(v).clamp(0.0, 1.0) * 100_000.0).round() as i64);
+        // Negative values pad the picture (Fit): ECMA-376 §20.1.8.55 allows them.
+        if crop.iter().any(|c| *c != 0.0) {
+            let c = |v: f32| n((wordcraft_geom::finite(v).clamp(MIN_CROP, 1.0) * 100_000.0).round() as i64);
             w.empty("a:srcRect", &[("l", &c(crop[0])), ("t", &c(crop[1])), ("r", &c(crop[2])), ("b", &c(crop[3]))]);
         }
         w.open("a:stretch", &[]);
@@ -949,7 +950,8 @@ impl Writer<'_> {
         w.close("pic:blipFill");
         w.open("pic:spPr", &[("bwMode", "auto")]);
         xfrm(w, off, *iw, *ih, float.spin());
-        w.open("a:prstGeom", &[("prst", "rect")]);
+        // Crop to Shape: the outline the picture is clipped to.
+        w.open("a:prstGeom", &[("prst", shape.map_or("rect", preset_name))]);
         w.empty("a:avLst", &[]);
         w.close("a:prstGeom");
         w.close("pic:spPr");
@@ -987,22 +989,7 @@ impl Writer<'_> {
         }
         w.open("wps:spPr", &[]);
         xfrm(w, off, *sw, *sh, float.spin());
-        let prst = match kind {
-            ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::Freeform => "rect",
-            ShapeKind::RoundedRectangle => "roundRect",
-            ShapeKind::Ellipse => "ellipse",
-            ShapeKind::FlowchartOr => "flowChartOr",
-            ShapeKind::Triangle => "triangle",
-            ShapeKind::RightTriangle => "rtTriangle",
-            ShapeKind::Diamond => "diamond",
-            ShapeKind::Line => "line",
-            ShapeKind::StraightConnector => "straightConnector1",
-            ShapeKind::ElbowConnector => "bentConnector3",
-            ShapeKind::CurvedConnector => "curvedConnector3",
-            ShapeKind::Arrow => "rightArrow",
-            ShapeKind::Star => "star5",
-            ShapeKind::Heart => "heart",
-        };
+        let prst = preset_name(*kind);
         match geom {
             Some(f) => cust_geom(w, f, *sw, *sh),
             None => {
@@ -1695,4 +1682,27 @@ fn comment_reference_style(doc: &wordcraft_doc::Document) -> &str {
         .iter()
         .find(|s| s.kind == wordcraft_doc::styles::StyleKind::Character && s.name.eq_ignore_ascii_case("annotation reference"))
         .map_or("CommentReference", |s| s.id.as_str())
+}
+
+/// The most a picture's side is padded (negative crop), as the model clamps it.
+const MIN_CROP: f32 = wordcraft_doc::para::MIN_CROP;
+
+/// The DrawingML preset geometry (ECMA-376 Part 1 §20.1.10.56) written for a shape kind.
+fn preset_name(kind: ShapeKind) -> &'static str {
+    match kind {
+        ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::Freeform => "rect",
+        ShapeKind::RoundedRectangle => "roundRect",
+        ShapeKind::Ellipse => "ellipse",
+        ShapeKind::FlowchartOr => "flowChartOr",
+        ShapeKind::Triangle => "triangle",
+        ShapeKind::RightTriangle => "rtTriangle",
+        ShapeKind::Diamond => "diamond",
+        ShapeKind::Line => "line",
+        ShapeKind::StraightConnector => "straightConnector1",
+        ShapeKind::ElbowConnector => "bentConnector3",
+        ShapeKind::CurvedConnector => "curvedConnector3",
+        ShapeKind::Arrow => "rightArrow",
+        ShapeKind::Star => "star5",
+        ShapeKind::Heart => "heart",
+    }
 }

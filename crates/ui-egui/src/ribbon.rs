@@ -2396,7 +2396,8 @@ fn picture_format(app: &mut WordApp, ui: &mut Ui) {
             ui.add_space(2.0);
             crate::widgets::row(ui, |ui| {
                 let cropping = crate::crop::active(app).is_some();
-                small(ui, app, "crop", Some("Crop"), "Crop", "ui.crop", json!({}), cropping);
+                // Crop's split button: crop mode, or Crop to Shape, Aspect Ratio, Fill and Fit.
+                split(ui, app, "crop", "Crop", "ui.crop", json!({}), cropping, None, crop_menu);
                 for (i, side) in ["L", "T", "R", "B"].iter().enumerate() {
                     ui.label(egui::RichText::new(tl!(side)).small());
                     let mut v = crop0[i] * 100.0;
@@ -2674,6 +2675,47 @@ fn table_layout(app: &mut WordApp, ui: &mut Ui) {
             small(ui, app, "formula", Some("Formula"), "Formula", "table.formula", json!({}), false);
         });
     });
+}
+
+/// Picture Format › Size › Crop's menu: crop mode, Crop to Shape, Aspect Ratio, Fill and Fit.
+fn crop_menu(ui: &mut egui::Ui, app: &mut WordApp) {
+    mi(ui, app, "Crop", "ui.crop", json!({}));
+    ui.menu_button(tl!("Crop to Shape"), |ui| {
+        for (l, k) in [
+            ("Rectangle", "rectangle"),
+            ("Rounded Rectangle", "roundedRectangle"),
+            ("Oval", "ellipse"),
+            ("Triangle", "triangle"),
+            ("Right Triangle", "rightTriangle"),
+            ("Diamond", "diamond"),
+            ("Arrow", "arrow"),
+            ("Star", "star"),
+            ("Heart", "heart"),
+        ] {
+            mi(ui, app, l, "picture.cropToShape", json!({"shape": k}));
+        }
+    });
+    ui.menu_button(tl!("Aspect Ratio"), |ui| {
+        let on = crate::widgets::enabled(app, "picture.cropAspect");
+        for (i, group) in
+            [&["1:1"][..], &["2:3", "3:4", "3:5", "4:5"], &["3:2", "4:3", "5:3", "5:4", "16:9", "16:10"], &["9:16", "10:16"]].into_iter().enumerate()
+        {
+            if i > 0 {
+                ui.separator();
+            }
+            for r in group {
+                if ui.add_enabled(on, egui::Button::new(*r).min_size(egui::vec2(120.0, 0.0))).clicked() {
+                    // As in Word: the picture is left in crop mode to adjust what shows.
+                    if app.run("picture.cropAspect", json!({"ratio": r})).is_ok() && crate::crop::active(app).is_none() {
+                        let _ = crate::crop::toggle(app);
+                    }
+                    ui.close();
+                }
+            }
+        }
+    });
+    mi(ui, app, "Fill", "picture.cropFill", json!({}));
+    mi(ui, app, "Fit", "picture.cropFit", json!({}));
 }
 
 #[cfg(test)]

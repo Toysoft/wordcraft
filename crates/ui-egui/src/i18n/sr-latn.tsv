@@ -2243,3 +2243,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Uska
 	Medium	Srednja
+	Crop to Shape	Opseci na oblik
+	Aspect Ratio	Razmera
+	Right Triangle	Pravougli trougao
