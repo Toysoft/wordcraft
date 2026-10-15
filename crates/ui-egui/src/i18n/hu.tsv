@@ -25,6 +25,7 @@
 	Accept All Changes	Összes módosítás elfogadása
 	Accept This Change	E módosítás elfogadása
 	Accessibility	Akadálymentesség
+	Action Buttons	Műveletgombok
 	Add	Hozzáadás
 	Add a comment	Megjegyzés hozzáadása
 	Add a Table	Táblázat hozzáadása
@@ -73,6 +74,7 @@
 	Backspace	Backspace
 	Banded Columns	Sávos oszlopok
 	Banded Rows	Sávos sorok
+	Basic Shapes	Alapalakzatok
 	Before:	Előtte:
 	Bibliography	Irodalomjegyzék
 	Binary assets added	Hozzáadott bináris elemek
@@ -81,14 +83,18 @@
 	Blank (Three Columns)	Üres (három oszlop)
 	Blank document	Üres dokumentum
 	Blank Page	Üres oldal
+	Block Arrows	Bloknyilak
 	Block\nAuthors	Szerzők\nletiltása
 	Body text in a short paragraph to show spacing.	Szövegtörzs egy rövid bekezdésben, hogy látszódjon a térköz.
 	Bold	Félkövér
 	Book Title	Könyvcím
 	Bookmark	Könyvjelző
 	Bookmark name:	Könyvjelző neve:
+	Callouts	Feliratok
 	Delete Bookmark	Könyvjelző törlése
+	Flowchart	Folyamatábra
 	Hidden bookmarks	Rejtett könyvjelzők
+	Rectangles	Téglalapok
 	Sort by:	Rendezés:
 	Border Painter	Szegélyfestő
 	Border\nPainter	Szegély-\nfestő
@@ -385,6 +391,7 @@
 	Labels	Címkék
 	Landscape	Fekvő
 	Language	Nyelv
+	Stars and Banners	Csillagok és szalagok
 	{language} (no dictionary)	{language} (nincs szótár)
 	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	A(z) {language} nyelvhez nincs telepítve helyesírási szótár, ezért nem ellenőrzi. A WordCraft a(z) {name} Hunspell-szótárat a WORDCRAFT_DICTIONARIES mappában és a szokásos rendszerhelyeken keresi.
 	Lasso	Lasszó
@@ -2524,6 +2531,10 @@
 	Insert Caption…	Felirat beszúrása…
 	Table Properties…	Táblázat tulajdonságai…
 	Search	Keresés
+	Adjust Shape	Alakzat beállítása
+	Draw Shape	Alakzat rajzolása
+	Edit Text	Szöveg szerkesztése
+	Shape	Alakzat
 	Copy to	Másolás ide
 
 # Document naming and account controls.

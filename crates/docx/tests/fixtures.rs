@@ -1861,7 +1861,7 @@ fn theme_styled_connectors_and_callout_boxes_keep_their_paint() {
     assert_eq!(shape(1), (ShapeKind::TextBox, Some(theme[1]), Some(Rgb(0, 0, 0)), 0.5, false, true));
     assert_eq!(shape(2), (ShapeKind::Rectangle, Some(theme[4]), Some(theme[4]), 1.0, false, false));
     assert_eq!(shape(3), (ShapeKind::ElbowConnector, None, Some(theme[5]), 0.5, false, false));
-    assert_eq!(shape(4).0, ShapeKind::RoundedRectangle);
+    assert_eq!(shape(4).0, ShapeKind::WedgeRoundRectCallout);
     // The themed outline and the arrowhead survive saving.
     let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
     assert!(matches!(&paras(&again)[0].objects[0], InlineObject::Shape { stroke, extra, .. } if *stroke == Some(theme[7]) && extra.arrow_end));
@@ -1898,8 +1898,18 @@ fn rounded_rectangle_corners_are_read_and_saved() {
             .collect()
     };
     let rounded = ShapeKind::RoundedRectangle;
-    let expected =
-        vec![(rounded, Some(3565)), (rounded, None), (rounded, Some(50_000)), (rounded, Some(0)), (rounded, None), (rounded, None), (rounded, None)];
+    // The last entry is `wedgeRoundRectCallout`: this fork keeps it as its own kind
+    // (upstream collapsed it onto RoundedRectangle); its corner stays `None`
+    // because only `roundRect` stores one.
+    let expected = vec![
+        (rounded, Some(3565)),
+        (rounded, None),
+        (rounded, Some(50_000)),
+        (rounded, Some(0)),
+        (rounded, None),
+        (rounded, None),
+        (ShapeKind::WedgeRoundRectCallout, None),
+    ];
     let d = read_body(&format!("<w:p>{body}</w:p>"));
     assert_eq!(corners(&d), expected);
     let bytes = wordcraft_docx::write(&d).unwrap();
@@ -1965,7 +1975,8 @@ fn vml_preset_shapes_are_drawn() {
         pict(r##"<v:shape type="#_x0000_t109" style="width:9pt;height:9pt"/>"##),
         pict(r##"<v:shape type="#_x0000_t110" style="width:9pt;height:9pt"/>"##),
         pict(r##"<v:shape type="#_x0000_t120" style="width:9pt;height:9pt"/>"##),
-        // Nearest shapes: left arrow, rectangular callout, four-point star.
+        // The fork's own kinds: left arrow, four-point star; a rectangular callout
+        // (no DrawingML preset) is drawn as its box.
         pict(r##"<v:shape type="#_x0000_t66" style="width:60pt;height:20pt" fillcolor="#ffa500"/>"##),
         pict(r##"<v:shape type="#_x0000_t61" style="width:60pt;height:20pt"/>"##),
         pict(r##"<v:shape type="#_x0000_t187" style="width:20pt;height:20pt"/>"##),
@@ -2004,11 +2015,14 @@ fn vml_preset_shapes_are_drawn() {
     let kinds: Vec<_> = ps[14].objects.iter().filter_map(|o| if let InlineObject::Shape { kind, .. } = o { Some(*kind) } else { None }).collect();
     assert_eq!(kinds, [ShapeKind::RoundedRectangle, ShapeKind::Star]);
     assert_eq!(kind(15), Some((ShapeKind::Rectangle, false)));
-    assert_eq!(kind(16), Some((ShapeKind::Diamond, false)));
-    assert_eq!(kind(17), Some((ShapeKind::Ellipse, false)));
-    assert_eq!(shape(18), Some((ShapeKind::Arrow, 60.0, 20.0, Some(Rgb(0xFF, 0xA5, 0x00)), black, 0.75, true, false)));
+    // The fork keeps each preset's own kind (upstream collapsed flowChartDecision
+    // onto Diamond, flowChartConnector onto Ellipse, leftArrow onto Arrow, star4 onto
+    // Star), so VML maps to the same distinct kinds as DrawingML does.
+    assert_eq!(kind(16), Some((ShapeKind::FlowChartDecision, false)));
+    assert_eq!(kind(17), Some((ShapeKind::FlowChartConnector, false)));
+    assert_eq!(shape(18), Some((ShapeKind::LeftArrow, 60.0, 20.0, Some(Rgb(0xFF, 0xA5, 0x00)), black, 0.75, true, false)));
     assert_eq!(kind(19), Some((ShapeKind::Rectangle, false)));
-    assert_eq!(kind(20), Some((ShapeKind::Star, false)));
+    assert_eq!(kind(20), Some((ShapeKind::Star4, false)));
     assert_eq!(shape(21), None);
     assert_eq!(shape(22), None);
 }
@@ -2061,8 +2075,8 @@ fn vml_preset_shape_survives_saving() {
     );
 }
 
-/// #1377: a VML preset drawn as its nearest shape (a left arrow, `o:spt` 66) is kept on save as
-/// that shape's DrawingML preset, as a DrawingML left arrow is.
+/// #1377: a VML preset (a left arrow, `o:spt` 66) is kept on save as that shape's
+/// DrawingML preset, as a DrawingML left arrow is.
 #[test]
 fn vml_nearest_preset_shape_survives_saving() {
     let body = r##"<w:p><w:r><w:pict><v:shape type="#_x0000_t66" style="width:60pt;height:20pt" fillcolor="#ffa500"/></w:pict></w:r></w:p>"##;
@@ -2070,12 +2084,12 @@ fn vml_nearest_preset_shape_survives_saving() {
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(saved.as_slice())).unwrap();
     let mut xml = String::new();
     std::io::Read::read_to_string(&mut z.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
-    assert!(xml.contains(r#"prst="rightArrow""#), "{xml}");
+    assert!(xml.contains(r#"prst="leftArrow""#), "{xml}");
     let again = wordcraft_docx::read(&saved).unwrap();
     assert!(
         matches!(
             &paras(&again)[0].objects[..],
-            [InlineObject::Shape { kind: ShapeKind::Arrow, w: 60.0, h: 20.0, fill: Some(Rgb(0xFF, 0xA5, 0x00)), .. }]
+            [InlineObject::Shape { kind: ShapeKind::LeftArrow, w: 60.0, h: 20.0, fill: Some(Rgb(0xFF, 0xA5, 0x00)), .. }]
         ),
         "{:?}",
         paras(&again)[0].objects

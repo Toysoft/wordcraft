@@ -23,6 +23,7 @@
 	Accept All Changes	Принять все изменения
 	Accept This Change	Принять это изменение
 	Accessibility	Специальные возможности
+	Action Buttons	Кнопки действий
 	Add	Добавить
 	Add a comment	Добавить комментарий
 	Add a Table	Добавить таблицу
@@ -71,6 +72,7 @@
 	Backspace	Backspace
 	Banded Columns	Чередующиеся столбцы
 	Banded Rows	Чередующиеся строки
+	Basic Shapes	Основные фигуры
 	Before:	Перед:
 	Bibliography	Список литературы
 	Binary assets added	Добавлены двоичные ресурсы
@@ -79,14 +81,18 @@
 	Blank (Three Columns)	Пустой (три столбца)
 	Blank document	Новый документ
 	Blank Page	Пустая страница
+	Block Arrows	Блочные стрелки
 	Block\nAuthors	Блокировать\nавторов
 	Body text in a short paragraph to show spacing.	Основной текст в коротком абзаце, чтобы показать интервалы.
 	Bold	Полужирный
 	Book Title	Название книги
 	Bookmark	Закладка
 	Bookmark name:	Имя закладки:
+	Callouts	Выноски
 	Delete Bookmark	Удалить закладку
+	Flowchart	Блок-схема
 	Hidden bookmarks	Скрытые закладки
+	Rectangles	Прямоугольники
 	Sort by:	Сортировать по:
 	Border Painter	Кисть границ
 	Border\nPainter	Кисть\nграниц
@@ -196,6 +202,7 @@
 	Only for the selected text	Только для выделенного текста
 	No document is open. Create a document or open one first.	Нет открытого документа. Сначала создайте или откройте документ.
 	Search	Поиск
+	Stars and Banners	Звёзды и баннеры
 	Title Bar	Строка заголовка
 	development build	сборка для разработки
 	Diagonal	Диагональ
@@ -2527,6 +2534,10 @@ preview	Title	Пример
 	Level 7	Уровень 7
 	Level 8	Уровень 8
 	Level 9	Уровень 9
+	Adjust Shape	Настроить фигуру
+	Draw Shape	Нарисовать фигуру
+	Edit Text	Редактировать текст
+	Shape	Фигура
 	Copy to	Копировать в
 
 # Document naming and account controls.

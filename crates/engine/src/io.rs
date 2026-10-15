@@ -509,6 +509,11 @@ pub fn read_file_head(path: &str, max: u64) -> Result<Vec<u8>, String> {
     Ok(head)
 }
 
+#[cfg(target_arch = "wasm32")]
+pub fn read_file_head(path: &str, _max: u64) -> Result<Vec<u8>, String> {
+    Err(format!("{path}: files are opened through the browser on the web"))
+}
+
 /// Rename without replacing another file, respecting both automation access roots.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn rename_file(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {

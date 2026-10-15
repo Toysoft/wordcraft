@@ -22,6 +22,7 @@
 	Accept All Changes	Tüm Değişiklikleri Kabul Et
 	Accept This Change	Bu Değişikliği Kabul Et
 	Accessibility	Erişilebilirlik
+	Action Buttons	Eylem Düğmeleri
 	Add	Ekle
 	Add a comment	Yorum ekle
 	Add a Table	Tablo Ekle
@@ -70,6 +71,7 @@
 	Backspace	Geri Sil
 	Banded Columns	Şeritli Sütunlar
 	Banded Rows	Şeritli Satırlar
+	Basic Shapes	Temel Şekiller
 	Before:	Önce:
 	Bibliography	Kaynakça
 	Binary assets added	Eklenen ikili varlıklar
@@ -78,14 +80,18 @@
 	Blank (Three Columns)	Boş (Üç Sütun)
 	Blank document	Boş belge
 	Blank Page	Boş Sayfa
+	Block Arrows	Blok Oklar
 	Block\nAuthors	Yazarları\nEngelle
 	Body text in a short paragraph to show spacing.	Aralığı göstermek için kısa bir paragrafta gövde metni.
 	Bold	Kalın
 	Book Title	Kitap Başlığı
 	Bookmark	Yer İşareti
 	Bookmark name:	Yer işareti adı:
+	Callouts	Açıklama Balonları
 	Delete Bookmark	Yer İşaretini Sil
+	Flowchart	Akış Şeması
 	Hidden bookmarks	Gizli yer işaretleri
+	Rectangles	Dikdörtgenler
 	Sort by:	Sıralama ölçütü:
 	Border Painter	Kenarlık Fırçası
 	Border\nPainter	Kenarlık\nFırçası
@@ -385,6 +391,7 @@
 	Labels	Etiketler
 	Landscape	Yatay
 	Language	Dil
+	Stars and Banners	Yıldızlar ve Afişler
 	{language} (no dictionary)	{language} (sözlük yok)
 	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	{language} için yüklü bir yazım sözlüğü yok, bu yüzden denetlenmiyor. WordCraft, {name} Hunspell sözlüğünü WORDCRAFT_DICTIONARIES klasöründe ve olağan sistem konumlarında arar.
 	Lasso	Kement
@@ -2526,6 +2533,10 @@ preview	Title	Örnek
 	Level 7	Düzey 7
 	Level 8	Düzey 8
 	Level 9	Düzey 9
+	Adjust Shape	Şekli Ayarla
+	Draw Shape	Şekil Çiz
+	Edit Text	Metni Düzenle
+	Shape	Şekil
 	Copy to	Şuraya kopyala
 
 # Document naming and account controls.

@@ -79,7 +79,13 @@ pub enum Draw {
         stroke_width: f32,
         /// Shadow, glow and soft edges (drawn with [`wordcraft_doc::effects::bands`]).
         effects: wordcraft_doc::effects::ShapeEffects,
+        /// Corner radius as a fraction of the shorter side, for the round/snip family
+        /// (`DEFAULT_ADJ` when the shape stores none). The stored adjustment resolved
+        /// to `adj` units: `extra.adj`, else `extra.corner`.
+        adj: f32,
         /// A rounded rectangle's corner ([`wordcraft_doc::connector::ShapeExtra::corner`]).
+        /// The same stored value as `adj` in docx-native units; renderers prefer it
+        /// when it is `Some`.
         corner: Option<u32>,
     },
     /// An ink stroke: a line through `pts` (page points) with round ends and joins, `width`
@@ -1056,6 +1062,7 @@ fn lines(
                 stroke: Some(text_color(&st.rc.color, None)),
                 stroke_width: e.stroke,
                 effects: Default::default(),
+                adj: wordcraft_doc::shape_geom::default_adj(e.kind),
                 corner: None,
             });
         }
@@ -1273,6 +1280,7 @@ fn graphic_draws(doc: &Document, g: &Graphic, rect: Rect, alpha: f32) -> Vec<Dra
                 stroke: *stroke,
                 stroke_width: stroke_width * k,
                 effects: Default::default(),
+                adj: wordcraft_doc::shape_geom::default_adj(*kind),
                 corner: None,
             }),
             GraphicItem::Path { segs, fill, stroke, stroke_width } => {
@@ -1353,7 +1361,17 @@ fn shape_draws(
         return;
     }
     let Some(f) = freeform.filter(|_| kind == ShapeKind::Freeform) else {
-        out.push(Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner: extra.corner });
+        out.push(Draw::Shape {
+            rect,
+            kind,
+            fill,
+            stroke,
+            stroke_width,
+            effects,
+            // The stored adjustment in `adj` units: `adj` first, else `corner`.
+            adj: extra.adj.or(extra.corner.map(|c| c as f32 / 100_000.0)).unwrap_or(wordcraft_doc::shape_geom::default_adj(kind)),
+            corner: extra.corner,
+        });
         return;
     };
     if f.is_ink() && opts.hide_ink {
@@ -1440,7 +1458,9 @@ fn line_draws(
                 .collect();
             out.push(Draw::Path { segs, fill: None, stroke, stroke_width });
         }
-        None => out.push(Draw::Shape { rect, kind, fill: None, stroke, stroke_width, effects, corner: None }),
+        None => {
+            out.push(Draw::Shape { rect, kind, fill: None, stroke, stroke_width, effects, adj: wordcraft_doc::shape_geom::DEFAULT_ADJ, corner: None })
+        }
     }
     let Some(color) = stroke else { return };
     // Our line runs from the bottom-left corner to the top-right; connectors from the top-left
@@ -1626,6 +1646,7 @@ fn canvas_background(rect: Rect, c: &wordcraft_doc::para::CanvasStyle) -> Draw {
         stroke: c.stroke,
         stroke_width: c.stroke_width,
         effects: Default::default(),
+        adj: wordcraft_doc::shape_geom::DEFAULT_ADJ,
         corner: None,
     }
 }

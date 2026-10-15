@@ -26,6 +26,7 @@
 	Accept All Changes	Chấp nhận tất cả thay đổi
 	Accept This Change	Chấp nhận thay đổi này
 	Accessibility	Khả năng tiếp cận
+	Action Buttons	Nút hành động
 	Add	Thêm
 	Add Object to Selection	Thêm đối tượng vào vùng chọn
 	Add Space Before Paragraph	Thêm khoảng cách trước đoạn
@@ -41,6 +42,7 @@
 	Address:	Địa chỉ:
 	Address\nBlock	Khối\nđịa chỉ
 	Adjust	Điều chỉnh
+	Adjust Shape	Điều chỉnh hình
 	Advanced	Nâng cao
 	Advanced Find	Tìm nâng cao
 	Advanced Find…	Tìm nâng cao…
@@ -76,15 +78,21 @@
 	AutoSave isn't available in the browser: it can't write to your files. Save downloads a copy.	Tự động lưu không khả dụng trong trình duyệt: không thể ghi vào tệp của bạn. Lưu sẽ tải xuống một bản sao.
 	AutoSave only keeps .docx, .odt and .rtf files; {name} can't keep all formatting. Save as .docx to turn on AutoSave.	Tự động lưu chỉ hỗ trợ tệp .docx, .odt và .rtf; {name} không giữ được toàn bộ định dạng. Lưu dưới dạng .docx để bật Tự động lưu.
 	Balloons	Bong bóng chú thích
+	Basic Shapes	Hình cơ bản
+	Block Arrows	Mũi tên khối
 	Bullet	Dấu đầu dòng
 	By author	Theo tác giả
+	Callouts	Chú thích
 	Changed lines:	Đường thay đổi:
 	Click level to modify:	Bấm vào cấp độ để chỉnh sửa:
 	Color only	Chỉ màu
 	Define New Multilevel List	Tạo danh sách đa cấp mới
 	Define New Multilevel List…	Tạo danh sách đa cấp mới…
 	Deletions:	Phần xóa:
+	Draw Shape	Vẽ hình
+	Edit Text	Sửa văn bản
 	Enter formatting for number:	Nhập định dạng cho số:
+	Flowchart	Lưu đồ
 	Follow number with:	Theo sau số bằng:
 	Formatting	Định dạng
 	Include level number from:	Bao gồm số cấp độ từ:
@@ -100,6 +108,7 @@
 	Number format	Định dạng số
 	Number style for this level:	Kiểu số cho cấp độ này:
 	Outside border	Viền ngoài
+	Rectangles	Hình chữ nhật
 	Restart list after:	Đánh số lại sau:
 	Right border	Viền phải
 	Save the document to turn on AutoSave	Lưu tài liệu để bật Tự động lưu
@@ -129,6 +138,8 @@
 	Border Painter	Cọ vẽ viền
 	Border\nPainter	Cọ vẽ\nviền
 	Borders	Đường viền
+	Shape	Hình
+	Stars and Banners	Sao và biểu ngữ
 	Tab stop position:	Vị trí mốc tab:
 	Default tab stops:	Mốc tab mặc định:
 	Tab stops to be cleared:	Mốc tab cần xóa:

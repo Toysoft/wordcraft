@@ -59,8 +59,10 @@ impl WrapPolygon {
 
 /// A shape's outline in unit coordinates (0..1 across a `w` × `h` frame), flattened to straight
 /// lines. `None` for shapes whose outline is their rectangle (rectangles, text boxes, lines,
-/// freeforms). `corner` is a rounded rectangle's (see [`crate::connector::ShapeExtra::corner`]).
-pub fn shape_outline(kind: ShapeKind, w: f32, h: f32, corner: Option<u32>) -> Option<Vec<(f32, f32)>> {
+/// freeforms). `adj` is the corner radius as a fraction of the shorter side, for the
+/// round/snip family (`DEFAULT_ADJ` when the shape stores none). Callers resolve a
+/// stored adjustment to it: `extra.adj`, else `extra.corner` in 1/100000s.
+pub fn shape_outline(kind: ShapeKind, w: f32, h: f32, adj: f32) -> Option<Vec<(f32, f32)>> {
     use std::f32::consts::{FRAC_PI_2, PI, TAU};
     let pos = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0e6) } else { 0.0 };
     let (w, h) = (pos(w), pos(h));
@@ -73,12 +75,15 @@ pub fn shape_outline(kind: ShapeKind, w: f32, h: f32, corner: Option<u32>) -> Op
         | ShapeKind::StraightConnector
         | ShapeKind::ElbowConnector
         | ShapeKind::CurvedConnector => return None,
-        ShapeKind::Ellipse | ShapeKind::FlowchartOr => {
+        // NoSmoking wraps around its circle: the bar is a later closed sub-path of the
+        // shared geometry, and the fallback below would otherwise take the bar.
+        // FlowchartOr is a circle with a bar through it, same treatment.
+        ShapeKind::Ellipse | ShapeKind::NoSmoking | ShapeKind::FlowchartOr => {
             (0..48).map(|i| (i as f32) * TAU / 48.0).map(|a| (0.5 + 0.5 * a.cos(), 0.5 + 0.5 * a.sin())).collect()
         }
         ShapeKind::RoundedRectangle => {
-            // Corner radius as drawn.
-            let r = crate::connector::corner_radius(corner, w, h);
+            // Corner radius as drawn: the shape's adjustment, a fraction of the shorter side.
+            let r = adj.clamp(0.0, 0.5) * w.min(h);
             let (rx, ry) = if w > 0.0 && h > 0.0 { (r / w, r / h) } else { (0.0, 0.0) };
             let mut pts = Vec::new();
             for (cx, cy, a0) in [(1.0 - rx, 1.0 - ry, 0.0), (rx, 1.0 - ry, FRAC_PI_2), (rx, ry, PI), (1.0 - rx, ry, PI + FRAC_PI_2)] {
@@ -121,6 +126,13 @@ pub fn shape_outline(kind: ShapeKind, w: f32, h: f32, corner: Option<u32>) -> Op
                 }
             }
             pts
+        }
+        // Everything else takes its outline from the shared geometry: the last closed
+        // sub-path (the front-most one for stacked shapes). Open sub-paths (a callout's
+        // leader, a process's side bars) don't outline the shape. Line-like kinds are
+        // listed above and take the frame.
+        _ => {
+            return crate::shape_geom::shape_geom(kind, w, h, adj).and_then(|paths| paths.iter().rev().find(|p| p.closed).map(|p| p.pts.clone()));
         }
     };
     Some(pts)
@@ -227,19 +239,47 @@ mod tests {
             ShapeKind::Heart,
         ] {
             for (w, h) in [(100.0, 50.0), (0.0, 0.0), (f32::NAN, 10.0)] {
-                for corner in [None, Some(0), Some(3_565), Some(u32::MAX)] {
-                    let pts = shape_outline(kind, w, h, corner).unwrap();
-                    assert!(pts.len() >= 3 && pts.len() <= MAX_DERIVED_POINTS, "{kind:?}");
-                    assert!(pts.iter().all(|(x, y)| (-0.001..=1.001).contains(x) && (-0.001..=1.001).contains(y)), "{kind:?}");
-                }
+                let pts = shape_outline(kind, w, h, crate::shape_geom::DEFAULT_ADJ).unwrap();
+                assert!(pts.len() >= 3 && pts.len() <= MAX_DERIVED_POINTS, "{kind:?}");
+                assert!(pts.iter().all(|(x, y)| (-0.001..=1.001).contains(x) && (-0.001..=1.001).contains(y)), "{kind:?}");
             }
         }
-        assert!(shape_outline(ShapeKind::Rectangle, 10.0, 10.0, None).is_none());
+        assert!(shape_outline(ShapeKind::Rectangle, 10.0, 10.0, crate::shape_geom::DEFAULT_ADJ).is_none());
+    }
+
+    /// NoSmoking wraps around its circle, not its bar: the bar is a later closed sub-path
+    /// of the shared geometry, and the fallback would otherwise take it.
+    #[test]
+    fn no_smoking_wrap_outline_is_the_circle() {
+        let pts = shape_outline(ShapeKind::NoSmoking, 100.0, 100.0, crate::shape_geom::DEFAULT_ADJ).unwrap();
+        assert_eq!(pts, shape_outline(ShapeKind::Ellipse, 100.0, 100.0, crate::shape_geom::DEFAULT_ADJ).unwrap());
+        for (x, y) in &pts {
+            let d = ((x - 0.5).powi(2) + (y - 0.5).powi(2)).sqrt();
+            assert!((d - 0.5).abs() < 1e-5, "outline point ({x}, {y}) lies on the circle");
+        }
+    }
+
+    /// The corner radius follows the adjustment: square corners (adj 0) put the corner
+    /// itself in the outline; a large radius (adj 0.4) cuts it off.
+    #[test]
+    fn rounded_rectangle_outline_follows_the_adjustment() {
+        let sharp = shape_outline(ShapeKind::RoundedRectangle, 100.0, 100.0, 0.0).unwrap();
+        assert!(sharp.iter().any(|(x, y)| (*x - 0.0).abs() < 1e-6 && (*y - 0.0).abs() < 1e-6), "{sharp:?}");
+        let round = shape_outline(ShapeKind::RoundedRectangle, 100.0, 100.0, 0.4).unwrap();
+        assert!(round.iter().all(|(x, y)| (*x - 0.0).abs() > 1e-6 || (*y - 0.0).abs() > 1e-6), "{round:?}");
+        assert!(round.iter().all(|(x, y)| (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y)), "{round:?}");
+        // The same points upstream covered with `corner` (None / 0 / 3565 / MAX), in `adj`
+        // units: default 0.16 / square / 0.03565 / half-circle 0.5.
+        for adj in [crate::shape_geom::DEFAULT_ADJ, 0.0, 0.03565, 0.5] {
+            let pts = shape_outline(ShapeKind::RoundedRectangle, 100.0, 50.0, adj).unwrap();
+            assert!(pts.len() >= 3 && pts.len() <= MAX_DERIVED_POINTS, "{adj}");
+            assert!(pts.iter().all(|(x, y)| (-0.001..=1.001).contains(x) && (-0.001..=1.001).contains(y)), "{adj}");
+        }
         // The end of the bottom-right corner: in the frame's corner when the corner is square,
         // 16% of the height (8 of 100 wide) in from it by default.
-        let corner_pt = |corner| shape_outline(ShapeKind::RoundedRectangle, 100.0, 50.0, corner).unwrap()[6];
-        assert!(corner_pt(Some(0)).0 > 0.999 && corner_pt(Some(0)).1 > 0.999, "{:?}", corner_pt(Some(0)));
-        assert!((corner_pt(None).0 - 0.92).abs() < 0.001, "{:?}", corner_pt(None));
+        let corner_pt = |adj| shape_outline(ShapeKind::RoundedRectangle, 100.0, 50.0, adj).unwrap()[6];
+        assert!(corner_pt(0.0).0 > 0.999 && corner_pt(0.0).1 > 0.999, "{:?}", corner_pt(0.0));
+        assert!((corner_pt(crate::shape_geom::DEFAULT_ADJ).0 - 0.92).abs() < 0.001, "{:?}", corner_pt(crate::shape_geom::DEFAULT_ADJ));
     }
 
     #[test]

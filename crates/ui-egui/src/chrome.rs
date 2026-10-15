@@ -1,4 +1,4 @@
-//! Title bar (Quick Access Toolbar, title, search, account) and status bar.
+//! Quick Access Toolbar, status bar, and the shared chrome helpers.
 
 use egui::{Align2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::json;
@@ -39,7 +39,7 @@ pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
 
 /// The Quick Access Toolbar (#379): the user's commands (Save, Undo, Redo until customized), each
 /// with a right-click menu, then the menu button that customizes it (#376).
-fn quick_access(ui: &mut Ui, app: &mut WordApp) {
+pub fn quick_access(ui: &mut Ui, app: &mut WordApp) {
     let ids: Vec<String> = app.session.ribbon.qat().into_iter().map(str::to_string).collect();
     for (index, id) in ids.iter().enumerate() {
         let id = id.as_str();
@@ -393,7 +393,6 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
             }
         });
 }
-
 pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("status")
@@ -596,7 +595,8 @@ mod tests {
     fn frame(ctx: &egui::Context, n: &mut u32, events: Vec<egui::Event>, a: &mut WordApp) {
         *n += 1;
         let input = egui::RawInput { time: Some(f64::from(*n) / 60.0), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
-        ctx.run_ui(input, |ui| title_bar(a, ui)).drop_without_applying_deltas();
+        // The Quick Access Toolbar lives in the ribbon's tab strip now.
+        ctx.run_ui(input, |ui| crate::ribbon::show(a, ui)).drop_without_applying_deltas();
     }
 
     fn click(ctx: &egui::Context, n: &mut u32, pos: egui::Pos2, a: &mut WordApp) {

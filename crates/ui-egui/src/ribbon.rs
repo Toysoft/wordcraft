@@ -164,6 +164,38 @@ pub fn in_table_public(app: &WordApp) -> bool {
     app.session.sel.focus.path.cell().is_some()
 }
 
+/// The AutoSave switch (from the removed title bar): greyed out, with the reason as its
+/// tooltip, when AutoSave can't cover the document; clicking it then offers Save As
+/// where that helps.
+fn autosave_switch(ui: &mut Ui, app: &mut WordApp) {
+    let t = Tokens::get(ui.ctx());
+    let block = app.autosave_block();
+    let on = app.autosaves();
+    let label = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
+    ui.label(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(label));
+    let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
+    let (fill, stroke, knob_fill) = match (&block, on) {
+        (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
+        (None, true) => (t.accent, t.accent, t.on_accent),
+        (None, false) => (t.input, t.border_strong, t.text_dim),
+    };
+    ui.painter().rect(r, 8.0, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+    let knob = if on { r.max.x - 8.0 } else { r.min.x + 8.0 };
+    ui.painter().circle_filled(pos2(knob, r.center().y), 5.0, knob_fill);
+    let tip = block.as_ref().map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
+    if resp.on_hover_text(tip).clicked() {
+        match block {
+            None => {
+                let _ = app.run("file.autosave", json!({}));
+            }
+            Some(b) if b.save_as_helps() => {
+                let _ = app.save_as(crate::file_dialogs::AfterSave::AutoSave);
+            }
+            Some(b) => app.status(b.reason()),
+        }
+    }
+}
+
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     if app.session.view.read_mode {
@@ -213,22 +245,166 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             app.ui.tab = next.to_string();
         }
     }
-    // Tab strip.
+    // Tab strip: also the window's top bar now (no separate title bar). The strip is
+    // draggable in its empty areas, so the window still moves by its top edge.
     egui::Panel::top("tabs")
         .exact_size(30.0)
         .frame(egui::Frame::NONE.fill(t.tab_strip).inner_margin(egui::Margin { left: 8, right: 10, top: 0, bottom: 0 }))
         .show(ui, |ui| {
+            let strip = ui.max_rect();
+            let drag = ui.interact(strip, ui.id().with("tab_strip_drag"), Sense::click_and_drag());
+            if drag.drag_started() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+            if drag.double_clicked() {
+                let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+            }
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
+                // AutoSave + Quick Access Toolbar (from the removed title bar). The tabs
+                // themselves are drawn by the later left-to-right block (upstream's
+                // overflow » menu), so the old tab loop here is dropped, not duplicated.
+                autosave_switch(ui, app);
+                ui.add_space(6.0);
+                crate::chrome::quick_access(ui, app);
+                ui.add_space(6.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // The strip is also the window's top bar, and this right-hand block is
+                    // laid out right-to-left: when it is wider than the space left after
+                    // the tabs, egui lets it spill leftwards OVER the tabs, and its
+                    // buttons then steal the tabs' clicks (the View tab was unclickable
+                    // at 1440 px, #1093). So the block gives way before it can overlap:
+                    // the search box collapses to its icon, the document title
+                    // truncates, then hides; then Comments hides.
+                    let share = tl!("Share");
+                    let share_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(share.to_string(), medium(12.0), t.text).size().x);
+                    // Each gap costs its add_space plus the strip's 2 px item_spacing.
+                    let share_full = (share_w + 36.0).max(74.0) + 8.0;
+                    let track = app.session.doc.settings.track_changes;
+                    let mode_text = if track { tl!("Reviewing") } else { tl!("Editing") };
+                    let mode_text_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(mode_text.to_string(), regular(12.0), t.text).size().x);
+                    let pad = ui.spacing().button_padding;
+                    let mode_full = pad.x + 16.0 + 4.0 + mode_text_w + (crate::widgets::DROPDOWN + 4.0) + pad.x + 6.0;
+                    let comments_text_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(tl!("Comments").to_string(), regular(12.0), t.text).size().x);
+                    let comments_full = pad.x + 16.0 + 4.0 + comments_text_w + pad.x;
+                    let title_full = format!(
+                        "{} — {}",
+                        app.title_stem(),
+                        if app.session.dirty {
+                            tl!("Edited")
+                        } else if app.session.path.is_some() {
+                            tl!("Saved")
+                        } else {
+                            tl!("Not saved")
+                        }
+                    );
+                    let title_full_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(title_full.clone(), semibold(12.0), t.text).size().x);
+                    // The tabs are drawn after this block, in the same strip: reserve
+                    // their width first, so the spill-guard below shrinks this
+                    // right-hand block (title, search, Comments) instead of the tabs
+                    // overflowing into the » menu at common widths (1440 px).
+                    // But keep at least the collapsed right block (search icon-only,
+                    // Comments shown, no title), so the right-hand controls stay
+                    // reachable when the tabs alone would starve them (#897: at
+                    // 1280 pt in Polish with table tabs, the tabs must not push
+                    // Comments off the strip — the non-kept tabs go to » instead).
+                    // The per-tab width matches the tabs block's computation.
+                    let fixed_full = 32.0 + 208.0 + share_full + mode_full + comments_full;
+                    let right_min = fixed_full - 174.0 + 8.0;
+                    let tabs_w: f32 = tabs
+                        .iter()
+                        .map(|(tab, custom)| {
+                            let shown = if *custom { tab.as_str() } else { tl!(tab) };
+                            ui.ctx().fonts_mut(|f| f.layout_no_wrap(shown.to_string(), medium(12.5), t.text).size().x) + 18.0 + 2.0
+                        })
+                        .sum();
+                    let tabs_budget = tabs_w.min((ui.available_width() - right_min).max(0.0));
+                    let remaining = (ui.available_width() - tabs_budget).max(0.0);
+                    let mut search_icon_only = false;
+                    let mut show_comments = true;
+                    let mut title_w = title_full_w;
+                    let mut fixed = fixed_full;
+                    // The search box collapses to its icon before the title gives
+                    // way: with the tabs reserved above, the fixed block alone can
+                    // already exceed what is left, and hiding the title first would
+                    // leave the strip with a full search box but no document name.
+                    if fixed + title_w + 8.0 > remaining && fixed > remaining {
+                        search_icon_only = true;
+                        fixed -= 174.0;
+                    }
+                    if fixed + title_w + 8.0 > remaining {
+                        title_w = (remaining - fixed - 8.0).max(0.0);
+                    }
+                    if title_w < 24.0 {
+                        // Too little room for a title: hide it (upstream's title bar
+                        // shows the name only when more than 24 pt is available).
+                        title_w = 0.0;
+                    }
+                    if fixed > remaining {
+                        show_comments = false;
+                    }
+                    // Account avatar: clicking it opens File › Options › General,
+                    // where the user name lives (upstream's title-bar Account button,
+                    // brought into this strip).
+                    let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+                    ui.painter().circle_filled(r.center(), 11.0, t.accent);
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Account")));
+                    let initials: String = app.session.user_initials().chars().take(2).collect();
+                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
+                    if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
+                        let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
+                    }
+                    ui.add_space(6.0);
+                    // Search ("Tell me"): just its icon when the strip is crowded.
+                    let search_w = if search_icon_only { 26.0 } else { 200.0 };
+                    let (r, resp) = ui.allocate_exact_size(vec2(search_w, 24.0), Sense::click());
+                    ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+                    let icon_x = if search_icon_only { r.center().x } else { r.min.x + 14.0 };
+                    icons::paint(ui.painter(), Rect::from_center_size(pos2(icon_x, r.center().y), vec2(14.0, 14.0)), "search", t.text_dim, t.accent);
+                    if !search_icon_only {
+                        let ph = tl!("Search commands and help");
+                        ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, ph, regular(11.5), t.text_dim);
+                    }
+                    if resp.on_hover_text(tl!("Search")).clicked() {
+                        let _ = app.run("tools.search", json!({}));
+                    }
+                    ui.add_space(6.0);
+                    // Document name, beside search — truncated with an ellipsis to the
+                    // width left for it, hidden when there is none.
+                    if title_w > 0.0 {
+                        let mut title = title_full.clone();
+                        let measure = |s: &str| ui.ctx().fonts_mut(|f| f.layout_no_wrap(s.to_string(), semibold(12.0), t.text).size().x);
+                        if title_full_w > title_w {
+                            let mut kept = String::new();
+                            for ch in title_full.chars() {
+                                let candidate = format!("{kept}{ch}…");
+                                if measure(&candidate) > title_w {
+                                    break;
+                                }
+                                kept.push(ch);
+                            }
+                            title = format!("{kept}…");
+                        }
+                        // Clicking the document name renames it (upstream's title-bar
+                        // behaviour, brought into this strip). The accesskit label
+                        // stays the full title, so the button is findable even when
+                        // the shown text is truncated with an ellipsis.
+                        let title_w_actual = measure(&title);
+                        let (r, resp) = ui.allocate_exact_size(vec2(title_w_actual, 24.0), Sense::click());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title_full));
+                        ui.painter().text(r.center(), Align2::CENTER_CENTER, title, semibold(12.0), t.text);
+                        if resp.on_hover_text(tl!("Rename Document")).clicked() {
+                            let _ = app.run("file.rename", json!({}));
+                        }
+                        ui.add_space(6.0);
+                    }
                     // No document open (#1129): nothing to share, edit or comment on.
                     if !app.has_document() {
                         ui.disable();
                     }
-                    // Share, Editing mode, Comments, drawn first so the tabs get only the room
-                    // left of them (#897).
-                    let share = tl!("Share");
-                    let share_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(share.to_string(), medium(12.0), t.text).size().x);
+                    // Share, Editing mode, Comments. (`share` / `share_w` are already
+                    // defined above, by the spill-guard block.)
                     let (r, resp) = ui.allocate_exact_size(vec2((share_w + 36.0).max(74.0), 24.0), Sense::click());
                     ui.painter().rect_filled(r, 4.0, if resp.hovered() { t.accent_text } else { t.accent });
                     icons::paint(
@@ -243,9 +419,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         let _ = app.run("ui.backstage", json!({"value": true, "page": "export"}));
                     }
                     ui.add_space(6.0);
-                    let track = app.session.doc.settings.track_changes;
-                    let mode =
-                        crate::widgets::icon_text_menu_button(ui, "pencil", if track { tl!("Reviewing") } else { tl!("Editing") }, regular(12.0));
+                    let mode = crate::widgets::icon_text_menu_button(ui, "pencil", mode_text, regular(12.0));
                     egui::Popup::menu(&mode).show(|ui| {
                         if ui.selectable_label(!track, tl!(tl!("Editing — edit the document directly"))).clicked() {
                             let _ = app.run("review.trackChanges", json!({"value": false}));
@@ -257,7 +431,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         }
                     });
                     ui.add_space(4.0);
-                    if crate::widgets::icon_text_button(ui, "comment", tl!("Comments"), regular(12.0)).clicked() {
+                    if show_comments && crate::widgets::icon_text_button(ui, "comment", tl!("Comments"), regular(12.0)).clicked() {
                         let _ = app.run("view.commentsPane", json!({}));
                     }
                     ui.add_space(8.0);
@@ -1030,32 +1204,7 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Illustrations", None, app, |ui, app| {
         big(ui, app, "picture", "Pictures", "insert.picture", json!({}), false);
         menu_button(ui, app, "shapes", Some("Shapes"), "Shapes", true, "insert.shape", |ui, app| {
-            for (l, k) in [
-                ("Rectangle", "rectangle"),
-                ("Rounded Rectangle", "roundedRectangle"),
-                ("Oval", "ellipse"),
-                ("Triangle", "triangle"),
-                ("Diamond", "diamond"),
-                ("Line", "line"),
-                ("Arrow", "arrow"),
-                ("Star", "star"),
-                ("Heart", "heart"),
-            ] {
-                mi(ui, app, l, "insert.shape", json!({"kind": k}));
-            }
-            ui.separator();
-            mi(ui, app, "New Drawing Canvas", "insert.canvas", json!({}));
-            // Connectors: glue their ends to shapes by dragging them (shape.connect).
-            for (l, k, arrow) in [
-                ("Straight Connector", "straightConnector", "none"),
-                ("Straight Arrow Connector", "straightConnector", "end"),
-                ("Elbow Connector", "elbowConnector", "none"),
-                ("Elbow Arrow Connector", "elbowConnector", "end"),
-                ("Curved Connector", "curvedConnector", "none"),
-                ("Curved Arrow Connector", "curvedConnector", "end"),
-            ] {
-                mi(ui, app, l, "insert.shape", json!({"kind": k, "arrow": arrow}));
-            }
+            crate::shapes_gallery::shapes_menu(ui, app);
         });
         stack(ui, |ui| {
             small(ui, app, "icons", Some("Icons"), "Icons", "insert.icon", json!({}), false);

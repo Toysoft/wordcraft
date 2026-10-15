@@ -9,6 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use wordcraft_doc::para::{Float, InlineObject, Wrap};
+use wordcraft_doc::shape_geom::default_adj;
 use wordcraft_doc::wrap::{ALPHA_GRID, MAX_WRAP_POINTS, alpha_outline, shape_outline};
 use wordcraft_geom::{Rect, finite};
 
@@ -145,7 +146,11 @@ pub fn wrap_outline(o: &InlineObject, picture: impl FnOnce(&str, [f32; 4]) -> Op
         return Some(Arc::new(p.unit()));
     }
     match o {
-        InlineObject::Shape { kind, extra, .. } => shape_outline(*kind, w, h, extra.corner).map(Arc::new),
+        InlineObject::Shape { kind, extra, .. } => {
+            // The stored adjustment in `adj` units: `adj` first, else `corner`.
+            let adj = extra.adj.or(extra.corner.map(|c| c as f32 / 100_000.0)).unwrap_or(default_adj(*kind));
+            shape_outline(*kind, w, h, adj).map(Arc::new)
+        }
         InlineObject::Image { media, crop, .. } => picture(media, *crop),
         _ => None,
     }

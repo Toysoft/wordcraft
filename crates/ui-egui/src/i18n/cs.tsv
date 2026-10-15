@@ -37,6 +37,7 @@
 	Accept All Changes	Přijmout všechny změny
 	Accept This Change	Přijmout tuto změnu
 	Accessibility	Přístupnost
+	Action Buttons	Tlačítka akcí
 	Add	Přidat
 	Add a comment	Přidat komentář
 	Add a Table	Přidat tabulku
@@ -124,6 +125,7 @@
 	Banded Rows	Pruhované řádky
 	Bar	Svislá čára
 	Based on: {style}	Založeno na: {style}
+	Basic Shapes	Základní tvary
 	Before:	Před:
 	Between	Mezi odstavci
 	Bibliography	Bibliografie
@@ -133,6 +135,7 @@
 	Blank (Three Columns)	Prázdné (tři sloupce)
 	Blank document	Prázdný dokument
 	Blank Page	Prázdná stránka
+	Block Arrows	Blokové šipky
 	Block\nAuthors	Blokovat\nautory
 	Body text in a short paragraph to show spacing.	Základní text ukazuje mezery v odstavci.
 	Body Text	Základní text
@@ -140,8 +143,11 @@
 	Book Title	Název knihy
 	Bookmark	Záložka
 	Bookmark name:	Název záložky:
+	Callouts	Popisky
 	Delete Bookmark	Odstranit záložku
+	Flowchart	Vývojový diagram
 	Hidden bookmarks	Skryté záložky
+	Rectangles	Obdélníky
 	Sort by:	Seřadit podle:
 	Border Painter	Štětec ohraničení
 	Border\nPainter	Štětec\nohraničení
@@ -486,6 +492,7 @@
 	Current - Linear	Aktuální – lineární
 	Current - Professional	Aktuální – profesionální
 	Centered as Group	Na střed jako skupina
+	Stars and Banners	Hvězdy a bannery
 	✓ None	✓ Žádné
 	Function	Funkce
 	General	Obecné
@@ -2521,6 +2528,10 @@ preview	Title	Ukázka
 	Add whether it is above or below	Doplnit, zda je výše, nebo níže
 	Search	Hledat
 	Title Bar	Záhlaví okna
+	Adjust Shape	Upravit tvar
+	Draw Shape	Nakreslit tvar
+	Edit Text	Upravit text
+	Shape	Tvar
 	Copy to	Kopírovat do
 
 # Document naming and account controls.

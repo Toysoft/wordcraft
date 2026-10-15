@@ -73,6 +73,7 @@ pub mod read_aloud;
 pub mod ribbon;
 pub mod ruler_tabs;
 pub mod scroll;
+pub mod shapes_gallery;
 pub mod system_clipboard;
 pub mod table_mouse;
 pub mod table_pen;
@@ -2005,12 +2006,18 @@ impl WordApp {
             backstage::show(self, ui);
         } else if !self.has_document() {
             // No document open (#1129): the ribbon greyed out but for Help, and no page.
-            chrome::title_bar(self, ui);
+            // No separate title bar: search, account and document name live in the
+            // ribbon's tab strip (see ribbon::show).
             ribbon::show(self, ui);
             chrome::status_bar(self, ui);
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
         } else {
-            chrome::title_bar(self, ui);
+            // No separate title bar: the document name, search, account and window
+            // controls live in the ribbon's tab strip (see ribbon::show), so the
+            // document starts at the top of the window. Upstream's title bar
+            // (`chrome::title_bar`) stays available but unwired: it would duplicate
+            // those controls. Focus mode hides the ribbon, status bar and panes;
+            // Escape brings them back.
             if !self.session.view.focus_mode {
                 ribbon::show(self, ui);
                 chrome::status_bar(self, ui);

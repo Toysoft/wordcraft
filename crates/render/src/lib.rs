@@ -543,10 +543,14 @@ fn blend_backgrounds(items: &[Draw], p: wordcraft_geom::Point, opts: &RenderOpti
             Draw::Fill { rect, color, alpha, .. } if rect.contains(p) => (*color, *alpha),
             // The shape's own outline (an ellipse's corners are not inside it). Shape fills are
             // drawn opaque (the model has no fill transparency), so they cover what's beneath.
-            Draw::Shape { rect, kind, fill: Some(fill), corner, .. }
+            Draw::Shape { rect, kind, fill: Some(fill), adj, corner, .. }
                 if *kind != ShapeKind::Line && rect.contains(p) && {
                     let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
-                    kurbo::Shape::contains(&shape_path(*kind, r, *corner), kurbo::Point::new(p.x as f64, p.y as f64))
+                    // The stored adjustment: `corner` (docx-native) wins when present, else `adj`.
+                    kurbo::Shape::contains(
+                        &shape_path(*kind, r, corner.map(|c| c as f32 / 100_000.0).unwrap_or(*adj)),
+                        kurbo::Point::new(p.x as f64, p.y as f64),
+                    )
                 } =>
             {
                 (*fill, 1.0)
@@ -904,12 +908,15 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             ctx.set_stroke(kurbo::Stroke::new(w as f64).with_caps(kurbo::Cap::Round).with_join(kurbo::Join::Round));
             ctx.stroke_path(&path);
         }
-        Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner } => {
+        Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, adj, corner } => {
+            // The stored adjustment: `corner` (docx-native) wins when present, else `adj`.
+            let adj = corner.map(|c| c as f32 / 100_000.0).unwrap_or(*adj);
             let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
-            let path = shape_path(*kind, r, *corner);
+            let path = shape_path(*kind, r, adj);
             ctx.set_transform(view);
             let fx = effects.sanitized();
-            let can_fill = *kind != ShapeKind::Line && fill.is_some();
+            // Open shapes (lines, connectors, brackets, braces, arcs) are stroked, never filled.
+            let can_fill = !kind.is_open() && fill.is_some();
             if !fx.is_empty() && (can_fill || stroke.is_some()) {
                 let sw = if stroke_width.is_finite() { stroke_width.clamp(0.25, 200.0) as f64 } else { 0.75 };
                 // The shape's silhouette grown by `g` points and moved by `d`, in the current paint.
@@ -919,11 +926,11 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                         let grow = g + if stroke.is_some() { sw / 2.0 } else { 0.0 };
                         let rr = r.inflate(grow, grow) + d;
                         if rr.width() > 0.0 && rr.height() > 0.0 {
-                            ctx.fill_path(&shape_path(*kind, rr, *corner));
+                            ctx.fill_path(&shape_path(*kind, rr, adj));
                         }
                     } else if sw + 2.0 * g > 0.05 {
                         ctx.set_stroke(kurbo::Stroke::new(sw + 2.0 * g));
-                        ctx.stroke_path(&shape_path(*kind, r + d, *corner));
+                        ctx.stroke_path(&shape_path(*kind, r + d, adj));
                     }
                 };
                 if let Some(sh) = fx.shadow {
@@ -947,7 +954,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                     let rr = r.inflate(g as f64, g as f64);
                     if rr.width() > 0.0 && rr.height() > 0.0 {
                         ctx.set_paint(color(opts.ink(*f), a));
-                        ctx.fill_path(&shape_path(*kind, rr, *corner));
+                        ctx.fill_path(&shape_path(*kind, rr, adj));
                     }
                 }
                 return;
@@ -1014,9 +1021,9 @@ fn ink_path(pts: &[(f32, f32)]) -> Option<BezPath> {
     Some(p)
 }
 
-/// Outline of a basic shape in a rectangle; `corner` is a rounded rectangle's
-/// ([`wordcraft_doc::connector::ShapeExtra::corner`]).
-pub fn shape_path(kind: ShapeKind, r: kurbo::Rect, corner: Option<u32>) -> BezPath {
+/// Outline of a basic shape in a rectangle. `adj` is the corner radius as a fraction of the
+/// shorter side, for the round/snip family (`DEFAULT_ADJ` when the shape stores none).
+pub fn shape_path(kind: ShapeKind, r: kurbo::Rect, adj: f32) -> BezPath {
     let (cx, cy) = (r.center().x, r.center().y);
     let poly = |pts: &[(f64, f64)]| {
         let mut p = BezPath::new();
@@ -1033,10 +1040,7 @@ pub fn shape_path(kind: ShapeKind, r: kurbo::Rect, corner: Option<u32>) -> BezPa
     match kind {
         // A freeform is drawn from its own paths; without them, its frame.
         ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::Freeform => r.to_path(0.1),
-        ShapeKind::RoundedRectangle => {
-            let radius = wordcraft_doc::connector::corner_radius(corner, r.width() as f32, r.height() as f32);
-            kurbo::RoundedRect::from_rect(r, f64::from(radius)).to_path(0.1)
-        }
+        ShapeKind::RoundedRectangle => kurbo::RoundedRect::from_rect(r, r.width().min(r.height()) * adj.clamp(0.0, 0.5) as f64).to_path(0.1),
         ShapeKind::Ellipse => kurbo::Ellipse::from_rect(r).to_path(0.1),
         ShapeKind::FlowchartOr => {
             let mut p = kurbo::Ellipse::from_rect(r).to_path(0.1);
@@ -1093,6 +1097,29 @@ pub fn shape_path(kind: ShapeKind, r: kurbo::Rect, corner: Option<u32>) -> BezPa
             p.curve_to((cx + w * 0.1, r.y0 + h * 0.75), (r.x1, r.y0 + h * 0.6), (r.x1, r.y0 + h * 0.3));
             p.curve_to((r.x1, r.y0), (cx, r.y0), (cx, r.y0 + h * 0.3));
             p.close_path();
+            p
+        }
+        // Everything else takes its outline from the shared geometry, as one path with a
+        // sub-path per outline piece (open pieces are left open, so they stroke only).
+        _ => {
+            let mut p = BezPath::new();
+            let w = r.width() as f32;
+            let h = r.height() as f32;
+            if let Some(paths) = wordcraft_doc::shape_geom::shape_geom(kind, w, h, adj) {
+                for path in paths {
+                    for (i, (x, y)) in path.pts.iter().enumerate() {
+                        let pt = (r.x0 + *x as f64 * r.width(), r.y0 + *y as f64 * r.height());
+                        if i == 0 {
+                            p.move_to(pt);
+                        } else {
+                            p.line_to(pt);
+                        }
+                    }
+                    if path.closed {
+                        p.close_path();
+                    }
+                }
+            }
             p
         }
     }
@@ -1173,6 +1200,7 @@ mod tests {
             stroke: None,
             stroke_width: 0.0,
             effects: Default::default(),
+            adj: wordcraft_doc::shape_geom::DEFAULT_ADJ,
             corner: None,
         };
         let at = |x: f32, y: f32| {
@@ -1626,14 +1654,14 @@ mod tests {
         for k in
             [ShapeKind::Rectangle, ShapeKind::Ellipse, ShapeKind::FlowchartOr, ShapeKind::Star, ShapeKind::Heart, ShapeKind::Arrow, ShapeKind::Line]
         {
-            assert!(!shape_path(k, r, None).elements().is_empty());
+            assert!(!shape_path(k, r, wordcraft_doc::shape_geom::DEFAULT_ADJ).elements().is_empty());
         }
     }
 
     #[test]
     fn flowchart_or_spokes() {
         let r = kurbo::Rect::new(0.0, 0.0, 10.0, 10.0);
-        let path = shape_path(ShapeKind::FlowchartOr, r, None);
+        let path = shape_path(ShapeKind::FlowchartOr, r, wordcraft_doc::shape_geom::DEFAULT_ADJ);
         let elements = path.elements();
         for pair in [
             [kurbo::PathEl::MoveTo((0.0, 5.0).into()), kurbo::PathEl::LineTo((10.0, 5.0).into())],
@@ -1682,25 +1710,51 @@ mod tests {
     }
 
     /// A rounded rectangle's corner is its file's (`roundRect`'s `adj`), not always 16%.
+    /// (Upstream's version of this test passed `corner` in 1/100000s; here the same
+    /// radii in `adj` units: 0 / 0.03565 / default 0.16 / 0.5.)
     #[test]
     fn rounded_rectangle_corners_follow_their_radius() {
         use kurbo::Shape;
         let r = kurbo::Rect::new(0.0, 0.0, 200.0, 100.0);
-        let inside = |corner, pt: (f64, f64)| shape_path(ShapeKind::RoundedRectangle, r, corner).contains(pt.into());
+        let inside = |adj, pt: (f64, f64)| shape_path(ShapeKind::RoundedRectangle, r, adj).contains(pt.into());
         // Two points inside the top-left corner: 1 pt and 4 pt in from both edges.
         let (tip, near) = ((1.0, 1.0), (4.0, 4.0));
-        assert!(inside(Some(0), tip), "square corner");
-        assert!(!inside(Some(3_565), tip) && inside(Some(3_565), near), "3.565 pt corner");
-        assert!(!inside(None, near), "16 pt corner by default");
-        assert!(!inside(Some(u32::MAX), (14.0, 14.0)) && inside(Some(u32::MAX), (100.0, 1.0)), "round ends");
+        assert!(inside(0.0, tip), "square corner");
+        assert!(!inside(0.03565, tip) && inside(0.03565, near), "3.565 pt corner");
+        assert!(!inside(wordcraft_doc::shape_geom::DEFAULT_ADJ, near), "16 pt corner by default");
+        assert!(!inside(0.5, (14.0, 14.0)) && inside(0.5, (100.0, 1.0)), "round ends");
     }
 
     /// #611: a line runs as DrawingML's `line` preset does, top-left to bottom-right (Word's
     /// files flip it for the other diagonal), not bottom-left to top-right.
     #[test]
     fn a_line_runs_from_top_left_to_bottom_right() {
-        let p = shape_path(ShapeKind::Line, kurbo::Rect::new(10.0, 20.0, 30.0, 60.0), None);
+        let p = shape_path(ShapeKind::Line, kurbo::Rect::new(10.0, 20.0, 30.0, 60.0), wordcraft_doc::shape_geom::DEFAULT_ADJ);
         assert_eq!(p.elements(), &[kurbo::PathEl::MoveTo((10.0, 20.0).into()), kurbo::PathEl::LineTo((30.0, 60.0).into())]);
+    }
+
+    /// NoSmoking's path holds the circle AND the bar as sub-paths of one path, so one
+    /// fill paints both and one stroke outlines both: under No Fill the bar is still
+    /// there, stroked, instead of leaving only a circle.
+    #[test]
+    fn no_smoking_path_contains_circle_and_bar() {
+        let p =
+            shape_path(ShapeKind::NoSmoking, kurbo::Rect::new(0.0, 0.0, 100.0, 100.0), wordcraft_doc::shape_geom::default_adj(ShapeKind::NoSmoking));
+        let pts: Vec<(f64, f64)> = p
+            .elements()
+            .iter()
+            .filter_map(|e| match e {
+                kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p) => Some((p.x, p.y)),
+                _ => None,
+            })
+            .collect();
+        // A point on the circle (the top of the rim).
+        assert!(pts.iter().any(|(x, y)| (x - 50.0).abs() < 1.0 && (y - 0.0).abs() < 1.0), "circle rim present");
+        // A bar corner: (0.5 + 0.49/√2 + 0.09375/√2, 0.5 − 0.49/√2 + 0.09375/√2) × 100.
+        let (bx, by) = (91.3, 22.0);
+        assert!(pts.iter().any(|(x, y)| (x - bx).abs() < 1.0 && (y - by).abs() < 1.0), "bar corner present at ({bx}, {by})");
+        // Two closed sub-paths: the path closes twice.
+        assert_eq!(p.elements().iter().filter(|e| matches!(e, kurbo::PathEl::ClosePath)).count(), 2);
     }
 }
 

@@ -653,7 +653,10 @@ impl Writer<'_> {
                 }
                 // Tight and Through wrapping need a polygon: the shape's outline unless it has one.
                 if matches!(float.wrap, Wrap::Tight | Wrap::Through) && float.wrap_polygon.is_none() {
-                    float.wrap_polygon = wordcraft_doc::wrap::shape_outline(*kind, *sw, *sh, extra.corner)
+                    // The stored adjustment in `adj` units: `adj` first, else `corner`
+                    // (docx-native 1/100000s), else the preset default.
+                    let adj = extra.adj.or(extra.corner.map(|c| c as f32 / 100_000.0)).unwrap_or(wordcraft_doc::shape_geom::default_adj(*kind));
+                    float.wrap_polygon = wordcraft_doc::wrap::shape_outline(*kind, *sw, *sh, adj)
                         .and_then(|pts| wordcraft_doc::wrap::WrapPolygon::from_unit(false, &pts))
                         .map(std::sync::Arc::new);
                 }
@@ -987,31 +990,27 @@ impl Writer<'_> {
         }
         w.open("wps:spPr", &[]);
         xfrm(w, off, *sw, *sh, float.spin());
-        let prst = match kind {
-            ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::Freeform => "rect",
-            ShapeKind::RoundedRectangle => "roundRect",
-            ShapeKind::Ellipse => "ellipse",
-            ShapeKind::FlowchartOr => "flowChartOr",
-            ShapeKind::Triangle => "triangle",
-            ShapeKind::RightTriangle => "rtTriangle",
-            ShapeKind::Diamond => "diamond",
-            ShapeKind::Line => "line",
-            ShapeKind::StraightConnector => "straightConnector1",
-            ShapeKind::ElbowConnector => "bentConnector3",
-            ShapeKind::CurvedConnector => "curvedConnector3",
-            ShapeKind::Arrow => "rightArrow",
-            ShapeKind::Star => "star5",
-            ShapeKind::Heart => "heart",
-        };
+        // `kind.preset()` is the exact inverse of `from_preset`: every kind keeps its own
+        // preset (round1Rect, bentConnector3, ...) instead of collapsing onto the
+        // rounded-rectangle / elbow / curved presets.
+        let prst = kind.preset();
+        let prst = if prst.is_empty() { "rect" } else { prst };
         match geom {
             Some(f) => cust_geom(w, f, *sw, *sh),
             None => {
                 w.open("a:prstGeom", &[("prst", prst)]);
-                match extra.corner.filter(|_| *kind == ShapeKind::RoundedRectangle) {
-                    Some(c) => {
+                // One `adj` value: the exact stored `corner` for a rounded rectangle,
+                // else the `adj` fraction (the round/snip family's adjustment).
+                let adj_val = if *kind == ShapeKind::RoundedRectangle {
+                    extra.corner.map(|c| c.min(wordcraft_doc::connector::MAX_CORNER) as i64)
+                } else {
+                    None
+                }
+                .or_else(|| extra.adj.filter(|v| v.is_finite()).map(|adj| (adj.clamp(0.0, 1.0) * 100000.0).round() as i64));
+                match adj_val {
+                    Some(v) => {
                         w.open("a:avLst", &[]);
-                        let fmla = format!("val {}", c.min(wordcraft_doc::connector::MAX_CORNER));
-                        w.empty("a:gd", &[("name", "adj"), ("fmla", &fmla)]);
+                        w.empty("a:gd", &[("name", "adj"), ("fmla", &format!("val {v}"))]);
                         w.close("a:avLst");
                     }
                     None => w.empty("a:avLst", &[]),

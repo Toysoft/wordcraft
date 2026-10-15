@@ -26,6 +26,7 @@
 	Accept All Changes	Приемане на всички промени
 	Accept This Change	Приемане на тази промяна
 	Accessibility	Достъпност
+	Action Buttons	Бутони за действие
 	Add	Добавяне
 	Add Object to Selection	Добавяне на обект към селекцията
 	Add Space Before Paragraph	Добавяне на разстояние преди абзаца
@@ -76,8 +77,11 @@
 	AutoSave isn't available in the browser: it can't write to your files. Save downloads a copy.	Автоматичното запазване не е налично в браузъра: то не може да записва във Вашите файлове. „Запазване“ изтегля копие.
 	AutoSave only keeps .docx, .odt and .rtf files; {name} can't keep all formatting. Save as .docx to turn on AutoSave.	Автоматичното запазване поддържа само файлове .docx, .odt и .rtf; {name} не може да запази цялото форматиране. Запазете като .docx, за да включите автоматичното запазване.
 	Balloons	Балончета
+	Basic Shapes	Основни фигури
+	Block Arrows	Блок стрелки
 	Bullet	Водещ символ
 	By author	По автор
+	Callouts	Обяснителни бележки
 	Changed lines:	Променени редове:
 	Click level to modify:	Щракнете върху ниво за промяна:
 	Color only	Само цвят
@@ -85,6 +89,7 @@
 	Define New Multilevel List…	Дефиниране на нов многостепенен списък…
 	Deletions:	Изтривания:
 	Enter formatting for number:	Въведете форматиране за номера:
+	Flowchart	Блок-схема
 	Follow number with:	След номера:
 	Formatting	Форматиране
 	In the margin	На полето
@@ -103,6 +108,7 @@
 	Number style for this level:	Стил на номериране за това ниво:
 	Only for the selected text	Само за избрания текст
 	Outside border	Външна граница
+	Rectangles	Правоъгълници
 	Restart list after:	Рестартиране на списъка след:
 	Right border	Дясна граница
 	Save the document to turn on AutoSave	Запазете документа, за да включите автоматичното запазване
@@ -135,6 +141,7 @@
 	Border Painter	Рисуване на граници
 	Border\nPainter	Рисуване\nна граници
 	Borders	Граници
+	Stars and Banners	Звезди и банери
 	Tab stop position:	Позиция на табулатора:
 	Default tab stops:	Позиции на табулатора по подразбиране:
 	Tab stops to be cleared:	Позиции на табулатора за изчистване:
@@ -2518,6 +2525,10 @@
 	Table Properties…	Свойства на таблица…
 	Search	Търсене
 	Title Bar	Заглавна лента
+	Adjust Shape	Коригиране на фигура
+	Draw Shape	Чертане на фигура
+	Edit Text	Редактиране на текст
+	Shape	Фигура
 	Copy to	Копиране в
 
 # Document naming and account controls.

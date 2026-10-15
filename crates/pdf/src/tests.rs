@@ -430,20 +430,23 @@ fn shapes_have_paths() {
         ShapeKind::Diamond,
         ShapeKind::Triangle,
     ] {
-        assert!(shape_path(k, &r, None).is_some(), "{k:?}");
+        assert!(shape_path(k, &r, wordcraft_doc::shape_geom::DEFAULT_ADJ).is_some(), "{k:?}");
     }
+    assert!(shape_path(ShapeKind::Ellipse, &Rect::new(0.0, 0.0, f32::NAN, 1.0), wordcraft_doc::shape_geom::DEFAULT_ADJ).is_none());
     // A line or connector may be flat (horizontal or vertical); a closed shape may not.
+    // (`adj` is ignored for lines; the default stands in for upstream's `corner: None`.)
+    let adj = wordcraft_doc::shape_geom::DEFAULT_ADJ;
     for k in [ShapeKind::Line, ShapeKind::StraightConnector] {
-        assert!(shape_path(k, &Rect::new(0.0, 5.0, 10.0, 0.0), None).is_some(), "{k:?} horizontal");
-        assert!(shape_path(k, &Rect::new(5.0, 0.0, 0.0, 10.0), None).is_some(), "{k:?} vertical");
-        assert!(shape_path(k, &Rect::new(5.0, 5.0, 0.0, 0.0), None).is_none(), "{k:?} without length");
+        assert!(shape_path(k, &Rect::new(0.0, 5.0, 10.0, 0.0), adj).is_some(), "{k:?} horizontal");
+        assert!(shape_path(k, &Rect::new(5.0, 0.0, 0.0, 10.0), adj).is_some(), "{k:?} vertical");
+        assert!(shape_path(k, &Rect::new(5.0, 5.0, 0.0, 0.0), adj).is_none(), "{k:?} without length");
         // Hostile sizes reach `shape_path` unclamped through the public fields.
         for (w, h) in [(f32::NAN, 0.0), (f32::INFINITY, 0.0), (10.0, f32::NEG_INFINITY), (-10.0, 0.0), (0.0, -10.0), (10.0, -1.0)] {
-            assert!(shape_path(k, &Rect { x: 0.0, y: 0.0, w, h }, None).is_none(), "{k:?} {w} x {h}");
+            assert!(shape_path(k, &Rect { x: 0.0, y: 0.0, w, h }, adj).is_none(), "{k:?} {w} x {h}");
         }
     }
-    assert!(shape_path(ShapeKind::Rectangle, &Rect::new(0.0, 5.0, 10.0, 0.0), None).is_none());
-    assert!(shape_path(ShapeKind::Ellipse, &Rect::new(0.0, 0.0, f32::NAN, 1.0), None).is_none());
+    assert!(shape_path(ShapeKind::Rectangle, &Rect::new(0.0, 5.0, 10.0, 0.0), adj).is_none());
+    assert!(shape_path(ShapeKind::Ellipse, &Rect::new(0.0, 0.0, f32::NAN, 1.0), adj).is_none());
     assert_eq!(parse_iso("2024-02-03T04:05:06Z"), Some((2024, 2, 3, 4, 5, 6)));
     assert_eq!(parse_iso("garbage"), None);
     assert_eq!(civil(0), (1970, 1, 1, 0, 0, 0));

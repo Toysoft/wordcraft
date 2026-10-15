@@ -24,6 +24,7 @@
 	Accept All Changes	Accetta tutte le modifiche
 	Accept This Change	Accetta questa modifica
 	Accessibility	Accessibilità
+	Action Buttons	Pulsanti azione
 	Add	Aggiungi
 	Add Object to Selection	Aggiungi oggetto alla selezione
 	Add Space Before Paragraph	Aggiungi spazio prima del paragrafo
@@ -74,8 +75,11 @@
 	AutoSave isn't available in the browser: it can't write to your files. Save downloads a copy.	Il salvataggio automatico non è disponibile nel browser: non può scrivere nei tuoi file. Salva scarica una copia.
 	AutoSave only keeps .docx, .odt and .rtf files; {name} can't keep all formatting. Save as .docx to turn on AutoSave.	Il salvataggio automatico supporta solo file .docx, .odt e .rtf; {name} non può conservare tutta la formattazione. Salva come .docx per attivare il salvataggio automatico.
 	Balloons	Fumetti
+	Basic Shapes	Forme base
+	Block Arrows	Frecce a blocchi
 	Bullet	Punto elenco
 	By author	Per autore
+	Callouts	Callout
 	Changed lines:	Righe modificate:
 	Click level to modify:	Fai clic sul livello da modificare:
 	Color only	Solo colore
@@ -83,6 +87,7 @@
 	Define New Multilevel List…	Definisci nuovo elenco a più livelli…
 	Deletions:	Eliminazioni:
 	Enter formatting for number:	Formato del numero:
+	Flowchart	Diagramma di flusso
 	Follow number with:	Dopo il numero:
 	Formatting	Formattazione
 	In the margin	A margine
@@ -101,6 +106,7 @@
 	Number style for this level:	Stile numero per questo livello:
 	Only for the selected text	Solo per il testo selezionato
 	Outside border	Bordo esterno
+	Rectangles	Rettangoli
 	Restart list after:	Riavvia elenco dopo:
 	Right border	Bordo destro
 	Save the document to turn on AutoSave	Salva il documento per attivare il salvataggio automatico
@@ -132,6 +138,7 @@
 	Border Painter	Copia bordi
 	Border\nPainter	Copia\nbordi
 	Borders	Bordi
+	Stars and Banners	Stelle e banner
 	Tab stop position:	Posizione tabulazione:
 	Default tab stops:	Tabulazioni predefinite:
 	Tab stops to be cleared:	Tabulazioni da cancellare:
@@ -2512,6 +2519,10 @@ preview	Title	Esempio
 	Add whether it is above or below	Aggiungi se si trova più in alto o più in basso
 	Search	Cerca
 	Title Bar	Barra del titolo
+	Adjust Shape	Regola forma
+	Draw Shape	Disegna forma
+	Edit Text	Modifica testo
+	Shape	Forma
 	Copy to	Copia in
 
 # Document naming and account controls.
