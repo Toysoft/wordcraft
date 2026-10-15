@@ -228,6 +228,13 @@ impl Lexer<'_> {
             self.skip_past("-->");
             return Some(Tok::Text(String::new()));
         }
+        if rest.get(..9).is_some_and(|s| s.eq_ignore_ascii_case("<![cdata[")) {
+            self.pos += 9;
+            let start = self.pos;
+            let end = self.skip_past("]]>");
+            let t = self.s.get(start..end).unwrap_or("");
+            return Some(Tok::Text(t.to_string()));
+        }
         if rest.starts_with("<!") || rest.starts_with("<?") {
             self.skip_past(">");
             return Some(Tok::Text(String::new()));
@@ -1784,5 +1791,13 @@ mod tests {
     #[test]
     fn entities() {
         assert_eq!(unescape("a &lt;b&gt; &#65;&#x42; &bogus; &"), "a <b> AB &bogus; &");
+    }
+
+    #[test]
+    fn cdata_sections_are_preserved_as_text() {
+        let f = parse("<p>Before <![CDATA[<unescaped> & 'content' with > brackets]]> after</p>");
+        assert_eq!(texts(&f), vec!["NormalNone:Before <unescaped> & 'content' with > brackets after"]);
+        let f2 = parse("<p><![cdata[literal text]]></p>");
+        assert_eq!(texts(&f2), vec!["NormalNone:literal text"]);
     }
 }
