@@ -91,12 +91,23 @@ pub fn anchors(doc: &Document) -> Vec<(u32, Pos)> {
 /// Replies by the top-level comment they belong to, oldest (lowest id) first.
 pub fn replies(doc: &Document) -> BTreeMap<u32, Vec<u32>> {
     let mut m: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-    for id in doc.comments.keys() {
-        let r = root(doc, *id);
-        if r != *id {
+    let mut ids: Vec<u32> = doc.comments.keys().copied().collect();
+    ids.sort_by(|&a, &b| {
+        let ca = doc.comments.get(&a);
+        let cb = doc.comments.get(&b);
+        let da = ca.map(|c| c.date.as_str()).unwrap_or("");
+        let db = cb.map(|c| c.date.as_str()).unwrap_or("");
+        match (!da.is_empty() && !db.is_empty(), da.cmp(db)) {
+            (true, std::cmp::Ordering::Equal) | (false, _) => a.cmp(&b),
+            (true, ord) => ord,
+        }
+    });
+    for id in ids {
+        let r = root(doc, id);
+        if r != id {
             let v = m.entry(r).or_default();
             if v.len() < MAX_REPLIES {
-                v.push(*id);
+                v.push(id);
             }
         }
     }
@@ -106,9 +117,22 @@ pub fn replies(doc: &Document) -> BTreeMap<u32, Vec<u32>> {
 /// The comment authors in order of first appearance (for their colours).
 fn author_index(doc: &Document, author: &str) -> u32 {
     let mut seen: Vec<&str> = Vec::new();
-    for c in doc.comments.values() {
-        if !seen.contains(&c.author.as_str()) {
-            seen.push(&c.author);
+    let mut ids: Vec<u32> = doc.comments.keys().copied().collect();
+    ids.sort_by(|&a, &b| {
+        let ca = doc.comments.get(&a);
+        let cb = doc.comments.get(&b);
+        let da = ca.map(|c| c.date.as_str()).unwrap_or("");
+        let db = cb.map(|c| c.date.as_str()).unwrap_or("");
+        match (!da.is_empty() && !db.is_empty(), da.cmp(db)) {
+            (true, std::cmp::Ordering::Equal) | (false, _) => a.cmp(&b),
+            (true, ord) => ord,
+        }
+    });
+    for id in &ids {
+        if let Some(c) = doc.comments.get(id) {
+            if !seen.contains(&c.author.as_str()) {
+                seen.push(&c.author);
+            }
         }
     }
     seen.iter().position(|a| *a == author).unwrap_or(0) as u32
@@ -231,5 +255,22 @@ pub(crate) fn add(ctx: &mut Ctx, lay: &mut DocLayout) {
                 page.items.push(it);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wordcraft_doc::Comment;
+
+    #[test]
+    fn replies_are_ordered_oldest_first() {
+        let mut doc = Document::new();
+        doc.comments.insert(1, Comment { date: "2026-10-15T10:00:00Z".into(), ..Default::default() });
+        doc.comments.insert(3, Comment { date: "2026-10-15T10:30:00Z".into(), parent: Some(1), ..Default::default() });
+        doc.comments.insert(2, Comment { date: "2026-10-15T10:15:00Z".into(), parent: Some(1), ..Default::default() });
+
+        let rep = replies(&doc);
+        assert_eq!(rep.get(&1), Some(&vec![2, 3]));
     }
 }
