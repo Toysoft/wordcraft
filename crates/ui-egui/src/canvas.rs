@@ -65,7 +65,7 @@ pub struct CanvasState {
     column_drag: Option<((usize, f32, f32), (usize, f32, f32))>,
     /// The last primary press on the page (time, screen point, clicks in a row), to count
     /// double- and triple-presses as they go down (egui reports them on release).
-    last_press: Option<(f64, Pos2, u8)>,
+    pub(crate) last_press: Option<(f64, Pos2, u8)>,
     /// A drag after a double-click, triple-click or Ctrl/⌘+click: the unit it extends by, the
     /// unit first selected, and the last position the pointer hit.
     unit_drag: Option<UnitDrag>,
@@ -265,9 +265,17 @@ struct UnitDrag {
     last: Pos,
 }
 
+/// After a whole-document selection from a press (not a line, so it can't grow): holds the press
+/// so its release isn't a caret click.
+pub(crate) fn hold_document_selection(app: &mut WordApp, clicks: u8) {
+    let (start, end) = app.session.sel.ordered();
+    app.canvas.unit_drag = Some(UnitDrag { unit: "document", clicks, start, last: end.clone(), end });
+    app.canvas.dragging = true;
+}
+
 /// Clicks in a row for a press at `at` (time `now`) after `last`: within the double-click
 /// delay and distance it counts up to 3 (a triple-click), otherwise it starts again at 1.
-fn press_count(last: Option<(f64, Pos2, u8)>, now: f64, at: Pos2, delay: f64, dist: f32) -> u8 {
+pub(crate) fn press_count(last: Option<(f64, Pos2, u8)>, now: f64, at: Pos2, delay: f64, dist: f32) -> u8 {
     match last {
         Some((t, p, n)) if now - t >= 0.0 && now - t < delay && p.distance(at) <= dist => n.saturating_add(1).min(3),
         _ => 1,

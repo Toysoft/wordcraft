@@ -59,7 +59,7 @@ Document title opens Rename Document; the account badge opens Options › Genera
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-15 | trivial | Selection bar: the right margin for right-to-left paragraphs and tables, and the page margin beside table rows selects rows (click, drag, Shift+click) |
+| 2026-10-15 | trivial | Selection bar: the right margin for right-to-left paragraphs and tables, and the page margin beside table rows selects rows (click, drag, Shift+click; triple-click or Ctrl+click there selects the document, as in Word) |
 | 2026-10-13 | trivial | New/Modify Table Style: No Border on a part that inherits its lines hides them; emptying the font box makes the part's font inherited again (#1288) |
 | 2026-10-14 | trivial | Tab stops edited on the ruler: corner kind selector, click to set, drag to move or off to clear, per-kind markers mirrored for RTL; each gesture one `para.tabs` call and one undo step; Rulers 85% → 90% |
 | 2026-10-12 | trivial | Tables on the page: one selected cell (Select Cell, or a click along its left edge) is a cell selection when its border is dragged: the border moves in its row only (#962) |

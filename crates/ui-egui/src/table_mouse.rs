@@ -94,7 +94,23 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
     }
     let Some(p) = latest else { return false };
     let Some((page, x, y, reach, target)) = target_at(app, layout, rects, scale, p) else { return false };
-    let extend = matches!(target.spot, Spot::Row(_)) && ui.input(|i| i.modifiers.shift);
+    let mods = ui.input(|i| i.modifiers);
+    // Word: a triple-click or Ctrl/Cmd+click beside a row selects the whole document, as in the
+    // body's selection bar.
+    if matches!(target.spot, Spot::Row(_)) && !mods.shift {
+        let now = ui.input(|i| i.time);
+        let (delay, dist) = ui.ctx().options(|o| (o.input_options.max_double_click_delay, o.input_options.max_click_dist));
+        let clicks = crate::canvas::press_count(app.canvas.last_press, now, p, delay, dist);
+        app.canvas.last_press = Some((now, p, clicks));
+        if clicks >= 3 || mods.command {
+            if let Err(e) = app.run("select.all", json!({"whole": true})) {
+                app.status(e);
+            }
+            crate::canvas::hold_document_selection(app, clicks);
+            return true;
+        }
+    }
+    let extend = matches!(target.spot, Spot::Row(_)) && mods.shift;
     // Shift+click with the selection started outside the table is the ordinary Shift+click into
     // a table (the caret logic extends it by whole rows); only the table's own selection extends here.
     if extend && !in_table(app, &target.geom.table) {
@@ -363,6 +379,47 @@ mod tests {
         h.event(egui::Event::ModifiersChanged(egui::Modifiers::default()));
         h.step();
         assert_eq!(h.state().session.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 1), (0, 2))), "extended by rows");
+    }
+
+    /// Word: a triple-click, or Ctrl/Cmd+click, in the margin beside a table row selects the whole
+    /// document; a single click (and a drag) keeps selecting rows.
+    #[test]
+    fn triple_click_or_ctrl_click_beside_a_row_selects_the_document() {
+        let mut h = table_window_stepping(1.0 / 60.0);
+        let b = cell(&mut h, 1, 0);
+        let at = screen(&mut h, 20.0, b.y + b.h / 2.0);
+        let whole = |h: &mut H| {
+            let s = &h.state().session;
+            // From the first cell's start to the end of the paragraph after the table.
+            let (a, e) = s.sel.ordered();
+            a.path == wordcraft_doc::Path(vec![0, 0, 0, 0]) && a.off == 0 && e == wordcraft_doc::Pos::body(1, 0)
+        };
+        // One click: the row.
+        click(&mut h, at);
+        assert_eq!(h.state().session.cell_range().map(|r| r.rows), Some((1, 1)), "a click selects the row");
+        // Three quick clicks: everything.
+        steps(&mut h, 40);
+        for _ in 0..3 {
+            h.event(egui::Event::PointerMoved(at));
+            h.step();
+            button(&h, at, true);
+            h.step();
+            button(&h, at, false);
+            h.step();
+        }
+        steps(&mut h, 2);
+        assert!(whole(&mut h), "triple-click: {:?}", h.state().session.sel);
+        // Ctrl+click: everything too.
+        steps(&mut h, 40);
+        click(&mut h, at);
+        assert_eq!(h.state().session.cell_range().map(|r| r.rows), Some((1, 1)));
+        steps(&mut h, 40);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::COMMAND));
+        h.step();
+        click(&mut h, at);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::default()));
+        h.step();
+        assert!(whole(&mut h), "ctrl+click: {:?}", h.state().session.sel);
     }
 
     /// Shift+click in the bar beside a row, with the selection started above the table, extends
