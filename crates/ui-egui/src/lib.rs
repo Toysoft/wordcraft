@@ -22,6 +22,7 @@ macro_rules! tl {
 
 pub mod a11y;
 pub mod a11y_pane;
+pub mod addins;
 pub mod async_saves;
 pub mod autoscroll;
 pub mod backstage;
@@ -530,6 +531,8 @@ pub struct WordApp {
     awaiting_save: Option<AwaitingSave>,
     /// The file dialog the host is showing, and what its answer is for ([`file_dialogs`]).
     file_dialog: Option<file_dialogs::PendingDialog>,
+    /// The add-ins the host gave the app ([`addins`]), in File › Options › Add-ins order.
+    addins: Vec<Box<dyn addins::AddIn>>,
     /// The built-in file browser, when it is open, and the folder it showed last (#576).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) file_browser: file_browser::State,
@@ -634,6 +637,7 @@ impl WordApp {
             font_generation: wordcraft_fonts::FontDb::global().generation(),
             dialog_pick: None,
             file_dialog: None,
+            addins: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             file_browser: file_browser::State::default(),
             info_editing: None,
@@ -788,7 +792,13 @@ impl WordApp {
         {
             return r;
         }
+        // An add-in being turned off first saves what its options page has pending.
+        self.guard_addin_off(id, &params)?;
+        let modules_changed = id == "file.options" && params.get("modules").is_some();
         let r = self.execute_user(id, params);
+        if modules_changed && r.is_ok() {
+            self.sync_addins();
+        }
         if matches!(id, "insert.picture" | "insert.icon") {
             self.select_inserted_picture(&r);
         }
@@ -1234,7 +1244,9 @@ impl WordApp {
                 "options" => {
                     self.ui.backstage = true;
                     self.ui.backstage_page = "options".into();
-                    if let Some(pane) = req.get("pane").and_then(Value::as_str) {
+                    if let Some(pane) = req.get("pane").and_then(Value::as_str)
+                        && (pane == self.ui.options_pane || self.leave_addin_page())
+                    {
                         self.ui.options_pane = pane.into();
                     }
                 }
@@ -1291,12 +1303,22 @@ impl WordApp {
                 json!({"tab": self.ui.tab})
             }
             "ui.backstage" => {
-                self.ui.backstage = p.get("value").and_then(Value::as_bool).unwrap_or(!self.ui.backstage);
-                if let Some(pg) = s("page") {
-                    self.ui.backstage_page = pg.into();
-                }
-                if let Some(pane) = s("pane") {
-                    self.ui.options_pane = pane.into();
+                let want = p.get("value").and_then(Value::as_bool).unwrap_or(!self.ui.backstage);
+                let page = s("page").map(str::to_string);
+                let pane = s("pane").map(str::to_string);
+                // Leaving an add-in's options page (closing File, another page or pane) lets it
+                // save first; when it can't, it stays.
+                let leaving = !want
+                    || page.as_deref().is_some_and(|p| p != self.ui.backstage_page)
+                    || pane.as_deref().is_some_and(|p| p != self.ui.options_pane);
+                if !leaving || self.leave_addin_page() {
+                    self.ui.backstage = want;
+                    if let Some(pg) = page {
+                        self.ui.backstage_page = pg;
+                    }
+                    if let Some(pane) = pane {
+                        self.ui.options_pane = pane;
+                    }
                 }
                 json!({"backstage": self.ui.backstage})
             }
