@@ -343,7 +343,7 @@
 	Move or Resize	გადაადგილება ან ზომის შეცვლა
 	Multilevel List	მრავალდონიანი სია
 	Multiple Pages	რამდენიმე გვერდი
-	Narrow  0.5" all	ვიწრო  0,5" ყოველ მხარეს
+	Narrow  {size} all	ვიწრო  {size} ყოველ მხარეს
 	Navigation	ნავიგაცია
 	Navigation Pane	ნავიგაციის პანელი
 	New	ახალი
@@ -367,7 +367,7 @@
 	Nonbreaking Hyphen	უწყვეტი დეფისი
 	Nonbreaking Space	უწყვეტი შორისი
 	None	არცერთი
-	Normal  1" all	ჩვეულებრივი  1" ყოველ მხარეს
+	Normal  {size} all	ჩვეულებრივი  {size} ყოველ მხარეს
 	Normal Style	ჩვეულებრივი სტილი
 	Nudge	მცირედ გადაწევა
 	Numbering	დანომვრა
@@ -2590,3 +2590,44 @@ preview	Title	სათაური
 	Place in This Document	ადგილი ამ დოკუმენტში
 	{language} (no dictionary)	{language} (ლექსიკონის გარეშე)
 	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	მართლწერის ლექსიკონი ({language}) დაყენებული არ არის, ამიტომ ტექსტი არ მოწმდება. WordCraft Hunspell-ის ლექსიკონს {name} ეძებს WORDCRAFT_DICTIONARIES საქაღალდეში და სისტემის ჩვეულებრივ მდებარეობებში.
+	All system fonts are already available.	სისტემის ყველა შრიფტი უკვე ხელმისაწვდომია.
+	Bottom Left Cell	ქვედა მარცხენა უჯრა
+	Bottom Right Cell	ქვედა მარჯვენა უჯრა
+	Column {n}	სვეტი {n}
+	Even Banded Columns	ლუწი ზოლიანი სვეტები
+	Even Banded Rows	ლუწი ზოლიანი სტრიქონები
+	Finding printers…	პრინტერების ძებნა…
+	Formula:	ფორმულა:
+	Grayscale	ნაცრისფერი ტონები
+	Header row	სათაურის სტრიქონი
+	Inside Horizontal Border	შიდა ჰორიზონტალური ჩარჩო
+	Inside Vertical Border	შიდა ვერტიკალური ჩარჩო
+	Load System Installed Fonts…	სისტემაში დაყენებული შრიფტების ჩატვირთვა…
+	Loaded {count} system fonts.	ჩაიტვირთა სისტემის შრიფტი: {count}.
+	Local font access is not supported by your browser.	თქვენი ბრაუზერი ლოკალურ შრიფტებზე წვდომას მხარს არ უჭერს.
+	Local font access was denied.	ლოკალურ შრიფტებზე წვდომა უარყოფილია.
+	Medium	საშუალო
+	My list has	ჩემს სიას აქვს
+	Narrow	ვიწრო
+	No header row	სათაურის სტრიქონის გარეშე
+	No printers found. Configure a system printer or export a PDF.	პრინტერი ვერ მოიძებნა. დააყენეთ სისტემის პრინტერი ან გააკეთეთ PDF ექსპორტი.
+	Odd Banded Columns	კენტი ზოლიანი სვეტები
+	Odd Banded Rows	კენტი ზოლიანი სტრიქონები
+	One-sided	ცალმხრივი
+	Paste function:	ფუნქციის ჩასმა:
+	Print failed: the printing worker stopped.	ბეჭდვა ვერ მოხერხდა: ბეჭდვის პროცესი შეჩერდა.
+	Print job submitted.	ბეჭდვის დავალება გაიგზავნა.
+	Print job submitted: {receipt}	ბეჭდვის დავალება გაიგზავნა: {receipt}
+	Print settings	ბეჭდვის პარამეტრები
+	Printer	პრინტერი
+	Printer default	პრინტერის ნაგულისხმევი
+	Printer discovery failed.	პრინტერების მოძებნა ვერ მოხერხდა.
+	Refresh printers	პრინტერების განახლება
+	Select a printer	აირჩიეთ პრინტერი
+	Submit print job	ბეჭდვის დავალების გაგზავნა
+	Submitting print job…	ბეჭდვის დავალება იგზავნება…
+	Top Left Cell	ზედა მარცხენა უჯრა
+	Top Right Cell	ზედა მარჯვენა უჯრა
+	Two-sided printing	ორმხრივი ბეჭდვა
+	Two-sided: long edge	ორმხრივი: გრძელი კიდე
+	Two-sided: short edge	ორმხრივი: მოკლე კიდე
