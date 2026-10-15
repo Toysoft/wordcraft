@@ -80,6 +80,7 @@
 	By author	Nach Autor
 	Changed lines:	Geänderte Zeilen:
 	Click level to modify:	Zu ändernde Ebene anklicken:
+	cm	cm
 	Color only	Nur Farbe
 	Compress punctuation at the start of a line	Satzzeichen am Zeilenanfang komprimieren
 	Dark page (white text on black)	Dunkle Seite (weißer Text auf Schwarz)
@@ -104,6 +105,7 @@
 	Line breaking	Zeilenumbruch
 	Link level to style:	Ebene mit Formatvorlage verknüpfen:
 	List Definition	Listendefinition
+	mm	mm
 	More templates →	Weitere Vorlagen →
 	No document is open. Create a document or open one first.	Es ist kein Dokument geöffnet. Erstellen oder öffnen Sie zuerst ein Dokument.
 	No templates match your search.	Keine Vorlagen entsprechen Ihrer Suche.
@@ -113,6 +115,7 @@
 	Number style for this level:	Nummernstil für diese Ebene:
 	Only for the selected text	Nur für den ausgewählten Text
 	Outside border	Äußere Rahmenlinie
+	pi	pi
 	Reopen	Erneut öffnen
 	Restart list after:	Liste neu starten nach:
 	Right border	Rechte Rahmenlinie

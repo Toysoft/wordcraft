@@ -564,6 +564,11 @@ fn russian_covers_the_entire_existing_interface_catalog() {
     assert_eq!(tr(ru, "Heading 1"), "Заголовок 1");
     assert!(tr(ru, "Body text in a short paragraph to show spacing.").starts_with("Основной текст"));
     assert_eq!(tr(ru, "Home"), "Главная");
+    // Length-field unit suffixes (#1734): cm, mm, pt and pi write in Cyrillic.
+    assert_eq!(tr(ru, "cm"), "см");
+    assert_eq!(tr(ru, "mm"), "мм");
+    assert_eq!(tr(ru, "pt"), "пт");
+    assert_eq!(tr(ru, "pi"), "пи");
     assert_eq!(tr(ru, "Font"), "Шрифт");
     assert_eq!(tr(ru, "Review"), "Рецензирование");
     assert_eq!(tr(ru, "Save"), "Сохранить");

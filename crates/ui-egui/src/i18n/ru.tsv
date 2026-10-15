@@ -134,6 +134,7 @@
 	Clipboard	Буфер обмена
 	Close	Закрыть
 	Close Header and Footer	Закрыть колонтитулы
+	cm	см
 	Collapse Selection	Свернуть выделение
 	Color	Цвет
 	Color:	Цвет:
@@ -193,8 +194,10 @@
 	Delete Table	Удалить таблицу
 	Design	Дизайн
 	In the margin	На полях
+	mm	мм
 	Only for the selected text	Только для выделенного текста
 	No document is open. Create a document or open one first.	Нет открытого документа. Сначала создайте или откройте документ.
+	pi	пи
 	Search	Поиск
 	Title Bar	Строка заголовка
 	development build	сборка для разработки

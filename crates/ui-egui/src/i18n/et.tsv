@@ -138,6 +138,7 @@
 	Clipboard	Lõikelaud
 	Close	Sulge
 	Close Header and Footer	Sulge päis ja jalus
+	cm	cm
 	Collapse Selection	Ahenda valik
 	Color	Värv
 	Color:	Värv:
@@ -453,6 +454,7 @@
 	Merged PRs	Ühendatud PR-id
 	Millimeters	Millimeetrid
 	Mirrored	Peegeldatud
+	mm	mm
 	Moderate	Mõõdukas
 	Modify Style	Muuda stiili
 	Modify…	Muuda…
@@ -523,6 +525,7 @@
 	Oval	Ovaal
 	Overtype	Ülekirjutus
 	Overtype (typing replaces the characters after the caret)	Ülekirjutus (kirjutatu asendab kursori järel olevad märgid)
+	pi	pi
 	Show alignment guides when moving pictures and shapes	Näita piltide ja kujundite teisaldamisel joondusjuhikuid
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Teisaldatavad objektid haakuvad lehe servade ja keskkoha, veeriste ja teiste objektide külge. Vabaks teisaldamiseks hoia all Alt-klahvi.
 	PDF document (*.pdf)	PDF-dokument (*.pdf)

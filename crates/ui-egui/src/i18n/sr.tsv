@@ -104,6 +104,7 @@
 	Click to switch back to inserting	Кликните да бисте се вратили на уметање
 	Clipboard Items	Ставке оставе
 	Clipboard Pane	Окно оставе
+	cm	cm
 	Color only	Само боја
 	Color: {color}	Боја: {color}
 	Compress punctuation at the start of a line	Сажми интерпункцију на почетку реда
@@ -145,6 +146,7 @@
 	Mark grammar errors as you type	Означавај граматичке грешке током куцања
 	Measurement units:	Јединице мере:
 	Millimeters	Милиметри
+	mm	mm
 	New comments and tracked changes are recorded under this name and these initials.	Нови коментари и праћене измене бележе се под овим именом и иницијалима.
 	New word	Нова реч
 	No document is open. Create a document or open one first.	Ниједан документ није отворен. Прво направите или отворите документ.
@@ -162,6 +164,7 @@
 	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Отвара Подешавања › Подразумеване апликације, где бирате WordCraft за .docx и друге врсте докумената.
 	Overtype	Преписивање
 	Overtype (typing replaces the characters after the caret)	Преписивање (откуцано замењује знакове после курсора)
+	pi	pi
 	Show alignment guides when moving pictures and shapes	Приказуј водиље за поравнање при померању слика и облика
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Померени објекти се приањају уз ивице и средину странице, маргине и друге објекте. Држите Alt да бисте померали слободно.
 	Page display	Приказ стране

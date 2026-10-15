@@ -59,7 +59,13 @@ pub trait MeasureExt {
 impl MeasureExt for egui::DragValue<'_> {
     fn measure(self, unit: Unit) -> Self {
         let sep = decimal();
-        self.suffix(unit.suffix())
+        // The unit in the interface language (Russian writes см, мм, пт, пи). The inch mark
+        // keeps its place without a space; the rest take the usual space before the unit.
+        let suffix = match unit {
+            Unit::Inches => unit.suffix().to_string(),
+            other => format!(" {}", tl!(other.suffix().trim_start())),
+        };
+        self.suffix(suffix)
             .custom_formatter(move |n, decimals| {
                 let s = egui::emath::format_with_decimals_in_range(n, decimals);
                 if sep == '.' { s } else { s.replace('.', &sep.to_string()) }

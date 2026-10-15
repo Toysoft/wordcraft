@@ -136,6 +136,7 @@
 	Clipboard	Vágólap
 	Close	Bezárás
 	Close Header and Footer	Élőfej és élőláb bezárása
+	cm	cm
 	Collapse Selection	Kijelölés összehúzása
 	Color	Szín
 	Color:	Szín:
@@ -194,6 +195,7 @@
 	Delete Style	Stílus törlése
 	Delete Table	Táblázat törlése
 	Design	Tervezés
+	mm	mm
 	No document is open. Create a document or open one first.	Nincs megnyitott dokumentum. Előbb hozz létre vagy nyiss meg egyet.
 	development build	fejlesztői kiadás
 	Diagonal	Átlós
@@ -536,6 +538,7 @@
 	PDF document (*.pdf)	PDF-dokumentum (*.pdf)
 	Pen	Toll
 	Pencil	Ceruza
+	pi	pi
 	Picture Border	Kép szegélye
 	Picture Format	Képformátum
 	Picture Styles	Képstílusok
