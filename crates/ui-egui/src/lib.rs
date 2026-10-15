@@ -2681,7 +2681,7 @@ mod tests {
     /// document) never shows it.
     #[test]
     fn start_screen_shows_file_home_and_esc_leaves_no_document() {
-        use egui_kittest::kittest::Queryable;
+        use egui_kittest::kittest::{NodeT, Queryable};
         let mut a = app();
         assert!(!a.ui.backstage, "`new` starts in the editor");
         assert!(a.has_document());
@@ -2726,6 +2726,11 @@ mod tests {
         assert!(a.close_requested(), "closing asks nothing");
         assert!(a.dialog.is_none());
 
+        // #1908: with no document, split buttons are disabled like the other ribbon buttons.
+        for tip in ["Underline", "Text Highlight Color", "Font Color", "Bullets", "Numbering", "Shading", "Borders"] {
+            let node = h.query_all_by_label(tip).next().unwrap_or_else(|| panic!("{tip} split button on the ribbon"));
+            assert!(node.accesskit_node().is_disabled(), "{tip} greyed out with no document");
+        }
         let mut b = app();
         b.run("ui.startScreen", json!({"value": false})).unwrap();
         assert!(!b.start_screen(), "off: today's behaviour");
