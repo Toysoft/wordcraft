@@ -233,7 +233,13 @@ impl Lexer<'_> {
             return Some(Tok::Text(String::new()));
         }
         if rest.starts_with("</") {
-            let name: String = rest.strip_prefix("</").unwrap_or("").chars().take_while(|c| c.is_ascii_alphanumeric() || *c == ':' || *c == '-').map(|c| c.to_ascii_lowercase()).collect();
+            let name: String = rest
+                .strip_prefix("</")
+                .unwrap_or("")
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == ':' || *c == '-')
+                .map(|c| c.to_ascii_lowercase())
+                .collect();
             if name.is_empty() {
                 self.pos += 2;
                 return Some(Tok::Text("</".into()));
@@ -246,7 +252,8 @@ impl Lexer<'_> {
             return Some(Tok::Text("<".into()));
         }
         // Start tag.
-        let name: String = rest[1..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == ':' || *c == '-').map(|c| c.to_ascii_lowercase()).collect();
+        let name: String =
+            rest[1..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == ':' || *c == '-').map(|c| c.to_ascii_lowercase()).collect();
         let mut i = 1 + name.len();
         let mut attrs = Vec::new();
         let mut self_close = false;
