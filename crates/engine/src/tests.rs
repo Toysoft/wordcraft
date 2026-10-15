@@ -1123,6 +1123,36 @@ fn text_from_file_unlinks_inserted_sections_headers() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Cells copied in Excel paste as a table (#1938). Its "HTML Format" starts the fragment inside
+/// the `<table>`, so the rows arrive without one: as the whole payload with its header (an agent
+/// passing the clipboard on) or as the fragment alone (what the desktop app reads).
+#[test]
+fn paste_of_rows_cut_out_of_a_table_is_a_table() {
+    let rows = "\r\n <col width=64 span=3 style='width:48pt'>\r\n <tr height=20 style='height:15.0pt'>\r\n  <td height=20 width=64>Fruit</td>\r\n  <td width=64>Colour</td>\r\n  <td width=64>Price</td>\r\n </tr>\r\n <tr height=20 style='height:15.0pt'>\r\n  <td height=20>Apple</td>\r\n  <td>Red</td>\r\n  <td align=right x:num>3.5</td>\r\n </tr>\r\n";
+    let body = format!(
+        "<html><head><style>td {{mso-number-format:General}}</style></head><body>\r\n<table border=0 cellpadding=0 cellspacing=0 width=192 style='border-collapse:collapse;width:144pt'>\r\n<!--StartFragment-->{rows}<!--EndFragment-->\r\n</table>\r\n</body></html>"
+    );
+    let head = "Version:0.9\r\nStartHTML:0000000000\r\nEndHTML:0000000000\r\nStartFragment:SSSSSSSSSS\r\nEndFragment:EEEEEEEEEE\r\n";
+    let start = head.len() + body.find("<!--StartFragment-->").unwrap() + "<!--StartFragment-->".len();
+    let end = head.len() + body.find("<!--EndFragment-->").unwrap();
+    let cf = format!("{head}{body}").replace("SSSSSSSSSS", &format!("{start:010}")).replace("EEEEEEEEEE", &format!("{end:010}"));
+    assert_eq!(crate::cmd::paste::html_fragment(&cf), rows);
+    for html in [cf.as_str(), rows] {
+        let mut s = s();
+        run(&mut s, "edit.paste", json!({"text": "Fruit\tColour\tPrice\r\nApple\tRed\t3.5\r\n", "html": html}));
+        assert_eq!(table_texts(&s), [["Fruit", "Colour", "Price"], ["Apple", "Red", "3.5"]]);
+        let t = s.doc.body.iter().find_map(|b| b.as_table()).expect("a table");
+        let price = t.rows[1].cells[2].blocks.iter().find_map(|b| b.as_para()).expect("a paragraph");
+        assert_eq!(price.props.align, Some(wordcraft_doc::Align::Right), "the number stays aligned right");
+        assert!(s.doc.body.iter().filter_map(|b| b.as_para()).all(|p| !p.text.contains("Fruit")), "no cell is pasted as a paragraph too");
+    }
+    // One copied cell comes as a cell without a row: its text, as Word pastes it.
+    let mut s = s();
+    run(&mut s, "edit.paste", json!({"text": "Apple\r\n", "html": "\r\n  <td height=20 width=64 style='height:15.0pt;width:48pt'>Apple</td>\r\n"}));
+    assert!(s.doc.body.iter().all(|b| b.as_table().is_none()));
+    assert_eq!(text(&s).trim(), "Apple");
+}
+
 #[test]
 fn paste_special_html_and_rtf_keep_bold() {
     let mut s = s();
