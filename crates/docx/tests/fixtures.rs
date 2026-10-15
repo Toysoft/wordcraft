@@ -666,6 +666,41 @@ fn unbalanced_fields_and_markers() {
 }
 
 #[test]
+fn field_code_spans_paragraphs() {
+    let body = r#"
+<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>IF</w:instrText></w:r></w:p>
+<w:p><w:r><w:instrText> MERGEFIELD x</w:instrText><w:br/><w:instrText> = "y"</w:instrText></w:r></w:p>
+<w:p><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>
+<w:p><w:r><w:t>Visible</w:t></w:r></w:p>"#;
+    let doc = read_body(body);
+    let p = paras(&doc);
+    assert_eq!(p.len(), 4);
+    for code in &p[..2] {
+        assert!(code.plain_text().is_empty());
+        assert_eq!(code.mark.hidden, Some(true));
+    }
+    assert_eq!(p[2].mark.hidden, None);
+    assert_eq!(p[3].plain_text(), "Visible");
+    assert_eq!(p[3].mark.hidden, None);
+}
+
+#[test]
+fn empty_field_results_keep_line() {
+    let body = r#"<w:p><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>PAGE</w:instrText><w:fldChar w:fldCharType="separate"/><w:fldChar w:fldCharType="end"/></w:r></w:p>
+<w:p><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>IF</w:instrText></w:r></w:p>
+<w:p/>
+<w:p><w:r><w:instrText> x = y</w:instrText><w:fldChar w:fldCharType="separate"/><w:t>Result</w:t><w:fldChar w:fldCharType="end"/></w:r></w:p>"#;
+    let doc = read_body(body);
+    let p = paras(&doc);
+    assert_eq!(p[0].mark.hidden, None);
+    assert!(matches!(&p[0].objects[0], InlineObject::Field { instr, .. } if instr == "PAGE"));
+    assert_eq!(p[1].mark.hidden, Some(true));
+    assert_eq!(p[2].mark.hidden, Some(true));
+    assert_eq!(p[3].mark.hidden, None);
+    assert_eq!(p[3].plain_text(), "Result");
+}
+
+#[test]
 fn header_self_reference_and_escaping_targets() {
     let hdr = format!(
         r#"<w:hdr {W_NS}><w:p><w:pPr><w:sectPr><w:headerReference w:type="default" r:id="rId1"/></w:sectPr></w:pPr><w:r><w:t>loop</w:t></w:r></w:p></w:hdr>"#
@@ -1924,7 +1959,7 @@ fn vml_preset_shapes_are_drawn() {
     assert_eq!(shape(3), Some((ShapeKind::Triangle, 20.0, 10.0, None, black, 0.75, true, false)));
     // A preset holding text keeps its geometry around the text.
     assert_eq!(shape(4), Some((ShapeKind::Diamond, 50.0, 50.0, Some(Rgb(0xFF, 0xFF, 0)), black, 0.75, true, true)));
-    assert_eq!(shape(5), Some((ShapeKind::Triangle, 20.0, 20.0, Some(Rgb(0xFF, 0, 0)), black, 0.75, true, false)));
+    assert_eq!(shape(5), Some((ShapeKind::RightTriangle, 20.0, 20.0, Some(Rgb(0xFF, 0, 0)), black, 0.75, true, false)));
     assert_eq!(shape(6), None);
     assert_eq!(shape(7), Some((ShapeKind::Line, 40.0, 10.0, None, black, 0.75, true, false)));
     assert_eq!(shape(8), Some((ShapeKind::Line, 30.0, 15.0, None, Some(Rgb(0xFF, 0, 0)), 0.75, false, false)));
@@ -2565,6 +2600,61 @@ fn text_frames_read_and_round_trip() {
     assert_eq!(q[0].props.frame, p[0].props.frame);
     assert_eq!(q[1].props.frame, p[1].props.frame);
     assert!(q.iter().any(|x| x.props.drop_cap == Some(2) && x.props.frame.is_none()));
+}
+
+/// Measured in Word: `w:asciiTheme="minorBidi"` names the theme's complex-script font (`a:cs`);
+/// when that is empty it names nothing, and the run keeps the font it inherits.
+#[test]
+fn bidi_theme_slots_name_the_complex_script_font() {
+    let font = |cs: &str| {
+        let theme = format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="T"><a:themeElements><a:fontScheme name="F"><a:majorFont><a:latin typeface="Cambria"/><a:ea typeface=""/><a:cs typeface="{cs}"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface="{cs}"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>"#
+        );
+        let rels = [("rId9", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme", "theme/theme1.xml")];
+        let body = r#"<w:p><w:r><w:rPr><w:rFonts w:asciiTheme="minorBidi" w:hAnsiTheme="minorBidi"/></w:rPr><w:t>x</w:t></w:r></w:p>"#;
+        let d = wordcraft_docx::read(&docx(body, &rels, &[("word/theme/theme1.xml", &theme)])).unwrap();
+        paras(&d)[0].runs[0].props.font.clone()
+    };
+    assert_eq!(font(""), None);
+    assert_eq!(font("Times New Roman").as_deref(), Some("Times New Roman"));
+}
+
+/// The font table's family classes: Word draws a missing roman font in a serif face.
+#[test]
+fn roman_fonts_are_read_from_the_font_table() {
+    let fonts = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Brand Serif"><w:family w:val="roman"/></w:font><w:font w:name="Brand Sans"><w:family w:val="swiss"/></w:font></w:fonts>"#;
+    let rels = [("rId9", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable", "fontTable.xml")];
+    let d = wordcraft_docx::read(&docx("<w:p/>", &rels, &[("word/fontTable.xml", fonts)])).unwrap();
+    assert_eq!(d.settings.roman_fonts, ["Brand Serif"]);
+}
+
+/// `w:doNotUseHTMLParagraphAutoSpacing` in the settings' `w:compat`: paragraph spacing adds up.
+#[test]
+fn html_auto_spacing_off_is_read_and_kept() {
+    let settings = |compat: &str| {
+        let s = format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings {W_NS}><w:compat>{compat}</w:compat></w:settings>"#);
+        let rels = [("rId9", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings", "settings.xml")];
+        let d = wordcraft_docx::read(&docx("<w:p/>", &rels, &[("word/settings.xml", &s)])).unwrap();
+        let again = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+        (d.settings.sum_paragraph_spacing, again.settings.sum_paragraph_spacing)
+    };
+    assert_eq!(settings("<w:doNotUseHTMLParagraphAutoSpacing/>"), (true, true));
+    assert_eq!(settings(""), (false, false));
+}
+
+/// A right triangle (`rtTriangle`) has its right angle at the bottom left: a cover page's white
+/// corner cut-outs drawn as isosceles triangles pointed the wrong way.
+#[test]
+fn a_right_triangle_keeps_its_right_angle() {
+    let body = anchored_wsp("Corner", 1270000, 635000, r#"<a:prstGeom prst="rtTriangle"><a:avLst/></a:prstGeom>"#, "", "<wps:cNvSpPr/>");
+    let d = read_body(&format!("<w:p>{body}</w:p>"));
+    let kind = |d: &Document| match &paras(d)[0].objects[0] {
+        InlineObject::Shape { kind, .. } => *kind,
+        o => panic!("{o:?}"),
+    };
+    assert_eq!(kind(&d), ShapeKind::RightTriangle);
+    let saved = wordcraft_docx::write(&d).unwrap();
+    assert_eq!(kind(&wordcraft_docx::read(&saved).unwrap()), ShapeKind::RightTriangle);
 }
 
 #[test]
