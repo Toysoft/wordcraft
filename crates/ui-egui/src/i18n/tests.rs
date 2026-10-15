@@ -9,6 +9,11 @@ fn lang(code: &str) -> Lang {
 
 #[test]
 fn system_locales_map_to_languages() {
+    assert_eq!(lang_from_tag("el_GR.UTF-8"), Some(lang("el")));
+    assert_eq!(lang_from_tag("el-GR"), Some(lang("el")));
+    assert_eq!(tr(lang("el"), "File"), "Αρχείο");
+    assert_eq!(tr(lang("el"), "Greek"), "Ελληνικά");
+    assert_eq!(lang("el").editing_lang(), Some("el-GR"));
     assert_eq!(lang_from_tag("zh_CN.UTF-8"), Some(lang("zh-hans")));
     assert_eq!(lang_from_tag("zh-CN"), Some(lang("zh-hans")));
     assert_eq!(lang_from_tag("zh"), Some(lang("zh-hans")));

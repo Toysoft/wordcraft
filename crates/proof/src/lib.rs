@@ -12,6 +12,10 @@
 //!   spelling marks), read by the affix engine ([`affix`]), suggestions tuned for Polish
 //!   (diacritics, `ż`/`rz`, `u`/`ó`, missing spaces), and Polish grammar rules with Polish
 //!   messages.
+//! - **Greek** ([`ProofLang::El`], module [`el`]): spelling against a locally installed Hunspell
+//!   `el_GR` dictionary. No dictionary is bundled. Supports suggestions, including tonos,
+//!   final sigma and common Hunspell replacements. Ancient/polytonic spelling and Greek grammar
+//!   are not checked by this Modern Greek dictionary.
 //! - **Bulgarian** ([`ProofLang::Bg`], module [`bg`]): hyphenation by the Bulgarian syllable
 //!   rules; no spelling or grammar marks yet.
 //! - **Portuguese** ([`ProofLang::Pt`], module [`pt`]): spelling against the Hunspell `pt_BR`
@@ -43,6 +47,7 @@ pub mod affix;
 pub mod bg;
 pub mod cs;
 pub mod dict;
+pub mod el;
 pub mod hr;
 pub mod hunspell;
 pub mod hyphen;
@@ -142,6 +147,7 @@ pub fn ignore_word(w: &str) {
 pub fn set_dictionaries_folder(dir: Option<std::path::PathBuf>) {
     hunspell::set_dictionary_dir(dir);
     pl::reload_dictionary();
+    el::reload_dictionary();
     pt::reload_dictionary();
     it::reload_dictionary();
     hr::reload_dictionary();
@@ -157,6 +163,7 @@ pub fn installed_dictionaries() -> Vec<(ProofLang, Option<std::path::PathBuf>)> 
         (ProofLang::Pt, pt::installed_path()),
         (ProofLang::It, it::installed_path()),
         (ProofLang::Hr, hr::installed_path()),
+        (ProofLang::El, el::installed_path()),
         (ProofLang::Tr, tr::installed_path()),
     ]
 }
@@ -364,23 +371,25 @@ pub fn has_dictionary(lang: Option<&str>) -> bool {
     ProofLang::from_tag(lang).is_proofed()
 }
 
-/// The Hunspell dictionary name (`pl_PL`, `pt_BR`) a proofing language needs but doesn't have
+/// The Hunspell dictionary name (`pl_PL`, `el_GR`, `pt_BR`) a proofing language needs but doesn't have
 /// installed, for a status-bar hint (#1167). `None` when the language's dictionary is available,
 /// or when it needs none (English has a built-in word list; unproofed languages aren't offered
 /// one). Reads the dictionary once (it is cached afterwards).
 pub fn missing_dictionary(lang: Option<&str>) -> Option<&'static str> {
     match ProofLang::from_tag(lang) {
         ProofLang::Pl => dictionary_needed(ProofLang::Pl, pl::has_dictionary()),
+        ProofLang::El => dictionary_needed(ProofLang::El, el::has_dictionary()),
         ProofLang::Pt => dictionary_needed(ProofLang::Pt, pt::has_dictionary()),
         _ => None,
     }
 }
 
-/// The Hunspell name `lang` needs when `installed` is false; only Polish and Portuguese use one.
+/// The Hunspell name `lang` needs when `installed` is false (Polish, Greek or Portuguese).
 fn dictionary_needed(lang: ProofLang, installed: bool) -> Option<&'static str> {
     match lang {
         _ if installed => None,
         ProofLang::Pl => Some("pl_PL"),
+        ProofLang::El => Some("el_GR"),
         ProofLang::Pt => Some("pt_BR"),
         _ => None,
     }
@@ -592,6 +601,7 @@ fn spelling_issue(text: &str, a: usize, b: usize, lang: ProofLang, opts: &Option
     }
     let message = match lang {
         ProofLang::Pl => "Możliwy błąd pisowni",
+        ProofLang::El => "Πιθανό ορθογραφικό λάθος",
         ProofLang::Hr => "Moguća pravopisna pogreška",
         ProofLang::Pt => "Possível erro de ortografia",
         ProofLang::It => "Possibile errore di ortografia",
@@ -613,6 +623,7 @@ pub fn is_correct_in_with(word: &str, lang: ProofLang, opts: &Options) -> bool {
     match lang {
         ProofLang::En => is_correct_with(word, opts),
         ProofLang::Pl => accepted_by_options(word, opts) || pl::is_correct(word),
+        ProofLang::El => accepted_by_options(word, opts) || el::is_correct(word),
         ProofLang::Hr => accepted_by_options(word, opts) || hr::is_correct(word),
         ProofLang::Pt => accepted_by_options(word, opts) || pt::is_correct(word),
         ProofLang::It => accepted_by_options(word, opts) || it::is_correct(word),
@@ -628,6 +639,7 @@ pub fn suggest_in(word: &str, max: usize, lang: ProofLang) -> Vec<String> {
     match lang {
         ProofLang::En => suggest(word, max),
         ProofLang::Pl => pl::suggest(word, max),
+        ProofLang::El => el::suggest(word, max),
         ProofLang::Hr => hr::suggest(word, max),
         ProofLang::Pt => pt::suggest(word, max),
         ProofLang::It => it::suggest(word, max),
@@ -645,6 +657,7 @@ pub fn check_grammar_in(text: &str, lang: ProofLang) -> Vec<Issue> {
     match lang {
         ProofLang::En => check_grammar(text),
         ProofLang::Pl => pl::grammar::check(text),
+        ProofLang::El => Vec::new(), // Greek spelling is available; grammar is not implemented.
         ProofLang::Hr => hr::grammar::check(text),
         ProofLang::Pt => pt::grammar::check(text),
         ProofLang::It => it::grammar::check(text),

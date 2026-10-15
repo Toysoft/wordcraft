@@ -309,7 +309,7 @@ fn dictionaries(app: &mut WordApp, ui: &mut Ui) {
         }
     });
     ui.data_mut(|d| d.insert_temp(id, folder));
-    note(ui, "Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.");
+    note(ui, "Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.");
     // The dictionary each language found, looked up again after the folder changes.
     let found_id = egui::Id::new("options_dictionaries_found");
     let generation = wordcraft_engine::proof::dictionary_generation();
@@ -339,6 +339,7 @@ fn language_name(lang: wordcraft_engine::proof::ProofLang) -> &'static str {
     use wordcraft_engine::proof::ProofLang;
     match lang {
         ProofLang::Pl => tl!("Polish"),
+        ProofLang::El => tl!("Greek"),
         ProofLang::Pt => tl!("Portuguese (Brazil)"),
         ProofLang::It => tl!("Italian"),
         ProofLang::Hr => tl!("Croatian"),
@@ -423,7 +424,7 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     // #414 (detect the document's language) goes here.
     ui.add_space(8.0);
     section(ui, "Proofing language");
-    note(ui, "Spelling and grammar are checked in English (United States).");
+    note(ui, "Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.");
 }
 
 fn accessibility(app: &mut WordApp, ui: &mut Ui) {

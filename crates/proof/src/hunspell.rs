@@ -151,8 +151,11 @@ fn decode_high(bytes: &[u8], high: &str) -> String {
     bytes.iter().map(|&b| if b < 0x80 { char::from(b) } else { high.get(usize::from(b - 0x80)).copied().unwrap_or('\u{fffd}') }).collect()
 }
 
+/// ISO-8859-7 high byte table (0x80..=0xFF).
+const ISO_8859_7_HIGH: &str = "\u{80}\u{81}\u{82}\u{83}\u{84}\u{85}\u{86}\u{87}\u{88}\u{89}\u{8a}\u{8b}\u{8c}\u{8d}\u{8e}\u{8f}\u{90}\u{91}\u{92}\u{93}\u{94}\u{95}\u{96}\u{97}\u{98}\u{99}\u{9a}\u{9b}\u{9c}\u{9d}\u{9e}\u{9f}\u{a0}\u{2018}\u{2019}\u{a3}\u{20ac}\u{20af}\u{a6}\u{a7}\u{a8}\u{a9}\u{37a}\u{ab}\u{ac}\u{ad}\u{fffd}\u{2015}\u{b0}\u{b1}\u{b2}\u{b3}\u{384}\u{385}\u{386}\u{b7}\u{388}\u{389}\u{38a}\u{bb}\u{38c}\u{bd}\u{38e}\u{38f}\u{390}\u{391}\u{392}\u{393}\u{394}\u{395}\u{396}\u{397}\u{398}\u{399}\u{39a}\u{39b}\u{39c}\u{39d}\u{39e}\u{39f}\u{3a0}\u{3a1}\u{fffd}\u{3a3}\u{3a4}\u{3a5}\u{3a6}\u{3a7}\u{3a8}\u{3a9}\u{3aa}\u{3ab}\u{3ac}\u{3ad}\u{3ae}\u{3af}\u{3b0}\u{3b1}\u{3b2}\u{3b3}\u{3b4}\u{3b5}\u{3b6}\u{3b7}\u{3b8}\u{3b9}\u{3ba}\u{3bb}\u{3bc}\u{3bd}\u{3be}\u{3bf}\u{3c0}\u{3c1}\u{3c2}\u{3c3}\u{3c4}\u{3c5}\u{3c6}\u{3c7}\u{3c8}\u{3c9}\u{3ca}\u{3cb}\u{3cc}\u{3cd}\u{3ce}\u{fffd}";
+
 /// Decode an `.aff`/`.dic` pair to UTF-8 from the encoding the `.aff`'s `SET` line names
-/// (UTF-8 when there is none; ISO 8859-2 is the other one Polish dictionaries use, KOI8-R and
+/// (UTF-8 when there is none; ISO 8859-2 for some Polish dictionaries, ISO 8859-7 for Greek, KOI8-R and
 /// Windows-1251 the ones older Russian dictionaries use).
 pub fn decode(aff: &[u8], dic: &[u8]) -> Result<(String, String), String> {
     let head = String::from_utf8_lossy(aff.get(..aff.len().min(8192)).unwrap_or_default()).to_string();
@@ -163,6 +166,7 @@ pub fn decode(aff: &[u8], dic: &[u8]) -> Result<(String, String), String> {
             Ok((text(aff, ".aff")?, text(dic, ".dic")?))
         }
         "ISO8859-2" | "ISO-8859-2" => Ok((decode_latin2(aff), decode_latin2(dic))),
+        "ISO8859-7" | "ISO-8859-7" => Ok((decode_high(aff, ISO_8859_7_HIGH), decode_high(dic, ISO_8859_7_HIGH))),
         "KOI8-R" | "KOI8R" => Ok((decode_high(aff, KOI8_R_HIGH), decode_high(dic, KOI8_R_HIGH))),
         "CP1251" | "WINDOWS-1251" | "MICROSOFT-CP1251" => Ok((decode_high(aff, CP1251_HIGH), decode_high(dic, CP1251_HIGH))),
         other => Err(format!("unsupported encoding {other}")),
@@ -183,6 +187,22 @@ mod tests {
         assert_eq!(d, "żółw");
         assert!(decode(b"SET SHIFT_JIS\n", b"").is_err());
         assert!(decode(b"SET UTF-8\n", b"\xff\xfe").is_err());
+    }
+
+    #[test]
+    fn decodes_greek_iso8859_7() {
+        let (a, d) = decode(b"SET ISO8859-7\nTRY a\n", b"1\n\xea\xe1\xeb\xe7\xec\xdd\xf1\xe1\n").unwrap();
+        assert!(a.contains("SET ISO8859-7"));
+        assert_eq!(d, "1\nκαλημέρα\n");
+        let text = "Καλημέρα, κόσμος. Άγγελος: €";
+        let encoded: Vec<u8> = text
+            .chars()
+            .map(|c| {
+                // Every char in this roundtrip has a single ISO-8859-7 byte.
+                (0u8..=255).find(|b| decode_high(&[*b], ISO_8859_7_HIGH) == c.to_string()).unwrap()
+            })
+            .collect();
+        assert_eq!(decode_high(&encoded, ISO_8859_7_HIGH), text);
     }
 
     #[test]
