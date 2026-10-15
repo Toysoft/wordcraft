@@ -40,6 +40,7 @@ pub mod checks;
 pub mod cmd;
 pub mod profile;
 pub mod store;
+pub mod symbols;
 
 use wordcraft_engine::Session;
 
@@ -50,16 +51,22 @@ pub use store::LawError;
 /// The module id the settings use (`law.enabled`).
 pub const MODULE: &str = "law";
 
+/// The ribbon tab LawCraft shows while it is on (hidden like any tab in Customize Ribbon).
+pub const RIBBON_TAB: &str = "Law";
+
 /// Turn the module on for a session: installs the `law.*` commands when `law.enabled` is set in
 /// the editing preferences, and leaves the session alone when it isn't. A host calls this once,
 /// after it has read the user's preferences, and points the profile store at the user's own
 /// profiles folder first ([`set_profiles_dir`]).
 pub fn install(session: &mut Session) -> usize {
+    session.ribbon.remove_addin_tab(RIBBON_TAB);
     if !session.module_enabled(MODULE) {
         uninstall(session);
         return 0;
     }
     checks::register_document_hook();
+    symbols::register_text_hook();
+    session.ribbon.set_addin_tab(RIBBON_TAB, symbols::ribbon_groups());
     // A host may open the file *before* it installs LawCraft (`Session::new(doc)`), so the
     // document-loaded hook never runs for it. Restore the applied profile's export checks from
     // the document's own metadata at installation, the same way `set_document` would.
@@ -81,3 +88,6 @@ mod tests;
 
 #[cfg(test)]
 mod tests_checks;
+
+#[cfg(test)]
+mod tests_symbols;
