@@ -227,8 +227,6 @@
 	Automatically Update Document Styles	Automatski ažuriraj stilove dokumenta
 	Automatically hyphenate document	Automatski rastavljaj riječi u dokumentu
 	Automatically update document styles	Automatski ažuriraj stilove dokumenta
-	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10.12" × 14.33"
-	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7.17" × 10.12"
 	Backspace	Backspace
 	Balloons	Oblačići
 	Banded Columns	Prugasti stupci
@@ -784,11 +782,8 @@
 	Enter page number:	Unesite broj stranice:
 	Entry marked.	Unos je označen.
 	Envelope #10	Omotnica #10
-	Envelope #10   4.12" × 9.5"	Omotnica #10   4.12" × 9.5"
-	Envelope #10   4.12" × 9.50"	Omotnica #10   4.12" × 9.50"
 	Envelope Address	Adresa na omotnici
 	Envelope DL	Omotnica DL
-	Envelope DL   4.33" × 8.66"	Omotnica DL   4.33" × 8.66"
 	Envelope Return	Povratna adresa na omotnici
 	Envelope size:	Veličina omotnice:
 	Envelopes	Omotnice
@@ -817,8 +812,6 @@
 	Example: {sample}	Primjer: {sample}
 	Exceptions (optional)	Iznimke (neobavezno)
 	Exceptions…	Iznimke…
-	Executive   7.25" × 10.5"	Executive   7.25" × 10.5"
-	Executive   7.25" × 10.50"	Executive   7.25" × 10.50"
 	Expand	Proširi
 	Expand or Collapse Heading	Proširi ili sažmi naslov
 	Exponential	Eksponencijalno
@@ -1209,14 +1202,10 @@
 	Left:	Lijevo:
 	Leftwards Arrow Above	Strelica ulijevo iznad
 	Leftwards Harpoon Above	Harpun ulijevo iznad
-	Legal   8.5" × 14"	Legal   8.5" × 14"
-	Legal   8.50" × 14.00"	Legal   8.50" × 14.00"
 	Legal style numbering	Numeriranje u pravnom stilu
 	Legend	Legenda
 template	Letter	Pismo
 	Letter	Letter
-	Letter   8.5" × 11"	Letter   8.5" × 11"
-	Letter   8.50" × 11.00"	Letter   8.50" × 11.00"
 	Letter headings	Naslovi slova
 	Letter-Like Symbols	Simboli nalik slovima
 	Letters	Pisma
@@ -1300,7 +1289,6 @@ template	Letter	Pismo
 	Mailings	Pošta
 	Main entry:	Glavni unos:
 	Make WordCraft the default for Word documents…	Postavi WordCraft kao zadani program za Word dokumente…
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Povećava ili smanjuje vrpcu, izbornike i dijaloške okvire, povrh skaliranja zaslona vašeg sustava. Zumiranje dokumenta je zasebno.
 	Manage Sources	Upravljanje izvorima
 	Manage Styles	Upravljanje stilovima
 	Manage Styles…	Upravljanje stilovima…
@@ -1383,7 +1371,6 @@ template	Letter	Pismo
 	Name of the file this document is saved as	Naziv datoteke u koju je dokument spremljen
 	Name:	Naziv:
 	Narrow  0.5" all	Usko  0,5" sa svih strana
-	Narrow  {size} all	Usko  {size} sa svih strana
 	Natural Logarithm	Prirodni logaritam
 	Nature	Priroda
 	Navigation	Navigacija
@@ -1453,7 +1440,6 @@ template	Letter	Pismo
 	None	Nema
 	Normal	Uobičajeni
 	Normal  1" all	Normalno  1" sa svih strana
-	Normal  {size} all	Normalno  {size} sa svih strana
 	Normal Indent	Normalna uvlaka
 	Normal Style	Normalan stil
 	Normal Table	Normalna tablica
@@ -2115,8 +2101,6 @@ template	Letter	Pismo
 	Start at:	Počni od:
 	Start-up	Pokretanje
 	State	Savezna država
-	Statement   5.5" × 8.5"	Statement   5.5" × 8.5"
-	Statement   5.50" × 8.50"	Statement   5.50" × 8.50"
 	Statistics	Statistika
 	Status Bar	Statusna traka
 	Stop	Zaustavi
@@ -2208,8 +2192,6 @@ template	Letter	Pismo
 	Table of\nContents	Sadržaj
 	Table style	Stil tablice
 	Tables	Tablice
-	Tabloid   11" × 17"	Tabloid   11" × 17"
-	Tabloid   11.00" × 17.00"	Tabloid   11.00" × 17.00"
 	Tabs	Tabulatori
 	Tabs…	Tabulatori…
 	Tabular List	Tablični popis
@@ -2481,9 +2463,6 @@ preview	Title	Naslov
 	Zotero: cancelled	Zotero: otkazano
 	Zotero: done	Zotero: gotovo
 	a, b, c, …	a, b, c, …
-	bad parameters: `path` (string) is required	neispravni parametri: obavezan je `path` (niz)
-	bad parameters: no comment here	neispravni parametri: ovdje nema komentara
-	bad parameters: select a citation or give `entry`	neispravni parametri: odaberite citat ili navedite `entry`
 	can't split at the first row	nije moguće podijeliti na prvom retku
 	development build	razvojna verzija
 	from Unicode (hex)	iz Unicodea (heksadecimalno)
@@ -2519,3 +2498,123 @@ preview	Title	Naslov
 	✓ None	✓ Nema
 	➕ New comment	➕ Novi komentar
 	📂  Browse…	📂  Pregledaj…
+# Added while landing (#1271): strings that landed after this catalog
+	Account	Račun
+	Add Condition	Dodaj uvjet
+	Add whether it is above or below	Dodaj nalazi li se iznad ili ispod
+	All system fonts are already available.	Svi fontovi sustava već su dostupni.
+	And	I
+	Ascending	Uzlazno
+	Auto ({percent}%)	Automatski ({percent} %)
+	Column {n}	Stupac {n}
+	Compare to	Usporedi s
+	Comparison	Usporedba
+	Contains	Sadrži
+	Copy to	Kopiraj u
+	Croatian	Hrvatski
+	Custom size	Prilagođena veličina
+	Delete Bookmark	Izbriši knjižnu oznaku
+	Descending	Silazno
+	Dictionaries	Rječnici
+	Dictionaries folder:	Mapa rječnika:
+	Document name	Naziv dokumenta
+	Does not contain	Ne sadrži
+	Enter bookmark name:	Unesite naziv knjižne oznake:
+	Equal to	Jednako
+	Existing File or Web Page	Postojeća datoteka ili web-stranica
+	Filter Recipients	Filtriraj primatelje
+	Filter and Sort	Filtriranje i sortiranje
+	Find “{text}” in the document	Pronađi „{text}” u dokumentu
+	For which item:	Za koju stavku:
+	Formula:	Formula:
+	Full Screen	Cijeli zaslon
+	Full\nScreen	Cijeli\nzaslon
+	Greater than	Veće od
+	Greater than or equal	Veće od ili jednako
+	Header row	Redak zaglavlja
+	Heading	Naslov
+	Heading text	Tekst naslova
+	Hidden bookmarks	Skrivene knjižne oznake
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Datoteke Hunspell .aff i .dic iz ove mape (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) koriste se prije onih iz sustava.
+	In the margin	Na margini
+	Insert reference to:	Umetni referencu na:
+	Is blank	Prazno je
+	Is not blank	Nije prazno
+	Language Preferences…	Jezične postavke…
+	Leave out the date and time of comments and tracked changes when saving	Pri spremanju izostavi datum i vrijeme komentara i praćenih promjena
+	Less than	Manje od
+	Less than or equal	Manje od ili jednako
+	Link to:	Poveži s:
+	Load System Installed Fonts…	Učitaj fontove instalirane u sustavu…
+	Loaded {count} system fonts.	Učitano fontova sustava: {count}.
+	Local font access is not supported by your browser.	Vaš preglednik ne podržava pristup lokalnim fontovima.
+	Local font access was denied.	Pristup lokalnim fontovima je odbijen.
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	Povećava ili smanjuje vrpcu, izbornike i dijaloške okvire. Automatski prati skaliranje zaslona u sustavu; 100 % je jedan piksel zaslona po točki. Zumiranje dokumenta postavlja se zasebno.
+	Mirror margins	Zrcalne margine
+	More Paper Sizes…	Više veličina papira…
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Premješteni objekti prianjaju uz rubove i sredinu stranice, margine i druge objekte. Držite Alt za slobodno premještanje.
+	My list has	Moj popis ima
+	No document is open. Create a document or open one first.	Nijedan dokument nije otvoren. Najprije stvorite ili otvorite dokument.
+	No header row	Bez retka zaglavlja
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Pravopisni rječnik za {language} nije instaliran pa se taj jezik ne provjerava. WordCraft traži Hunspell rječnik {name} u mapi WORDCRAFT_DICTIONARIES i na uobičajenim mjestima u sustavu.
+	Not equal to	Nije jednako
+	Not set: the system's usual places	Nije postavljeno: uobičajena mjesta u sustavu
+	Number only, without the label's words	Samo broj, bez riječi oznake
+	Only for the selected text	Samo za odabrani tekst
+	Or	Ili
+	Paper	Papir
+	Paper size:	Veličina papira:
+	Paste function:	Zalijepi funkciju:
+	Place in This Document	Mjesto u ovom dokumentu
+	Print settings	Postavke ispisa
+	Privacy Options	Mogućnosti privatnosti
+	Privacy Settings	Postavke privatnosti
+	Privacy for this document	Privatnost ovog dokumenta
+	Recover	Oporavi
+	Reference type:	Vrsta reference:
+	Remove condition	Ukloni uvjet
+	Remove my name from comments, changes and file properties when saving	Pri spremanju ukloni moje ime iz komentara, promjena i svojstava datoteke
+	Rename	Preimenuj
+	Rename Document	Preimenuj dokument
+	Saving {name} was cancelled, so it is still open and nothing was lost.	Spremanje dokumenta {name} je otkazano pa je on i dalje otvoren i ništa nije izgubljeno.
+	Set Proofing Language…	Postavi jezik provjere…
+	Show alignment guides when moving pictures and shapes	Prikaži vodilice poravnanja pri premještanju slika i oblika
+	Show its list number	Prikaži njegov broj na popisu
+	Show its number relative to this field	Prikaži njegov broj u odnosu na ovo polje
+	Show its number with all higher levels	Prikaži njegov broj sa svim višim razinama
+	Sort Recipients	Sortiraj primatelje
+	Sort by	Sortiraj po
+	Sort by:	Sortiraj po:
+	Style name:	Naziv stila:
+	Submit print job	Pošalji zadatak ispisa
+	Take the last match on the page	Uzmi posljednje podudaranje na stranici
+	Text of the nearest paragraph with a given style (running headers)	Tekst najbližeg odlomka zadanog stila (živa zaglavlja)
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	Dokument koji uređujete zadržava imena i datume; izostavlja ih samo spremljena datoteka.
+	The margins don't fit on a page this size; make the margins smaller first.	Margine ne stanu na stranicu ove veličine; najprije smanjite margine.
+	Then by	Zatim po
+	This document has no bookmarks.	Ovaj dokument nema knjižnih oznaka.
+	Trust Center	Centar za pouzdanost
+	Type Character Code	Upiši kôd znaka
+	Type a page number, or +2 / -1.	Upišite broj stranice ili +2 / -1.
+	Use the browser's full screen (F11)	Koristi cijeli zaslon preglednika (F11)
+	Wait for the print job to finish submitting before closing.	Prije zatvaranja pričekajte da se zadatak ispisa pošalje.
+	Waiting for the save to finish…	Čeka se završetak spremanja…
+	Word 2003 XML Document (*.xml)	Word 2003 XML dokument (*.xml)
+	{count} of {total} recipients will be merged.	Spojit će se {count} od {total} primatelja.
+	{kind}, {columns} × {rows}, {size} ({paper})	{kind}, {columns} × {rows}, {size} ({paper})
+	{language} (no dictionary)	{language} (nema rječnika)
+	{language}: no dictionary found	{language}: rječnik nije pronađen
+	{language}: {file}	{language}: {file}
+	{name}   {height} × {width} in	{name}   {height} × {width} in
+	{name}   {height} × {width} mm	{name}   {height} × {width} mm
+	{width} × {height} mm	{width} × {height} mm
+# Paper sizes the other catalogs still carry
+	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10.12" × 14.33"
+	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7.17" × 10.12"
+	Envelope #10   4.12" × 9.50"	Omotnica #10   4.12" × 9.50"
+	Envelope DL   4.33" × 8.66"	Omotnica DL   4.33" × 8.66"
+	Executive   7.25" × 10.50"	Executive   7.25" × 10.50"
+	Legal   8.50" × 14.00"	Legal   8.50" × 14.00"
+	Letter   8.50" × 11.00"	Letter   8.50" × 11.00"
+	Statement   5.50" × 8.50"	Statement   5.50" × 8.50"
+	Tabloid   11.00" × 17.00"	Tabloid   11.00" × 17.00"
