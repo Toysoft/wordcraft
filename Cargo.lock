@@ -799,6 +799,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "chardetng"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13de944a44b5064ee5d3a5ceccc49a41bfec50f2580e66f82e87703acdb88b53"
+dependencies = [
+ "cfg-if",
+ "encoding_rs",
+ "memchr",
+]
+
+[[package]]
 name = "cipher"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6146,7 +6157,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "arboard",
  "clipboard-win",
@@ -6183,9 +6194,10 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-cli"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "serde_json",
+ "sys-locale",
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-mcp",
@@ -6195,11 +6207,11 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-control-key"
-version = "0.6.1"
+version = "0.7.0"
 
 [[package]]
 name = "wordcraft-doc"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "proptest",
  "serde",
@@ -6211,7 +6223,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-docbin"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "cfb",
  "image",
@@ -6219,6 +6231,7 @@ dependencies = [
  "miniz_oxide 0.8.9",
  "proptest",
  "serde_json",
+ "sha1 0.11.0",
  "thiserror 2.0.21",
  "wordcraft-doc",
  "wordcraft-geom",
@@ -6226,7 +6239,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-docx"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -6248,8 +6261,11 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-engine"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
+ "cfb",
+ "encoding_rs",
+ "getrandom 0.3.4",
  "image",
  "js-sys",
  "log",
@@ -6274,7 +6290,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-fonts"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "harfrust 0.13.3",
  "kurbo",
@@ -6287,9 +6303,13 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-formats"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
+ "cfb",
+ "chardetng",
+ "encoding_rs",
  "image",
+ "js-sys",
  "log",
  "proptest",
  "quick-xml",
@@ -6300,14 +6320,14 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-geom"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "wordcraft-layout"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "image",
  "js-sys",
@@ -6326,7 +6346,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-mcp"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "log",
  "serde_json",
@@ -6338,7 +6358,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-metafile"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "kurbo",
  "thiserror 2.0.21",
@@ -6346,7 +6366,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-pdf"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "hayro-cmap",
  "hayro-interpret",
@@ -6366,7 +6386,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-proof"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "log",
  "miniz_oxide 0.8.9",
@@ -6375,7 +6395,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-render"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "image",
  "log",
@@ -6389,7 +6409,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-ui-egui"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "craft-cloud",
  "craft-ui",
@@ -6415,7 +6435,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-web"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "collabcraft-share",
  "craft-cloud-client",
@@ -6436,7 +6456,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-zotero"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "log",
  "proptest",
@@ -6549,7 +6569,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 
 [[package]]
 name = "xtask"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "serde_json",
 ]
