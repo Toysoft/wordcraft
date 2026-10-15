@@ -58,6 +58,7 @@ fn sample() -> Document {
             alt: "gradient".into(),
             float: Default::default(),
             crop: [0.1, 0.0, 0.0, 0.0],
+            fx: Default::default(),
             ole: None,
         },
         &CharProps::default(),
@@ -194,6 +195,7 @@ fn hostile_documents_export() {
             alt: String::new(),
             float: Default::default(),
             crop: [f32::NAN; 4],
+            fx: Default::default(),
             ole: None,
         },
         &CharProps::default(),
@@ -201,7 +203,16 @@ fn hostile_documents_export() {
     .unwrap();
     p.insert_object(
         0,
-        InlineObject::Image { media: "missing".into(), w: 10.0, h: 10.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media: "missing".into(),
+            w: 10.0,
+            h: 10.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -864,7 +875,16 @@ fn metafile_pictures_are_drawn_as_vector_paths() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: "red".into(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: "red".into(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -883,7 +903,16 @@ fn inline_picture_figure_keeps_its_alt_text() {
         let media = d.add_media(red_right_half_emf(), "emf");
         let mut p = Paragraph::with_text("Figure: ", CharProps::default());
         let n = p.len();
-        let obj = InlineObject::Image { media, w: 70.0, h: 70.0, alt: alt.into(), float: Default::default(), crop: [0.0; 4], ole: None };
+        let obj = InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: alt.into(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        };
         p.insert_object(n, obj, &CharProps::default()).unwrap();
         d.body = vec![para_block(p)];
         String::from_utf8_lossy(&export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap()).into_owned()
@@ -928,7 +957,16 @@ fn metafile_strokes_use_round_caps_and_joins() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -959,7 +997,16 @@ fn metafile_fill_items_carry_no_stroke_state() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -983,7 +1030,16 @@ fn cosmetic_metafile_pens_are_thin_but_visible() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media,
+            w: 70.0,
+            h: 70.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            fx: Default::default(),
+            ole: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -1411,6 +1467,157 @@ fn right_to_left_clusters_are_written_whole_left_to_right() {
     assert_eq!(parts, [2..4, 0..2, 4..8, 4..8, 8..12, 12..14]);
     // Glyph by glyph by x this would be [5, 4, 3, 2, 0, 1]: the lam-alef's glyphs swapped.
     assert_eq!(visual_order(text, &glyphs, &ranges, &parts), [5, 4, 2, 3, 0, 1]);
+}
+
+/// The image XObjects in a PDF: (width, height, filters, decoded samples per pixel).
+fn pdf_images(bytes: &[u8]) -> Vec<(u32, u32, Vec<String>, Vec<Vec<u8>>)> {
+    use hayro_syntax::object::{Name, Object};
+    let pdf = hayro_syntax::Pdf::new(bytes.to_vec()).expect("parse");
+    let mut out = Vec::new();
+    for o in pdf.objects() {
+        let Object::Stream(st) = o else { continue };
+        let d = st.dict();
+        if d.get::<Name>(b"Subtype").is_none_or(|n| n.as_str() != "Image") || d.contains_key(b"SMaskInData") {
+            continue;
+        }
+        let (w, h) = (d.get::<f32>(b"Width").unwrap_or(0.0) as u32, d.get::<f32>(b"Height").unwrap_or(0.0) as u32);
+        let filters = match d.get::<Name>(b"Filter") {
+            Some(n) => vec![n.as_str().to_string()],
+            None => d
+                .get::<hayro_syntax::object::Array>(b"Filter")
+                .map(|a| a.iter::<Name>().map(|n| n.as_str().to_string()).collect())
+                .unwrap_or_default(),
+        };
+        let data = st.decoded().map(|c| c.to_vec()).unwrap_or_default();
+        let n = (w as usize * h as usize).max(1);
+        let px = data.chunks((data.len() / n).max(1)).map(<[u8]>::to_vec).collect();
+        out.push((w, h, filters, px));
+    }
+    out
+}
+
+/// The fill opacities (`ca`) of the PDF's graphics states.
+fn pdf_fill_opacities(bytes: &[u8]) -> Vec<f32> {
+    use hayro_syntax::object::Object;
+    let pdf = hayro_syntax::Pdf::new(bytes.to_vec()).expect("parse");
+    pdf.objects().into_iter().filter_map(|o| if let Object::Dict(d) = o { d.get::<f32>(b"ca") } else { None }).collect()
+}
+
+/// A JPEG with brightness and contrast (#1766) is embedded with its corrected pixels, read back
+/// from the PDF itself (Flate, not passed through as DCT); the same JPEG without them still is
+/// passed through; the same picture and corrections twice are embedded once; transparency alone
+/// keeps the JPEG and reaches the page as a fill opacity.
+#[test]
+fn picture_fx_is_baked_into_the_embedded_image() {
+    use wordcraft_doc::picfx::PicFx;
+    let img = image::RgbImage::from_fn(32, 32, |x, _| image::Rgb([if x < 16 { 100 } else { 0 }, 100, 255]));
+    let mut png = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+    let mut jpeg = Vec::new();
+    image::RgbImage::from_pixel(32, 32, image::Rgb([100, 100, 100]))
+        .write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
+        .unwrap();
+    let export_with = |bytes: &[u8], ext: &str, fxs: &[PicFx]| {
+        let mut d = Document::new();
+        let media = d.add_media(bytes.to_vec(), ext);
+        let mut p = Paragraph::new();
+        for fx in fxs {
+            let pic = InlineObject::Image {
+                media: media.clone(),
+                w: 40.0,
+                h: 40.0,
+                alt: "p".into(),
+                float: Default::default(),
+                crop: [0.0; 4],
+                fx: *fx,
+                ole: None,
+            };
+            p.insert_object(0, pic, &CharProps::default()).unwrap();
+        }
+        d.body = vec![para_block(p)];
+        export(&d, &PdfOptions::default()).unwrap()
+    };
+    let lum = PicFx::new(80_000, -80_000, 0);
+    // PNG: the embedded samples are the corrected ones, Word's 100 → 244, 0 → 224, 255 → 255.
+    let pdf = export_with(&png, "png", &[lum, lum]);
+    let images = pdf_images(&pdf);
+    assert_eq!(images.len(), 1, "the same picture and corrections are embedded once");
+    let (w, h, filters, px) = &images[0];
+    assert_eq!((*w, *h), (32, 32));
+    assert_eq!(filters, &["FlateDecode".to_string()], "compressed");
+    let want = |x: usize| if x % 32 < 16 { [244u8, 244, 255] } else { [224, 244, 255] };
+    for (i, p) in px.iter().enumerate() {
+        assert_eq!(p.len(), 3, "RGB samples");
+        assert!(p.iter().zip(want(i)).all(|(a, b)| a.abs_diff(b) <= 1), "pixel {i}: {p:?}");
+    }
+    // The picture as it is and with corrections: two images.
+    assert_eq!(pdf_images(&export_with(&png, "png", &[lum, PicFx::default()])).len(), 2);
+    // JPEG: passed through without corrections, decoded and corrected with them.
+    let filters = |pdf: &[u8]| pdf_images(pdf).into_iter().map(|i| i.2).collect::<Vec<_>>();
+    assert_eq!(filters(&export_with(&jpeg, "jpeg", &[PicFx::default()])), vec![vec!["DCTDecode".to_string()]]);
+    let baked = pdf_images(&export_with(&jpeg, "jpeg", &[lum]));
+    assert_eq!(baked.len(), 1);
+    assert_eq!(baked[0].2, vec!["FlateDecode".to_string()]);
+    assert!(baked[0].3.iter().all(|p| p.iter().all(|c| c.abs_diff(244) <= 3)), "{:?}", &baked[0].3[..2]);
+    // Transparency alone: the JPEG as it is, drawn at 40% opacity (`a:alphaModFix amt=40000`).
+    let faded = export_with(&jpeg, "jpeg", &[PicFx::new(0, 0, 60_000)]);
+    assert_eq!(filters(&faded), vec![vec!["DCTDecode".to_string()]]);
+    assert!(pdf_fill_opacities(&faded).iter().any(|a| (a - 0.4).abs() < 0.01), "{:?}", pdf_fill_opacities(&faded));
+    assert!(!pdf_fill_opacities(&export_with(&jpeg, "jpeg", &[PicFx::default()])).iter().any(|a| *a < 0.99));
+    // Hostile corrections export.
+    assert_eq!(pdf_images(&export_with(&jpeg, "jpeg", &[PicFx { bright: i32::MAX, contrast: i32::MIN, transparency: -7 }])).len(), 1);
+}
+
+/// A hostile header (a few bytes claiming 20 000 × 20 000 RGBA, 1.6 GB decoded) is refused by
+/// the decoder's allocation limit, the one the screen uses too, with corrections or without:
+/// nothing is allocated for it, nothing panics, and the export still works. Corrections never
+/// make a picture fail where it wouldn't without them.
+#[test]
+fn hostile_picture_header_is_refused_without_allocating() {
+    use wordcraft_doc::picfx::PicFx;
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut c = !0u32;
+        for b in bytes {
+            c ^= u32::from(*b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+        }
+        !c
+    }
+    // A PNG signature and an IHDR for 20 000 × 20 000 RGBA, and no pixel data.
+    let mut ihdr = b"IHDR".to_vec();
+    ihdr.extend_from_slice(&20_000u32.to_be_bytes());
+    ihdr.extend_from_slice(&20_000u32.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.extend_from_slice(&13u32.to_be_bytes());
+    png.extend_from_slice(&ihdr);
+    png.extend_from_slice(&crc32(&ihdr).to_be_bytes());
+    // An empty data chunk: the header is read up to the first one.
+    png.extend_from_slice(&0u32.to_be_bytes());
+    png.extend_from_slice(b"IDAT");
+    png.extend_from_slice(&crc32(b"IDAT").to_be_bytes());
+    assert_eq!(image::ImageReader::new(std::io::Cursor::new(&png)).with_guessed_format().unwrap().into_dimensions().unwrap(), (20_000, 20_000));
+    let data = Arc::new(png.clone());
+    assert!(load_image(&data, PicFx::new(80_000, -80_000, 0)).is_none());
+    assert!(load_image(&data, PicFx::default()).is_none());
+    let mut d = Document::new();
+    let media = d.add_media(png, "png");
+    let pic = InlineObject::Image {
+        media,
+        w: 40.0,
+        h: 40.0,
+        alt: String::new(),
+        float: Default::default(),
+        crop: [0.0; 4],
+        fx: PicFx::new(80_000, -80_000, 0),
+        ole: None,
+    };
+    let mut p = Paragraph::new();
+    p.insert_object(0, pic, &CharProps::default()).unwrap();
+    d.body = vec![para_block(p)];
+    assert!(pdf_images(&export(&d, &PdfOptions::default()).unwrap()).is_empty());
 }
 
 #[test]

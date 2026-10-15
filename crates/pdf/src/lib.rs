@@ -44,6 +44,7 @@ use krilla::tagging::{Artifact, ArtifactType, ContentTag, Identifier, Node, Span
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 use wordcraft_doc::graphic::GraphicKind;
 use wordcraft_doc::para::{InlineObject, ShapeKind};
+use wordcraft_doc::picfx::PicFx;
 use wordcraft_doc::{Document, Path as DocPath, Rgb, StoryRef};
 use wordcraft_fonts::FaceRef;
 use wordcraft_geom::Rect;
@@ -650,7 +651,9 @@ struct Exporter<'a> {
     /// Faces whose glyphs are drawn as outlines because krilla can't subset them.
     outlined: &'a HashSet<u32>,
     cmaps: HashMap<u32, Arc<HashMap<u32, char>>>,
-    images: HashMap<String, Option<Image>>,
+    /// Embedded pictures by media key and the brightness and contrast baked into them, so one
+    /// picture with the same corrections is embedded once however often it's drawn.
+    images: HashMap<(String, i32, i32), Option<Image>>,
     /// Parsed metafiles by media key (`None`: not readable).
     vectors: HashMap<String, Option<Arc<Vector>>>,
     tags: Vec<TagEntry>,
@@ -733,15 +736,18 @@ impl Exporter<'_> {
         v
     }
 
-    fn image(&mut self, key: &str) -> Option<Image> {
-        if let Some(i) = self.images.get(key) {
+    fn image(&mut self, key: &str, fx: PicFx) -> Option<Image> {
+        // Corrected pixels are embedded apart from the picture's own (#1711, #1766).
+        let fx = fx.clamped();
+        let cache_key = (key.to_string(), fx.bright, fx.contrast);
+        if let Some(i) = self.images.get(&cache_key) {
             return i.clone();
         }
-        let img = self.doc.media.get(key).and_then(load_image);
+        let img = self.doc.media.get(key).and_then(|d| load_image(d, fx));
         if img.is_none() {
             log::warn!("PDF: picture `{key}` could not be decoded");
         }
-        self.images.insert(key.to_string(), img.clone());
+        self.images.insert(cache_key, img.clone());
         img
     }
 
@@ -941,7 +947,7 @@ impl Exporter<'_> {
                 }
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
-            Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
+            Draw::Image { rect, media, crop, alpha, fx, .. } => self.picture(s, rect, media, crop, *alpha, *fx),
             Draw::Path { segs, fill: f, stroke, stroke_width } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
@@ -1192,7 +1198,7 @@ impl Exporter<'_> {
                 while y < h {
                     let mut x = 0.0;
                     while x < w {
-                        self.picture(s, &Rect::new(x, y, tw, th), &pic.media, &[0.0; 4], 1.0);
+                        self.picture(s, &Rect::new(x, y, tw, th), &pic.media, &[0.0; 4], 1.0, PicFx::default());
                         x += tw;
                     }
                     y += th;
@@ -1200,16 +1206,16 @@ impl Exporter<'_> {
                 return;
             }
         }
-        self.picture(s, &Rect::new(0.0, 0.0, w, h), &pic.media, &[0.0; 4], 1.0);
+        self.picture(s, &Rect::new(0.0, 0.0, w, h), &pic.media, &[0.0; 4], 1.0, PicFx::default());
     }
 
-    fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32) {
+    fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32, fx: PicFx) {
         let Some(clip) = rect_path(rect) else { return };
         if let Some(v) = self.vector(media) {
             vector_picture(s, &v, rect, crop, &clip, alpha);
             return;
         }
-        let Some(img) = self.image(media) else {
+        let Some(img) = self.image(media, fx) else {
             s.set_stroke(None);
             s.set_fill(Some(fill(Rgb(0xD0, 0xD0, 0xD0), 1.0)));
             s.draw_path(&clip);
@@ -1676,8 +1682,17 @@ fn path_from(b: &kurbo::BezPath) -> Option<Path> {
 }
 
 /// Decode a picture for embedding (validated with the `image` crate first, so a broken file
-/// can't fail the whole export).
-fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
+/// can't fail the whole export), with its brightness and contrast `fx` applied to the pixels.
+///
+/// A JPEG goes in as it is unless `fx` changes its pixels; corrected pixels go in raw and krilla
+/// compresses them (Flate), and `Exporter::image` embeds one picture with the same corrections
+/// once. Every picture, corrected or not, is decoded once under the `image` crate's default
+/// limits (512 MiB per allocation), the same decode the screen does (`wordcraft_render::
+/// decode_pixmap`), so a picture never fails here only because it has corrections: one the
+/// limits refuse is refused on screen too. Applying `fx` then needs no allocation of its own
+/// beyond the RGBA copy every raw picture makes. A side past [`MAX_IMAGE_SIDE`] is refused from
+/// the header, before decoding, as it would be after.
+fn load_image(data: &Arc<Vec<u8>>, fx: PicFx) -> Option<Image> {
     let fmt = image::guess_format(data).ok()?;
     // The side check below used to run only after a full decode; applying it as a decode limit
     // rejects a small file that declares a huge image at header time instead. The default
@@ -1692,10 +1707,12 @@ fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
     if w == 0 || h == 0 || w > MAX_IMAGE_SIDE || h > MAX_IMAGE_SIDE {
         return None;
     }
-    if fmt == image::ImageFormat::Jpeg && matches!(dec.color(), image::ColorType::L8 | image::ColorType::Rgb8) {
+    if !fx.changes_pixels() && fmt == image::ImageFormat::Jpeg && matches!(dec.color(), image::ColorType::L8 | image::ColorType::Rgb8) {
         return Image::from_jpeg(data.clone().into(), true).ok();
     }
-    Some(Image::from_rgba8(dec.to_rgba8().into_raw(), w, h))
+    let mut px = dec.to_rgba8().into_raw();
+    fx.apply_rgba(&mut px);
+    Some(Image::from_rgba8(px, w, h))
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ use vello_cpu::peniko;
 use vello_cpu::{Pixmap, RenderContext, Resources};
 use wordcraft_doc::Document;
 use wordcraft_doc::para::ShapeKind;
+use wordcraft_doc::picfx::PicFx;
 use wordcraft_doc::props::Rgb;
 use wordcraft_fonts::FontDb;
 use wordcraft_layout::Page;
@@ -175,13 +176,20 @@ const MAX_DECODE_SIDE: u32 = u16::MAX as u32;
 /// Decode an encoded image to a premultiplied pixmap. The dimension limit above and the default
 /// allocation cap (512 MB, what `load_from_memory` applied) bound the decode during paint.
 pub fn decode_pixmap(bytes: &[u8]) -> Option<Pixmap> {
+    decode_pixmap_fx(bytes, PicFx::default())
+}
+
+/// [`decode_pixmap`] with a picture's brightness and contrast applied (#1711, #1766), under the
+/// same decode limits.
+pub fn decode_pixmap_fx(bytes: &[u8], fx: PicFx) -> Option<Pixmap> {
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_DECODE_SIDE);
     limits.max_image_height = Some(MAX_DECODE_SIDE);
     reader.limits(limits);
-    let img = reader.decode().ok()?.to_rgba8();
+    let mut img = reader.decode().ok()?.to_rgba8();
     let (w, h) = img.dimensions();
+    fx.apply_rgba(&mut img);
     premul_pixmap(w, h, img.as_raw())
 }
 
@@ -354,7 +362,7 @@ fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view:
         Some((w, h)) if w > 0 && h > 0 && (w as u64) * (h as u64) <= MAX_BACKGROUND_PIXELS => {}
         _ => return,
     }
-    let Some(pm) = pixmap_for(doc, &pic.media) else { return };
+    let Some(pm) = pixmap_for(doc, &pic.media, PicFx::default()) else { return };
     let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
     let (w, h) = (page.w as f64, (page.h as f64).min(1e6));
     if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
@@ -373,14 +381,19 @@ fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view:
     ctx.reset_paint_transform();
 }
 
-fn pixmap_for(doc: &Document, key: &str) -> Option<Arc<Pixmap>> {
+fn pixmap_for(doc: &Document, key: &str, fx: PicFx) -> Option<Arc<Pixmap>> {
     let bytes = doc.media.get(key)?;
-    if let Some(v) = lock(images()).get(key, bytes) {
+    // Corrected pixels are cached apart from the picture's own (the same picture can be shown
+    // both ways).
+    let fx = fx.clamped();
+    let cache_key =
+        if fx.changes_pixels() { std::borrow::Cow::Owned(format!("{key}#fx{},{}", fx.bright, fx.contrast)) } else { std::borrow::Cow::Borrowed(key) };
+    if let Some(v) = lock(images()).get(&cache_key, bytes) {
         return v;
     }
-    let pm = decode_pixmap(bytes).map(Arc::new);
+    let pm = decode_pixmap_fx(bytes, fx).map(Arc::new);
     let size = pm.as_ref().map_or(0, |p| p.width() as usize * p.height() as usize * 4);
-    lock(images()).insert(key, bytes, pm.clone(), size);
+    lock(images()).insert(&cache_key, bytes, pm.clone(), size);
     pm
 }
 
@@ -810,7 +823,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 gx += face.advance(gid) * k;
             }
         }
-        Draw::Image { rect, media, crop, alpha, .. } => {
+        Draw::Image { rect, media, crop, alpha, fx, .. } => {
             let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
             if !r.overlaps(*visible) {
                 return;
@@ -819,7 +832,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 draw_vector(ctx, &v, &r, crop, *alpha, view);
                 return;
             }
-            let Some(pm) = pixmap_for(doc, media) else {
+            let Some(pm) = pixmap_for(doc, media, *fx) else {
                 ctx.set_transform(view);
                 ctx.set_paint(color(opts.ink(Rgb(0xD0, 0xD0, 0xD0)), 1.0));
                 ctx.fill_rect(&r);
@@ -1358,6 +1371,7 @@ mod tests {
             alt: String::new(),
             float: Default::default(),
             crop: [0.0; 4],
+            fx: Default::default(),
             ole: None,
         };
         hp.insert_object(0, obj, &Default::default()).unwrap();
@@ -1368,6 +1382,55 @@ mod tests {
         assert!(opts.display.dim_header);
         let img = render_page(&d, &l.pages[0], 1.0, &opts);
         assert!(!img.to_png().is_empty());
+    }
+
+    /// A grey picture with brightness and contrast (#1766) is drawn lighter, inline and floating
+    /// behind text; one with transparency is faded (and both, the same picture, side by side).
+    #[test]
+    fn picture_brightness_contrast_transparency() {
+        use wordcraft_doc::para::{Anchor, Float, InlineObject, Wrap};
+        use wordcraft_doc::picfx::PicFx;
+        let mut d = Document::from_text("");
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([100, 100, 100, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let media = d.add_media(png, "png");
+        let pic = |fx: PicFx, x: f32| InlineObject::Image {
+            media: media.clone(),
+            w: 40.0,
+            h: 40.0,
+            alt: String::new(),
+            float: Float { wrap: Wrap::BehindText, h_rel: Anchor::Page, v_rel: Anchor::Page, x, y: 400.0, ..Default::default() },
+            crop: [0.0; 4],
+            fx,
+            ole: None,
+        };
+        let mut p = wordcraft_doc::Paragraph::new();
+        p.insert_object(0, pic(PicFx::default(), 100.0), &Default::default()).unwrap();
+        p.insert_object(0, pic(PicFx::new(80_000, -80_000, 0), 200.0), &Default::default()).unwrap();
+        p.insert_object(0, pic(PicFx::new(0, 0, 50_000), 300.0), &Default::default()).unwrap();
+        // The same picture inline, lightened.
+        let mut inline = pic(PicFx::new(80_000, -80_000, 0), 0.0);
+        if let InlineObject::Image { float, .. } = &mut inline {
+            *float = Float::default();
+        }
+        p.insert_object(0, inline, &Default::default()).unwrap();
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+        let grey = |x: u32| img.pixel(x, 420);
+        assert_eq!(grey(120), [100, 100, 100, 255]);
+        // Word: 100 → 0.2 · 100 + 224.4 = 244.
+        let light = grey(220);
+        assert!(light[..3].iter().all(|c| c.abs_diff(244) <= 2), "{light:?}");
+        // Half transparent on white paper.
+        let faded = grey(320);
+        assert!(faded[..3].iter().all(|c| c.abs_diff(177) <= 3), "{faded:?}");
+        // Inline at the top margin: lightened, no full-strength grey anywhere up there.
+        let top: Vec<[u8; 4]> = (60..140).flat_map(|y| (60..140).map(move |x| (x, y))).map(|(x, y)| img.pixel(x, y)).collect();
+        assert!(top.iter().filter(|p| p[0].abs_diff(244) <= 2 && p[0] == p[2]).count() > 1000);
+        assert!(!top.iter().any(|p| p[0] == 100));
     }
 
     #[test]
@@ -1533,6 +1596,7 @@ mod tests {
             alt: String::new(),
             float: Default::default(),
             crop: [0.0; 4],
+            fx: Default::default(),
             ole: None,
         };
         p.insert_object(0, obj, &Default::default()).unwrap();
@@ -1569,6 +1633,7 @@ mod tests {
             alt: String::new(),
             float: Default::default(),
             crop: [0.0; 4],
+            fx: Default::default(),
             ole: None,
         };
         p.insert_object(0, obj, &Default::default()).unwrap();
@@ -1603,6 +1668,7 @@ mod tests {
             alt: String::new(),
             float: Default::default(),
             crop: [0.0; 4],
+            fx: Default::default(),
             ole: None,
         };
         p.insert_object(0, obj, &Default::default()).unwrap();
