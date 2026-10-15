@@ -116,6 +116,14 @@ pub fn can_encrypt(name: &str) -> bool {
     is_word_package(&ext_of(name))
 }
 
+/// Finish a document just read from a file: never leave it empty, and bring its unlocked
+/// `DATE`/`TIME` fields up to now the way Word does on open (see
+/// [`crate::cmd::references::refresh_date_fields`]).
+fn opened(doc: &mut Document) {
+    doc.ensure_nonempty();
+    crate::cmd::references::refresh_date_fields(doc);
+}
+
 /// Parse a document from bytes; `name` gives the format by extension.
 pub fn open_bytes(name: &str, bytes: &[u8]) -> Result<Document, String> {
     open_bytes_with(name, bytes, None).map(|(doc, _)| doc)
@@ -207,7 +215,7 @@ fn read_bytes(
         if convert_bijoy {
             normalize_bijoy_fonts(&mut doc);
         }
-        doc.ensure_nonempty();
+        opened(&mut doc);
         return Ok((doc, true));
     }
     if ext.is_empty() || signature_contradicts(&ext, bytes) {
@@ -230,7 +238,7 @@ fn read_bytes(
     if convert_bijoy {
         normalize_bijoy_fonts(&mut doc);
     }
-    doc.ensure_nonempty();
+    opened(&mut doc);
     Ok((doc, encrypted))
 }
 
@@ -325,7 +333,7 @@ fn open_by_content(
     if convert_bijoy {
         normalize_bijoy_fonts(&mut doc);
     }
-    doc.ensure_nonempty();
+    opened(&mut doc);
     Ok((doc, encrypted))
 }
 
@@ -393,7 +401,7 @@ pub fn open_path_opts(
         let html = wordcraft_formats::html::decode(&bytes);
         let mut doc = wordcraft_formats::html::import_on(&html, &|src| images.load(src), &region_page(region));
         fit_pictures(&mut doc);
-        doc.ensure_nonempty();
+        opened(&mut doc);
         return Ok((doc, false));
     }
     open_bytes_opts(&name, &bytes, password, region, settings)
