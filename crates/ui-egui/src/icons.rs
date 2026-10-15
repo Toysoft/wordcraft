@@ -754,6 +754,8 @@ fn draw(pen: &Pen, name: &str, c: Color32, a: Color32, green: Color32, red: Colo
             }
             pen.fill(&[(7.75, 7.75), (14.5, 10.5), (11.0, 11.0)], a);
             pen.fill(&[(7.75, 7.75), (11.0, 11.0), (10.5, 14.5)], a);
+            // Across the shared edge, so antialiasing leaves no seam between the two halves.
+            pen.fill(&[(7.75, 7.75), (12.0, 10.25), (10.25, 12.0)], a);
         }
         "dictate" => {
             pen.panel(6.0, 1.5, 10.0, 9.0, 2.0);
