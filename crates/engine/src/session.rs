@@ -502,6 +502,9 @@ pub struct Prefs {
     pub insert_key_overtype: bool,
     /// Overtype: typed characters replace the ones after the caret.
     pub overtype: bool,
+    /// Linux only: middle click pastes the primary selection (mouse selection) instead of scrolling.
+    #[cfg_attr(docsrs, doc(cfg(target_os = "linux")))]
+    pub middle_click_paste: bool,
     /// The unit rulers and dialogs show lengths in, when the user chose one (File › Options ›
     /// Advanced › Measurement units); `None` follows the region ([`Session::units`]). Saved under
     /// a new key; an older `units` value other than inches (the old default) carries over on load.
@@ -536,6 +539,7 @@ impl Default for Prefs {
             typing_replaces_selection: true,
             insert_key_overtype: false,
             overtype: false,
+            middle_click_paste: false,
             units: Default::default(),
             region: None,
             dictionaries_folder: None,

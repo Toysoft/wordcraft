@@ -2240,3 +2240,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Étroite
 	Medium	Moyenne
+
+# New setting, added for #1934 (middle click pastes the primary selection on Linux).
+	Use the middle mouse button to paste instead of autoscroll	Utiliser le bouton du milieu de la souris pour coller au lieu du défilement automatique

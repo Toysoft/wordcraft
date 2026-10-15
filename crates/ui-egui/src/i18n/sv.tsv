@@ -2647,3 +2647,6 @@ preview	Title	Titel
 	Bottom Right Cell	Nedre högra cellen
 	Inside Horizontal Border	Inre vågrät kantlinje
 	Inside Vertical Border	Inre lodrät kantlinje
+
+# New setting, added for #1934 (middle click pastes the primary selection on Linux).
+	Use the middle mouse button to paste instead of autoscroll	Använd musens mittknapp för att klistra in i stället för automatisk rullning

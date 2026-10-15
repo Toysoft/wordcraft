@@ -452,6 +452,8 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     flag(app, ui, "Typing replaces selected text", "typingReplacesSelection", pr.typing_replaces_selection);
     flag(app, ui, "Use the Insert key to switch overtype on and off", "insertKeyOvertype", pr.insert_key_overtype);
     flag(app, ui, "Overtype (typing replaces the characters after the caret)", "overtype", pr.overtype);
+    #[cfg(target_os = "linux")]
+    flag(app, ui, "Use the middle mouse button to paste instead of autoscroll", "middleClickPaste", pr.middle_click_paste);
     let mut guides = app.ui.alignment_guides;
     if ui
         .checkbox(&mut guides, tl!("Show alignment guides when moving pictures and shapes"))
@@ -842,6 +844,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// #1934: "Use the middle mouse button to paste instead of autoscroll" belongs to Linux alone —
+    /// the primary selection is a Unix idea, and Word for Mac and Windows have no such setting to
+    /// find. This runs on every platform, so the box is checked for in CI wherever it builds.
+    #[test]
+    fn the_middle_click_paste_option_is_offered_on_linux_only() {
+        let mut h = nav_harness("en", 100);
+        h.state_mut().run("file.options", json!({"pane": "advanced"})).unwrap();
+        h.run_steps(4);
+        let label = crate::i18n::tr(crate::i18n::Lang::EN, "Use the middle mouse button to paste instead of autoscroll");
+        assert_eq!(h.query_by_label(label).is_some(), cfg!(target_os = "linux"), "the middle-click paste option is a Linux setting only");
     }
 
     /// File › Options settings come back after a restart, and a `ui.json` with a wrong value in

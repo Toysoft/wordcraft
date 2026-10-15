@@ -2599,3 +2599,6 @@ preview	Title	Título
 # Reading Mode column widths (#1040)
 	Narrow	Estrecha
 	Medium	Media
+
+# New setting, added for #1934 (middle click pastes the primary selection on Linux).
+	Use the middle mouse button to paste instead of autoscroll	Usar el botón central del ratón para pegar en lugar del desplazamiento automático
