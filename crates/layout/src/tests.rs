@@ -1837,6 +1837,51 @@ fn text_wraps_around_square_float() {
 }
 
 #[test]
+fn freeform_arrow_end_draws_at_the_last_point() {
+    use std::sync::Arc;
+    use wordcraft_doc::connector::ShapeExtra;
+    use wordcraft_doc::freeform::{FreePath, Freeform};
+    use wordcraft_doc::graphic::PathSeg;
+    use wordcraft_doc::para::{Float, ShapeKind};
+    use wordcraft_doc::props::Rgb;
+
+    let shape = InlineObject::Shape {
+        kind: ShapeKind::Freeform,
+        w: 60.0,
+        h: 40.0,
+        fill: None,
+        stroke: Some(Rgb::BLACK),
+        stroke_width: 1.0,
+        float: Float::default(),
+        story: None,
+        freeform: Some(Arc::new(Freeform {
+            w: 60.0,
+            h: 40.0,
+            paths: vec![FreePath { pts: vec![[0.0, 40.0], [60.0, 0.0]], closed: false }],
+            ..Default::default()
+        })),
+        effects: Default::default(),
+        extra: ShapeExtra { arrow_end: true, ..Default::default() },
+    };
+    let mut doc = Document::from_text("Scan");
+    doc.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
+
+    let draws = flat(display::page_display(&doc, &lay(&doc).pages[0], &Default::default()));
+    let endpoint = draws.iter().find_map(|draw| match draw {
+        display::Draw::Ink { pts, color: Rgb::BLACK, .. } => pts.last().copied(),
+        _ => None,
+    });
+    let arrow_tip = draws.iter().find_map(|draw| match draw {
+        display::Draw::Path { fill: Some(Rgb::BLACK), segs, .. } if segs.len() == 4 => match segs.first() {
+            Some(PathSeg::Move(x, y)) => Some((*x, *y)),
+            _ => None,
+        },
+        _ => None,
+    });
+    assert_eq!(arrow_tip, endpoint, "the arrowhead tip meets the custom path's final point");
+}
+
+#[test]
 fn hidden_drawings_are_neither_drawn_nor_take_room() {
     // A hidden floating shape (VML `visibility:hidden`, `wp:docPr/@hidden`): no wrap area, nothing
     // drawn, as in Word for Windows. A hidden inline one takes no room in its line.
@@ -3436,6 +3481,21 @@ fn float_follows_its_paragraph_to_the_next_page() {
     assert!((r.y - 72.0).abs() < 0.5, "at the top of page two: {r:?}");
     let Placed::Lines { para, .. } = l.pages[1].items.iter().find(|i| matches!(i, Placed::Lines { .. })).unwrap() else { panic!() };
     assert!(para.lines[0].left >= 144.0, "text wraps beside it: {}", para.lines[0].left);
+}
+
+/// A floating object belongs to its paragraph, not to the line holding its anchor: Word draws
+/// it on the page the paragraph starts on. A Word cover page is one paragraph holding a page
+/// break and then the page-anchored text box with the title; the box stays on the cover.
+#[test]
+fn a_float_anchored_after_a_page_break_stays_on_its_paragraph_s_first_page() {
+    let mut d = Document::from_text(&format!("{}\nAfter the cover", wordcraft_doc::para::PAGE_BREAK));
+    d.insert_object(&Pos::body(0, 1), rect_shape(200.0, 100.0, page_float(100.0, 300.0)), &Default::default()).unwrap();
+    let l = lay(&d);
+    assert_eq!(l.pages.len(), 2);
+    let on_cover = shapes(&l.pages[0].items);
+    assert_eq!(on_cover.len(), 1, "the shape is drawn on the cover: {on_cover:?}");
+    assert!((on_cover[0].y - 300.0).abs() < 0.5, "{:?}", on_cover[0]);
+    assert!(shapes(&l.pages[1].items).is_empty(), "and not again on page two");
 }
 
 #[test]
