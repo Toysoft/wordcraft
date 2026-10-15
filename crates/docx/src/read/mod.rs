@@ -33,6 +33,10 @@ use crate::xml::El;
 pub(crate) use props::PropCtx;
 use story::StoryCtx;
 
+/// Most fonts read from a font table, and the longest name (hostile files).
+const MAX_TABLE_FONTS: usize = 2000;
+const MAX_FONT_NAME: usize = 256;
+
 /// Most parts (headers, notes, comments, text boxes) we create from one file.
 const MAX_PARTS: usize = 50_000;
 /// Deepest chain of headers/footers whose own sections reference further headers/footers.
@@ -171,6 +175,7 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     // The font table and the fonts embedded through it ride along as opaque parts.
     if let Some(p) = part(rt::FONT_TABLE) {
         r.keep_part_tree(&p);
+        r.read_font_families(&p);
     }
     if let Some(p) = part(rt::THEME) {
         r.read_theme(&p);
@@ -581,6 +586,19 @@ impl Reader<'_> {
         }
     }
 
+    /// The fonts the font table classes as roman (`w:font/w:family w:val="roman"`).
+    fn read_font_families(&mut self, path: &str) {
+        let Ok(Some(table)) = self.xml(path) else { return };
+        self.doc.settings.roman_fonts = table
+            .children("w:font")
+            .filter(|f| f.child("w:family").and_then(|v| v.attr("w:val")) == Some("roman"))
+            .filter_map(|f| f.attr("w:name"))
+            .filter(|n| !n.is_empty() && n.len() <= MAX_FONT_NAME)
+            .take(MAX_TABLE_FONTS)
+            .map(str::to_string)
+            .collect();
+    }
+
     fn xml(&self, path: &str) -> Result<Option<El>, DocxError> {
         self.pkg.xml(path)
     }
@@ -708,6 +726,9 @@ impl Reader<'_> {
             if let Some(f) = face("a:minorFont") {
                 self.doc.settings.minor_font = f;
             }
+            let cs = |n: &str| fs.child(n).and_then(|f| f.child("a:cs")).and_then(|c| c.attr("typeface")).unwrap_or_default().to_string();
+            self.pc.major_cs = cs("a:majorFont");
+            self.pc.minor_cs = cs("a:minorFont");
         }
         self.pc.major_font = self.doc.settings.major_font.clone();
         self.pc.minor_font = self.doc.settings.minor_font.clone();
@@ -1069,6 +1090,7 @@ impl Reader<'_> {
                     if let Some(m) = mode.and_then(u32_of) {
                         s.compat_mode = m.clamp(11, 99);
                     }
+                    s.sum_paragraph_spacing = k.children("w:doNotUseHTMLParagraphAutoSpacing").any(on_off);
                 }
                 "w:trackRevisions" => s.track_changes = on_off(k),
                 "w:defaultTabStop" => {
