@@ -153,7 +153,7 @@ fn parse_nested(bytes: &[u8], level: u32, budget: &Budget) -> Result<Svg, Error>
     }
     let b = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(bytes);
     let text = std::str::from_utf8(b).map_err(|e| Error::Parse(e.to_string()))?;
-    check_nesting(text, budget)?;
+    check_nesting(text)?;
     let xml_opts = usvg::roxmltree::ParsingOptions { allow_dtd: true, nodes_limit: MAX_XML_NODES, ..Default::default() };
     let xml = usvg::roxmltree::Document::parse_with_options(text, xml_opts).map_err(|e| Error::Parse(e.to_string()))?;
     // Element nesting, measured without recursion (parents come before their children).
@@ -189,6 +189,7 @@ fn parse_nested(bytes: &[u8], level: u32, budget: &Budget) -> Result<Svg, Error>
         font_resolver: fonts::resolver(),
         ..usvg::Options::default()
     };
+    check_copies(&xml, budget)?;
     let tree = usvg::Tree::from_xmltree(&xml, &opts).map_err(|e| Error::Parse(e.to_string()))?;
     if let Some(why) = budget.over.get() {
         return refused(why);
@@ -234,63 +235,22 @@ fn refused<T>(why: &str) -> Result<T, Error> {
     Err(Error::Parse(why.to_string()))
 }
 
-/// Refuses, before the XML parser (which recurses on nesting) or usvg see it: markup nested
-/// deeper than [`MAX_DEPTH`]; entities that hold markup (which could nest elements past the scan),
-/// that could expand past [`MAX_ENTITY_EXPANSION`], or more than [`MAX_ENTITIES`] of them; and more
-/// than [`MAX_TEXT_BYTES`] of text in text elements, counting the text already in `budget` (the
-/// pictures this one is nested in, and those nested before it). One pass over the tags, linear in
-/// the file.
-fn check_nesting(text: &str, budget: &Budget) -> Result<(), Error> {
+/// Refuses, before the XML parser (which recurses on nesting) sees it: markup nested deeper than
+/// [`MAX_DEPTH`]; entities that hold markup (which could nest elements past the scan), that could
+/// expand past [`MAX_ENTITY_EXPANSION`], or more than [`MAX_ENTITIES`] of them. One pass over the
+/// tags, linear in the file.
+fn check_nesting(text: &str) -> Result<(), Error> {
     let b = text.as_bytes();
     let mut i = 0usize;
     let mut ents = Entities { sizes: std::collections::HashMap::new(), longest: 0, count: 0, refs: None };
-    // Depth of the open text element (its content is shaped), text bytes so far.
-    let mut text_at: Option<usize> = None;
-    let used = budget.text.load(Ordering::Relaxed);
-    let mut text_bytes = 0u64;
-    let over = |n: u64| {
-        let o = used.saturating_add(n) > MAX_TEXT_BYTES;
-        if o {
-            let _ = budget.over.set(TEXT_TOO_LONG);
-        }
-        o
-    };
-    // The elements, numbered in document order: each one's parent, the open ones, the first
-    // element with each `id`, the outermost text elements with their text bytes, and every
-    // `<use>` with its target.
-    let mut parents: Vec<Option<usize>> = Vec::new();
-    let mut open: Vec<usize> = Vec::new();
-    let mut ids: std::collections::HashMap<&[u8], usize> = std::collections::HashMap::new();
-    let mut texts: Vec<(usize, u64)> = Vec::new();
-    let mut uses: Vec<(usize, &[u8])> = Vec::new();
+    let mut depth = 0usize;
     let find = |from: usize, pat: &[u8]| b.get(from..).and_then(|rest| rest.windows(pat.len()).position(|w| w == pat)).map(|p| from + p);
     while let Some(lt) = b.get(i..).and_then(|rest| rest.iter().position(|c| *c == b'<')).map(|p| i + p) {
-        if text_at.is_some() {
-            let n = char_data_size(b.get(i..lt).unwrap_or_default(), &ents);
-            text_bytes = text_bytes.saturating_add(n);
-            if let Some(t) = texts.last_mut() {
-                t.1 = t.1.saturating_add(n);
-            }
-            if over(text_bytes) {
-                return refused(TEXT_TOO_LONG);
-            }
-        }
         let rest = b.get(lt..).unwrap_or_default();
         i = if rest.starts_with(b"<!--") {
             find(lt + 4, b"-->").map_or(b.len(), |e| e + 3)
         } else if rest.starts_with(b"<![CDATA[") {
-            let end = find(lt + 9, b"]]>").unwrap_or(b.len());
-            if text_at.is_some() {
-                let n = end.saturating_sub(lt + 9) as u64;
-                text_bytes = text_bytes.saturating_add(n);
-                if let Some(t) = texts.last_mut() {
-                    t.1 = t.1.saturating_add(n);
-                }
-                if over(text_bytes) {
-                    return refused(TEXT_TOO_LONG);
-                }
-            }
-            end.saturating_add(3)
+            find(lt + 9, b"]]>").map_or(b.len(), |e| e + 3)
         } else if rest.starts_with(b"<?") {
             find(lt + 2, b"?>").map_or(b.len(), |e| e + 2)
         } else if rest.starts_with(b"<!") {
@@ -309,10 +269,7 @@ fn check_nesting(text: &str, budget: &Budget) -> Result<(), Error> {
             }
             end
         } else if rest.starts_with(b"</") {
-            if text_at == Some(open.len()) {
-                text_at = None;
-            }
-            open.pop();
+            depth = depth.saturating_sub(1);
             find(lt, b">").map_or(b.len(), |e| e + 1)
         } else {
             // A start tag: its end is the first `>` outside a quoted attribute value.
@@ -328,128 +285,248 @@ fn check_nesting(text: &str, budget: &Budget) -> Result<(), Error> {
                 }
                 j += 1;
             }
-            let tag = b.get(lt + 1..j).unwrap_or_default();
-            let name =
-                tag.get(..tag.iter().position(|c| c.is_ascii_whitespace() || *c == b'>' || *c == b'/').unwrap_or(tag.len())).unwrap_or_default();
-            let local = local_name(name);
-            let attrs = tag.get(name.len()..).unwrap_or_default();
-            let node = parents.len();
-            // The XML parser refuses more nodes anyway; this bounds the lists kept here.
-            if node >= MAX_XML_NODES as usize {
-                return refused("SVG with this many elements is not supported");
-            }
-            parents.push(open.last().copied());
-            if let Some(id) = attr(attrs, |n| n == b"id") {
-                ids.entry(id).or_insert(node);
-            }
-            if local == b"use"
-                && let Some(target) = attr(attrs, |n| local_name(n) == b"href").and_then(|h| h.strip_prefix(b"#"))
-            {
-                uses.push((node, target));
-            }
             if b.get(j.saturating_sub(1)) != Some(&b'/') {
-                open.push(node);
-                if open.len() > MAX_DEPTH {
+                depth += 1;
+                if depth > MAX_DEPTH {
                     return Err(Error::TooDeep);
-                }
-                if local == b"text" && text_at.is_none() {
-                    text_at = Some(open.len());
-                    texts.push((node, 0));
                 }
             }
             j.saturating_add(1)
         };
     }
-    // usvg builds every copy `<use>` makes (copies of copies multiply): the text they draw.
-    // (usvg refuses more than a million elements, copies included, itself.)
-    let counts = instances(&parents, &ids, &uses);
-    let drawn = texts.iter().fold(0u64, |a, (node, size)| a.saturating_add(size.saturating_mul(counts.get(*node).copied().unwrap_or(1))));
-    budget.text.fetch_add(text_bytes, Ordering::Relaxed);
-    if budget.drawn.fetch_add(drawn, Ordering::Relaxed).saturating_add(drawn) > MAX_TEXT_DRAWN {
+    Ok(())
+}
+
+const SVG_NS: &str = "http://www.w3.org/2000/svg";
+const XLINK_NS: &str = "http://www.w3.org/1999/xlink";
+/// Most work `<tref>` links may cost: usvg finds each one's target by walking the file's nodes, so
+/// the links resolved (copies counted) times the nodes in the file.
+const MAX_TREF_WORK: u64 = 1 << 26;
+const ENDLESS_COPIES: &str = "SVG whose copies of itself never end is not supported";
+const TREFS_TOO_MANY: &str = "SVG with this many text references is not supported";
+
+/// Refuses, before usvg builds the picture from the parsed XML: more than [`MAX_TEXT_BYTES`] of
+/// text in text elements, and more than [`MAX_TEXT_DRAWN`] once usvg's copies are counted
+/// ([`copies`]), counting what `budget` holds already (the pictures this one is nested in, and
+/// those nested before it); `<use>` links that copy without end; and `<tref>` links that would
+/// cost more than [`MAX_TREF_WORK`] to find.
+fn check_copies(xml: &usvg::roxmltree::Document, budget: &Budget) -> Result<(), Error> {
+    // The text as written: each outermost text element's text, once.
+    let written = xml
+        .descendants()
+        .filter(|n| kind(*n) == Kind::Text && !n.ancestors().skip(1).any(|a| kind(a) == Kind::Text))
+        .flat_map(|n| n.descendants())
+        .filter_map(|n| n.text().filter(|_| n.is_text()))
+        .fold(0u64, |a, t| a.saturating_add(t.len() as u64));
+    if budget.text.fetch_add(written, Ordering::Relaxed).saturating_add(written) > MAX_TEXT_BYTES {
         return budget.refuse(TEXT_TOO_LONG);
+    }
+    let c = copies(xml);
+    if c.endless {
+        return budget.refuse(ENDLESS_COPIES);
+    }
+    if budget.drawn.fetch_add(c.bytes, Ordering::Relaxed).saturating_add(c.bytes) > MAX_TEXT_DRAWN {
+        return budget.refuse(TEXT_TOO_LONG);
+    }
+    let nodes = xml.descendants().count() as u64;
+    if c.trefs.saturating_mul(nodes) > MAX_TREF_WORK {
+        return budget.refuse(TREFS_TOO_MANY);
     }
     Ok(())
 }
 
-/// How many times usvg builds each element: once where it stands (or once per copy of its
-/// parent), plus once per copy of each `<use>` of it. A `<use>` that would copy itself counts
-/// nothing (usvg skips it). Linear: a depth-first walk over the parent and `<use>` links that
-/// works each element out once, with an explicit stack (no recursion).
-fn instances(parents: &[Option<usize>], ids: &std::collections::HashMap<&[u8], usize>, uses: &[(usize, &[u8])]) -> Vec<u64> {
-    let mut users: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
-    for (node, target) in uses {
-        if let Some(&t) = ids.get(target) {
-            users.entry(t).or_default().push(*node);
+/// What usvg builds of a picture's text, `<use>` copies (and copies of copies) included.
+#[derive(Clone, Copy, Default, Debug)]
+struct Copies {
+    /// Text elements built.
+    texts: u64,
+    /// Bytes of text in them, `<tref>` text included.
+    bytes: u64,
+    /// `<tref>` links resolved.
+    trefs: u64,
+    /// The copies never end (usvg would give up deep down, after building a great deal).
+    endless: bool,
+}
+
+impl Copies {
+    const ENDLESS: Copies = Copies { texts: u64::MAX, bytes: u64::MAX, trefs: u64::MAX, endless: true };
+
+    fn add(self, o: Copies) -> Copies {
+        Copies {
+            texts: self.texts.saturating_add(o.texts),
+            bytes: self.bytes.saturating_add(o.bytes),
+            trefs: self.trefs.saturating_add(o.trefs),
+            endless: self.endless || o.endless,
         }
     }
-    let none = Vec::new();
-    // 0: not reached, 1: on the walk's path, 2: worked out.
-    let mut state = vec![0u8; parents.len()];
-    let mut counts = vec![0u64; parents.len()];
-    let mut stack = Vec::new();
-    for start in 0..parents.len() {
-        stack.push(start);
-        while let Some(&n) = stack.last() {
-            let parent = parents.get(n).copied().flatten();
-            let users = users.get(&n).unwrap_or(&none);
-            match state.get(n).copied() {
-                Some(0) => {
-                    if let Some(s) = state.get_mut(n) {
-                        *s = 1;
-                    }
-                    stack.extend(parent.iter().chain(users).filter(|d| state.get(**d) == Some(&0)));
+}
+
+/// How usvg treats an XML node when it builds its tree.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// Not built, nor anything inside it: text and comments, elements outside the SVG namespace,
+    /// `<style>`.
+    Skip,
+    /// A text element: its text (and `<tref>` text) is built, its children are not walked again.
+    Text,
+    /// A `<use>`: builds a copy of the element it links to.
+    Use,
+    /// Any other SVG element, built with its children. (usvg also skips SVG elements it doesn't
+    /// know; they are counted here, which can only overcount.)
+    Group,
+}
+
+fn kind(n: usvg::roxmltree::Node) -> Kind {
+    if !n.is_element() || !matches!(n.tag_name().namespace(), None | Some(SVG_NS)) {
+        return Kind::Skip;
+    }
+    match n.tag_name().name() {
+        "style" => Kind::Skip,
+        "text" => Kind::Text,
+        "use" => Kind::Use,
+        _ => Kind::Group,
+    }
+}
+
+/// The element a `<use>` or `<tref>` links to, read as usvg reads it (with the same calls):
+/// `xlink:href`, else the first attribute whose local name is `href` (roxmltree looks a name
+/// without a namespace up in any namespace), holding `#id` with spaces around it allowed
+/// (svgtypes' IRI), naming the first element with that `id`.
+fn link<'a, 'i>(
+    n: usvg::roxmltree::Node<'a, 'i>,
+    ids: &std::collections::HashMap<&str, usvg::roxmltree::Node<'a, 'i>>,
+) -> Option<usvg::roxmltree::Node<'a, 'i>> {
+    let value = n.attribute((XLINK_NS, "href")).or_else(|| n.attribute("href"))?;
+    let id = svgtypes::IRI::from_str(value).ok()?.0;
+    ids.get(id).copied()
+}
+
+/// What usvg builds of the text in `xml`, following its rules for `<use>` (usvg 0.47,
+/// `svgtree/parse.rs`): a `<use>` builds a copy of the element it links to unless it links to
+/// itself, to a `<use>` that links back to it, to an element outside the SVG namespace, or to an
+/// element holding a `<use>` that links to that element or to this `<use>`. Copies hold copies,
+/// so the text adds up along every path; work shared by many copies is done once (each node is
+/// worked out once, with an explicit stack: linear, no recursion), and copies that lead back to
+/// themselves are endless. Where usvg's rules are not mirrored (a `<use>` without the SVG
+/// namespace that links back to its copy), this counts more, never less.
+fn copies<'a, 'i>(xml: &'a usvg::roxmltree::Document<'i>) -> Copies {
+    type Node<'a, 'i> = usvg::roxmltree::Node<'a, 'i>;
+    let all: Vec<Node> = xml.descendants().collect();
+    let len = all.iter().map(|n| n.id().get_usize() + 1).max().unwrap_or(0);
+    let at = |n: Node| n.id().get_usize();
+    let mut ids = std::collections::HashMap::new();
+    for n in &all {
+        if let Some(id) = n.attribute("id") {
+            ids.entry(id).or_insert(*n);
+        }
+    }
+    // Each node's last descendant (for "is inside"), and the text inside it.
+    let mut last = vec![0usize; len];
+    let mut text = vec![0u64; len];
+    for n in all.iter().rev() {
+        let i = at(*n);
+        let l = n.last_child().and_then(|c| last.get(at(c)).copied()).unwrap_or(i);
+        let own = if n.is_text() { n.text().map_or(0, |t| t.len() as u64) } else { 0 };
+        let t = n.children().fold(own, |a, c| a.saturating_add(text.get(at(c)).copied().unwrap_or(0)));
+        if let (Some(ls), Some(ts)) = (last.get_mut(i), text.get_mut(i)) {
+            *ls = l;
+            *ts = t;
+        }
+    }
+    let inside = |a: Node, d: Node| at(a) < at(d) && last.get(at(a)).is_some_and(|l| at(d) <= *l);
+    let svg_element = |n: Node| n.is_element() && matches!(n.tag_name().namespace(), None | Some(SVG_NS));
+    // usvg skips a `<use>` whose target holds a `<use>` (in the SVG namespace) linking to that
+    // target (LOOPS on the target) or to the `<use>` itself (LOOPS_BACK on the `<use>`).
+    const LOOPS: u8 = 1;
+    const LOOPS_BACK: u8 = 2;
+    let mut flags = vec![0u8; len];
+    for d in &all {
+        if !(d.is_element() && d.tag_name().namespace() == Some(SVG_NS) && d.tag_name().name() == "use") {
+            continue;
+        }
+        let Some(x) = link(*d, &ids) else { continue };
+        if inside(x, *d)
+            && let Some(f) = flags.get_mut(at(x))
+        {
+            *f |= LOOPS;
+        }
+        if kind(x) == Kind::Use
+            && link(x, &ids).is_some_and(|y| inside(y, *d))
+            && let Some(f) = flags.get_mut(at(x))
+        {
+            *f |= LOOPS_BACK;
+        }
+    }
+    let flag = |n: Node, f: u8| flags.get(at(n)).is_some_and(|v| v & f != 0);
+    // What a `<use>` copies.
+    let copied = |u: Node<'a, 'i>| -> Option<Node<'a, 'i>> {
+        let t = link(u, &ids)?;
+        let skipped = t == u
+            || !svg_element(t)
+            || flag(u, LOOPS_BACK)
+            || flag(t, LOOPS)
+            // A `<use>` of a `<use>` of this one: the inner one links to its own copy's origin.
+            || (kind(t) == Kind::Use && link(t, &ids) == Some(u));
+        (!skipped).then_some(t)
+    };
+    // `<tref>` text and links inside each text element.
+    let mut trefs: std::collections::HashMap<usize, Copies> = std::collections::HashMap::new();
+    for r in &all {
+        if !(svg_element(*r) && r.tag_name().name() == "tref" && (r.has_attribute((XLINK_NS, "href")) || r.has_attribute("href"))) {
+            continue;
+        }
+        let bytes = link(*r, &ids).filter(|t| svg_element(*t)).and_then(|t| text.get(at(t)).copied()).unwrap_or(0);
+        for a in r.ancestors().skip(1).filter(|a| kind(*a) == Kind::Text) {
+            let e = trefs.entry(at(a)).or_default();
+            *e = e.add(Copies { texts: 0, bytes, trefs: 1, endless: false });
+        }
+    }
+    // What each node builds where it stands, worked out after what it builds from.
+    let own = |n: Node| match kind(n) {
+        Kind::Text => {
+            let t = Copies { texts: 1, bytes: text.get(at(n)).copied().unwrap_or(0), trefs: 0, endless: false };
+            t.add(trefs.get(&at(n)).copied().unwrap_or_default())
+        }
+        _ => Copies::default(),
+    };
+    let from = |n: Node<'a, 'i>| -> Vec<Node<'a, 'i>> {
+        match kind(n) {
+            _ if n == xml.root() => n.children().filter(|c| kind(*c) != Kind::Skip).collect(),
+            Kind::Group => n.children().filter(|c| kind(*c) != Kind::Skip).collect(),
+            Kind::Use => copied(n).into_iter().collect(),
+            Kind::Text | Kind::Skip => Vec::new(),
+        }
+    };
+    // 0: not reached, 1: being worked out (on the walk's path), 2: worked out.
+    let mut state = vec![0u8; len];
+    let mut built = vec![Copies::default(); len];
+    let mut stack = vec![xml.root()];
+    while let Some(&n) = stack.last() {
+        let i = at(n);
+        match state.get(i).copied() {
+            Some(0) => {
+                if let Some(s) = state.get_mut(i) {
+                    *s = 1;
                 }
-                Some(1) => {
-                    // What it depends on is worked out now, or on the path (a cycle: counts 0).
-                    let own = parent.map_or(1, |p| counts.get(p).copied().unwrap_or(0));
-                    let count = users.iter().fold(own, |a, u| a.saturating_add(counts.get(*u).copied().unwrap_or(0)));
-                    if let Some(c) = counts.get_mut(n) {
-                        *c = count;
-                    }
-                    if let Some(s) = state.get_mut(n) {
-                        *s = 2;
-                    }
-                    stack.pop();
+                stack.extend(from(n).into_iter().filter(|d| state.get(at(*d)) == Some(&0)));
+            }
+            Some(1) => {
+                // What it builds from is worked out now, or still on the path: a copy of itself.
+                let c = from(n).into_iter().fold(own(n), |a, d| {
+                    a.add(if state.get(at(d)) == Some(&2) { built.get(at(d)).copied().unwrap_or_default() } else { Copies::ENDLESS })
+                });
+                if let (Some(b), Some(s)) = (built.get_mut(i), state.get_mut(i)) {
+                    *b = c;
+                    *s = 2;
                 }
-                _ => {
-                    stack.pop();
-                }
+                stack.pop();
+            }
+            _ => {
+                stack.pop();
             }
         }
     }
-    counts
-}
-
-/// The local part of an XML name (`xlink:href` → `href`).
-fn local_name(name: &[u8]) -> &[u8] {
-    name.rsplit(|c| *c == b':').next().unwrap_or_default()
-}
-
-/// The value of the first attribute whose name `want` accepts, in a start tag's attributes.
-fn attr(attrs: &[u8], want: impl Fn(&[u8]) -> bool) -> Option<&[u8]> {
-    let mut k = 0usize;
-    loop {
-        k += attrs.get(k..)?.iter().position(|c| !c.is_ascii_whitespace() && *c != b'/')?;
-        let name_len = attrs.get(k..)?.iter().position(|c| c.is_ascii_whitespace() || *c == b'=')?;
-        let name = attrs.get(k..k + name_len)?;
-        k += name_len;
-        k += attrs.get(k..)?.iter().position(|c| !c.is_ascii_whitespace())?;
-        if attrs.get(k) != Some(&b'=') {
-            return None;
-        }
-        k += 1;
-        k += attrs.get(k..)?.iter().position(|c| !c.is_ascii_whitespace())?;
-        let quote = *attrs.get(k)?;
-        if quote != b'"' && quote != b'\'' {
-            return None;
-        }
-        let len = attrs.get(k + 1..)?.iter().position(|c| *c == quote)?;
-        let value = attrs.get(k + 1..k + 1 + len)?;
-        if want(name) {
-            return Some(value);
-        }
-        k += len + 2;
-    }
+    built.get(at(xml.root())).copied().unwrap_or_default()
 }
 
 /// The length of character data once its entity references are expanded.

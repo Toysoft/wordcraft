@@ -375,3 +375,115 @@ fn nested_pictures_read_per_copy_share_a_cap() {
     let r = parse(svg(400).as_bytes());
     assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("nested")), "40 MB of nested pictures: {:?}", r.err());
 }
+
+/// `copies` of `link` after the definitions `def`, whose `TEXT` is `n` bytes of text.
+fn copied_text(def: &str, link: &str, copies: usize, n: usize) -> String {
+    let def = def.replace("TEXT", &"c".repeat(n));
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:z="urn:z" width="10" height="10"><defs><circle id="dot" r="1"/>{def}</defs>{}</svg>"##,
+        link.repeat(copies)
+    )
+}
+
+fn refused_as_text(doc: &str) -> bool {
+    matches!(parse(doc.as_bytes()), Err(Error::Parse(m)) if m.contains("text"))
+}
+
+/// Review 4 I-1: a `<use>` inside a group that points back at the group's ancestor is skipped by
+/// usvg, but the text next to it is still built once per copy of the outer group.
+#[test]
+fn text_beside_a_self_reference_counts_per_copy() {
+    let def = r##"<g id="P"><g id="t"><g id="G"><text>TEXT</text><use href="#t"/></g></g></g>"##;
+    let doc = copied_text(def, r##"<use href="#P"/>"##, 200, 100_000);
+    let t = std::time::Instant::now();
+    assert!(refused_as_text(&doc), "20 MB of text drawn through copies of P");
+    assert!(t.elapsed() < std::time::Duration::from_secs(2), "{:?}", t.elapsed());
+    // Without the copies it is an ordinary picture.
+    assert!(parse(copied_text(def, "", 0, 100_000).as_bytes()).is_ok());
+}
+
+/// Review 4 I-2: links are read the way usvg reads them: character references resolved, spaces
+/// around the `#id` allowed, and `xlink:href` taken before the first other attribute named `href`.
+#[test]
+fn use_links_are_read_like_usvg() {
+    let def = r#"<text id="t">TEXT</text>"#;
+    for link in [r##"<use href="&#35;t"/>"##, r##"<use href=" #t"/>"##, r##"<use href="#t "/>"##, r##"<use z:href="#dot" xlink:href="#t"/>"##] {
+        let doc = copied_text(def, link, 200, 100_000);
+        assert!(refused_as_text(&doc), "{link}");
+    }
+    // usvg looks a plain `href` up by its local name in any namespace (roxmltree's lookup), so a
+    // link only in another namespace is followed too.
+    assert!(refused_as_text(&copied_text(def, r##"<use z:href="#t"/>"##, 200, 100_000)));
+}
+
+/// Round 4: copies that lead back to themselves never end; usvg would build them a thousand
+/// levels deep before giving up.
+#[test]
+fn endless_copies_are_refused() {
+    let def = r##"<g id="a"><text>TEXT</text><use href="#b"/></g><g id="b"><use href="#a"/></g>"##;
+    let r = parse(copied_text(def, "", 0, 1000).as_bytes());
+    assert!(matches!(&r, Err(Error::Parse(m)) if m.contains("never end")), "{:?}", r.err());
+}
+
+/// Round 4: every `<tref>` makes usvg look its target up by scanning the whole file, so many of
+/// them in a large file would take minutes.
+#[test]
+fn many_trefs_in_a_large_file_are_refused_quickly() {
+    let doc = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>{}</text>{}<g id="far"/></svg>"##,
+        r##"<tref href="#far"/>"##.repeat(20_000),
+        "<g/>".repeat(200_000)
+    );
+    let t = std::time::Instant::now();
+    let r = parse(doc.as_bytes());
+    assert!(r.is_err(), "refused");
+    assert!(t.elapsed() < std::time::Duration::from_secs(2), "{:?}", t.elapsed());
+}
+
+/// The number of text elements in a parsed picture (usvg's tree after conversion).
+fn usvg_texts(g: &usvg::Group) -> u64 {
+    g.children()
+        .iter()
+        .map(|n| match n {
+            usvg::Node::Group(g) => usvg_texts(g),
+            usvg::Node::Text(_) => 1,
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Round 4: the pre-check counts the text copies usvg builds, exactly, for small crafted
+/// pictures (no `<defs>`, so every element built is drawn). A change in usvg's `<use>` rules
+/// shows up here.
+#[test]
+fn text_copies_match_usvg() {
+    let cases = [
+        r##"<text>a</text><text>b</text>"##,
+        r##"<text id="t">a</text><use href="#t"/><use href="#t"/><use href="#t"/>"##,
+        r##"<g id="g"><text>a</text><text>b</text></g><use href="#g"/><use href="#g"/>"##,
+        r##"<text id="t">a</text><g id="g1"><use href="#t"/><use href="#t"/></g><g id="g2"><use href="#g1"/><use href="#g1"/><use href="#g1"/></g><use href="#g2"/>"##,
+        // Review 4 I-1, small.
+        r##"<g id="P"><g id="t"><g id="G"><text>a</text><use href="#t"/></g></g></g><use href="#P"/><use href="#P"/><use href="#P"/>"##,
+        // Review 4 I-2.
+        r##"<text id="t">a</text><use href="&#35;t"/><use href=" #t "/><use z:href="#x" xlink:href="#t"/><use z:href="#t"/>"##,
+        // A `<use>` of itself, of its own group, two `<use>`s of each other, a missing target.
+        r##"<g id="g"><text>a</text><use id="u" href="#u"/><use href="#g"/></g><use id="a" href="#b"/><use id="b" href="#a"/><use href="#none"/>"##,
+        // A group whose `<use>` points at a `<use>` of the group.
+        r##"<g id="g1"><text>a</text><use href="#u2"/></g><use id="u2" href="#g1"/><use href="#g1"/>"##,
+        // Later ids don't replace the first one.
+        r##"<text id="t">a</text><text id="t">b</text><use href="#t"/>"##,
+        // `<tref>` text, and a group holding a `<use>` of itself (which no `<use>` copies).
+        r##"<text id="s">a</text><text>b<tref href="#s"/></text><g id="g"><text>c</text><use href="#g"/></g><use href="#g"/>"##,
+        // Elements outside the SVG namespace aren't built.
+        r##"<text id="t">a</text><z:g><text>b</text><use href="#t"/></z:g>"##,
+    ];
+    for body in cases {
+        let doc = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:z="urn:z" width="100" height="100" font-family="Source Sans 3" font-size="10">{body}</svg>"#
+        );
+        let xml = usvg::roxmltree::Document::parse(&doc).unwrap();
+        let counted = copies(&xml).texts;
+        let built = usvg_texts(parse(doc.as_bytes()).unwrap().tree().root());
+        assert_eq!(counted, built, "{body}");
+    }
+}

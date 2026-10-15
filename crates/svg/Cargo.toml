@@ -12,3 +12,4 @@ workspace = true
 wordcraft-fonts = { workspace = true }
 usvg = { workspace = true }
 resvg = { workspace = true }
+svgtypes = { workspace = true }
