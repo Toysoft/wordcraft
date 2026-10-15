@@ -81,6 +81,13 @@ pub enum Inline {
         linear: String,
         display: bool,
     },
+    /// Ruby (furigana, pinyin…): `ruby` text set over `base` text, which has the format `fmt`.
+    /// Formats without ruby write `base` as text.
+    Ruby {
+        base: String,
+        ruby: String,
+        fmt: Fmt,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -158,7 +165,7 @@ impl Para {
         let mut s = String::new();
         for i in &self.inlines {
             match i {
-                Inline::Text(t, _) | Inline::Equation { linear: t, .. } => s.push_str(t),
+                Inline::Text(t, _) | Inline::Equation { linear: t, .. } | Inline::Ruby { base: t, .. } => s.push_str(t),
                 Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
             }
         }
@@ -174,7 +181,7 @@ impl Para {
                     Some(font) if wordcraft_doc::symbol_fonts::is_symbol_font(font) => s.push_str(&wordcraft_doc::symbol_fonts::map_text(font, t)),
                     _ => s.push_str(t),
                 },
-                Inline::Equation { linear: t, .. } => s.push_str(t),
+                Inline::Equation { linear: t, .. } | Inline::Ruby { base: t, .. } => s.push_str(t),
                 Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
             }
         }
@@ -329,16 +336,17 @@ pub struct Flow {
     pub meta: Meta,
 }
 
-/// `inlines` with equations as their linear text (default formatting), for formats that have no
-/// equations.
+/// `inlines` with equations as their linear text (default formatting) and ruby as its base text,
+/// for formats that have no equations or ruby.
 pub fn equations_as_text(inlines: &[Inline]) -> std::borrow::Cow<'_, [Inline]> {
-    if !inlines.iter().any(|i| matches!(i, Inline::Equation { .. })) {
+    if !inlines.iter().any(|i| matches!(i, Inline::Equation { .. } | Inline::Ruby { .. })) {
         return std::borrow::Cow::Borrowed(inlines);
     }
     let mut p = Para::default();
     for i in inlines {
         match i {
             Inline::Equation { linear, .. } => p.push_text(linear, &Fmt::default()),
+            Inline::Ruby { base, fmt, .. } => p.push_text(base, fmt),
             Inline::Text(t, f) => p.push_text(t, f),
             other => p.inlines.push(other.clone()),
         }
@@ -510,6 +518,7 @@ impl<'a> Builder<'a> {
                     append(&mut out, "", &CharProps::default(), Some(InlineObject::BookmarkEnd { name: name.clone() }));
                 }
                 Inline::Figure(_) => {}
+                Inline::Ruby { base, fmt, .. } => append(&mut out, &clean_text(base), &char_props(fmt), None),
                 Inline::Equation { linear, display } => {
                     let linear = clean_text(linear);
                     if !linear.is_empty() {
@@ -917,6 +926,12 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         out.push_text(&std::mem::take(&mut buf), &f);
                     }
                     out.inlines.push(Inline::Anchor(name.clone()));
+                }
+                Some(InlineObject::Ruby { base, ruby, .. }) => {
+                    if !buf.is_empty() {
+                        out.push_text(&std::mem::take(&mut buf), &f);
+                    }
+                    out.inlines.push(Inline::Ruby { base: base.clone(), ruby: ruby.clone(), fmt: f.clone() });
                 }
                 Some(o) => buf.push_str(o.plain_text()),
                 None => {}

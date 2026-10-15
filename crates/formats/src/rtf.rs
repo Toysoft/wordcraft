@@ -224,7 +224,8 @@ impl Writer {
                     let a = esc(a);
                     out.push_str(&format!("{{\\*\\bkmkstart {a}}}{{\\*\\bkmkend {a}}}"));
                 }
-                Inline::Figure(_) | Inline::Equation { .. } => {}
+                // `equations_as_text` above already turned equations and ruby into text.
+                Inline::Figure(_) | Inline::Equation { .. } | Inline::Ruby { .. } => {}
             }
         }
     }

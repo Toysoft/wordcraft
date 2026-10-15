@@ -1322,7 +1322,7 @@ pub fn inlines_html(inlines: &[Inline]) -> String {
     let mut o = String::new();
     for i in inlines.iter() {
         match i {
-            Inline::Text(t, f) => {
+            Inline::Text(_, f) | Inline::Ruby { fmt: f, .. } => {
                 let mut open = String::new();
                 let mut close: Vec<&str> = Vec::new();
                 // A script or other non-web target is written as plain text (`is_safe_href`).
@@ -1372,7 +1372,16 @@ pub fn inlines_html(inlines: &[Inline]) -> String {
                     close.push("</span>");
                 }
                 o.push_str(&open);
-                o.push_str(&text_html(t));
+                match i {
+                    // `<rp>` shows the reading in parentheses where ruby isn't supported; an empty
+                    // reading is just the base text.
+                    Inline::Ruby { base, ruby, .. } if ruby.is_empty() => o.push_str(&text_html(base)),
+                    Inline::Ruby { base, ruby, .. } => {
+                        o.push_str(&format!("<ruby>{}<rp>(</rp><rt>{}</rt><rp>)</rp></ruby>", text_html(base), text_html(ruby)));
+                    }
+                    Inline::Text(t, _) => o.push_str(&text_html(t)),
+                    _ => {}
+                }
                 for c in close.iter().rev() {
                     o.push_str(c);
                 }
@@ -1779,6 +1788,15 @@ mod tests {
         assert!(all_bold(&rows[0][0][0]) && all_bold(&rows[0][1][0]), "{:?}", rows[0]);
         assert_eq!(rows[1][1][0].align, Some(Align::Right));
         assert_eq!(rows[1][0][0].align, None);
+    }
+
+    #[test]
+    fn ruby_is_escaped_and_keeps_its_formatting() {
+        let fmt = Fmt { bold: true, ..Default::default() };
+        let html = inlines_html(&[Inline::Ruby { base: "a<b".into(), ruby: "x&y".into(), fmt }]);
+        assert_eq!(html, "<strong><ruby>a&lt;b<rp>(</rp><rt>x&amp;y</rt><rp>)</rp></ruby></strong>");
+        let empty = inlines_html(&[Inline::Ruby { base: "道".into(), ruby: String::new(), fmt: Fmt::default() }]);
+        assert_eq!(empty, "道");
     }
 
     #[test]

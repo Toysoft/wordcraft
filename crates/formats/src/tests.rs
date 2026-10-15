@@ -749,3 +749,37 @@ fn hidden_drawings_are_left_out_of_exports() {
     // Two pictures, one hidden: one comes out.
     assert_eq!(crate::html::export(&d).matches("<img").count(), 1);
 }
+
+#[test]
+fn ruby_annotations_survive_html_export() {
+    let ruby = |base: &str, ruby: &str| InlineObject::Ruby {
+        base: base.into(),
+        ruby: ruby.into(),
+        align: Default::default(),
+        size: 5.0,
+        raise: 10.0,
+        base_size: 10.0,
+        lang: String::new(),
+        props: Default::default(),
+    };
+    let mut p = Paragraph::with_text("この", CharProps::default());
+    p.insert_object(p.len(), ruby("道", "みち"), &CharProps::default()).unwrap();
+    p.insert_text(p.len(), "を", &CharProps::default()).unwrap();
+    p.insert_object(p.len(), ruby("辞", "や"), &CharProps::default()).unwrap();
+    p.insert_text(p.len(), "めてください。", &CharProps::default()).unwrap();
+    let mut d = Document::new();
+    d.body = vec![para_block(p)];
+    let html = String::from_utf8(export("html", &d).unwrap().unwrap()).unwrap();
+    let want = "<p>この<ruby>道<rp>(</rp><rt>みち</rt><rp>)</rp></ruby>を<ruby>辞<rp>(</rp><rt>や</rt><rp>)</rp></ruby>めてください。</p>";
+    assert!(html.contains(want), "html: {html}");
+    // Formats without ruby keep the base text.
+    let txt = String::from_utf8(export("txt", &d).unwrap().unwrap()).unwrap();
+    assert!(txt.contains("この道を辞めてください。"), "txt: {txt}");
+    let md = String::from_utf8(export("md", &d).unwrap().unwrap()).unwrap();
+    assert!(md.contains("この道を辞めてください。"), "md: {md}");
+    for ext in ["odt", "rtf"] {
+        let back = import(ext, &export(ext, &d).unwrap().unwrap()).unwrap().unwrap();
+        let text = back.plain_text(wordcraft_doc::StoryRef::Body);
+        assert!(text.contains("この道を辞めてください。"), "{ext}: {text}");
+    }
+}

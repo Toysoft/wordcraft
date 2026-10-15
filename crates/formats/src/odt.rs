@@ -387,7 +387,8 @@ impl Writer {
                     prev_space = false;
                 }
                 Inline::Anchor(a) => out.push_str(&format!("<text:bookmark text:name=\"{}\"/>", x(a))),
-                Inline::Figure(_) | Inline::Equation { .. } => {}
+                // `equations_as_text` above already turned equations and ruby into text.
+                Inline::Figure(_) | Inline::Equation { .. } | Inline::Ruby { .. } => {}
             }
         }
     }
