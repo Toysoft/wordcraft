@@ -7097,10 +7097,12 @@ fn leading_break_spacing_flag() {
     enum Spacing {
         Keep,
         Suppress,
+        SuppressSummed,
     }
     let top = |spacing, after| {
         let mut d = Document::from_text(&format!("Filler\n{}Probe", wordcraft_doc::para::PAGE_BREAK));
-        d.settings.suppress_break_spacing = matches!(spacing, Spacing::Suppress);
+        d.settings.suppress_break_spacing = !matches!(spacing, Spacing::Keep);
+        d.settings.sum_paragraph_spacing = matches!(spacing, Spacing::SuppressSummed);
         d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().props.space_after = Some(after);
         d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().props.space_before = Some(6.0);
         let l = lay(&d);
@@ -7113,5 +7115,6 @@ fn leading_break_spacing_flag() {
         let expected = (6.0 - after).max(0.0);
         assert!((top(Spacing::Suppress, after) - plain - expected).abs() < 0.05, "flagged, after={after}");
         assert!((top(Spacing::Keep, after) - plain - 6.0).abs() < 0.05, "unflagged, after={after}");
+        assert!((top(Spacing::SuppressSummed, after) - plain - 6.0).abs() < 0.05, "summed, after={after}");
     }
 }

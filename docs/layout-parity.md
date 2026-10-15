@@ -155,7 +155,7 @@ No overall parity estimate changes from these probes.
 | Large real-world documents (500+ pages, many pictures) | not measured | | gap |
 | Scrolling a 1,096-page document that is one 5,300-row table (#811) | ~2.4 ms idle, ~4.5 ms median scroll frame (was ~600 ms); opening still lays out for ~4–8 s | not measured | measured 2026-10-12, release, headless (`tests_perf::big_table_scroll_bench`) |
 
-Leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch. Original spacing probes cover the merged gap after preceding paragraphs with 0, 2, 6 and 10pt after-spacing. Documents without the switch keep their existing layout. Adobe and Word for Mac can still differ when this switch is absent.
+Leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch. Original spacing probes cover the merged gap after preceding paragraphs with 0, 2, 6 and 10pt after-spacing, including the summed-spacing switch. Documents without the switch keep their existing layout. Adobe and Word for Mac can still differ when this switch is absent.
 
 ## Revision history
 

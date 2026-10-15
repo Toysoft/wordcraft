@@ -134,7 +134,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 ## Progress log
 
-- 2026-10-15: leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch. Original spacing probes cover the merged gap after preceding paragraphs with 0, 2, 6 and 10pt after-spacing. Documents without the switch keep their existing layout. Adobe and Word for Mac can still differ when this switch is absent.
+- 2026-10-15: leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch. Original spacing probes cover the merged gap after preceding paragraphs with 0, 2, 6 and 10pt after-spacing, including the summed-spacing switch. Documents without the switch keep their existing layout. Adobe and Word for Mac can still differ when this switch is absent.
 
 | Date | What landed |
 |---|---|

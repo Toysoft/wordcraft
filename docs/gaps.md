@@ -83,7 +83,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 - **Localization gaps:** #8, #11, #16, #17; native-speaker review of every catalog (human).
 - **Stability and performance gaps:** #3, #20.
 
-Leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch. Original spacing probes cover the merged gap after preceding paragraphs with 0, 2, 6 and 10pt after-spacing. Documents without the switch keep their existing layout. Adobe and Word for Mac can still differ when this switch is absent.
+Leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch. Original spacing probes cover the merged gap after preceding paragraphs with 0, 2, 6 and 10pt after-spacing, including the summed-spacing switch. Documents without the switch keep their existing layout. Adobe and Word for Mac can still differ when this switch is absent.
 
 ## Revision history
 
