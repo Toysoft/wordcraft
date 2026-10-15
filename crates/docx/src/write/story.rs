@@ -728,6 +728,15 @@ impl Writer<'_> {
                             let id = self.shape_docpr(extra.id);
                             self.wsp(w, &c.obj, Some(&id), at, rels, depth);
                         }
+                        // Native ink kept from the file, with its fallback, at the member's place.
+                        InlineObject::Graphic { w: iw, h: ih, float, graphic, .. } if graphic.kind == wordcraft_doc::graphic::GraphicKind::Ink => {
+                            if let Some(src) = graphic.source.as_deref()
+                                && let Some(mut root) = self.embedded_tree(src, rels, None)
+                            {
+                                Self::place_member(&mut root, [c.x, c.y, *iw, *ih], float, 0);
+                                w.raw(&root.to_xml());
+                            }
+                        }
                         _ => {}
                     }
                 }
