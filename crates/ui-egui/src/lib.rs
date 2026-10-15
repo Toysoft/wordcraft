@@ -157,6 +157,8 @@ pub struct Services {
     pub store_font: Option<Box<dyn Fn(&str, &[u8])>>,
     /// Web: forget a stored font (its stored file name) once the user removes it.
     pub forget_font: Option<Box<dyn Fn(&str)>>,
+    /// Web: request browser to query and load local installed fonts (`window.queryLocalFonts()`).
+    pub load_system_fonts: Option<Box<dyn Fn()>>,
     /// Desktop: File › Options › General › Make WordCraft the default for Word documents (#295),
     /// only from that button (never a programmatic command). Windows opens the Settings app's
     /// Default apps page (apps can't set defaults themselves); Linux and BSD set it with
@@ -458,6 +460,8 @@ pub struct WordApp {
     styled: bool,
     /// The CJK face order the installed UI fonts use (Chinese first, or Japanese first).
     fonts_hans: bool,
+    /// Whether the installed UI fonts use the Korean CJK face order.
+    fonts_korean: bool,
     /// Whether the installed UI fonts include an installed CJK fallback font (#241).
     fonts_system_cjk: bool,
     /// CJK text is (about to be) on screen in a non-CJK interface, e.g. the language names in
@@ -586,6 +590,7 @@ impl WordApp {
             nav_search_focus: false,
             styled: false,
             fonts_hans: false,
+            fonts_korean: false,
             fonts_system_cjk: false,
             want_system_cjk: false,
             fonts_frames: 0,
@@ -1215,6 +1220,7 @@ impl WordApp {
                 }
                 "insertPicture" => self.pick_picture(),
                 "addFont" => self.pick_font(),
+                "loadSystemFonts" => self.load_system_fonts(),
                 "print" => {
                     self.ui.backstage = true;
                     self.ui.backstage_page = "print".into();
@@ -1827,9 +1833,11 @@ impl WordApp {
     /// face has changed since the last install.
     fn install_ui_fonts(&mut self, ctx: &egui::Context, lang: i18n::Lang) {
         let system_cjk = self.fonts_system_cjk || self.want_system_cjk || lang.uses_cjk();
-        if !self.styled || lang.prefers_hans() != self.fonts_hans || system_cjk != self.fonts_system_cjk {
-            theme::install_fonts_extra(ctx, lang.prefers_hans(), system_cjk, &self.canvas.ime_faces);
+        if !self.styled || lang.prefers_hans() != self.fonts_hans || lang.prefers_korean() != self.fonts_korean || system_cjk != self.fonts_system_cjk
+        {
+            theme::install_fonts_language_extra(ctx, lang.prefers_hans(), lang.prefers_korean(), system_cjk, &self.canvas.ime_faces);
             self.fonts_hans = lang.prefers_hans();
+            self.fonts_korean = lang.prefers_korean();
             self.fonts_system_cjk = system_cjk;
             // Mod with -, = and 0 are Word shortcuts (optional hyphen, subscript, paragraph spacing);
             // egui's keyboard zoom would also scale the whole window on them. Zoom is View › Zoom.
@@ -2251,6 +2259,10 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "chart.editData" if !["data", "categories", "series"].into_iter().any(has) => Some("chartData"),
         // Table Properties without settings shows the dialog (with settings it applies them).
         "table.properties" if params.as_object().is_none_or(|m| m.is_empty()) => Some("tableProperties"),
+        // Formula without one asks for it, suggested from the numbers next to the cell (#1201).
+        "table.formula" if !has("formula") => Some("tableFormula"),
+        // Sort without settings asks for the column, order and header row (#1200).
+        "table.sort" if params.as_object().is_none_or(|m| m.is_empty()) => Some("tableSort"),
         // Tabs, Borders and Shading, and Page Borders without settings show their dialogs (#320).
         "para.tabs" if params.as_object().is_none_or(|m| m.is_empty()) => Some("tabs"),
         "para.borders" if params.as_object().is_none_or(|m| m.is_empty()) => Some("borders"),

@@ -1580,6 +1580,11 @@
 	Add Font…	Lisa font…
 	Added Fonts	Lisatud fondid
 	Remove Added Font	Eemalda lisatud font
+	Load System Installed Fonts…	Laadi süsteemi installitud fondid…
+	All system fonts are already available.	Kõik süsteemifondid on juba saadaval.
+	Local font access is not supported by your browser.	Teie brauser ei toeta kohalike fontide juurdepääsu.
+	Local font access was denied.	Juurdepääs kohalikele fontidele keelati.
+	Loaded {count} system fonts.	Laaditi {count} süsteemifonti.
 	Recent Colors	Viimati kasutatud värvid
 	More Colors…	Rohkem värve…
 	Standard	Standard
@@ -2241,3 +2246,11 @@
 	Existing File or Web Page	Olemasolev fail või veebileht
 	Link to:	Link:
 	Place in This Document	Koht selles dokumendis
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Veerg {n}
+	Header row	Päiserida
+	No header row	Päiserida puudub
+	My list has	Minu loendil on
+# Table Layout › Formula dialog (#1210)
+	Formula:	Valem:
+	Paste function:	Kleebi funktsioon:
