@@ -2248,6 +2248,19 @@
 
 # Backstage › Recover (#586)
 	Recover	Taasta
+	Recover documents	Taasta dokumendid
+	Restore opens an unsaved copy. Your original file stays unchanged.	Taastamine avab salvestamata koopia. Algne fail jääb muutmata.
+	Recovery is disabled while this document has a password.	Taastamine on keelatud, kuni sellel dokumendil on parool.
+	Local recovery is unavailable or still loading.	Kohalik taastamine pole saadaval või alles laadib.
+	No recovery copies.	Taastekoopiaid pole.
+	Recovery copy	Taastekoopia
+	Restore	Taasta
+	Discard…	Loobu…
+	Continue without restoring	Jätka taastamata
+	Discard recovery copy	Loobu taastekoopiast
+	Discard the recovery copy of {name}?	Kas loobuda dokumendi {name} taastekoopiast?
+	This cannot be undone. Your original file stays unchanged.	Seda ei saa tagasi võtta. Algne fail jääb muutmata.
+	Discard	Loobu
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Peegelveerised

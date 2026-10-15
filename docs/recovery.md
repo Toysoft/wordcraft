@@ -10,7 +10,11 @@ Continue without restoring leaves copies available. Discard asks for confirmatio
 the selected copy, including its retained generation. It does not delete the editing document.
 After discarding that document's copy, another copy is made only after a further edit.
 A successful save removes that document's recovery copy on the next worker cycle while it
-remains open. Copies left after switching documents can still be explicitly discarded.
+remains open; if the document is replaced first (Save, then New or Open straight away), its copy
+is removed as soon as the worker is free, and closing the app with a saved document removes it
+before exit. Don't Save removes the abandoned document's copy at once. An unsaved document
+replaced without a choice (an agent's `file.open`) keeps its copy, offered at the next start.
+Copies left from earlier sessions can still be explicitly discarded.
 
 Documents with a password do not get plaintext recovery copies. Applying a password waits for
 any pending snapshot, removes the current document's recovery generations, and fails if cleanup
@@ -25,10 +29,14 @@ separate profile for isolated runs, including preferences, logs and control keys
 and the browser do not create recovery files implicitly.
 
 The desktop host checks for a dirty document every frame but snapshots at most once per ten
-seconds, and only when its revision changes. It clones the shared document model for a bounded
-worker queue. Encoding, file I/O, full-document validation and discovery run on the worker.
+seconds, and only when its revision changes. After a snapshot that took `t`, the next waits at
+least 20·`t` (at most five minutes), so recovery stays under about 5% of a core on large
+documents. It clones the shared document model for a bounded worker queue. Encoding, file I/O,
+full-document validation and discovery run on the worker.
 An unchanged document does not schedule repeated recovery repaints. The most recent edits can
-be lost if a crash happens before the next snapshot or while its write is still pending.
+be lost if a crash happens before the next snapshot or while its write is still pending. When
+the session ends normally, the worker finishes the snapshot under way and releases its locks
+first.
 
 Version 1 snapshots wrap the native JSON document with an id, document name, timestamp and
 monotonic generation. Native JSON now includes media bytes, opaque preserved parts, and
@@ -40,19 +48,22 @@ recover content already lost during import or make later export more faithful th
 Each generation is written exclusively to a temporary file, flushed and synchronized, decoded
 and compared with the source document, then renamed to a new generation. The last valid
 snapshot is retained until its successor is valid. Discovery falls back to an older valid copy
-if the newest is corrupt and reports unreadable files. Abandoned temporary files are cleaned
-only after acquiring that record's lock. Native file locks prevent other running instances from
-restoring or deleting a live record. Unix folders/files use modes 0700/0600; Windows uses the
-profile's inherited permissions. Directory synchronization runs on Unix; Windows synchronizes
-the file but does not yet explicitly synchronize directory metadata. Power-loss durability on
-Windows is therefore unverified.
+if the newest is corrupt and reports unreadable files. A record that can't be read at all (say,
+with more generations than discovery reads) is skipped and reported; the others are listed.
+Abandoned temporary files are cleaned only after acquiring that record's lock. Native file locks
+prevent other running instances from restoring or deleting a live record. Unix folders/files
+use modes 0700/0600, and an existing recovery or record folder that others could read is made
+0700 before a copy is written into it; Windows uses the profile's inherited permissions.
+Directory synchronization runs on Unix; Windows synchronizes the file but does not yet
+explicitly synchronize directory metadata. Power-loss durability on Windows is therefore
+unverified.
 
 Limits are 256 MiB of encoded JSON per snapshot, 2 GiB of snapshot files per profile, 128 records
 and 16 generations per record during discovery. Ordinarily only two valid generations remain.
 Copies are retained until saved or explicitly discarded; there is no automatic age-based deletion.
 Over-limit writes report an error and retain the previous valid copy. JSON stores binary parts
-as byte arrays, so it can be substantially larger than DOCX. This first version has a fixed
-interval, English fallback for new labels, and no cloud, version-history or browser recovery.
+as byte arrays, so it can be substantially larger than DOCX. There is no cloud,
+version-history or browser recovery.
 
 ## Commands and verification
 

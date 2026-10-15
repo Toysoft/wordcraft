@@ -2602,6 +2602,19 @@
 
 # Backstage › Recover (#586)
 	Recover	Възстановяване
+	Recover documents	Възстановяване на документи
+	Restore opens an unsaved copy. Your original file stays unchanged.	Възстановяването отваря незаписано копие. Оригиналният файл остава непроменен.
+	Recovery is disabled while this document has a password.	Възстановяването е изключено, докато документът има парола.
+	Local recovery is unavailable or still loading.	Локалното възстановяване не е налично или все още се зарежда.
+	No recovery copies.	Няма копия за възстановяване.
+	Recovery copy	Копие за възстановяване
+	Restore	Възстановяване
+	Discard…	Отхвърляне…
+	Continue without restoring	Продължаване без възстановяване
+	Discard recovery copy	Отхвърляне на копието за възстановяване
+	Discard the recovery copy of {name}?	Да се отхвърли ли копието за възстановяване на {name}?
+	This cannot be undone. Your original file stays unchanged.	Това не може да бъде отменено. Оригиналният файл остава непроменен.
+	Discard	Отхвърляне
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Огледални полета

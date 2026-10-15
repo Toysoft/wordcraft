@@ -2609,6 +2609,19 @@
 
 # Backstage › Recover (#586)
 	Recover	Helyreállítás
+	Recover documents	Dokumentumok helyreállítása
+	Restore opens an unsaved copy. Your original file stays unchanged.	A visszaállítás egy mentetlen másolatot nyit meg. Az eredeti fájl változatlan marad.
+	Recovery is disabled while this document has a password.	A helyreállítás ki van kapcsolva, amíg a dokumentumnak jelszava van.
+	Local recovery is unavailable or still loading.	A helyi helyreállítás nem érhető el, vagy még betöltés alatt áll.
+	No recovery copies.	Nincs helyreállítási másolat.
+	Recovery copy	Helyreállítási másolat
+	Restore	Visszaállítás
+	Discard…	Elvetés…
+	Continue without restoring	Folytatás visszaállítás nélkül
+	Discard recovery copy	Helyreállítási másolat elvetése
+	Discard the recovery copy of {name}?	Elveti a(z) {name} helyreállítási másolatát?
+	This cannot be undone. Your original file stays unchanged.	Ez nem vonható vissza. Az eredeti fájl változatlan marad.
+	Discard	Elvetés
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Tükrözött margók

@@ -2605,6 +2605,19 @@ preview	Title	Ukázka
 
 # Backstage › Recover (#586)
 	Recover	Obnovit
+	Recover documents	Obnovit dokumenty
+	Restore opens an unsaved copy. Your original file stays unchanged.	Obnovení otevře neuloženou kopii. Původní soubor zůstane beze změny.
+	Recovery is disabled while this document has a password.	Obnovení je vypnuté, dokud má tento dokument heslo.
+	Local recovery is unavailable or still loading.	Místní obnovení není k dispozici nebo se stále načítá.
+	No recovery copies.	Žádné kopie pro obnovení.
+	Recovery copy	Kopie pro obnovení
+	Restore	Obnovit
+	Discard…	Zahodit…
+	Continue without restoring	Pokračovat bez obnovení
+	Discard recovery copy	Zahodit kopii pro obnovení
+	Discard the recovery copy of {name}?	Zahodit kopii pro obnovení dokumentu {name}?
+	This cannot be undone. Your original file stays unchanged.	Tuto akci nelze vrátit zpět. Původní soubor zůstane beze změny.
+	Discard	Zahodit
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Zrcadlové okraje

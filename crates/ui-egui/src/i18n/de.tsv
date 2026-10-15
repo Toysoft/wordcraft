@@ -2213,6 +2213,19 @@
 
 # Backstage › Recover (#586)
 	Recover	Wiederherstellen
+	Recover documents	Dokumente wiederherstellen
+	Restore opens an unsaved copy. Your original file stays unchanged.	Beim Wiederherstellen wird eine ungespeicherte Kopie geöffnet. Ihre Originaldatei bleibt unverändert.
+	Recovery is disabled while this document has a password.	Die Wiederherstellung ist deaktiviert, solange dieses Dokument ein Kennwort hat.
+	Local recovery is unavailable or still loading.	Die lokale Wiederherstellung ist nicht verfügbar oder wird noch geladen.
+	No recovery copies.	Keine Wiederherstellungskopien.
+	Recovery copy	Wiederherstellungskopie
+	Restore	Wiederherstellen
+	Discard…	Verwerfen…
+	Continue without restoring	Ohne Wiederherstellen fortfahren
+	Discard recovery copy	Wiederherstellungskopie verwerfen
+	Discard the recovery copy of {name}?	Wiederherstellungskopie von {name} verwerfen?
+	This cannot be undone. Your original file stays unchanged.	Dies kann nicht rückgängig gemacht werden. Ihre Originaldatei bleibt unverändert.
+	Discard	Verwerfen
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Gegenüberliegende Seiten

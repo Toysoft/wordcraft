@@ -2611,6 +2611,19 @@ preview	Title	Пример
 
 # Backstage › Recover (#586)
 	Recover	Восстановить
+	Recover documents	Восстановить документы
+	Restore opens an unsaved copy. Your original file stays unchanged.	При восстановлении открывается несохранённая копия. Исходный файл не изменится.
+	Recovery is disabled while this document has a password.	Восстановление отключено, пока у документа есть пароль.
+	Local recovery is unavailable or still loading.	Локальное восстановление недоступно или ещё загружается.
+	No recovery copies.	Нет копий для восстановления.
+	Recovery copy	Копия для восстановления
+	Restore	Восстановить
+	Discard…	Удалить…
+	Continue without restoring	Продолжить без восстановления
+	Discard recovery copy	Удалить копию для восстановления
+	Discard the recovery copy of {name}?	Удалить копию для восстановления документа {name}?
+	This cannot be undone. Your original file stays unchanged.	Это действие нельзя отменить. Исходный файл не изменится.
+	Discard	Удалить
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Зеркальные поля

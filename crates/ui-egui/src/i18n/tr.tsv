@@ -2610,6 +2610,19 @@ preview	Title	Örnek
 
 # Backstage › Recover (#586)
 	Recover	Kurtar
+	Recover documents	Belgeleri kurtar
+	Restore opens an unsaved copy. Your original file stays unchanged.	Geri yükleme kaydedilmemiş bir kopya açar. Özgün dosyanız değişmeden kalır.
+	Recovery is disabled while this document has a password.	Bu belgenin parolası olduğu sürece kurtarma devre dışıdır.
+	Local recovery is unavailable or still loading.	Yerel kurtarma kullanılamıyor veya hâlâ yükleniyor.
+	No recovery copies.	Kurtarma kopyası yok.
+	Recovery copy	Kurtarma kopyası
+	Restore	Geri yükle
+	Discard…	At…
+	Continue without restoring	Geri yüklemeden devam et
+	Discard recovery copy	Kurtarma kopyasını at
+	Discard the recovery copy of {name}?	{name} belgesinin kurtarma kopyası atılsın mı?
+	This cannot be undone. Your original file stays unchanged.	Bu işlem geri alınamaz. Özgün dosyanız değişmeden kalır.
+	Discard	At
 
 # Page Setup › Mirror margins (#1239)
 	Mirror margins	Yansıtılmış kenar boşlukları

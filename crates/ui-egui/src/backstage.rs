@@ -598,6 +598,34 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// Don't Save gives the changes up, so their recovery copy goes too: it was left behind and
+    /// offered as unsaved work at every later start. Restoring over unsaved work still keeps the
+    /// copies (Don't Save there is before a restore).
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn dont_save_discards_the_recovery_copy() {
+        let (app, root) = recovery_app();
+        let id = "0123456789abcdef0123456789abcdef";
+        let mut h = recovery_harness(app);
+        settle_recovery(&mut h);
+        h.state_mut().run("file.recover", json!({"restore": id})).unwrap();
+        settle_recovery(&mut h);
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Recovered synthetic work");
+        // Restoring the same copy again over its own unsaved document doesn't lose it.
+        assert_eq!(h.state_mut().run("file.recover", json!({"restore": id})).unwrap()["pending"], "saveChanges");
+        h.state_mut().run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        settle_recovery(&mut h);
+        assert!(root.join(id).exists());
+        assert_eq!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Recovered synthetic work");
+        assert_eq!(h.state_mut().run("file.new", json!({})).unwrap()["pending"], "saveChanges");
+        h.state_mut().run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert!(!root.join(id).exists(), "the abandoned copy is gone at once");
+        settle_recovery(&mut h);
+        assert!(h.state().session.recovery_documents().is_empty());
+        drop(h);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn template_search_matches_labels_case_insensitively() {
         let ids = |q: &str| matching_templates(q).into_iter().map(|(_, id)| id).collect::<Vec<_>>();
