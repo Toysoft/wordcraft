@@ -798,11 +798,11 @@ dependencies = [
 [[package]]
 name = "collabcraft-share"
 version = "0.1.0"
-source = "git+https://github.com/wdunn001/collabcraft?rev=c4cddcd#c4cddcd06c13d713c11bedbd2149a74addd1df16"
+source = "git+https://github.com/wdunn001/collabcraft?rev=80bfaec#80bfaec3e581213bb5bcfedc42079525aec5a1af"
 dependencies = [
- "craft-cloud",
+ "craft-cloud 0.1.0 (git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
  "craft-cloud-client",
- "craft-ui",
+ "craft-ui 0.1.0 (git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
  "wasm-bindgen-futures",
 ]
 
@@ -948,7 +948,16 @@ dependencies = [
 [[package]]
 name = "craft-cloud"
 version = "0.1.0"
-source = "git+https://github.com/wdunn001/craft-libs?rev=effb5ca#effb5ca2c30314f0d628a64c41f1b82b6ce2ec84"
+source = "git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454#289d562cc6e8b567819aee51f759a78f41a65454"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "craft-cloud"
+version = "0.1.0"
+source = "git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454#289d562cc6e8b567819aee51f759a78f41a65454"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -957,10 +966,12 @@ dependencies = [
 [[package]]
 name = "craft-cloud-client"
 version = "0.1.0"
-source = "git+https://github.com/wdunn001/collabcraft?rev=c4cddcd#c4cddcd06c13d713c11bedbd2149a74addd1df16"
+source = "git+https://github.com/wdunn001/collabcraft?rev=80bfaec#80bfaec3e581213bb5bcfedc42079525aec5a1af"
 dependencies = [
- "craft-cloud",
+ "craft-cloud 0.1.0 (git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "craft-collab",
  "js-sys",
+ "log",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -973,14 +984,16 @@ dependencies = [
 [[package]]
 name = "craft-collab"
 version = "0.1.0"
-source = "git+https://github.com/wdunn001/collabcraft?rev=c4cddcd#c4cddcd06c13d713c11bedbd2149a74addd1df16"
+source = "git+https://github.com/wdunn001/collabcraft?rev=80bfaec#80bfaec3e581213bb5bcfedc42079525aec5a1af"
 dependencies = [
+ "js-sys",
  "log",
  "rust_socketio",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -994,9 +1007,18 @@ dependencies = [
 [[package]]
 name = "craft-ui"
 version = "0.1.0"
-source = "git+https://github.com/wdunn001/craft-libs?rev=effb5ca#effb5ca2c30314f0d628a64c41f1b82b6ce2ec84"
+source = "git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454#289d562cc6e8b567819aee51f759a78f41a65454"
 dependencies = [
- "craft-cloud",
+ "craft-cloud 0.1.0 (git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "egui",
+]
+
+[[package]]
+name = "craft-ui"
+version = "0.1.0"
+source = "git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454#289d562cc6e8b567819aee51f759a78f41a65454"
+dependencies = [
+ "craft-cloud 0.1.0 (git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
  "egui",
  "serde_json",
 ]
@@ -6122,7 +6144,7 @@ dependencies = [
  "craft-cloud-client",
  "craft-collab",
  "craft-print",
- "craft-ui",
+ "craft-ui 0.1.0 (git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
  "dispatch2",
  "eframe",
  "egui",
@@ -6359,8 +6381,8 @@ dependencies = [
 name = "wordcraft-ui-egui"
 version = "0.6.1"
 dependencies = [
- "craft-cloud",
- "craft-ui",
+ "craft-cloud 0.1.0 (git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "craft-ui 0.1.0 (git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
  "egui",
  "egui_kittest",
  "image",
@@ -6385,6 +6407,8 @@ dependencies = [
 name = "wordcraft-web"
 version = "0.6.1"
 dependencies = [
+ "collabcraft-share",
+ "craft-cloud-client",
  "eframe",
  "egui",
  "js-sys",

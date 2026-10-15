@@ -60,6 +60,11 @@ pub fn start() {
                     session.system_region = region;
                     let mut app = WordApp::new(session, services(inbox.clone(), cc.egui_ctx.clone(), dirty, saves.clone()));
                     app.autosave = false;
+                    app.cloud.connect(crate::cloud::Service::new(cc.egui_ctx.clone()));
+                    if let Some(share) = collabcraft_share::CollabCraft::from_env() {
+                        app.share.connect(share);
+                    }
+                    wordcraft_ui_egui::cloud::start(&mut app);
                     // No document to show: start on File › Home, as the desktop app does (#766).
                     if !sample {
                         app.start_screen();
