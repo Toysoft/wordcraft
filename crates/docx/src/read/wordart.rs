@@ -23,7 +23,7 @@ pub(crate) fn read(e: &El, theme: &[Rgb], fx: &mut TextEffects) -> bool {
                 },
                 None => (Some(Rgb::BLACK), 0.0),
             };
-            fx.outline = Some(TextOutline { color, width: emu(e, "w14:w"), transparency });
+            fx.outline = Some(TextOutline { color, width: emu_or(e, "w14:w", 0.75), transparency });
         }
         "w14:shadow" => {
             let (color, transparency) = color(e, theme).unwrap_or((Rgb::BLACK, 60.0));
@@ -58,8 +58,12 @@ pub(crate) fn read(e: &El, theme: &[Rgb], fx: &mut TextEffects) -> bool {
     true
 }
 
+fn emu_or(e: &El, n: &str, d: f32) -> f32 {
+    e.attr(n).and_then(|v| measure(v, 12_700.0)).filter(|v| v.is_finite()).unwrap_or(d).clamp(0.0, 2000.0)
+}
+
 fn emu(e: &El, n: &str) -> f32 {
-    e.attr(n).and_then(|v| measure(v, 12_700.0)).filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 2000.0)
+    emu_or(e, n, 0.0)
 }
 
 fn angle(e: &El, n: &str) -> f32 {
@@ -94,18 +98,29 @@ fn fill(e: &El, theme: &[Rgb]) -> Option<TextFill> {
     }
 }
 
-/// The colour element inside `e` (`w14:srgbClr`, `w14:schemeClr`) with its modifiers, and its
+/// The colour element inside `e` (`w14:srgbClr`, `w14:schemeClr`, `w14:prstClr`, `w14:sysClr`) with its modifiers, and its
 /// transparency (percent, from `w14:alpha`).
 fn color(e: &El, theme: &[Rgb]) -> Option<(Rgb, f32)> {
-    let c = e.els().find(|c| matches!(c.name.as_str(), "w14:srgbClr" | "w14:schemeClr"))?;
+    let c = e.els().find(|c| matches!(c.name.as_str(), "w14:srgbClr" | "w14:schemeClr" | "w14:prstClr" | "w14:sysClr"))?;
     let val = c.attr("w14:val")?;
-    let mut rgb = if c.name == "w14:srgbClr" { Rgb::parse(val)? } else { super::drawing_color::scheme(val, theme)? };
+    let mut rgb = match c.name.as_str() {
+        "w14:srgbClr" => Rgb::parse(val)?,
+        "w14:schemeClr" => super::drawing_color::scheme(val, theme)?,
+        "w14:prstClr" => super::drawing_color::preset_color(val)?,
+        "w14:sysClr" => match c.attr("w14:lastClr").or_else(|| c.attr("lastClr")).and_then(Rgb::parse) {
+            Some(rgb) => rgb,
+            None => super::drawing_color::preset_color(val)?,
+        },
+        _ => return None,
+    };
     let mut transparency = 0.0;
-    for m in c.els() {
+    for m in c.els().chain(e.els().filter(|m| m.name.as_str() == "w14:alpha")) {
         let v = m.attr("w14:val").and_then(int).map_or(0.0, |v| (v as f64 / 100_000.0).clamp(-10.0, 10.0));
         match m.name.as_str() {
             "w14:lumMod" => rgb = super::drawing_color::lum(rgb, |l| l * v),
             "w14:lumOff" => rgb = super::drawing_color::lum(rgb, |l| l + v),
+            "w14:tint" => rgb = super::drawing_color::mix(rgb, 255.0, v),
+            "w14:shade" => rgb = super::drawing_color::mix(rgb, 0.0, v),
             // Unlike DrawingML's `a:alpha`, `w14:alpha` is the transparency.
             "w14:alpha" => transparency = (v.clamp(0.0, 1.0) * 100.0) as f32,
             _ => {}
@@ -113,3 +128,56 @@ fn color(e: &El, theme: &[Rgb]) -> Option<(Rgb, f32)> {
     }
     Some((rgb, transparency))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wordcraft_doc::THEME_COLORS;
+
+    const NS: &str = r#"xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml""#;
+
+    fn el(name: &str, attrs: &str, body: &str) -> El {
+        crate::xml::parse(format!(r#"<{name} {NS} {attrs}>{body}</{name}>"#).as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn text_outline_defaults_to_point_75_when_width_omitted() {
+        let theme = THEME_COLORS.to_vec();
+        let mut fx = TextEffects::default();
+        let e = el("w14:textOutline", "", r#"<w14:solidFill><w14:srgbClr w14:val="FF0000"/></w14:solidFill>"#);
+        assert!(read(&e, &theme, &mut fx));
+        let o = fx.outline.expect("outline should be present");
+        assert_eq!(o.color, Some(Rgb(255, 0, 0)));
+        assert_eq!(o.width, 0.75);
+    }
+
+    #[test]
+    fn preset_color_in_wordart_fill_and_glow() {
+        let theme = THEME_COLORS.to_vec();
+        let mut fx = TextEffects::default();
+        let fill_el = el("w14:textFill", "", r#"<w14:solidFill><w14:prstClr w14:val="blue"/></w14:solidFill>"#);
+        assert!(read(&fill_el, &theme, &mut fx));
+        assert_eq!(fx.fill, Some(TextFill::Solid { color: Rgb(0, 0, 255), transparency: 0.0 }));
+
+        let glow_el = el("w14:glow", r#"w14:rad="63500""#, r#"<w14:prstClr w14:val="red"/><w14:alpha w14:val="40000"/>"#);
+        assert!(read(&glow_el, &theme, &mut fx));
+        let g = fx.glow.expect("glow should be present");
+        assert_eq!(g.color, Rgb(255, 0, 0));
+        assert_eq!(g.size, 5.0);
+        assert_eq!(g.transparency, 40.0);
+    }
+
+    #[test]
+    fn tint_and_shade_modifiers_in_wordart() {
+        let theme = THEME_COLORS.to_vec();
+        let mut fx = TextEffects::default();
+        let tint_el = el("w14:textFill", "", r#"<w14:solidFill><w14:srgbClr w14:val="000000"><w14:tint w14:val="50000"/></w14:srgbClr></w14:solidFill>"#);
+        assert!(read(&tint_el, &theme, &mut fx));
+        if let Some(TextFill::Solid { color, .. }) = fx.fill {
+            assert!(color.0.abs_diff(128) <= 1 && color.1.abs_diff(128) <= 1 && color.2.abs_diff(128) <= 1);
+        } else {
+            panic!("expected solid fill with tint");
+        }
+    }
+}
+
