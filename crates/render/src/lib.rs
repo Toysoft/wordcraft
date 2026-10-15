@@ -186,7 +186,7 @@ pub fn decode_pixmap(bytes: &[u8]) -> Option<Pixmap> {
 fn decode_pixmap_within(bytes: &[u8], budget: u64) -> Option<Pixmap> {
     // The header gives the size; refuse before the decoder (and the RGBA copy) allocate anything.
     let (hw, hh) = image_size(bytes)?;
-    if !wordcraft_geom::rgba_fits(hw, hh, budget) {
+    if !wordcraft_geom::decode_fits(hw, hh, budget) {
         return None;
     }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
@@ -194,7 +194,7 @@ fn decode_pixmap_within(bytes: &[u8], budget: u64) -> Option<Pixmap> {
     limits.max_image_width = Some(MAX_DECODE_SIDE);
     limits.max_image_height = Some(MAX_DECODE_SIDE);
     reader.limits(limits);
-    let img = reader.decode().ok()?.to_rgba8();
+    let img = reader.decode().ok()?.into_rgba8();
     let (w, h) = img.dimensions();
     premul_pixmap(w, h, img.as_raw())
 }
@@ -600,7 +600,9 @@ pub fn render_text_line(face: &wordcraft_fonts::FontFace, text: &str, size: f32,
     let fin = |v: f32, d: f32| if v.is_finite() && v >= 0.0 { v } else { d };
     let (size, w, h, margin) = (fin(size, 12.0).min(1000.0) as f64, fin(w, 1.0), fin(h, 1.0), fin(margin, 0.0).min(1000.0) as f64);
     let scale = if scale.is_finite() && scale > 0.0 { scale.min(16.0) } else { 1.0 };
-    let (w16, h16) = (((w * scale).ceil() as u32).clamp(1, MAX_SIDE) as u16, ((h * scale).ceil() as u32).clamp(1, MAX_SIDE) as u16);
+    let (pw, ph) = (((w * scale).ceil() as u32).clamp(1, MAX_SIDE), ((h * scale).ceil() as u32).clamp(1, MAX_SIDE));
+    let (cw, ch) = wordcraft_geom::fit_pixels(pw, ph, wordcraft_geom::MAX_RASTER_PIXELS);
+    let (w16, h16) = (cw as u16, ch as u16);
     let mut ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: 0, ..Default::default() });
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(color(Rgb(255, 255, 255), 1.0));
@@ -608,7 +610,7 @@ pub fn render_text_line(face: &wordcraft_fonts::FontFace, text: &str, size: f32,
     ctx.set_paint(color(Rgb(0, 0, 0), 1.0));
     let upem = if face.upem.is_finite() && face.upem > 0.0 { face.upem } else { 1000.0 };
     let k = size / upem;
-    let view = Affine::scale(scale as f64);
+    let view = Affine::scale_non_uniform(cw as f64 / pw as f64, ch as f64 / ph as f64) * Affine::scale(scale as f64);
     let ascent = if face.ascent.is_finite() { face.ascent.clamp(0.0, upem * 4.0) } else { upem * 0.8 };
     let baseline = margin + ascent * k;
     let mut x = margin;
@@ -1357,19 +1359,44 @@ mod tests {
         assert_eq!(&img.pixels[0..3], &[255, 255, 255]);
     }
 
+    /// A PNG signature, an IHDR declaring `w`×`h` 8-bit RGBA and a short IDAT (all CRCs valid, so
+    /// the header parses), with no real pixel data.
+    fn ihdr_only_png(w: u32, h: u32) -> Vec<u8> {
+        fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+            let mut body = kind.to_vec();
+            body.extend_from_slice(data);
+            let mut crc = 0xFFFF_FFFFu32;
+            for b in &body {
+                crc ^= *b as u32;
+                for _ in 0..8 {
+                    crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+                }
+            }
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            out.extend_from_slice(&body);
+            out.extend_from_slice(&(!crc).to_be_bytes());
+        }
+        let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let mut ihdr = w.to_be_bytes().to_vec();
+        ihdr.extend_from_slice(&h.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+        chunk(&mut out, b"IHDR", &ihdr);
+        chunk(&mut out, b"IDAT", &[0x78, 0x9c, 0, 0]);
+        out
+    }
+
     #[test]
     fn decode_budget_is_checked_from_the_header() {
         let mut buf = Vec::new();
         let img = image::RgbaImage::from_fn(16, 8, |x, y| image::Rgba([x as u8, y as u8, 9, 255]));
         img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
-        assert!(decode_pixmap_within(&buf, 512).is_some());
-        assert!(decode_pixmap_within(&buf, 511).is_none());
-        // An IHDR claiming 60000x60000 with no pixel data is refused by its header alone.
-        let mut hdr = buf[..33].to_vec();
-        hdr[16..20].copy_from_slice(&60_000u32.to_be_bytes());
-        hdr[20..24].copy_from_slice(&60_000u32.to_be_bytes());
+        // Decode, the RGBA conversion and the premultiplied copy are charged: two buffers at peak.
+        assert!(decode_pixmap_within(&buf, 1024).is_some());
+        assert!(decode_pixmap_within(&buf, 1023).is_none());
+        // A header (valid CRC) claiming 60000x60000 with no pixel data reads fine, then the budget refuses it.
+        let hdr = ihdr_only_png(60_000, 60_000);
+        assert_eq!(image_size(&hdr), Some((60_000, 60_000)));
         assert!(decode_pixmap(&hdr).is_none());
-        assert!(decode_pixmap_within(&hdr, u64::MAX).is_none());
     }
 
     #[test]

@@ -17,6 +17,12 @@ pub fn rgba_fits(w: u32, h: u32, budget: u64) -> bool {
     w > 0 && h > 0 && rgba_bytes(w, h).is_some_and(|b| b <= budget)
 }
 
+/// Whether decoding a `w`×`h` picture fits `budget` bytes at its peak: the decoder's buffer and
+/// the RGBA conversion (or its premultiplied copy) are alive together, so two RGBA buffers.
+pub fn decode_fits(w: u32, h: u32, budget: u64) -> bool {
+    w > 0 && h > 0 && rgba_bytes(w, h).and_then(|b| b.checked_mul(2)).is_some_and(|b| b <= budget)
+}
+
 /// `w`×`h` shrunk (aspect kept, each side at least 1) until it holds at most `max_pixels`.
 pub fn fit_pixels(w: u32, h: u32, max_pixels: u64) -> (u32, u32) {
     let (w, h) = (w.max(1), h.max(1));
@@ -42,7 +48,9 @@ mod tests {
         assert!(rgba_fits(16, 8, 512));
         assert!(!rgba_fits(16, 8, 511));
         assert!(!rgba_fits(0, 8, 512), "empty is not a picture");
-        assert!(!rgba_fits(u32::MAX, u32::MAX, u64::MAX) || rgba_bytes(u32::MAX, u32::MAX).is_some());
+        assert!(decode_fits(16, 8, 1024));
+        assert!(!decode_fits(16, 8, 1023), "decode + conversion hold two buffers");
+        assert!(!decode_fits(0, 8, u64::MAX));
     }
 
     #[test]

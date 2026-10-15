@@ -1684,12 +1684,10 @@ fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
 /// [`load_image`] with an explicit RGBA byte budget (a small one in tests).
 fn load_image_within(data: &Arc<Vec<u8>>, budget: u64) -> Option<Image> {
     let fmt = image::guess_format(data).ok()?;
-    // The side check below used to run only after a full decode; applying it as a decode limit
-    // rejects a small file that declares a huge image at header time instead. The default
-    // allocation cap (512 MB, what `load_from_memory_with_format` applied) stays in force.
-    // Header-only size check before anything is allocated; the RGBA conversion below is the same size.
+    // Header-only size check before anything is allocated (decode buffer + RGBA conversion are
+    // charged); the side limits and the default 512 MB allocation cap stay as a second guard.
     let (hw, hh) = image::ImageReader::new(std::io::Cursor::new(data.as_slice())).with_guessed_format().ok()?.into_dimensions().ok()?;
-    if !wordcraft_geom::rgba_fits(hw, hh, budget) {
+    if !wordcraft_geom::decode_fits(hw, hh, budget) {
         return None;
     }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(data.as_slice())).with_guessed_format().ok()?;
@@ -1705,7 +1703,7 @@ fn load_image_within(data: &Arc<Vec<u8>>, budget: u64) -> Option<Image> {
     if fmt == image::ImageFormat::Jpeg && matches!(dec.color(), image::ColorType::L8 | image::ColorType::Rgb8) {
         return Image::from_jpeg(data.clone().into(), true).ok();
     }
-    Some(Image::from_rgba8(dec.to_rgba8().into_raw(), w, h))
+    Some(Image::from_rgba8(dec.into_rgba8().into_raw(), w, h))
 }
 
 #[cfg(test)]
