@@ -2830,3 +2830,25 @@ fn row_table_borders_round_trip() {
     let again = wordcraft_docx::read(&saved).unwrap();
     assert_eq!(d.body, again.body);
 }
+
+#[test]
+fn bookmark_end_name_and_id_trim() {
+    let body = r#"<w:p>
+        <w:bookmarkStart w:id=" 42 " w:name="section_intro"/>
+        <w:r><w:t>Hello</w:t></w:r>
+        <w:bookmarkEnd w:id="42"/>
+        <w:bookmarkEnd w:id="999" w:name="standalone_target"/>
+    </w:p>"#;
+    let doc = wordcraft_docx::read(&docx(body, &[], &[])).unwrap();
+    let p = doc.body.first().unwrap().as_para().unwrap();
+    let names: Vec<(&'static str, String)> = p
+        .objects
+        .iter()
+        .filter_map(|o| match o {
+            InlineObject::BookmarkStart { name } => Some(("start", name.clone())),
+            InlineObject::BookmarkEnd { name } => Some(("end", name.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, vec![("start", "section_intro".into()), ("end", "section_intro".into()), ("end", "standalone_target".into())]);
+}
