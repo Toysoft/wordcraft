@@ -6825,3 +6825,14 @@ fn vertical_align_command_sets_justified() {
         assert_eq!(serde_json::to_value(crate::cmd::page::sect(&s)).unwrap()["valign"], json!(name));
     }
 }
+
+/// #1341: File › Info and the layout summary report how many paragraphs the layout cut at its
+/// line limit (what the layout counts; `wordcraft-layout` tests the cut itself).
+#[test]
+fn info_reports_paragraphs_cut_at_the_line_limit() {
+    let mut a = s();
+    run(&mut a, "document.setText", json!({"text": "One\nTwo"}));
+    let cut = a.layout().truncated_paragraphs;
+    assert_eq!(run(&mut a, "file.info", json!({}))["truncatedParagraphs"], cut);
+    assert_eq!(run(&mut a, "document.layout", json!({}))["truncatedParagraphs"], cut);
+}

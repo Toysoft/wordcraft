@@ -346,6 +346,8 @@ pub struct ParaLayout {
     pub rubies: Vec<RubyLayout>,
     /// Display equations (on lines of their own): cluster index and justification.
     pub displays: Vec<(usize, wordcraft_doc::math::MathJc)>,
+    /// The paragraph reached [`MAX_PARA_LINES`]: text after its last line isn't laid out.
+    pub truncated: bool,
     /// Byte ranges of the text laid out as nothing ([`left_out`]): hidden text that is not shown,
     /// tracked deletions in the final text. Resolved as laid out, table formatting included.
     pub left_out: Vec<std::ops::Range<usize>>,
@@ -1577,6 +1579,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         displays,
         left_out: Vec::new(),
         enclosures,
+        truncated: false,
     };
     let auto = env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens;
     pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps, &runs);
@@ -1612,7 +1615,35 @@ fn next_tab(x: f32, tabs: &[TabStop], default_tab: f32, hanging_at: Option<f32>)
     })
 }
 
+/// Most lines one paragraph lays out: a guard against hangs on hostile input. A longer
+/// paragraph is cut there ([`ParaLayout::truncated`]) and counted in
+/// [`crate::DocLayout::truncated_paragraphs`].
+pub const MAX_PARA_LINES: usize = 200_000;
+
+#[cfg(test)]
+thread_local! {
+    static LINE_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(MAX_PARA_LINES) };
+}
+
+/// The line limit in force ([`MAX_PARA_LINES`], or a test's smaller one).
+fn line_limit() -> usize {
+    #[cfg(test)]
+    return LINE_LIMIT.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    MAX_PARA_LINES
+}
+
+/// Run `f` with a smaller line limit (tests).
+#[cfg(test)]
+pub(crate) fn with_line_limit<T>(limit: usize, f: impl FnOnce() -> T) -> T {
+    let old = LINE_LIMIT.with(|c| c.replace(limit));
+    let r = f();
+    LINE_LIMIT.with(|c| c.set(old));
+    r
+}
+
 fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Option<&Level>) {
+    pl.truncated = false;
     let suffix = level.map(|l| l.suffix);
     let rp = pl.rp.clone();
     let width = env.width.max(12.0);
@@ -2191,7 +2222,9 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             }
             break;
         }
-        if lines.len() > 200_000 {
+        if lines.len() >= line_limit() {
+            // The rest of the paragraph isn't laid out (nor shown); the layout counts the cut.
+            pl.truncated = true;
             break;
         }
     }

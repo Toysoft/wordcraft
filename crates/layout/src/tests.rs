@@ -7233,3 +7233,37 @@ fn justified_multi_column_pages_stay_at_the_top() {
     };
     assert_eq!(last(PageVAlign::Justify), last(PageVAlign::Top));
 }
+
+/// #1341: a paragraph past the line limit stops laying out (a guard against hangs), and the
+/// layout counts it instead of hiding the cut: nothing after the limit is placed.
+#[test]
+fn paragraphs_past_the_line_limit_are_counted() {
+    let doc = |lines: usize| {
+        let text = (1..=lines).map(|i| if i == lines { "TailEnd".to_string() } else { format!("L{i}") }).collect::<Vec<_>>().join("\n");
+        let mut d = Document::new();
+        d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&text, Default::default()))];
+        (d, text)
+    };
+    // Placed text ends where the last placed line stops.
+    let shown_to = |l: &DocLayout| {
+        l.pages
+            .iter()
+            .flat_map(|p| p.items.iter())
+            .filter_map(|it| if let Placed::Lines { para, l1, .. } = it { para.lines.get(l1.saturating_sub(1)).map(|ln| ln.stop) } else { None })
+            .max()
+            .unwrap_or(0)
+    };
+    // At the limit: whole, nothing counted.
+    let (d, text) = doc(3);
+    let l = para::with_line_limit(3, || lay(&d));
+    assert_eq!(l.truncated_paragraphs, 0);
+    assert_eq!(shown_to(&l), text.len());
+    // One line more: cut at the limit, counted, and the tail isn't drawn.
+    let (d, text) = doc(4);
+    let l = para::with_line_limit(3, || lay(&d));
+    assert_eq!(l.truncated_paragraphs, 1);
+    let tail = text.find("TailEnd").unwrap();
+    assert!(shown_to(&l) <= tail, "shown to {} of {}", shown_to(&l), text.len());
+    // The production limit leaves ordinary paragraphs alone.
+    assert_eq!(lay(&d).truncated_paragraphs, 0);
+}

@@ -405,6 +405,7 @@ fn info(s: &mut Session, _: &Value) -> CmdResult {
         "sections": s.doc.sections().len(),
         "encrypted": s.password.is_some(),
         "layoutMs": l.ms,
+        "truncatedParagraphs": l.truncated_paragraphs,
     }))
 }
 
@@ -495,5 +496,5 @@ fn layout_summary(s: &mut Session, _: &Value) -> CmdResult {
         })
         .collect();
     let caret = l.caret_on(&s.sel.focus, s.page_hint).map(|c| json!({"page": c.page, "x": c.x, "y": c.top, "h": c.height}));
-    Ok(json!({"pages": pages, "caret": caret, "ms": l.ms}))
+    Ok(json!({"pages": pages, "caret": caret, "ms": l.ms, "truncatedParagraphs": l.truncated_paragraphs}))
 }

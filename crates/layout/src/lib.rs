@@ -458,6 +458,8 @@ pub struct DocLayout {
     pub ms: f64,
     /// Text box stories laid out (each time a box's text was).
     pub text_boxes: usize,
+    /// Paragraphs cut at [`para::MAX_PARA_LINES`]: their text past the limit isn't laid out.
+    pub truncated_paragraphs: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -2322,14 +2324,21 @@ fn layout_pass(
         ctx.cache.used = used;
     }
     let mut index: HashMap<(StoryRef, Path), Vec<(usize, usize)>> = HashMap::new();
+    let mut truncated: HashSet<(StoryRef, Path)> = HashSet::new();
     for (pi, p) in pages.iter().enumerate() {
         for (ii, it) in p.items.iter().enumerate() {
-            if let Placed::Lines { story, path, .. } = it {
+            if let Placed::Lines { story, path, para, .. } = it {
                 index.entry((*story, path.clone())).or_default().push((pi, ii));
+                if para.truncated {
+                    truncated.insert((*story, path.clone()));
+                }
             }
         }
     }
-    let mut lay = DocLayout { pages, index, ms: 0.0, text_boxes: 0 };
+    if !truncated.is_empty() {
+        log::warn!("{} paragraph(s) cut at {} lines: the rest of their text isn't laid out", truncated.len(), para::MAX_PARA_LINES);
+    }
+    let mut lay = DocLayout { pages, index, ms: 0.0, text_boxes: 0, truncated_paragraphs: truncated.len() };
     if opts.comment_balloons && !web {
         balloons::add(&mut ctx, &mut lay);
     }
