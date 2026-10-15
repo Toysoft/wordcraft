@@ -891,6 +891,12 @@ impl<'r> Builder<'r> {
             _ => {}
         }
         let is_table_part = matches!(name, "tr" | "td" | "th");
+        // Rows with no table open were cut out of one: Excel's clipboard fragment starts inside
+        // its `<table>` (#1938). They open a table, as the one they came from. A lone cell (one
+        // copied cell) stays text, as Word pastes it.
+        if name == "tr" && self.tables.is_empty() {
+            self.start("table", &[], false);
+        }
         let in_table = self.tables.len() < model::MAX_DEPTH;
         // Implicit closes.
         if closes_p(name)
@@ -1681,6 +1687,29 @@ mod tests {
         );
         let FBlock::Para(p) = &f.blocks[1] else { panic!() };
         assert!(matches!(&p.inlines[1], Inline::Text(t, f) if t == "bold" && f.bold));
+    }
+
+    #[test]
+    fn rows_cut_out_of_a_table_still_form_one() {
+        // #1938: Excel's clipboard fragment starts inside its `<table>`; the rows still make one.
+        let f = parse(
+            "<!--StartFragment-->\r\n <col width=64 span=2>\r\n <tr height=20><td>a</td><td align=right>1</td></tr>\r\n <tr><td>b</td><td>2</td></tr>\r\n<!--EndFragment-->",
+        );
+        assert_eq!(texts(&f), vec!["table2x2"]);
+        let rows = cell_paras(&f);
+        assert_eq!(rows[0][1][0].align, Some(Align::Right), "a number Excel aligns right stays right");
+        // A copy can start before the table or end past it: the text around it stays outside.
+        let f = parse("<p>before<tr><td>x</td><th>y</th></tr></tbody></table><p>after</p>");
+        assert_eq!(texts(&f), vec!["NormalNone:before", "table1x2", "NormalNone:after"]);
+        // Rows after a table has ended start another.
+        let f = parse("<table><tr><td>in</td></tr></table><tr><td>out</td></tr>");
+        assert_eq!(texts(&f), vec!["table1x1", "table1x1"]);
+        // One copied cell comes without its row: it stays a paragraph.
+        let f = parse("<!--StartFragment-->\r\n  <td height=20 width=64>one</td>\r\n<!--EndFragment-->");
+        assert_eq!(texts(&f), vec!["NormalNone:one"]);
+        // With no room for another open element, the rows read as text, as before.
+        let f = parse(&format!("{}<tr><td>deep</td></tr>", "<div>".repeat(MAX_STACK + 4)));
+        assert_eq!(texts(&f), vec!["NormalNone:deep"]);
     }
 
     #[test]
