@@ -750,7 +750,18 @@ fn page_number(s: &mut Session, v: &Value) -> CmdResult {
     }
     let header = position == "top";
     let id = hf_part(s, header);
-    let mut para = Paragraph::new().styled(if header { "Header" } else { "Footer" });
+    let story = StoryRef::Part(id);
+    // Preserve existing numbering wherever it lives, including inside a table. Field switches
+    // and case do not change PAGE's identity; PAGEREF and NUMPAGES are different fields.
+    if s.doc.para_paths(story).iter().filter_map(|path| s.doc.para(story, path)).any(|p| {
+        p.objects.iter().any(|object| {
+            matches!(object, InlineObject::Field { instr, .. } | InlineObject::FieldStart { instr, .. } if instr.split_whitespace().next().is_some_and(|name| name.eq_ignore_ascii_case("PAGE")))
+        })
+    }) {
+        return Ok(json!({"story": id}));
+    }
+    let style = if header { "Header" } else { "Footer" };
+    let mut para = Paragraph::new().styled(style);
     para.props.align = Some(align);
     para.props.tabs = Some(vec![TabStop { pos: 0.0, align: TabAlign::Clear, leader: Default::default() }]);
     if x_of_y {
@@ -765,7 +776,13 @@ fn page_number(s: &mut Session, v: &Value) -> CmdResult {
     } else {
         para.insert_object(0, field, &CharProps::default())?;
     }
-    s.doc.set_story(StoryRef::Part(id), vec![para_block(para)])?;
+    let blocks = s.doc.story_mut(story)?;
+    // Reuse only the untouched placeholder hf_part creates. Even an empty paragraph may carry
+    // intentional formatting or other document data, so do not discard arbitrary empty content.
+    if blocks.as_slice() == [para_block(Paragraph::new().styled(style))] {
+        blocks.clear();
+    }
+    blocks.push(para_block(para));
     Ok(json!({"story": id}))
 }
 

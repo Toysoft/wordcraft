@@ -83,11 +83,14 @@ The same gaps grouped the way the parity documents are, for agents working in on
 - **Localization gaps:** #8, #11, #16, #17; native-speaker review of every catalog (human).
 - **Stability and performance gaps:** #3, #20.
 
+> **Page-number update:** 2026-10-15 · top/bottom numbering preserves header/footer text, formatting, tables and existing PAGE fields (#2201). Section-slot behavior and readiness estimates are unchanged; this does not close the broader file-fidelity gaps.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-14 | trivial | Row table border exceptions fixed; other row table exceptions remain unsupported |
+| 2026-10-15 | trivial | Page-number insertion preserves existing header/footer content and skips an existing PAGE field (#2201); synthetic undo/redo and repeated DOCX save/reopen checks; readiness estimates unchanged |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
 | 2026-10-12 | minor | Gap #24 default shortcuts expanded (140 commands on macOS / 158 on Linux/Windows); stale gaps #9 (DOCX agile encryption already works, only encrypted .doc missing) and #15 (DOCX bibliography sources already saved, only desktop integrations missing) updated |
