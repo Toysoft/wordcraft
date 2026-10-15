@@ -1,7 +1,8 @@
 //! Crop mode on the canvas (Picture Format › Size › Crop, `ui.crop`): black crop handles replace
 //! the selected picture's resize handles; dragging one trims that side (a corner, two sides)
 //! while what stays visible keeps its scale and its place on the page, and dragging back out
-//! restores what was cropped away (never past the source's edge). The cropped-away part shows
+//! restores what was cropped away. Dragged further out, past the source's edge, a handle adds
+//! empty padding (a negative crop, as in Word) and the box grows with it. The cropped-away part shows
 //! around the picture under a dark dim. Esc, Enter, a click outside the picture or Crop again
 //! leave crop mode and keep the crop. A drop is one `picture.crop` with the crop and the new size,
 //! so one undo step. Only unturned pictures: a turned one stays out of crop mode (status message).
@@ -301,6 +302,13 @@ fn source(app: &WordApp, ctx: &egui::Context, media: &str) -> Option<egui::Textu
     tex
 }
 
+/// The part of frame `f` that is over the source's `full` rect (none when they don't overlap);
+/// the rest of `f` is padding.
+fn source_part(f: Rect, full: Rect) -> Option<Rect> {
+    let r = f.intersect(full);
+    (r.width() > 0.0 && r.height() > 0.0).then_some(r)
+}
+
 /// Draw crop mode: the cropped-away part dimmed around the picture, its frame and the crop
 /// handles; while dragging, the picture as the drop would leave it. Returns whether crop mode
 /// drew (then the usual frame isn't drawn).
@@ -333,7 +341,10 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
     if let (Some(tex), Some(_)) = (&tex, drag) {
         // Dragging: the page still shows the old crop, so show the new visible part too.
         painter.rect_filled(f, 0.0, Color32::WHITE);
-        painter.image(tex.id(), f, uv(f), Color32::WHITE);
+        // Padding (outside the source) stays empty, as after the drop.
+        if let Some(r) = source_part(f, full) {
+            painter.image(tex.id(), r, uv(r), Color32::WHITE);
+        }
     }
     // The cropped-away bands: top, bottom, left, right.
     let bands = [
@@ -444,6 +455,17 @@ mod tests {
     }
 
     /// A huge outward drag stops at the engine's most padding (and at 4000 pt), all finite.
+    #[test]
+    fn the_drag_preview_draws_the_source_only_where_it_overlaps_the_frame() {
+        let r = |a, b, c, d| Rect::from_min_max(pos2(a, b), pos2(c, d));
+        // Padded on the right: the frame (0..250) is wider than the source (0..200).
+        assert_eq!(source_part(r(0.0, 0.0, 250.0, 100.0), r(0.0, 0.0, 200.0, 100.0)), Some(r(0.0, 0.0, 200.0, 100.0)));
+        // Cropped: the frame is inside the source.
+        assert_eq!(source_part(r(10.0, 0.0, 90.0, 100.0), r(0.0, 0.0, 200.0, 100.0)), Some(r(10.0, 0.0, 90.0, 100.0)));
+        // Apart: nothing to draw.
+        assert_eq!(source_part(r(300.0, 0.0, 400.0, 100.0), r(0.0, 0.0, 200.0, 100.0)), None);
+    }
+
     #[test]
     fn outward_drag_clamps_at_the_most_padding() {
         let r = cropped(100.0, 100.0, [0.0; 4], H(1, 0), 1.0e9, 0.0);
