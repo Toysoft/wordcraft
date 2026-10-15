@@ -857,6 +857,7 @@ pub struct GuardedOutcome {
     pub stderr: Vec<u8>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn drain_to_end<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let mut v = Vec::new();
@@ -909,6 +910,7 @@ pub fn run_guarded(_program: &Path, _args: &[String], _timeout: Duration) -> Res
     Err("TeX workers are not available on this platform".to_string())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn cap_log_bytes(raw: &[u8]) -> String {
     let text = String::from_utf8_lossy(raw);
     if text.len() <= MAX_LOG_BYTES {
@@ -2559,6 +2561,71 @@ mod bib_sidecar_tests {
         let st = s.run("tex.status", &json!({})).unwrap();
         assert_eq!(st["bibKeys"], json!(2));
         assert!(s.run("tex.edit", &json!({"text": "hello again"})).is_ok(), "session still usable");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn all_tex_commands_reject_hostile_params_without_panic() {
+        let dir = new_scratch("wctexhostile").unwrap();
+        std::fs::write(dir.join("main.tex"), "hello\n").unwrap();
+        let mut s = session();
+        // Before any source is open: hostile params are clean errors, never panics.
+        for v in [
+            serde_json::Value::Null,
+            json!({}),
+            json!({"path": 5}),
+            json!({"path": []}),
+            json!({"path": ""}),
+            json!({"path": "/nonexistent-dir-xyz/missing.tex"}),
+            json!({"path": "x".repeat(9000)}),
+            json!({"path": "a\0b"}),
+        ] {
+            assert!(s.run("tex.open", &v).is_err(), "tex.open {v:?} must be a clean error");
+        }
+        // Pure commands never panic on hostile envelopes, even with no source.
+        for cmd in ["tex.diagnostics", "tex.status", "tex.close", "tex.bibKeys"] {
+            assert!(s.run(cmd, &json!(null)).is_ok(), "{cmd} null never panics");
+            assert!(s.run(cmd, &json!({"unexpected": []})).is_ok(), "{cmd} junk never panics");
+        }
+        assert!(s.run("tex.edit", &json!({"text": "x"})).is_err());
+        assert!(s.run("tex.edit", &json!(null)).is_err());
+        assert!(s.run("tex.edit", &json!({"text": 5})).is_err());
+        assert!(s.run("tex.autoCompile", &json!(null)).is_err());
+        assert!(s.run("tex.autoCompile", &json!({"enabled": "yes"})).is_err());
+        assert!(s.run("tex.forwardSearch", &json!(null)).is_err());
+        assert!(s.run("tex.forwardSearch", &json!({"line": "3"})).is_err());
+        assert!(s.run("tex.forwardSearch", &json!({"line": 0})).is_err());
+        assert!(s.run("tex.inverseSearch", &json!(null)).is_err());
+        assert!(s.run("tex.inverseSearch", &json!({"page": 1, "x": "a", "y": 1.0})).is_err());
+        assert!(s.run("tex.inverseSearch", &json!({"page": 0, "x": 1.0, "y": 1.0})).is_err());
+        // Compile-like commands with hostile engine params never panic either.
+        for v in [json!(null), json!({"engine": 5}), json!({"kind": "luatex"}), json!({"timeoutMs": "soon"}), json!({"rasterizer": 5})] {
+            let _ = s.run("tex.compile", &v);
+            let _ = s.run("tex.tick", &v);
+        }
+        // With a source open: the same hostile sweep still never panics.
+        open_doc(&mut s, &dir, "hello\n");
+        assert!(s.run("tex.open", &json!({"path": 5})).is_err());
+        assert!(s.run("tex.edit", &json!({})).is_err());
+        assert!(s.run("tex.edit", &json!({"text": 5})).is_err());
+        let overlong = "x".repeat(crate::tex::MAX_SOURCE_BYTES + 1);
+        assert!(s.run("tex.edit", &json!({"text": overlong})).is_err());
+        assert!(s.run("tex.autoCompile", &json!({})).is_err());
+        assert!(s.run("tex.autoCompile", &json!({"enabled": []})).is_err());
+        assert!(s.run("tex.forwardSearch", &json!({})).is_err());
+        assert!(s.run("tex.forwardSearch", &json!({"line": []})).is_err());
+        assert!(s.run("tex.forwardSearch", &json!({"line": 0})).is_err());
+        assert!(s.run("tex.forwardSearch", &json!({"line": u64::MAX})).is_err());
+        assert!(s.run("tex.inverseSearch", &json!({})).is_err());
+        assert!(s.run("tex.inverseSearch", &json!({"page": 1, "x": f64::NAN, "y": 1.0})).is_err());
+        assert!(s.run("tex.inverseSearch", &json!({"page": 1, "x": f64::INFINITY, "y": 1.0})).is_err());
+        assert!(s.run("tex.bibKeys", &json!({"path": 5})).is_err());
+        assert!(s.run("tex.bibKeys", &json!({"path": ""})).is_err());
+        assert!(s.run("tex.compile", &json!({"kind": "luatex"})).is_err());
+        assert!(s.run("tex.diagnostics", &json!(null)).is_ok());
+        assert!(s.run("tex.status", &json!(null)).is_ok());
+        assert!(s.run("tex.close", &json!(null)).is_ok());
+        assert!(s.run("tex.edit", &json!({"text": "x"})).is_err(), "closed session rejects edits cleanly");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

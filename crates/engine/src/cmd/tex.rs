@@ -57,6 +57,7 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// The `.bib` beside a `.tex` path (same folder, same stem).
+#[cfg(not(target_arch = "wasm32"))]
 fn sibling_bib(path: &str) -> Option<PathBuf> {
     let file = PathBuf::from(path);
     let stem = file.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).map(str::to_string)?;
