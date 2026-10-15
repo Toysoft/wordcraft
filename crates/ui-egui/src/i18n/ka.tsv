@@ -2588,3 +2588,5 @@ preview	Title	სათაური
 	Existing File or Web Page	არსებული ფაილი ან ვებგვერდი
 	Link to:	ბმული:
 	Place in This Document	ადგილი ამ დოკუმენტში
+	{language} (no dictionary)	{language} (ლექსიკონის გარეშე)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	მართლწერის ლექსიკონი ({language}) დაყენებული არ არის, ამიტომ ტექსტი არ მოწმდება. WordCraft Hunspell-ის ლექსიკონს {name} ეძებს WORDCRAFT_DICTIONARIES საქაღალდეში და სისტემის ჩვეულებრივ მდებარეობებში.
