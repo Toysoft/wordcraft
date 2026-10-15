@@ -282,19 +282,25 @@ fn a_sym_character_round_trips_as_w_sym() {
 
 #[test]
 fn hostile_sym_fonts_never_panic() {
+    // Built in the model (an XML file couldn't even hold some of these names).
     let huge = "W".repeat(100_000);
-    for font in ["", " ", "\u{1}", huge.as_str(), "Wingdings\u{FFFF}"] {
-        let body = format!(
-            r#"<w:p><w:r><w:sym w:font="{font}" w:char="F0FC"/><w:sym w:font="{font}" w:char="zz"/><w:sym w:font="{font}" w:char="FFFFFFFFFF"/></w:r></w:p>"#
-        );
-        let Ok(mut d) = wordcraft_docx::read(&docx(&body, &[], &[])) else { continue };
-        let len = paras(&d).first().map_or(0, |p| p.text.len());
-        let _ = d.format_range(&wordcraft_doc::Pos::body(0, 0), &wordcraft_doc::Pos::body(0, len), &|c| c.font = Some("Arial".into()));
+    for font in ["", " ", "\u{1}", huge.as_str(), "Wingdings\u{FFFF}", "<&\"'>"] {
+        let mut d = Document::from_text("a\u{F0FC}\u{1}\u{1F600}b");
+        let len = paras(&d)[0].text.len();
+        let f = font.to_string();
+        d.format_range(&wordcraft_doc::Pos::body(0, 0), &wordcraft_doc::Pos::body(0, len), &|c| c.sym_font = Some(f.clone())).unwrap();
         let _ = d.shown_text(wordcraft_doc::StoryRef::Body);
-        if let Ok(bytes) = wordcraft_docx::write(&d) {
-            let _ = wordcraft_docx::read(&bytes);
-        }
+        let bytes = wordcraft_docx::write(&d).unwrap();
+        let _ = wordcraft_docx::read(&bytes).unwrap();
     }
+}
+
+#[test]
+fn only_printable_characters_are_written_as_w_sym() {
+    // `w:sym` holds a character code from U+0020 (the reader drops lower ones), like `w:t`.
+    let mut d = Document::from_text("a\u{7}");
+    d.format_range(&wordcraft_doc::Pos::body(0, 0), &wordcraft_doc::Pos::body(0, 2), &|c| c.sym_font = Some("Wingdings".into())).unwrap();
+    assert_eq!(sym_elements(&wordcraft_docx::write(&d).unwrap()), vec![r#"<w:sym w:font="Wingdings" w:char="0061"/>"#.to_string()]);
 }
 
 #[test]

@@ -210,6 +210,7 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | `w:sym`: the symbol's `w:font` is kept apart from the run font (ECMA-376 §17.3.3.30), so changing the text's font (or Clear Formatting) keeps Wingdings/Symbol characters showing, and they are written back as `<w:sym w:font=… w:char=…/>`; Insert › Symbol in a symbol font does the same (#2036). A private-use character with no symbol font of its own in a non-symbol run is not guessed |
 | 2026-10-13 | trivial | A cell's explicit top vertical alignment (`w:vAlign w:val="top"`) is kept on read and write and beats a table style that centres or bottom-aligns (#1288) |
 | 2026-10-14 | trivial | Row table border exceptions survive DOCX saves |
 | 2026-10-12 | trivial | Fields keep `w:dirty` through DOCX round trips — on buffered fields and range-field begin markers alike — and computing a result (Update Field, Update Table) clears it like Word's F9, so a generator's placeholder TOC still refreshes when Word opens the file until WordCraft replaces the placeholder (#877) |
@@ -250,7 +251,6 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 | 2026-10-13 | trivial | Print to PDF and PNG export replace an existing file only after the new one is fully written, as document saves do (#1355) |
 | 2026-10-12 | minor | RTF reads 8-bit text in the document's or the font's code page (`\ansicpg`, `\fcharset`, `\cpg`) instead of always Windows-1252; a `.doc`/`.docx`/`.rtf` whose content is another of these formats opens by signature. Found on a private corpus of real Russian documents: 38 of 44 `.doc` files were RTF, all now open with their Cyrillic text |
 | 2026-10-12 | trivial | `w:sym` and symbol-font runs keep their stored characters on save; TXT export and copy write their Unicode equivalents (#776) |
-| 2026-10-15 | trivial | `w:sym`: the symbol's `w:font` is kept apart from the run font (ECMA-376 §17.3.3.30), so changing the text's font (or Clear Formatting) keeps Wingdings/Symbol characters showing, and they are written back as `<w:sym w:font=… w:char=…/>`; Insert › Symbol in a symbol font does the same (#2036). A private-use character with no symbol font of its own in a non-symbol run is not guessed |
 | 2026-10-12 | trivial | Insert › Picture, drag-and-drop and paste take Windows Metafiles and Enhanced Metafiles (#802); new row for picture formats |
 | 2026-10-11 | trivial | Independent complex-script size, bold and italic inherit correctly through defaults and styles; explicit equal values survive; six synthetic multi-generation round-trip tests, including tracked formatting, added |
 | 2026-10-11 | minor | Opening files from the system: file associations and the default-app button (#295) |

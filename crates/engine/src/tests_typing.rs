@@ -371,6 +371,18 @@ fn dashes() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "A – b and c – d and e—f and café—g ");
 }
 
+/// #2036: a dash AutoFormat makes right after a symbol is text, not the symbol's font.
+#[test]
+fn a_dash_after_a_symbol_is_not_in_the_symbol_font() {
+    let mut s = s();
+    typ(&mut s, "e");
+    run(&mut s, "insert.symbol", json!({"char": "\u{F0FC}", "font": "Wingdings"}));
+    typ(&mut s, "--f ");
+    let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+    let dash = p.text.find('\u{2014}').expect("em dash");
+    assert_eq!(p.props_of_char(dash).sym_font, None);
+}
+
 #[test]
 fn border_line_autoformat() {
     let s = typed("Above\n---\nBelow");

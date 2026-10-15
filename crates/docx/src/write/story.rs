@@ -270,8 +270,9 @@ impl Writer<'_> {
                             None => Piece::Text(String::new()),
                         })
                     }
-                    // `w:char` is a two-byte code (ST_ShortHexNumber); anything else stays text.
-                    c if u32::from(c) <= 0xFFFF => sym_font.map(|f| Piece::Sym(f, c)),
+                    // `w:char` is a two-byte code (ST_ShortHexNumber) from U+0020, as the reader
+                    // takes it; anything else stays text.
+                    c if (0x20..=0xFFFF).contains(&u32::from(c)) => sym_font.map(|f| Piece::Sym(f, c)),
                     _ => None,
                 };
                 match special {

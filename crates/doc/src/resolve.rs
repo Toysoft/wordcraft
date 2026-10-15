@@ -350,6 +350,8 @@ impl StyleSheet {
                 }
             }
         }
+        // Only a character itself has a symbol font of its own (`w:sym`); a style never gives one.
+        cp.sym_font = None;
         let mut direct = c.clone();
         direct.style = None;
         cp.overlay(&direct);
@@ -360,6 +362,19 @@ impl StyleSheet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2036: only a character itself (direct formatting) has a symbol font of its own; a
+    /// style never gives one to its text.
+    #[test]
+    fn a_style_never_gives_text_a_symbol_font() {
+        let mut s = StyleSheet::builtin();
+        if let Some(n) = s.get_mut("Normal") {
+            n.chr.sym_font = Some("Wingdings".into());
+        }
+        assert_ne!(s.resolve_char(None, &CharProps::default()).font, "Wingdings");
+        let direct = CharProps { sym_font: Some("Wingdings".into()), ..Default::default() };
+        assert_eq!(s.resolve_char(None, &direct).font, "Wingdings");
+    }
 
     #[test]
     fn heading_resolves() {
