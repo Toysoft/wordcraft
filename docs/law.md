@@ -42,6 +42,7 @@ dictionary lives beside), one file per profile.
 | `law.profiles.apply` | `{"id", "doc"?}`: apply a document type's styles, page setup and line numbers to the open document |
 | `law.checks.run` | `{"id"?, "doc"?, "forExport"?, "format"?, "store"?}`: run the profile's checks for a document type and return `{"profile", "doc", "findings": [{checkId, severity, message, start?, end?}]}`; it never edits the document |
 | `law.checks.findings` | `{}`: the findings the last `law.checks.run` stored for the document (the same entries `review.issues` lists as `kind: "lint"`) |
+| `law.citations.check` | `{"pack"?, "store"?}`: check citation form against a citation pack (defaults to the applied profile's `citationPack`); returns `{"pack", "findings"}` and never edits the document |
 
 Applying a profile runs WordCraft's own commands (`layout.size`, `layout.margins`,
 `layout.lineNumbers`, `insert.pageNumber`, `layout.pageNumberFormat`, `styles.create`,
