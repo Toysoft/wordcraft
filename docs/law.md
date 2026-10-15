@@ -42,6 +42,8 @@ dictionary lives beside), one file per profile.
 | `law.profiles.apply` | `{"id", "doc"?}`: apply a document type's styles, page setup and line numbers to the open document |
 | `law.checks.run` | `{"id"?, "doc"?, "forExport"?, "format"?, "store"?}`: run the profile's checks for a document type and return `{"profile", "doc", "findings": [{checkId, severity, message, start?, end?}]}`; it never edits the document |
 | `law.checks.findings` | `{}`: the findings the last `law.checks.run` stored for the document (the same entries `review.issues` lists as `kind: "lint"`) |
+| `law.certificate.compliance` | `{"id"?, "doc"?}`: insert (or refresh) a certificate of compliance for the applied profile's document type, with a live word count field; reports a finding when the brief is over its word limit |
+| `law.certificate.refresh` | `{}`: update the certificate's word count fields (also runs on Update Fields and before export) |
 
 Applying a profile runs WordCraft's own commands (`layout.size`, `layout.margins`,
 `layout.lineNumbers`, `insert.pageNumber`, `layout.pageNumberFormat`, `styles.create`,
