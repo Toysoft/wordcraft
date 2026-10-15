@@ -4064,6 +4064,7 @@ mod tests {
             row: 0,
             cell: 0,
             story,
+            clip: false,
         };
         let page = Page {
             items: vec![cell(100.0, false, StoryRef::Body), cell(110.0, true, StoryRef::Body)],
