@@ -168,6 +168,7 @@ fn write_attempt(doc: &Document, lay: &DocLayout, opts: &PdfOptions, pages: &[us
         cmaps: HashMap::new(),
         images: HashMap::new(),
         vectors: HashMap::new(),
+        svgs: HashMap::new(),
         tags: Vec::new(),
         tag_index: HashMap::new(),
         links: Vec::new(),
@@ -653,6 +654,8 @@ struct Exporter<'a> {
     images: HashMap<String, Option<Image>>,
     /// Parsed metafiles by media key (`None`: not readable).
     vectors: HashMap<String, Option<Arc<Vector>>>,
+    /// Parsed SVG pictures by media key (`None`: not readable).
+    svgs: HashMap<String, Option<Arc<wordcraft_svg::Svg>>>,
     tags: Vec<TagEntry>,
     tag_index: HashMap<(StoryRef, DocPath), usize>,
     /// Link rectangles on the current page: (x0, y0, x1, y1, target).
@@ -731,6 +734,28 @@ impl Exporter<'_> {
         }
         self.vectors.insert(key.to_string(), v.clone());
         v
+    }
+
+    /// The SVG picture for a media key, parsed once (#1910). None when the bytes are not an SVG;
+    /// Some(None) when it doesn't parse (the raster path then draws the grey box).
+    fn svg(&mut self, key: &str) -> Option<Option<Arc<wordcraft_svg::Svg>>> {
+        let doc = self.doc;
+        let bytes = doc.media.get(key)?;
+        if !wordcraft_svg::is_svg(bytes) {
+            return None;
+        }
+        if let Some(v) = self.svgs.get(key) {
+            return Some(v.clone());
+        }
+        let v = match wordcraft_svg::parse(bytes) {
+            Ok(svg) => Some(Arc::new(svg)),
+            Err(e) => {
+                log::warn!("PDF: picture `{key}`: {e}");
+                None
+            }
+        };
+        self.svgs.insert(key.to_string(), v.clone());
+        Some(v)
     }
 
     fn image(&mut self, key: &str) -> Option<Image> {
@@ -1209,6 +1234,11 @@ impl Exporter<'_> {
             vector_picture(s, &v, rect, crop, &clip, alpha);
             return;
         }
+        if let Some(Some(svg)) = self.svg(media)
+            && svg_picture(s, &svg, rect, crop, &clip, alpha).is_some()
+        {
+            return;
+        }
         let Some(img) = self.image(media) else {
             s.set_stroke(None);
             s.set_fill(Some(fill(Rgb(0xD0, 0xD0, 0xD0), 1.0)));
@@ -1666,6 +1696,30 @@ fn vector_picture(s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: 
     if fade {
         s.pop();
     }
+}
+
+/// Draws an SVG picture into `rect` as vectors (krilla-svg), cropped by `crop` and faded by
+/// `alpha`. Filters become images at twice the page resolution; text is drawn as outlines in the
+/// document fonts the picture was parsed with.
+/// None when nothing could be drawn (the caller then draws the grey placeholder).
+fn svg_picture(s: &mut Surface, svg: &wordcraft_svg::Svg, rect: &Rect, crop: &[f32; 4], clip: &Path, alpha: f32) -> Option<()> {
+    use krilla_svg::{SurfaceExt, SvgSettings};
+    let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { v.clamp(0.0, 0.95) } else { 0.0 });
+    let (fw, fh) = (rect.w / (1.0 - cl - cr).max(0.05), rect.h / (1.0 - ct - cb).max(0.05));
+    let size = Size::from_wh(fw.max(0.01), fh.max(0.01))?;
+    let fade = alpha < 0.999;
+    if fade {
+        s.push_opacity(norm(alpha));
+    }
+    s.push_clip_path(clip, &FillRule::NonZero);
+    s.push_transform(&Transform::from_translate(rect.x - cl * fw, rect.y - ct * fh));
+    let drawn = s.draw_svg(svg.tree(), size, SvgSettings { embed_text: false, filter_scale: 2.0 });
+    s.pop();
+    s.pop();
+    if fade {
+        s.pop();
+    }
+    drawn
 }
 
 /// A kurbo path as a krilla path (None when empty).
