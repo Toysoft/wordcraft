@@ -3024,6 +3024,29 @@ fn para_notes(doc: &Document, p: &Paragraph, pl: &ParaLayout) -> Vec<(usize, u32
 /// continuous section takes no room (Word for Windows: the text after it follows right on, and
 /// columns balanced above it don't count it).
 fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, body_top: f32) {
+    if !pb.web
+        && pb.after_break_mark
+        && pb.next_starts_page
+        && p.section.is_some()
+        && p.text.is_empty()
+        && p.objects.is_empty()
+        && !ctx.has_label(p)
+        && let Some(page) = pb.pages.len().checked_sub(2)
+    {
+        // The structural section mark stays with the preceding break, without filling its new page.
+        let width = pb.col_w();
+        let pl = ctx.para_labelled(p, width, None, &[], None);
+        let prev = &mut pb.pages[page];
+        let y = prev
+            .items
+            .iter()
+            .filter(|it| matches!(it, Placed::Lines { .. } | Placed::Cell { .. }))
+            .map(v_span)
+            .map(|(_, bottom)| bottom)
+            .fold(prev.body.y, f32::max);
+        push_para(&mut prev.items, StoryRef::Body, &[block as u32], &pl, 0, pl.lines.len(), prev.body.x, y, width);
+        return;
+    }
     if !pb.web && ctx.quiet_marks.binary_search(&block).is_ok() {
         // Its (empty) line stays where the text ended, even at the bottom of a full column.
         let (y, prev, bottom, content_bottom, at) = (pb.y, pb.prev.clone(), pb.bottom, pb.content_bottom, (pb.pages.len(), pb.col));
