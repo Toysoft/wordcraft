@@ -13,7 +13,7 @@ use wordcraft_doc::section::{
 };
 
 use super::drawing_color::adjust_lum;
-use crate::units::{int, measure, on_off, tw, u32_of};
+use crate::units::{int, measure, on_off, parse_on_off, tw, u32_of};
 
 /// A text frame (`w:framePr` without a drop cap, ECMA-376 §17.3.1.11), sizes and offsets in
 /// points (clamped), names kept as OOXML writes them.
@@ -299,7 +299,7 @@ impl PropCtx {
                         p.space_after = Some(v.max(0.0));
                     }
                     // HTML-style automatic spacing; "0" switches an inherited one off.
-                    let auto = |name| k.attr(name).map(|v| matches!(v.trim(), "1" | "true" | "on"));
+                    let auto = |name| k.attr(name).map(parse_on_off);
                     if let Some(a) = auto("w:beforeAutospacing") {
                         p.space_before_auto = Some(a);
                     }
