@@ -985,6 +985,7 @@ impl Writer<'_> {
             ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::Freeform => "rect",
             ShapeKind::RoundedRectangle => "roundRect",
             ShapeKind::Ellipse => "ellipse",
+            ShapeKind::FlowchartOr => "flowChartOr",
             ShapeKind::Triangle => "triangle",
             ShapeKind::RightTriangle => "rtTriangle",
             ShapeKind::Diamond => "diamond",
@@ -1388,6 +1389,9 @@ fn sectpr_body(w: &mut W, s: &SectionProps) {
         } else {
             let refs: Vec<(&str, &str)> = ca.iter().map(|(k, v)| (*k, v.as_str())).collect();
             w.empty("w:cols", &refs);
+        }
+        if let Some(on) = s.form_prot {
+            w.empty("w:formProt", if on { &[] } else { &[("w:val", "0")] });
         }
         match s.valign {
             wordcraft_doc::section::PageVAlign::Top => {}
