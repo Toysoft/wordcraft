@@ -85,6 +85,9 @@
 	Book Title	Название книги
 	Bookmark	Закладка
 	Bookmark name:	Имя закладки:
+	Delete Bookmark	Удалить закладку
+	Hidden bookmarks	Скрытые закладки
+	Sort by:	Сортировать по:
 	Border Painter	Кисть границ
 	Border\nPainter	Кисть\nграниц
 	Borders	Границы
@@ -384,6 +387,8 @@
 	Labels	Наклейки
 	Landscape	Альбомная
 	Language	Язык
+	{language} (no dictionary)	{language} (нет словаря)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Орфографический словарь для языка «{language}» не установлен, поэтому текст не проверяется. WordCraft ищет словарь Hunspell {name} в папке WORDCRAFT_DICTIONARIES и в обычных системных расположениях.
 	Lasso	Лассо
 	Last Column	Последний столбец
 	Last commit	Последний коммит
@@ -2567,6 +2572,24 @@ preview	Title	Пример
 	This folder is no longer there.	Этой папки больше нет.
 	It may have been moved or deleted.	Возможно, её переместили или удалили.
 	This folder can't be read.	Не удаётся прочитать эту папку.
+	Printer	Принтер
+	Select a printer	Выберите принтер
+	Refresh printers	Обновить принтеры
+	Two-sided printing	Двусторонняя печать
+	Printer default	По умолчанию принтера
+	One-sided	Односторонняя
+	Two-sided: long edge	Двусторонняя: длинный край
+	Two-sided: short edge	Двусторонняя: короткий край
+	Grayscale	Оттенки серого
+	Finding printers…	Поиск принтеров…
+	No printers found. Configure a system printer or export a PDF.	Принтеры не найдены. Настройте системный принтер или экспортируйте PDF.
+	Printer discovery failed.	Не удалось найти принтеры.
+	Submitting print job…	Отправка задания на печать…
+	Print job submitted.	Задание на печать отправлено.
+	Print job submitted: {receipt}	Задание на печать отправлено: {receipt}
+	Print failed: the printing worker stopped.	Печать не удалась: процесс печати остановлен.
+	Print settings	Параметры печати
+	Submit print job	Отправить задание на печать
 
 # Cross-reference dialog (#1003)
 	For which item:	Для какого элемента:
@@ -2585,3 +2608,11 @@ preview	Title	Пример
 
 # Backstage › Recover (#586)
 	Recover	Восстановить
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Зеркальные поля
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Файл или веб-страница
+	Link to:	Связать с:
+	Place in This Document	Место в документе

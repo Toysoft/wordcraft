@@ -185,6 +185,9 @@
 	Bold	太字
 	Bookmark	ブックマーク
 	Bookmark name:	ブックマーク名:
+	Delete Bookmark	ブックマークの削除
+	Hidden bookmarks	隠しブックマーク
+	Sort by:	並べ替え:
 	Border Painter	罫線の書式設定
 	Border\nPainter	罫線の書式設定
 	Borders	罫線
@@ -510,6 +513,8 @@
 	Labels	ラベル
 	Landscape	横
 	Language	言語
+	{language} (no dictionary)	{language}（辞書なし）
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	{language}のスペルチェック辞書がインストールされていないため、チェックされません。WordCraft は Hunspell 辞書 {name} を WORDCRAFT_DICTIONARIES フォルダーと通常のシステムの場所から探します。
 	Lasso	なげなわ
 	Last Column	最後の列
 	Last commit	最後のコミット
@@ -2165,6 +2170,24 @@
 	Suggested	おすすめ
 	Set Proofing Language…	校正言語の設定…
 	Language Preferences…	言語の設定…
+	Printer	プリンター
+	Select a printer	プリンターを選択
+	Refresh printers	プリンターを更新
+	Two-sided printing	両面印刷
+	Printer default	プリンターの既定値
+	One-sided	片面
+	Two-sided: long edge	両面：長辺
+	Two-sided: short edge	両面：短辺
+	Grayscale	グレースケール
+	Finding printers…	プリンターを検索しています…
+	No printers found. Configure a system printer or export a PDF.	プリンターが見つかりません。システムにプリンターを設定するか、PDF をエクスポートしてください。
+	Printer discovery failed.	プリンターの検索に失敗しました。
+	Submitting print job…	印刷ジョブを送信しています…
+	Print job submitted.	印刷ジョブを送信しました。
+	Print job submitted: {receipt}	印刷ジョブを送信しました：{receipt}
+	Print failed: the printing worker stopped.	印刷に失敗しました：印刷ワーカーが停止しました。
+	Print settings	印刷設定
+	Submit print job	印刷ジョブの送信
 
 # Dictionaries folder (#1063)
 	Dictionaries	辞書
@@ -2176,3 +2199,11 @@
 
 # Backstage › Recover (#586)
 	Recover	回復
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	見開きページ
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	既存のファイル/Web ページ
+	Link to:	リンク先:
+	Place in This Document	このドキュメント内

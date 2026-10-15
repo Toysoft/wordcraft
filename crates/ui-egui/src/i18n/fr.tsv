@@ -127,6 +127,9 @@
 	Bold	Gras
 	Bookmark	Signet
 	Bookmark name:	Nom du signet :
+	Delete Bookmark	Supprimer le signet
+	Hidden bookmarks	Signets masqués
+	Sort by:	Trier par :
 	Border Painter	Pinceau de bordure
 	Border\nPainter	Pinceau\nde bordure
 	Borders	Bordures
@@ -467,6 +470,8 @@
 	Labels	Étiquettes
 	Landscape	Paysage
 	Language	Langue
+	{language} (no dictionary)	{language} (pas de dictionnaire)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Aucun dictionnaire orthographique pour {language} n'est installé, la langue n'est donc pas vérifiée. WordCraft cherche le dictionnaire Hunspell {name} dans le dossier WORDCRAFT_DICTIONARIES et aux emplacements système habituels.
 	Lasso	Lasso
 	Last Column	Dernière colonne
 	Last commit	Dernier commit
@@ -2172,6 +2177,24 @@
 	Suggested	Suggestions
 	Set Proofing Language…	Définir la langue de vérification…
 	Language Preferences…	Préférences linguistiques…
+	Printer	Imprimante
+	Select a printer	Sélectionnez une imprimante
+	Refresh printers	Actualiser les imprimantes
+	Two-sided printing	Impression recto verso
+	Printer default	Valeur par défaut de l'imprimante
+	One-sided	Recto seul
+	Two-sided: long edge	Recto verso : bord long
+	Two-sided: short edge	Recto verso : bord court
+	Grayscale	Niveaux de gris
+	Finding printers…	Recherche d'imprimantes…
+	No printers found. Configure a system printer or export a PDF.	Aucune imprimante trouvée. Configurez une imprimante système ou exportez un PDF.
+	Printer discovery failed.	La recherche d'imprimantes a échoué.
+	Submitting print job…	Envoi du travail d'impression…
+	Print job submitted.	Travail d'impression envoyé.
+	Print job submitted: {receipt}	Travail d'impression envoyé : {receipt}
+	Print failed: the printing worker stopped.	L'impression a échoué : le processus d'impression s'est arrêté.
+	Print settings	Paramètres d'impression
+	Submit print job	Envoyer le travail d'impression
 
 # Dictionaries folder (#1063)
 	Dictionaries	Dictionnaires
@@ -2183,3 +2206,11 @@
 
 # Backstage › Recover (#586)
 	Recover	Récupérer
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Marges en vis-à-vis
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Fichier ou page web existant(e)
+	Link to:	Lier à :
+	Place in This Document	Emplacement dans ce document

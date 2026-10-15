@@ -2537,6 +2537,24 @@ file	Home	Trang chủ
 	Paper	Giấy
 	Paper size:	Khổ giấy:
 	The margins don't fit on a page this size; make the margins smaller first.	Lề không vừa với trang có kích thước này; hãy thu nhỏ lề trước.
+	Printer	Máy in
+	Select a printer	Chọn máy in
+	Refresh printers	Làm mới máy in
+	Two-sided printing	In hai mặt
+	Printer default	Mặc định của máy in
+	One-sided	In một mặt
+	Two-sided: long edge	Hai mặt: cạnh dài
+	Two-sided: short edge	Hai mặt: cạnh ngắn
+	Grayscale	Thang độ xám
+	Finding printers…	Đang tìm máy in…
+	No printers found. Configure a system printer or export a PDF.	Không tìm thấy máy in. Hãy thiết lập máy in hệ thống hoặc xuất PDF.
+	Printer discovery failed.	Không tìm được máy in.
+	Submitting print job…	Đang gửi lệnh in…
+	Print job submitted.	Đã gửi lệnh in.
+	Print job submitted: {receipt}	Đã gửi lệnh in: {receipt}
+	Print failed: the printing worker stopped.	In thất bại: tiến trình in đã dừng.
+	Print settings	Cài đặt in
+	Submit print job	Gửi lệnh in
 
 # Web Save before New/Open (#1510)
 	Saving {name} was cancelled, so it is still open and nothing was lost.	Đã hủy lưu {name}, nên tài liệu vẫn mở và không mất gì.
@@ -2614,3 +2632,20 @@ file	Home	Trang chủ
 	Show its number relative to this field	Hiện số của nó tương đối với trường này
 	Show its number with all higher levels	Hiện số của nó kèm mọi cấp cao hơn
 	Take the last match on the page	Lấy kết quả khớp cuối cùng trên trang
+
+# Bookmark dialog (#1277)
+	Delete Bookmark	Xóa dấu trang
+	Hidden bookmarks	Dấu trang ẩn
+	Sort by:	Sắp xếp theo:
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Lề đối xứng
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Tệp hoặc trang web hiện có
+	Link to:	Liên kết tới:
+	Place in This Document	Vị trí trong tài liệu này
+
+# Missing dictionary on the status bar (#1441)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Chưa cài từ điển chính tả cho {language}, nên ngôn ngữ này không được kiểm tra. WordCraft tìm từ điển Hunspell {name} trong thư mục WORDCRAFT_DICTIONARIES và ở các vị trí thông thường của hệ thống.
+	{language} (no dictionary)	{language} (không có từ điển)

@@ -186,6 +186,9 @@
 	Bold	粗體
 	Bookmark	書籤
 	Bookmark name:	書籤名稱：
+	Delete Bookmark	刪除書籤
+	Hidden bookmarks	隱藏書籤
+	Sort by:	排序依據：
 	Border Painter	框線複製
 	Border\nPainter	框線複製
 	Borders	框線
@@ -511,6 +514,8 @@
 	Labels	標籤
 	Landscape	橫向
 	Language	語言
+	{language} (no dictionary)	{language}（無字典）
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	未安裝{language}的拼字字典，因此不會檢查該語言。WordCraft 會在 WORDCRAFT_DICTIONARIES 資料夾和常見的系統位置尋找 Hunspell 字典 {name}。
 	Lasso	套索
 	Last Column	最後一欄
 	Last commit	最近提交
@@ -2166,6 +2171,24 @@
 	Suggested	建議
 	Set Proofing Language…	設定校訂語言…
 	Language Preferences…	語言喜好設定…
+	Printer	印表機
+	Select a printer	選取印表機
+	Refresh printers	重新整理印表機
+	Two-sided printing	雙面列印
+	Printer default	印表機預設值
+	One-sided	單面
+	Two-sided: long edge	雙面：長邊
+	Two-sided: short edge	雙面：短邊
+	Grayscale	灰階
+	Finding printers…	正在尋找印表機…
+	No printers found. Configure a system printer or export a PDF.	找不到印表機。請在系統中設定印表機或匯出 PDF。
+	Printer discovery failed.	尋找印表機失敗。
+	Submitting print job…	正在提交列印工作…
+	Print job submitted.	列印工作已提交。
+	Print job submitted: {receipt}	列印工作已提交：{receipt}
+	Print failed: the printing worker stopped.	列印失敗：列印工作執行緒已停止。
+	Print settings	列印設定
+	Submit print job	提交列印工作
 
 # Dictionaries folder (#1063)
 	Dictionaries	字典
@@ -2177,3 +2200,11 @@
 
 # Backstage › Recover (#586)
 	Recover	復原
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	左右對稱邊界
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	現有的檔案或網頁
+	Link to:	連結至:
+	Place in This Document	這份文件中的位置

@@ -129,6 +129,9 @@
 	Bold	Получер
 	Bookmark	Отметка
 	Bookmark name:	Име на отметката:
+	Delete Bookmark	Изтриване на отметка
+	Hidden bookmarks	Скрити отметки
+	Sort by:	Сортиране по:
 	Border Painter	Рисуване на граници
 	Border\nPainter	Рисуване\nна граници
 	Borders	Граници
@@ -455,6 +458,8 @@
 	Labels	Етикети
 	Landscape	Пейзаж
 	Language	Език
+	{language} (no dictionary)	{language} (няма речник)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Не е инсталиран правописен речник за {language}, затова текстът не се проверява. WordCraft търси речника Hunspell {name} в папката WORDCRAFT_DICTIONARIES и на обичайните места в системата.
 	Lasso	Ласо
 	Last Column	Последна колона
 	Last commit	Последно подаване
@@ -2557,6 +2562,24 @@
 	This folder is no longer there.	Тази папка вече не съществува.
 	It may have been moved or deleted.	Възможно е да е преместена или изтрита.
 	This folder can't be read.	Тази папка не може да бъде прочетена.
+	Printer	Принтер
+	Select a printer	Изберете принтер
+	Refresh printers	Опресняване на принтерите
+	Two-sided printing	Двустранен печат
+	Printer default	По подразбиране на принтера
+	One-sided	Едностранен
+	Two-sided: long edge	Двустранен: дълъг ръб
+	Two-sided: short edge	Двустранен: къс ръб
+	Grayscale	Нюанси на сивото
+	Finding printers…	Търсене на принтери…
+	No printers found. Configure a system printer or export a PDF.	Не са намерени принтери. Настройте системен принтер или експортирайте PDF.
+	Printer discovery failed.	Търсенето на принтери е неуспешно.
+	Submitting print job…	Изпращане на задание за печат…
+	Print job submitted.	Заданието за печат е изпратено.
+	Print job submitted: {receipt}	Заданието за печат е изпратено: {receipt}
+	Print failed: the printing worker stopped.	Печатът е неуспешен: процесът на печат спря.
+	Print settings	Настройки за печат
+	Submit print job	Изпращане на задание за печат
 
 # Cross-reference dialog (#1003)
 	For which item:	За кой елемент:
@@ -2575,3 +2598,11 @@
 
 # Backstage › Recover (#586)
 	Recover	Възстановяване
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Огледални полета
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Съществуващ файл или уеб страница
+	Link to:	Връзка към:
+	Place in This Document	Място в този документ

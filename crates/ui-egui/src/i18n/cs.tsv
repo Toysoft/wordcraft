@@ -140,6 +140,9 @@
 	Book Title	Název knihy
 	Bookmark	Záložka
 	Bookmark name:	Název záložky:
+	Delete Bookmark	Odstranit záložku
+	Hidden bookmarks	Skryté záložky
+	Sort by:	Seřadit podle:
 	Border Painter	Štětec ohraničení
 	Border\nPainter	Štětec\nohraničení
 	Borders	Ohraničení
@@ -616,6 +619,8 @@
 	Labels	Štítky
 	Landscape	Na šířku
 	Language	Jazyk
+	{language} (no dictionary)	{language} (bez slovníku)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Pro jazyk {language} není nainstalován žádný pravopisný slovník, proto se nekontroluje. WordCraft hledá slovník Hunspell {name} ve složce WORDCRAFT_DICTIONARIES a na obvyklých místech v systému.
 	Large\nOperator	Velký\noperátor
 	Lasso	Laso
 	Last Column	Poslední sloupec
@@ -2549,6 +2554,24 @@ preview	Title	Ukázka
 	Suggested	Navrhované
 	Set Proofing Language…	Nastavit jazyk kontroly pravopisu…
 	Language Preferences…	Předvolby jazyka…
+	Printer	Tiskárna
+	Select a printer	Vyberte tiskárnu
+	Refresh printers	Obnovit tiskárny
+	Two-sided printing	Oboustranný tisk
+	Printer default	Výchozí tiskárny
+	One-sided	Jednostranný
+	Two-sided: long edge	Oboustranný: dlouhý okraj
+	Two-sided: short edge	Oboustranný: krátký okraj
+	Grayscale	Stupně šedi
+	Finding printers…	Hledání tiskáren…
+	No printers found. Configure a system printer or export a PDF.	Nebyly nalezeny žádné tiskárny. Nastavte systémovou tiskárnu nebo exportujte PDF.
+	Printer discovery failed.	Hledání tiskáren se nezdařilo.
+	Submitting print job…	Odesílání tiskové úlohy…
+	Print job submitted.	Tisková úloha odeslána.
+	Print job submitted: {receipt}	Tisková úloha odeslána: {receipt}
+	Print failed: the printing worker stopped.	Tisk se nezdařil: proces tisku se zastavil.
+	Print settings	Nastavení tisku
+	Submit print job	Odeslat tiskovou úlohu
 
 # Cross-reference dialog (#1003)
 	For which item:	Pro kterou položku:
@@ -2579,3 +2602,11 @@ preview	Title	Ukázka
 
 # Backstage › Recover (#586)
 	Recover	Obnovit
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Zrcadlové okraje
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Existující soubor nebo webová stránka
+	Link to:	Odkaz na:
+	Place in This Document	Místo v tomto dokumentu

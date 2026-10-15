@@ -83,6 +83,9 @@
 	Bold	Pogrubienie
 	Bookmark	Zakładka
 	Bookmark name:	Nazwa zakładki:
+	Delete Bookmark	Usuń zakładkę
+	Hidden bookmarks	Ukryte zakładki
+	Sort by:	Sortuj według:
 	Border Painter	Pędzel krawędzi
 	Border\nPainter	Pędzel\nkrawędzi
 	Borders	Krawędzie
@@ -373,6 +376,8 @@
 	Labels	Etykiety
 	Landscape	Pozioma
 	Language	Język
+	{language} (no dictionary)	{language} (brak słownika)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Nie zainstalowano słownika pisowni dla języka: {language}, więc tekst nie jest sprawdzany. WordCraft szuka słownika Hunspell {name} w folderze WORDCRAFT_DICTIONARIES i w typowych lokalizacjach systemowych.
 	Lasso	Lasso
 	Last Column	Ostatnia kolumna
 	Last commit	Ostatni commit
@@ -2562,6 +2567,24 @@ file	Home	Strona główna
 	Language Preferences…	Preferencje językowe…
 	Add a place	Dodaj miejsce
 	Loading…	Wczytywanie…
+	Printer	Drukarka
+	Select a printer	Wybierz drukarkę
+	Refresh printers	Odśwież drukarki
+	Two-sided printing	Drukowanie dwustronne
+	Printer default	Domyślne drukarki
+	One-sided	Jednostronne
+	Two-sided: long edge	Dwustronne: długa krawędź
+	Two-sided: short edge	Dwustronne: krótka krawędź
+	Grayscale	Odcienie szarości
+	Finding printers…	Wyszukiwanie drukarek…
+	No printers found. Configure a system printer or export a PDF.	Nie znaleziono drukarek. Skonfiguruj drukarkę systemową lub wyeksportuj PDF.
+	Printer discovery failed.	Nie udało się znaleźć drukarek.
+	Submitting print job…	Wysyłanie zadania drukowania…
+	Print job submitted.	Zadanie drukowania wysłane.
+	Print job submitted: {receipt}	Zadanie drukowania wysłane: {receipt}
+	Print failed: the printing worker stopped.	Drukowanie nie powiodło się: proces drukowania został zatrzymany.
+	Print settings	Ustawienia drukowania
+	Submit print job	Wyślij zadanie drukowania
 
 # Cross-reference dialog (#1003)
 	For which item:	Dla którego elementu:
@@ -2578,3 +2601,11 @@ file	Home	Strona główna
 
 # Backstage › Recover (#586)
 	Recover	Odzyskaj
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Marginesy lustrzane
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Istniejący plik lub strona sieci Web
+	Link to:	Połącz z:
+	Place in This Document	Miejsce w tym dokumencie
