@@ -351,8 +351,8 @@ pub struct Session {
     pub pending_move: Option<crate::cmd::moves::PendingMove>,
     /// Plain text mirror of the clipboard (for the system clipboard).
     pub clipboard_text: String,
-    /// HTML for the system clipboard beside [`Self::clipboard_text`] when the copy holds an
-    /// equation (as MathML, #816), for programs that read MathML; empty otherwise.
+    /// HTML for the system clipboard beside [`Self::clipboard_text`]: the copy's formatting for
+    /// programs that read HTML, equations as MathML (#816); empty when nothing was copied.
     pub clipboard_html: String,
     /// Items collected by Copy and Cut this session, for the Clipboard pane.
     pub clip_history: crate::cmd::edit::ClipHistory,
@@ -449,6 +449,8 @@ pub struct Session {
     /// Password, `file.encrypt`); `None` saves them unencrypted. Kept from a password-protected
     /// file that was opened, cleared when the document is replaced.
     pub password: Option<crate::io::Password>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) recovery: Option<crate::recovery::Recovery>,
     /// More pictures and shapes selected along with the one the selection holds (Shift+click),
     /// for Group. Cleared by any edit or selection change other than adding to it.
     pub also_selected: Vec<Pos>,
@@ -641,6 +643,8 @@ impl Session {
             editing_lang: None,
             read_aloud: Default::default(),
             password: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            recovery: None,
             column: None,
             column_mode: false,
             widened: None,
@@ -1088,6 +1092,8 @@ impl Session {
             math_normal_text: _,
             // The save password, like the file path: not an edit to the document.
             password: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                recovery: _,
             also_selected: _,
             // Column selection and a widened selection's ends, like `sel`'s shape: valid only while
             // `sel` matches them.
@@ -1315,7 +1321,12 @@ impl Session {
         // As in Word, text typed at either end of a hyperlink isn't part of it; only typing
         // inside the link extends it.
         let inside_link = props.link.is_some() && f.off > 0 && f.off < p.len() && p.props_of_char(f.off).link == props.link;
-        if props.link.is_some() && !inside_link { props.unlinked() } else { props.clone() }
+        let mut out = if props.link.is_some() && !inside_link { props.unlinked() } else { props.clone() };
+        // A footnote or endnote number is raised by its character style; text typed after it is body text.
+        if matches!(out.style.as_deref(), Some("FootnoteReference" | "EndnoteReference")) {
+            out.style = None;
+        }
+        out
     }
 
     /// Words in the document, as the status bar shows them (see [`Prefs::count_notes`]).

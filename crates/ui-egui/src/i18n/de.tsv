@@ -141,6 +141,9 @@
 	Bold	Fett
 	Bookmark	Textmarke
 	Bookmark name:	Textmarkenname:
+	Delete Bookmark	Textmarke löschen
+	Hidden bookmarks	Ausgeblendete Textmarken
+	Sort by:	Sortieren nach:
 	Border Painter	Rahmenlinien-Maler
 	Border\nPainter	Rahmenlinien-\nMaler
 	Borders	Rahmenlinien
@@ -453,6 +456,8 @@
 	Labels	Etiketten
 	Landscape	Querformat
 	Language	Sprache
+	{language} (no dictionary)	{language} (kein Wörterbuch)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Für {language} ist kein Rechtschreibwörterbuch installiert, daher wird die Sprache nicht geprüft. WordCraft sucht das Hunspell-Wörterbuch {name} im Ordner WORDCRAFT_DICTIONARIES und an den üblichen Systemorten.
 	Lasso	Lasso
 	Last Column	Letzte Spalte
 	Last commit	Letzter Commit
@@ -1553,6 +1558,11 @@
 	Add Font…	Schriftart hinzufügen…
 	Added Fonts	Hinzugefügte Schriftarten
 	Remove Added Font	Hinzugefügte Schriftart entfernen
+	Load System Installed Fonts…	Installierte Systemschriftarten laden…
+	All system fonts are already available.	Alle Systemschriftarten sind bereits verfügbar.
+	Local font access is not supported by your browser.	Lokaler Schriftartenzugriff wird von Ihrem Browser nicht unterstützt.
+	Local font access was denied.	Zugriff auf lokale Schriftarten wurde verweigert.
+	Loaded {count} system fonts.	{count} Systemschriftarten geladen.
 	Recent Colors	Zuletzt verwendete Farben
 	More Colors…	Weitere Farben…
 	Standard	Standard
@@ -2108,12 +2118,12 @@
 	Automatic ({region})	Automatisch ({region})
 	Text of the nearest paragraph with a given style (running headers)	Text des nächsten Absatzes mit einer bestimmten Formatvorlage (lebende Kolumnentitel)
 	Style name:	Formatvorlagenname:
-	Search from bottom of page to top	Seite von unten nach oben durchsuchen
-	Insert paragraph number	Absatznummer einfügen
-	Insert paragraph number in relative context	Absatznummer in relativem Kontext einfügen
-	Insert paragraph number in full context	Absatznummer in vollständigem Kontext einfügen
-	Suppress all non-delimiter characters	Alle Zeichen außer Trennzeichen unterdrücken
-	Insert position (above or below)	Position einfügen (oberhalb oder unterhalb)
+	Take the last match on the page	Letzten Treffer auf der Seite nehmen
+	Show its list number	Seine Listennummer zeigen
+	Show its number relative to this field	Seine Nummer bezogen auf dieses Feld zeigen
+	Show its number with all higher levels	Seine Nummer mit allen höheren Ebenen zeigen
+	Number only, without the label's words	Nur die Nummer, ohne die Wörter der Beschriftung
+	Add whether it is above or below	Angeben, ob er darüber oder darunter steht
 	Search	Suchen
 	Title Bar	Titelleiste
 	Copy to	Kopieren nach
@@ -2164,6 +2174,24 @@
 	Suggested	Vorschläge
 	Set Proofing Language…	Sprache für die Korrekturhilfen festlegen…
 	Language Preferences…	Spracheinstellungen…
+	Printer	Drucker
+	Select a printer	Drucker auswählen
+	Refresh printers	Drucker aktualisieren
+	Two-sided printing	Beidseitiges Drucken
+	Printer default	Druckerstandard
+	One-sided	Einseitig
+	Two-sided: long edge	Beidseitig: lange Kante
+	Two-sided: short edge	Beidseitig: kurze Kante
+	Grayscale	Graustufen
+	Finding printers…	Drucker werden gesucht…
+	No printers found. Configure a system printer or export a PDF.	Keine Drucker gefunden. Richten Sie einen Systemdrucker ein oder exportieren Sie ein PDF.
+	Printer discovery failed.	Druckersuche fehlgeschlagen.
+	Submitting print job…	Druckauftrag wird gesendet…
+	Print job submitted.	Druckauftrag gesendet.
+	Print job submitted: {receipt}	Druckauftrag gesendet: {receipt}
+	Print failed: the printing worker stopped.	Drucken fehlgeschlagen: Der Druckvorgang wurde angehalten.
+	Print settings	Druckeinstellungen
+	Submit print job	Druckauftrag senden
 
 # Dictionaries folder (#1063)
 	Dictionaries	Wörterbücher
@@ -2172,3 +2200,22 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell-Dateien (.aff und .dic) in diesem Ordner (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) haben Vorrang vor denen des Systems.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: kein Wörterbuch gefunden
+
+# Backstage › Recover (#586)
+	Recover	Wiederherstellen
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Gegenüberliegende Seiten
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Datei oder Webseite
+	Link to:	Link zu:
+	Place in This Document	Aktuelles Dokument
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Spalte {n}
+	Header row	Überschriftszeile
+	No header row	Keine Überschriftszeile
+	My list has	Meine Liste hat
+# Table Layout › Formula dialog (#1210)
+	Formula:	Formel:
+	Paste function:	Funktion einfügen:

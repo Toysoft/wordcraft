@@ -197,6 +197,9 @@
 	Bold	加粗
 	Bookmark	书签
 	Bookmark name:	书签名：
+	Delete Bookmark	删除书签
+	Hidden bookmarks	隐藏书签
+	Sort by:	排序依据：
 	Border Painter	边框刷
 	Border\nPainter	边框刷
 	Borders	边框
@@ -522,6 +525,8 @@
 	Labels	标签
 	Landscape	横向
 	Language	语言
+	{language} (no dictionary)	{language}（无词典）
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	未安装{language}的拼写词典，因此不会检查该语言。WordCraft 会在 WORDCRAFT_DICTIONARIES 文件夹和常见的系统位置查找 Hunspell 词典 {name}。
 	Lasso	套索
 	Last Column	最后一列
 	Last commit	最近提交
@@ -1568,6 +1573,11 @@
 	Add Font…	添加字体…
 	Added Fonts	已添加的字体
 	Remove Added Font	删除已添加的字体
+	Load System Installed Fonts…	加载系统已安装字体…
+	All system fonts are already available.	所有系统字体已可用。
+	Local font access is not supported by your browser.	您的浏览器不支持访问本地字体。
+	Local font access was denied.	本地字体访问被拒绝。
+	Loaded {count} system fonts.	已加载 {count} 个系统字体。
 	Recent Colors	最近使用的颜色
 	More Colors…	其他颜色…
 	Standard	标准
@@ -2095,12 +2105,6 @@
 	Automatic ({region})	自动（{region}）
 	Text of the nearest paragraph with a given style (running headers)	具有指定样式的最近段落的文本（书眉）
 	Style name:	样式名称：
-	Search from bottom of page to top	从页面底部向顶部搜索
-	Insert paragraph number	插入段落编号
-	Insert paragraph number in relative context	以相对上下文插入段落编号
-	Insert paragraph number in full context	以完整上下文插入段落编号
-	Suppress all non-delimiter characters	隐藏分隔符以外的所有字符
-	Insert position (above or below)	插入位置（上方或下方）
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	筛选收件人
 	Sort Recipients	排序收件人
@@ -2126,6 +2130,12 @@
 	Contains	包含
 	Does not contain	不包含
 	{count} of {total} recipients will be merged.	将合并 {total} 位收件人中的 {count} 位。
+	Take the last match on the page	取本页最后一个匹配项
+	Show its list number	显示其列表编号
+	Show its number relative to this field	显示相对于此域的编号
+	Show its number with all higher levels	显示含所有上级层次的编号
+	Number only, without the label's words	只要编号，不要标签中的文字
+	Add whether it is above or below	注明位于上方还是下方
 	Start-up	启动
 	Show the Start screen when WordCraft starts	启动 WordCraft 时显示开始屏幕
 	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	开：WordCraft 打开时显示“文件 › 开始”，其中有空白文档、模板和最近使用的文档。关：直接打开空白文档。
@@ -2177,6 +2187,24 @@
 	Suggested	建议
 	Set Proofing Language…	设置校对语言…
 	Language Preferences…	语言首选项…
+	Printer	打印机
+	Select a printer	选择打印机
+	Refresh printers	刷新打印机
+	Two-sided printing	双面打印
+	Printer default	打印机默认值
+	One-sided	单面
+	Two-sided: long edge	双面：长边
+	Two-sided: short edge	双面：短边
+	Grayscale	灰度
+	Finding printers…	正在查找打印机…
+	No printers found. Configure a system printer or export a PDF.	未找到打印机。请在系统中配置打印机或导出 PDF。
+	Printer discovery failed.	查找打印机失败。
+	Submitting print job…	正在提交打印作业…
+	Print job submitted.	打印作业已提交。
+	Print job submitted: {receipt}	打印作业已提交：{receipt}
+	Print failed: the printing worker stopped.	打印失败：打印工作线程已停止。
+	Print settings	打印设置
+	Submit print job	提交打印作业
 
 # Dictionaries folder (#1063)
 	Dictionaries	词典
@@ -2185,3 +2213,22 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	此文件夹中的 Hunspell .aff 和 .dic 文件 (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) 优先于系统中的文件。
 	{language}: {file}	{language}：{file}
 	{language}: no dictionary found	{language}：未找到词典
+
+# Backstage › Recover (#586)
+	Recover	恢复
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	对称页边距
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	现有文件或网页
+	Link to:	链接到:
+	Place in This Document	本文档中的位置
+# Table Layout › Sort dialog (#1205)
+	Column {n}	列 {n}
+	Header row	有标题行
+	No header row	无标题行
+	My list has	列表包含
+# Table Layout › Formula dialog (#1210)
+	Formula:	公式：
+	Paste function:	粘贴函数：
