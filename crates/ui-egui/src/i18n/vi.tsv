@@ -2672,3 +2672,6 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+	Crop to Shape	Cắt theo hình
+	Aspect Ratio	Tỷ lệ khung hình
+	Right Triangle	Tam giác vuông

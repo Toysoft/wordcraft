@@ -2622,3 +2622,6 @@ preview	Title	Tytuł
 # Reading Mode column widths (#1040)
 	Narrow	Wąska
 	Medium	Średnia
+	Crop to Shape	Przytnij do kształtu
+	Aspect Ratio	Współczynnik proporcji
+	Right Triangle	Trójkąt prostokątny

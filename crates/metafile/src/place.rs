@@ -9,6 +9,8 @@ use crate::{Item, Picture, Seg};
 pub const MAX_BITMAP_SIDE: u32 = 30_000;
 /// Placed coordinates past this (target units) are far off any page; such items are left out.
 const MAX_COORD: f64 = 1e6;
+/// The most a side is padded (negative crop), as the document model allows (`MIN_CROP`).
+const MIN_CROP: f32 = -100.0;
 /// Smallest placed bitmap side (target units), so the stretch onto it is never singular.
 const MIN_BITMAP_SIDE: f64 = 1e-6;
 
@@ -30,7 +32,8 @@ impl Picture {
     /// The transform that fits the picture into `r` with the crop fractions `crop` (left, top, right,
     /// bottom) removed first: the visible part fills `r`. None for a degenerate size.
     pub fn fit(&self, r: Rect, crop: [f32; 4]) -> Option<Affine> {
-        let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { f64::from(v.clamp(0.0, 0.95)) } else { 0.0 });
+        // Negative crop pads the picture (a Fit picture): it is drawn smaller than `r`.
+        let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { f64::from(v.clamp(MIN_CROP, 0.95)) } else { 0.0 });
         let (w, h) = (f64::from(self.width), f64::from(self.height));
         let sx = r.width() / (w * (1.0 - cl - cr).max(0.05));
         let sy = r.height() / (h * (1.0 - ct - cb).max(0.05));
