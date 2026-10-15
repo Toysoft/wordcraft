@@ -2635,3 +2635,5 @@ preview	Title	Örnek
 	Bangla Phonetic Candidates	Bengalce Fonetik Öneriler
 	Convert Bangla (Unicode / ANSI)	Bengalce Dönüştür (Unicode / ANSI)
 	Transliterate Bangla	Bengalce Harf Çevirisi Yap
+	Compatibility	Uyumluluk
+	Automatically convert legacy Bijoy / ANSI documents to Unicode on open	Eski Bijoy / ANSI belgelerini açılışta otomatik olarak Unicode'a dönüştür

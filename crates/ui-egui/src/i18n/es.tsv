@@ -2605,3 +2605,5 @@ preview	Title	Título
 	Bangla Phonetic Candidates	Sugerencias fonéticas en bengalí
 	Convert Bangla (Unicode / ANSI)	Convertir bengalí (Unicode / ANSI)
 	Transliterate Bangla	Transliterar bengalí
+	Compatibility	Compatibilidad
+	Automatically convert legacy Bijoy / ANSI documents to Unicode on open	Convertir automáticamente documentos heredados de Bijoy / ANSI a Unicode al abrir

@@ -1,4 +1,4 @@
-﻿# Bulgarian (bg) interface catalog. Columns, separated by a TAB:
+# Bulgarian (bg) interface catalog. Columns, separated by a TAB:
 #   context <TAB> English source <TAB> translation
 #   context    usually empty. `preview` words sample text inside rendered previews (the Design
 #              tab's style-set tiles), which must fit a small tile; it falls back to the plain entry.
@@ -2627,3 +2627,5 @@
 	Bangla Phonetic Candidates	Фонетични предложения за бенгалски
 	Convert Bangla (Unicode / ANSI)	Конвертиране на бенгалски (Unicode / ANSI)
 	Transliterate Bangla	Транслитерация на бенгалски
+	Compatibility	Съвместимост
+	Automatically convert legacy Bijoy / ANSI documents to Unicode on open	Автоматично конвертиране на стари Bijoy / ANSI документи в Unicode при отваряне

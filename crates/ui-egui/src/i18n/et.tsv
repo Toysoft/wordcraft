@@ -2273,3 +2273,5 @@
 	Bangla Phonetic Candidates	Foneetilised bengali soovitused
 	Convert Bangla (Unicode / ANSI)	Teisenda bengali (Unicode / ANSI)
 	Transliterate Bangla	Translitereeri bengali
+	Compatibility	Ühilduvus
+	Automatically convert legacy Bijoy / ANSI documents to Unicode on open	Teisenda vanad Bijoy / ANSI dokumendid avamisel automaatselt Unicode'i

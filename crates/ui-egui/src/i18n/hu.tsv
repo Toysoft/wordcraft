@@ -2634,3 +2634,5 @@
 	Bangla Phonetic Candidates	Fonetikus bengáli javaslatok
 	Convert Bangla (Unicode / ANSI)	Bengáli átalakítása (Unicode / ANSI)
 	Transliterate Bangla	Bengáli átírása
+	Compatibility	Kompatibilitás
+	Automatically convert legacy Bijoy / ANSI documents to Unicode on open	A korábbi Bijoy / ANSI dokumentumok automatikus konvertálása Unicode-ba megnyitáskor

@@ -2239,3 +2239,5 @@
 	Bangla Phonetic Candidates	ベンガル語の音声変換候補
 	Convert Bangla (Unicode / ANSI)	ベンガル語の変換 (Unicode / ANSI)
 	Transliterate Bangla	ベンガル語の音訳
+	Compatibility	互換性
+	Automatically convert legacy Bijoy / ANSI documents to Unicode on open	開くときに従来の Bijoy / ANSI ドキュメントを自動的に Unicode に変換する

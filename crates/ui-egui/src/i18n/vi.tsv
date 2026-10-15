@@ -2679,3 +2679,5 @@ template	Letter	Thư
 	Convert Bangla (Unicode / ANSI)	Chuyển đổi tiếng Bengal (Unicode / ANSI)
 	Transliterate Bangla	Chuyển tự tiếng Bengal
 
+	Compatibility	Tính tương thích
+	Automatically convert legacy Bijoy / ANSI documents to Unicode on open	Tự động chuyển đổi tài liệu Bijoy / ANSI cũ sang Unicode khi mở
