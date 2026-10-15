@@ -900,6 +900,7 @@ impl<'a> Builder<'a> {
                 // caret, selection and line breaking never stop inside the character.
                 bounds.retain(|b| map_starts.binary_search(b).is_ok());
             }
+            let seg_c0 = self.clusters.len();
             let mut gi = 0usize;
             for (bi, &gs) in bounds.iter().enumerate() {
                 let ge = bounds.get(bi + 1).copied().unwrap_or(shape_text.len());
@@ -940,6 +941,41 @@ impl<'a> Builder<'a> {
                     dot: s == "." || s == ",",
                 });
             }
+            if para_text {
+                self.split_ligature_advances(seg_c0, rc.spacing, key.rtl);
+            }
+        }
+    }
+
+    /// A ligature glyph (fi, ffi, lam-alef) sits on the first cluster of the letters it draws and
+    /// the clusters after it have no glyph and no width, so the caret, clicks and selection edges
+    /// inside it all land after the whole glyph. Give each letter an even share of the glyph's
+    /// advance, as Word and browsers do (#1974). The glyph stays on the first cluster; in
+    /// right-to-left text that cluster is the rightmost, so the glyph moves back by the other
+    /// letters' shares to start at the ligature's left edge. Clusters are grapheme clusters, so a
+    /// letter with a combining mark is never split.
+    fn split_ligature_advances(&mut self, from: usize, spacing: f32, rtl: bool) {
+        let mut i = from;
+        while let Some(head) = self.clusters.get(i) {
+            let n =
+                self.clusters.get(i + 1..).unwrap_or(&[]).iter().take_while(|c| c.kind == ClKind::Text && c.g1 <= c.g0 && c.adv == spacing).count();
+            if head.kind != ClKind::Text || head.g1 <= head.g0 || n == 0 {
+                i += 1;
+                continue;
+            }
+            let unit = head.adv / (n + 1) as f32;
+            let (g0, g1) = (head.g0 as usize, head.g1 as usize);
+            if unit.is_finite() {
+                for c in self.clusters.get_mut(i..=i + n).unwrap_or(&mut []) {
+                    c.adv = unit;
+                }
+                if rtl {
+                    for g in self.glyphs.get_mut(g0..g1).unwrap_or(&mut []) {
+                        g.dx -= unit * n as f32;
+                    }
+                }
+            }
+            i += n + 1;
         }
     }
 
