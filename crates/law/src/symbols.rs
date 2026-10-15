@@ -279,6 +279,9 @@ fn fix_spacing(s: &mut Session, v: &Value) -> CmdResult {
     let scope = p::str(v, "scope");
     let whole = scope == Some("document") || (scope != Some("selection") && s.sel.is_collapsed());
     let (a, b) = s.sel.ordered();
+    if s.doc.settings.track_changes {
+        return fix_spacing_tracked(s, whole, &a, &b);
+    }
     let mut fixes = 0usize;
     if whole {
         // Every text story, not just the body: footnotes, endnotes, headers, footers and text
@@ -313,6 +316,52 @@ fn fix_spacing(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"fixes": fixes}))
 }
 
+/// [`fix_spacing`] with Track Changes on: each space is replaced as a tracked change (the space
+/// marked deleted, the non-breaking space marked inserted), so Reject All puts the spaces back.
+fn fix_spacing_tracked(s: &mut Session, whole: bool, a: &Pos, b: &Pos) -> CmdResult {
+    let mut work: Vec<(StoryRef, Path, Vec<(usize, usize)>)> = Vec::new();
+    let stories = if whole { s.doc.text_stories() } else { vec![a.story] };
+    for story in stories {
+        let paths = if whole { s.doc.para_paths(story) } else { s.doc.paths_between(a, b) };
+        for path in paths {
+            let Some(para) = s.doc.para(story, &path) else { continue };
+            let (from, to) =
+                if whole { (0, para.len()) } else { (if path == a.path { a.off } else { 0 }, if path == b.path { b.off } else { para.len() }) };
+            if from >= to {
+                continue;
+            }
+            let ranges = sign_spacing_space_ranges(&para.text, from, to);
+            if !ranges.is_empty() {
+                work.push((story, path, ranges));
+            }
+        }
+    }
+    let fixes = work.len();
+    for (story, path, ranges) in work {
+        for (start, end) in ranges.into_iter().rev() {
+            let before = s.doc.para(story, &path).map_or(0, |p| p.len());
+            wordcraft_engine::cmd::replace_text(
+                s,
+                &Pos { story, path: path.clone(), off: start },
+                &Pos { story, path: path.clone(), off: end },
+                NBSP_STR,
+            )?;
+            let delta = s.doc.para(story, &path).map_or(0, |p| p.len()) as isize - before as isize;
+            // Offsets after the replaced space move by what the edit added.
+            for p in [&mut s.sel.anchor, &mut s.sel.focus] {
+                if p.story == story && p.path == path && p.off > start {
+                    p.off = (p.off as isize + delta).max(start as isize) as usize;
+                }
+            }
+        }
+    }
+    s.touch();
+    Ok(json!({"fixes": fixes}))
+}
+
+/// A non-breaking space as text.
+const NBSP_STR: &str = "\u{a0}";
+
 /// After a digit is typed, turn `§ 1` into `§` NBSP `1`.
 fn on_text_autoformat(s: &mut Session, text: &str) -> Result<bool, CmdError> {
     if !s.module_enabled(crate::MODULE) || !s.prefs.autocorrect.enabled {
@@ -342,6 +391,13 @@ fn on_text_autoformat(s: &mut Session, text: &str) -> Result<bool, CmdError> {
     };
     if sign_run == 0 {
         return Ok(false);
+    }
+    if s.doc.settings.track_changes {
+        // As a tracked change, like the rest of what was typed: Reject puts the space back.
+        let (from, to) = if has_ascii_space { (digit_start - 1, digit_start) } else { (digit_start, digit_start) };
+        let end = wordcraft_engine::cmd::replace_text(s, &Pos { off: from, ..f.clone() }, &Pos { off: to, ..f.clone() }, NBSP_STR)?;
+        s.sel = Selection::caret(Pos { off: end.off + ch.len_utf8(), ..f });
+        return Ok(true);
     }
     let para = s.doc.para_mut(f.story, &f.path)?;
     let mut buf = [0u8; 4];

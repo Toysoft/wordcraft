@@ -323,3 +323,27 @@ fn the_law_tab_holds_the_symbols_while_lawcraft_is_on() {
     crate::install(&mut s);
     assert!(s.ribbon.tabs().iter().all(|t| t.name != crate::RIBBON_TAB), "gone once LawCraft is off");
 }
+
+/// With Track Changes on, the spacing fix and the typing correction are tracked changes: Reject
+/// All puts the ordinary spaces back, Accept All keeps the non-breaking ones.
+#[test]
+fn spacing_corrections_are_tracked_changes_while_tracking() {
+    for (answer, want) in [("review.rejectAll", "See § 1.010 and ¶ 4."), ("review.acceptAll", "See §\u{a0}1.010 and ¶\u{a0}4.")] {
+        let mut s = law();
+        run(&mut s, "text.insert", json!({"text": "See § 1.010 and ¶ 4."}));
+        run(&mut s, "review.trackChanges", json!({"value": true}));
+        run(&mut s, "law.symbols.fixSpacing", json!({"scope": "document"}));
+        assert!(!s.doc.revisions.is_empty(), "recorded as revisions");
+        run(&mut s, answer, json!({}));
+        assert_eq!(s.doc.plain_text(StoryRef::Body), want, "{answer}");
+    }
+    for (answer, want) in [("review.rejectAll", "§ "), ("review.acceptAll", "§\u{a0}1")] {
+        let mut s = law();
+        s.prefs.autocorrect.enabled = true;
+        run(&mut s, "text.insert", json!({"text": "§ "}));
+        run(&mut s, "review.trackChanges", json!({"value": true}));
+        run(&mut s, "text.insert", json!({"text": "1"}));
+        run(&mut s, answer, json!({}));
+        assert_eq!(s.doc.plain_text(StoryRef::Body), want, "typing {answer}");
+    }
+}
