@@ -2624,3 +2624,11 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Text is checked in the language set for it in Review › Language; text without one is checked in English (United States).	Text se kontroluje v jazyce, který je pro něj nastaven v nabídce Revize › Jazyk; text bez jazyka se kontroluje v angličtině (Spojené státy).
+	Download	Stáhnout
+	Downloading…	Stahování…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Tlačítko Stáhnout stáhne slovník ze sbírky slovníků LibreOffice do složky se slovníky. Každý si ponechává vlastní licenci (GPL, LGPL nebo MPL) a zůstává samostatným souborem, který WordCraft pouze čte.
+	Downloading the {language} dictionary…	{language}: stahování slovníku…
+	The {language} dictionary is installed.	{language}: slovník je nainstalován.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: slovník se nepodařilo stáhnout: {error}

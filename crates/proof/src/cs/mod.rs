@@ -57,6 +57,11 @@ pub fn reload_dictionary() {
     *DICT.write().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
+/// The `.dic` file of the installed Czech dictionary, if there is one (looked up again).
+pub fn installed_path() -> Option<std::path::PathBuf> {
+    crate::hunspell::find(NAMES).map(|(_, dic)| dic)
+}
+
 /// Is a Czech dictionary available (spelling is checked)?
 pub fn has_dictionary() -> bool {
     !dictionary().is_empty()

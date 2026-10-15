@@ -2672,3 +2672,11 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Text is checked in the language set for it in Review › Language; text without one is checked in English (United States).	Văn bản được kiểm tra bằng ngôn ngữ đặt cho nó trong Xem lại › Ngôn ngữ; văn bản không có ngôn ngữ được kiểm tra bằng tiếng Anh (Mỹ).
+	Download	Tải xuống
+	Downloading…	Đang tải xuống…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Tải xuống lấy từ điển từ bộ sưu tập từ điển của LibreOffice vào thư mục từ điển. Mỗi từ điển giữ giấy phép riêng (GPL, LGPL hoặc MPL) và là một tệp riêng mà WordCraft chỉ đọc.
+	Downloading the {language} dictionary…	{language}: đang tải xuống từ điển…
+	The {language} dictionary is installed.	{language}: đã cài đặt từ điển.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: không tải xuống được từ điển: {error}

@@ -2622,3 +2622,11 @@ preview	Title	Tytuł
 # Reading Mode column widths (#1040)
 	Narrow	Wąska
 	Medium	Średnia
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Text is checked in the language set for it in Review › Language; text without one is checked in English (United States).	Tekst jest sprawdzany w języku ustawionym dla niego w obszarze Recenzja › Język; tekst bez języka jest sprawdzany po angielsku (Stany Zjednoczone).
+	Download	Pobierz
+	Downloading…	Pobieranie…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Pobierz pobiera słownik z kolekcji słowników LibreOffice do folderu słowników. Każdy zachowuje własną licencję (GPL, LGPL lub MPL) i pozostaje osobnym plikiem, który WordCraft tylko odczytuje.
+	Downloading the {language} dictionary…	{language}: pobieranie słownika…
+	The {language} dictionary is installed.	{language}: słownik zainstalowany.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: nie udało się pobrać słownika: {error}

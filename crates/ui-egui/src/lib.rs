@@ -49,6 +49,7 @@ pub mod dialogs_ribbon;
 pub mod dialogs_smart_art;
 pub mod dialogs_table_style;
 pub mod dialogs_templates;
+pub mod dictionaries;
 pub mod equation_tab;
 /// The built-in file browser, for desktops without a system file dialog (#576).
 #[cfg(not(target_arch = "wasm32"))]
@@ -515,6 +516,8 @@ pub struct WordApp {
     pub(crate) outline_prev_tab: Option<String>,
     /// Zotero commands in flight (`ui.zotero.*`).
     pub zotero: zotero::ZoteroLink,
+    /// Spelling dictionary downloads (`ui.dictionaries.*`).
+    pub dictionaries: dictionaries::Downloads,
     /// The egui context, once the first frame has run (background work wakes the UI with it).
     pub(crate) ctx: Option<egui::Context>,
     /// Read Aloud: the start of the sentence the caret was last moved to, and the last error shown.
@@ -623,6 +626,7 @@ impl WordApp {
             smart_art_typing: None,
             outline_prev_tab: None,
             zotero: zotero::ZoteroLink::default(),
+            dictionaries: dictionaries::Downloads::default(),
             ctx: None,
             read_aloud_at: None,
             read_aloud_error: None,
@@ -830,6 +834,12 @@ impl WordApp {
             return self.set_autosave(&params);
         }
         if let Some(r) = table_pen::toggle(self, id, &params) {
+            return r;
+        }
+        if let Some(r) = dictionaries::command(self, id, &params) {
+            if let Err(e) = &r {
+                self.status(e.clone());
+            }
             return r;
         }
         let ctx = self.ctx.clone();
@@ -1808,6 +1818,7 @@ impl WordApp {
         self.poll_printing(ctx);
         self.drain_control(ctx);
         zotero::poll(self, ctx);
+        dictionaries::poll(self);
         read_aloud::poll(self, ctx);
         self.clear_stale_change_picture();
         let _ = self.poll_file_dialog();
@@ -2393,6 +2404,8 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.discord"
             | "ui.caretAnimation"
             | "ui.startScreen"
+            | "ui.dictionaries"
+            | "ui.dictionaries.download"
     ) || id.starts_with("help.")
 }
 

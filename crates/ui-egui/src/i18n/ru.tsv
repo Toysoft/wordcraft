@@ -2630,3 +2630,11 @@ preview	Title	Пример
 # Reading Mode column widths (#1040)
 	Narrow	Узкая
 	Medium	Средняя
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Text is checked in the language set for it in Review › Language; text without one is checked in English (United States).	Текст проверяется на языке, заданном для него в разделе Рецензирование › Язык; текст без языка проверяется на английском (США).
+	Download	Загрузить
+	Downloading…	Загрузка…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Кнопка «Загрузить» берёт словарь из коллекции словарей LibreOffice и сохраняет его в папку словарей. Каждый словарь сохраняет собственную лицензию (GPL, LGPL или MPL) и остаётся отдельным файлом, который WordCraft только читает.
+	Downloading the {language} dictionary…	{language}: загрузка словаря…
+	The {language} dictionary is installed.	{language}: словарь установлен.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: не удалось загрузить словарь: {error}

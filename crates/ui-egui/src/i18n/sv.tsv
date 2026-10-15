@@ -2647,3 +2647,11 @@ preview	Title	Titel
 	Bottom Right Cell	Nedre högra cellen
 	Inside Horizontal Border	Inre vågrät kantlinje
 	Inside Vertical Border	Inre lodrät kantlinje
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Text is checked in the language set for it in Review › Language; text without one is checked in English (United States).	Texten kontrolleras på det språk som angetts för den under Granska › Språk; text utan språk kontrolleras på engelska (USA).
+	Download	Ladda ned
+	Downloading…	Laddar ned…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Ladda ned hämtar ordlistan från LibreOffice ordlistsamling till ordlistmappen. Varje ordlista behåller sin egen licens (GPL, LGPL eller MPL) och förblir en separat fil som WordCraft bara läser.
+	Downloading the {language} dictionary…	{language}: ordlistan laddas ned…
+	The {language} dictionary is installed.	{language}: ordlistan är installerad.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: ordlistan kunde inte laddas ned: {error}

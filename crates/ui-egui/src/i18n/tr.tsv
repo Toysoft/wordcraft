@@ -2629,3 +2629,11 @@ preview	Title	Örnek
 # Reading Mode column widths (#1040)
 	Narrow	Dar
 	Medium	Orta
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Text is checked in the language set for it in Review › Language; text without one is checked in English (United States).	Metin, İncele › Dil'de kendisi için ayarlanan dilde denetlenir; dili olmayan metin İngilizce (Amerika Birleşik Devletleri) olarak denetlenir.
+	Download	İndir
+	Downloading…	İndiriliyor…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	İndir, sözlüğü LibreOffice'in sözlük koleksiyonundan sözlükler klasörüne indirir. Her biri kendi lisansını (GPL, LGPL veya MPL) korur ve WordCraft'ın yalnızca okuduğu ayrı bir dosya olarak kalır.
+	Downloading the {language} dictionary…	{language}: sözlük indiriliyor…
+	The {language} dictionary is installed.	{language}: sözlük yüklendi.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: sözlük indirilemedi: {error}
