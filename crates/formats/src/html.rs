@@ -164,15 +164,34 @@ pub fn unescape(s: &str) -> String {
     out
 }
 
-/// Decode HTML bytes: BOM, then a `charset` in the first 2 KB, else UTF-8 with a Windows-1252
-/// fallback.
+fn sniff_charset(head: &str) -> Option<&str> {
+    let after = if let Some(i) = head.find("charset") {
+        let rest = head[i + 7..].trim_start();
+        rest.strip_prefix('=')?
+    } else if let Some(i) = head.find("encoding") {
+        let rest = head[i + 8..].trim_start();
+        rest.strip_prefix('=')?
+    } else {
+        return None;
+    };
+    let trimmed = after.trim_start().trim_start_matches(['"', '\'']);
+    let end = trimmed.find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ';' | '>' | '/')).unwrap_or(trimmed.len());
+    let label = trimmed[..end].trim();
+    if label.is_empty() { None } else { Some(label) }
+}
+
+/// Decode HTML bytes: BOM, then a `charset` in the first 2 KB, else UTF-8 with a legacy fallback.
 pub fn decode(b: &[u8]) -> String {
     if b.starts_with(&[0xFF, 0xFE]) || b.starts_with(&[0xFE, 0xFF]) || b.starts_with(&[0xEF, 0xBB, 0xBF]) {
         return crate::txt::decode(b);
     }
     let head = String::from_utf8_lossy(b.get(..b.len().min(2048)).unwrap_or(b)).to_ascii_lowercase();
-    let latin = head.contains("charset=windows-1252") || head.contains("charset=iso-8859-1") || head.contains("charset=\"windows-1252\"");
-    if !latin && let Ok(s) = std::str::from_utf8(b) {
+    if let Some(label) = sniff_charset(&head) {
+        if let Some(s) = crate::txt::decode_as(b, label) {
+            return s;
+        }
+    }
+    if let Ok(s) = std::str::from_utf8(b) {
         return s.to_string();
     }
     crate::txt::decode(b)
@@ -1784,5 +1803,20 @@ mod tests {
     #[test]
     fn entities() {
         assert_eq!(unescape("a &lt;b&gt; &#65;&#x42; &bogus; &"), "a <b> AB &bogus; &");
+    }
+
+    #[test]
+    fn decode_with_charset_declarations() {
+        let iso = b"<html><head><meta charset=\"iso-8859-1\"></head><body>\xE9l\xE8ve</body></html>";
+        assert!(decode(iso).contains("élève"));
+
+        let win = b"<html><head><meta charset='windows-1252'></head><body>\x80100</body></html>";
+        assert!(decode(win).contains("€100"));
+
+        let gbk = b"<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=gbk\"></head><body>\xC4\xE3\xBA\xC3</body></html>";
+        assert!(decode(gbk).contains("你好"));
+
+        let xml = b"<?xml version=\"1.0\" encoding=\"utf-8\"?><html><body>hello</body></html>";
+        assert!(decode(xml).contains("hello"));
     }
 }
