@@ -88,8 +88,8 @@ struct Writer {
     list_styles: Vec<[bool; 9]>,
     /// Table styles: (name, column widths).
     tables: Vec<Vec<f32>>,
-    /// Cell styles by shading.
-    cell_styles: Vec<Option<Rgb>>,
+    /// Cell styles: (shading, borderless).
+    cell_styles: Vec<(Option<Rgb>, bool)>,
     pictures: Vec<(String, std::sync::Arc<Vec<u8>>, String)>,
     /// `text:changed-region` elements written so far.
     regions: Vec<String>,
@@ -521,11 +521,12 @@ impl Writer {
         }
     }
 
-    fn cell_style(&mut self, shading: Option<Rgb>) -> String {
-        let k = match self.cell_styles.iter().position(|s| *s == shading) {
+    fn cell_style(&mut self, shading: Option<Rgb>, borderless: bool) -> String {
+        let key = (shading, borderless);
+        let k = match self.cell_styles.iter().position(|s| *s == key) {
             Some(k) => k,
             None => {
-                self.cell_styles.push(shading);
+                self.cell_styles.push(key);
                 self.cell_styles.len() - 1
             }
         };
@@ -562,7 +563,7 @@ impl Writer {
                     }
                     continue;
                 }
-                let st = self.cell_style(c.shading);
+                let st = self.cell_style(c.shading, t.borderless);
                 let mut attrs = format!(" table:style-name=\"{st}\" office:value-type=\"string\"");
                 if span > 1 {
                     attrs.push_str(&format!(" table:number-columns-spanned=\"{span}\""));
@@ -638,10 +639,11 @@ impl Writer {
                 ));
             }
         }
-        for (i, sh) in self.cell_styles.iter().enumerate() {
+        for (i, &(sh, borderless)) in self.cell_styles.iter().enumerate() {
             let bg = sh.map(|c| format!(" fo:background-color=\"#{}\"", c.hex().to_ascii_lowercase())).unwrap_or_default();
+            let border = if borderless { "fo:border=\"none\"" } else { "fo:border=\"0.5pt solid #000000\"" };
             s.push_str(&format!(
-                "<style:style style:name=\"Cell{}\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"4pt\" fo:border=\"0.5pt solid #000000\"{bg}/></style:style>",
+                "<style:style style:name=\"Cell{}\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"4pt\" {border}{bg}/></style:style>",
                 i + 1
             ));
         }
@@ -917,6 +919,10 @@ struct StyleInfo {
     border_bottom: bool,
     /// `fo:background-color` of a table-cell style's `style:table-cell-properties`.
     cell_background: Option<Rgb>,
+    /// `fo:border` or side borders of a table-cell style's `style:table-cell-properties`.
+    cell_border: Option<bool>,
+    /// `fo:border` or side borders of a table style's `style:table-properties`.
+    table_border: Option<bool>,
     /// `style:master-page-name` of a paragraph or table style: its paragraphs (tables) start a
     /// page of that master page. Empty: explicitly none, which stops the lookup up the chain.
     master_page: Option<String>,
@@ -1100,17 +1106,43 @@ impl Styles {
                     }
                 }
                 "table-properties" => {
-                    if let Some((_, s)) = &mut cur
-                        && let Some(v) = get(&a, "style:page-number")
-                    {
-                        s.page_number = Some(v.trim().parse::<u32>().ok().map(|n| n.min(32_767)));
+                    if let Some((_, s)) = &mut cur {
+                        if let Some(v) = get(&a, "style:page-number") {
+                            s.page_number = Some(v.trim().parse::<u32>().ok().map(|n| n.min(32_767)));
+                        }
+                        for k in ["fo:border", "fo:border-top", "fo:border-bottom", "fo:border-left", "fo:border-right"] {
+                            if let Some(v) = get(&a, k) {
+                                let v = v.trim();
+                                if v == "none" || v.starts_with("none") || v.starts_with("0 ") || v.starts_with("0pt") || v.starts_with("0px") || v == "0" {
+                                    if s.table_border.is_none() {
+                                        s.table_border = Some(false);
+                                    }
+                                } else {
+                                    s.table_border = Some(true);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
                 "table-cell-properties" => {
-                    if let Some((_, s)) = &mut cur
-                        && let Some(c) = get(&a, "fo:background-color").and_then(model::parse_color)
-                    {
-                        s.cell_background = Some(c);
+                    if let Some((_, s)) = &mut cur {
+                        if let Some(c) = get(&a, "fo:background-color").and_then(model::parse_color) {
+                            s.cell_background = Some(c);
+                        }
+                        for k in ["fo:border", "fo:border-top", "fo:border-bottom", "fo:border-left", "fo:border-right"] {
+                            if let Some(v) = get(&a, k) {
+                                let v = v.trim();
+                                if v == "none" || v.starts_with("none") || v.starts_with("0 ") || v.starts_with("0pt") || v.starts_with("0px") || v == "0" {
+                                    if s.cell_border.is_none() {
+                                        s.cell_border = Some(false);
+                                    }
+                                } else {
+                                    s.cell_border = Some(true);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
                 "paragraph-properties" => {
@@ -1221,6 +1253,16 @@ impl Styles {
         self.chain(name).iter().find_map(|(_, s)| s.cell_background)
     }
 
+    /// Whether a table style specifies borders (whole chain).
+    fn table_has_border(&self, name: &str) -> Option<bool> {
+        self.chain(name).iter().find_map(|(_, s)| s.table_border)
+    }
+
+    /// Whether a table-cell style specifies borders (whole chain).
+    fn cell_has_border(&self, name: &str) -> Option<bool> {
+        self.chain(name).iter().find_map(|(_, s)| s.cell_border)
+    }
+
     /// Paragraph kind, alignment, page break, rule and base formatting. The text formatting of
     /// every style in the chain applies (automatic and common, ODF 1.3 §16.2 inheritance), except
     /// the style that gives the paragraph its kind and that style's ancestors: their formatting
@@ -1270,6 +1312,7 @@ struct TableB {
     row: Vec<Cell>,
     /// Covered cells still owed to the previous cell's column span.
     hcover: usize,
+    has_borders: bool,
 }
 
 /// A `text:changed-region` read from `text:tracked-changes`.
@@ -1708,14 +1751,16 @@ impl Body<'_> {
             "table" if q.starts_with("table:") => {
                 self.end_para();
                 // A body table whose style names a master page starts that page (ODF 1.3 §19.509).
-                if let Some(next) = get(a, "table:style-name").and_then(|s| self.page_section(s)) {
+                let table_style = get(a, "table:style-name");
+                if let Some(next) = table_style.and_then(|s| self.page_section(s)) {
                     self.break_section(next);
                 }
                 if self.tables.len() >= model::MAX_DEPTH {
                     self.skip = 1;
                     return;
                 }
-                self.tables.push(TableB { rows: Vec::new(), row: Vec::new(), hcover: 0 });
+                let has_borders = table_style.and_then(|s| self.styles.table_has_border(s)).unwrap_or(false);
+                self.tables.push(TableB { rows: Vec::new(), row: Vec::new(), hcover: 0, has_borders });
             }
             "table-row" => {
                 if let Some(t) = self.tables.last_mut() {
@@ -1727,9 +1772,15 @@ impl Body<'_> {
                 self.end_para();
                 let span = get(a, "table:number-columns-spanned").and_then(|v| v.parse::<u32>().ok()).unwrap_or(1).clamp(1, 63);
                 let rows = get(a, "table:number-rows-spanned").and_then(|v| v.parse::<u32>().ok()).unwrap_or(1).clamp(1, 1000);
-                let shading = get(a, "table:style-name").and_then(|s| self.styles.cell_background(s));
+                let style_name = get(a, "table:style-name");
+                let shading = style_name.and_then(|s| self.styles.cell_background(s));
                 if let Some(t) = self.tables.last_mut() {
                     t.hcover = span as usize - 1;
+                    if let Some(s) = style_name {
+                        if self.styles.cell_has_border(s) == Some(true) {
+                            t.has_borders = true;
+                        }
+                    }
                 }
                 self.cells.push(Cell { colspan: span, rowspan: rows, shading, ..Default::default() });
                 self.containers.push(Vec::new());
@@ -2005,7 +2056,7 @@ impl Body<'_> {
                 if let Some(t) = self.tables.pop()
                     && !t.rows.is_empty()
                 {
-                    self.container().push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
+                    self.container().push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: !t.has_borders }));
                 }
             }
             "desc" | "title" => self.in_desc = false,
@@ -2224,7 +2275,7 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>), Str
     let mut blocks = body.containers.pop().unwrap_or_default();
     for t in body.tables.drain(..) {
         if !t.rows.is_empty() {
-            blocks.push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: false }));
+            blocks.push(FBlock::Table(FTable { rows: t.rows, widths: Vec::new(), borderless: !t.has_borders }));
         }
     }
     // An open section with nothing in it (after a column section at the end) isn't one: the
@@ -2919,5 +2970,76 @@ mod tests {
         assert!(back.revisions.first().is_some_and(|r| r.date.len() >= 19 && r.date.starts_with("20")), "{:?}", back.revisions);
         assert_eq!(marks(&back), marks(&doc));
         assert_eq!(marks(&back).len(), 1);
+    }
+
+    #[test]
+    fn table_borders_and_borderless_round_trip() {
+        use std::sync::Arc;
+        use wordcraft_doc::{Block, CharProps, Paragraph, Table, para_block};
+
+        // 1. Borderless table: style is None, no borders.
+        let mut doc = Document::new();
+        let mut t_borderless = Table::new(2, 2, 400.0);
+        t_borderless.props.style = None;
+        for r in 0..2 {
+            for c in 0..2 {
+                t_borderless.rows[r].cells[c].blocks = vec![para_block(Paragraph::with_text("cell", CharProps::default()))];
+            }
+        }
+        doc.body = vec![Arc::new(Block::Table(t_borderless))];
+
+        let odt_bytes = export(&doc).expect("export borderless table to odt");
+        let flow = parse(&odt_bytes).expect("parse exported odt");
+        let Some(FBlock::Table(ft)) = flow.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else {
+            panic!("expected table block in parsed flow");
+        };
+        assert!(ft.borderless, "expected borderless table in parsed flow");
+
+        let doc_back = import(&odt_bytes).expect("import borderless table from odt");
+        let Some(Block::Table(back_table)) = doc_back.body.first().map(|b| &**b) else {
+            panic!("expected table in imported document");
+        };
+        assert!(back_table.props.style.is_none(), "expected imported table to remain borderless");
+
+        // 2. Bordered table: style is Some("TableGrid").
+        let mut doc_bordered = Document::new();
+        let mut t_bordered = Table::new(2, 2, 400.0);
+        t_bordered.props.style = Some("TableGrid".to_string());
+        for r in 0..2 {
+            for c in 0..2 {
+                t_bordered.rows[r].cells[c].blocks = vec![para_block(Paragraph::with_text("cell", CharProps::default()))];
+            }
+        }
+        doc_bordered.body = vec![Arc::new(Block::Table(t_bordered))];
+
+        let odt_bordered_bytes = export(&doc_bordered).expect("export bordered table to odt");
+        let flow_bordered = parse(&odt_bordered_bytes).expect("parse exported bordered odt");
+        let Some(FBlock::Table(ft_bordered)) = flow_bordered.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else {
+            panic!("expected table block in parsed flow");
+        };
+        assert!(!ft_bordered.borderless, "expected bordered table in parsed flow");
+
+        let doc_bordered_back = import(&odt_bordered_bytes).expect("import bordered table from odt");
+        let Some(Block::Table(back_bordered_table)) = doc_bordered_back.body.first().map(|b| &**b) else {
+            panic!("expected table in imported document");
+        };
+        assert!(back_bordered_table.props.style.is_some(), "expected imported table to remain bordered");
+    }
+
+    #[test]
+    fn table_cell_borders_import() {
+        let content_none = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="BorderlessCell" style:family="table-cell"><style:table-cell-properties fo:border="none"/></style:style></office:automatic-styles><office:body><office:text><table:table><table:table-column/><table:table-row><table:table-cell table:style-name="BorderlessCell"><text:p>None</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"#
+        );
+        let f_none = parse(&package(&content_none, None)).unwrap();
+        let Some(FBlock::Table(t_none)) = f_none.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        assert!(t_none.borderless, "cell with fo:border=none should be borderless");
+
+        let content_border = format!(
+            r#"<office:document-content {NS_T}><office:automatic-styles><style:style style:name="BorderCell" style:family="table-cell"><style:table-cell-properties fo:border="0.5pt solid #000000"/></style:style></office:automatic-styles><office:body><office:text><table:table><table:table-column/><table:table-row><table:table-cell table:style-name="BorderCell"><text:p>Border</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"#
+        );
+        let f_border = parse(&package(&content_border, None)).unwrap();
+        let Some(FBlock::Table(t_border)) = f_border.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        assert!(!t_border.borderless, "cell with fo:border=0.5pt solid #000000 should not be borderless");
     }
 }
