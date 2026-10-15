@@ -153,6 +153,50 @@ pub fn system_cjk_ui_font_for(hans: bool, korean: bool, needed: &[char]) -> Opti
     find_ui_font(&with_asset_data(crate::system_font_dirs()), &candidates(hans, korean), needed, hans)
 }
 
+/// Font files of an installed face for Arabic interface text, relative to a font folder, best
+/// first: Windows Segoe UI and Tahoma, macOS SF Arabic and Geeza Pro, Linux Noto Sans Arabic and
+/// DejaVu Sans.
+fn arabic_candidates() -> Vec<&'static str> {
+    if cfg!(windows) {
+        vec!["segoeui.ttf", "tahoma.ttf"]
+    } else if cfg!(target_os = "macos") {
+        vec![
+            "SFArabic.ttf",
+            "SF-Arabic.ttf",
+            "GeezaPro.ttc",
+            "Geeza Pro.ttc",
+            "/System/Library/Fonts/SFArabic.ttf",
+            "/System/Library/Fonts/GeezaPro.ttc",
+        ]
+    } else {
+        vec![
+            "noto/NotoSansArabicUI-Regular.ttf",
+            "truetype/noto/NotoSansArabicUI-Regular.ttf",
+            "opentype/noto/NotoSansArabicUI-Regular.ttf",
+            "noto/NotoSansArabic-Regular.ttf",
+            "truetype/noto/NotoSansArabic-Regular.ttf",
+            "opentype/noto/NotoSansArabic-Regular.ttf",
+            "google-noto/NotoSansArabic-Regular.ttf",
+            "truetype/dejavu/DejaVuSans.ttf",
+            "dejavu/DejaVuSans.ttf",
+            "TTF/DejaVuSans.ttf",
+        ]
+    }
+}
+
+/// The first installed face that maps U+0627 (alef) and U+0644 (lam) from a short list of
+/// well-known Arabic-capable interface fonts, if any. Never panics on damaged files.
+pub fn system_arabic_ui_font() -> Option<SystemUiFont> {
+    let needed = ['\u{627}', '\u{644}'];
+    // `find_ui_font` accepts a partial cover; only a face with both letters will do.
+    find_ui_font(&with_asset_data(crate::system_font_dirs()), &arabic_candidates(), &needed, false).filter(|f| {
+        skrifa::FontRef::from_index(&f.bytes, f.index).is_ok_and(|r| {
+            let m = r.charmap();
+            needed.iter().all(|c| m.map(*c).is_some())
+        })
+    })
+}
+
 /// `dirs` and, for each macOS font asset folder among them (`com_apple_MobileAsset_Font<N>`),
 /// the `AssetData` folder of every `<hash>.asset` in it: macOS ships PingFang there, e.g.
 /// `/System/Library/AssetsV2/com_apple_MobileAsset_Font7/<hash>.asset/AssetData/PingFang.ttc`

@@ -11,9 +11,10 @@ use wordcraft_doc::styles::{PartFormat, PartSet, TablePart, TableStyleProps};
 use wordcraft_doc::{CharProps, Rgb, TextColor};
 use wordcraft_engine::cmd::table_style::CELL_ALIGNS;
 
-use crate::WordApp;
-use crate::dialogs::{Dialog, buttons, color_menu};
+use crate::dialogs::{Dialog, buttons, color_menu, label, text_field};
+use crate::rtl::HoverText as _;
 use crate::theme::Tokens;
+use crate::{WordApp, rtl};
 
 /// One table style part in the dialog, as it resolves through the based-on chain: colours are
 /// hex, empty for none.
@@ -288,7 +289,7 @@ fn edge_glyph(ui: &mut Ui, edges: &str) {
 fn align_button(ui: &mut Ui, (v, h): (VAlign, Align), on: bool, tip: &str) -> egui::Response {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
-    let resp = resp.on_hover_text(tip);
+    let resp = crate::rtl::hover_text(resp, tip);
     let p = ui.painter_at(r);
     let bg = if on {
         t.checked
@@ -465,34 +466,46 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
         .styles
         .iter()
         .filter(|s| s.kind == wordcraft_doc::StyleKind::Table && Some(&s.id) != id.as_ref())
-        .map(|s| (s.id.clone(), s.name.clone()))
+        // Built-in names in the interface language, the author's own in their own direction.
+        .map(|s| (s.id.clone(), crate::i18n::style_name(s)))
         .collect();
     let base_name = styles.iter().find(|(i, _)| i == based_on).map(|(_, n)| n.clone()).unwrap_or_else(|| based_on.clone());
     let mut rebased = false;
-    egui::Grid::new("tstyle").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-        ui.label(tl!("Name:"));
-        ui.text_edit_singleline(name);
-        ui.end_row();
-        ui.label(tl!("Style based on:"));
-        egui::ComboBox::from_id_salt("tstyle_base").width(200.0).selected_text(base_name).show_ui(ui, |ui| {
-            for (sid, sname) in &styles {
-                if ui.selectable_label(sid == based_on, sname).clicked() && sid != based_on {
-                    *based_on = sid.clone();
-                    rebased = true;
-                }
-            }
+    rtl::fitted(ui, "tstyle", |ui| {
+        rtl::grid("tstyle", 2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+            rtl::grid_row(
+                ui,
+                [&mut |ui: &mut Ui| label(ui, "Name:"), &mut |ui: &mut Ui| {
+                    text_field(ui, name, None);
+                }],
+            );
+            rtl::grid_row(
+                ui,
+                [&mut |ui: &mut Ui| label(ui, "Style based on:"), &mut |ui: &mut Ui| {
+                    egui::ComboBox::from_id_salt("tstyle_base").width(200.0).selected_text(base_name.as_str()).show_ui(ui, |ui| {
+                        for (sid, sname) in &styles {
+                            if ui.selectable_label(sid == based_on, sname).clicked() && sid != based_on {
+                                *based_on = sid.clone();
+                                rebased = true;
+                            }
+                        }
+                    });
+                }],
+            );
+            rtl::grid_row(
+                ui,
+                [&mut |ui: &mut Ui| label(ui, "Apply formatting to:"), &mut |ui: &mut Ui| {
+                    egui::ComboBox::from_id_salt("tstyle_region")
+                        .width(200.0)
+                        .selected_text(tl!(PARTS.get(*region).map_or("Whole Table", |(_, l)| *l)))
+                        .show_ui(ui, |ui| {
+                            for (i, (_, n)) in PARTS.iter().enumerate() {
+                                ui.selectable_value(region, i, tl!(*n));
+                            }
+                        });
+                }],
+            );
         });
-        ui.end_row();
-        ui.label(tl!("Apply formatting to:"));
-        egui::ComboBox::from_id_salt("tstyle_region").width(200.0).selected_text(tl!(PARTS.get(*region).map_or("Whole Table", |(_, l)| *l))).show_ui(
-            ui,
-            |ui| {
-                for (i, (_, n)) in PARTS.iter().enumerate() {
-                    ui.selectable_value(region, i, tl!(*n));
-                }
-            },
-        );
-        ui.end_row();
     });
     // A new style shows its new base's formatting; a modified one keeps its own.
     if rebased && id.is_none() {
@@ -506,23 +519,23 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
     if let Some(r) = regions.get_mut(*region) {
         ui.label(egui::RichText::new(tl!("Formatting")).font(crate::theme::semibold(12.5)));
         // Font, size, bold, italic, underline and text colour.
-        ui.horizontal(|ui| {
+        rtl::row(ui, |ui| {
             if let Some(f) = crate::widgets::font_combo(ui, "tstyle_font", 170.0, &r.font, &fams, Some(&*preview_fn))
                 && f != crate::widgets::ADD_FONT
             {
                 r.font = f;
             }
-            ui.add(egui::TextEdit::singleline(&mut r.size).desired_width(36.0)).on_hover_text(tl!("Size:"));
-            ui.toggle_value(&mut r.bold, egui::RichText::new("B").strong()).on_hover_text(tl!("Bold"));
-            ui.toggle_value(&mut r.italic, egui::RichText::new("I").italics()).on_hover_text(tl!("Italic"));
-            ui.toggle_value(&mut r.underline, egui::RichText::new("U").underline()).on_hover_text(tl!("Underline"));
+            ui.add(egui::TextEdit::singleline(&mut r.size).desired_width(36.0)).rtl_hover_text(tl!("Size:"));
+            ui.toggle_value(&mut r.bold, egui::RichText::new("B").strong()).rtl_hover_text(tl!("Bold"));
+            ui.toggle_value(&mut r.italic, egui::RichText::new("I").italics()).rtl_hover_text(tl!("Italic"));
+            ui.toggle_value(&mut r.underline, egui::RichText::new("U").underline()).rtl_hover_text(tl!("Underline"));
             ui.push_id("tstyle_color", |ui| {
                 ui.label(tl!("Font color:"));
                 color_menu(ui, &theme, &mut r.color);
             });
         });
         // Borders: the pen (style, width, colour) and which edges; then the cell shading.
-        ui.horizontal(|ui| {
+        rtl::row(ui, |ui| {
             let current = LINE_STYLES.iter().find(|(s, _)| *s == pen.style).map_or("Single", |(_, n)| *n);
             ui.label(tl!("Style:"));
             egui::ComboBox::from_id_salt("tstyle_pen_style").selected_text(tl!(current)).width(90.0).show_ui(ui, |ui| {
@@ -543,9 +556,10 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
                 ui.label(tl!("Color:"));
                 color_menu(ui, &theme, &mut pen.color);
             });
-            ui.menu_button(format!("{} ▾", tl!("Borders")), |ui| {
+            // The arrow ends the label in reading order: at its left under RTL.
+            rtl::sub_menu(ui, crate::i18n::suffixed(tl!("Borders"), " ▾"), |ui| {
                 for (label, edges) in EDGES {
-                    ui.horizontal(|ui| {
+                    rtl::row(ui, |ui| {
                         edge_glyph(ui, edges);
                         if ui.selectable_label(edges_on(&r.borders, edges), tl!(label)).clicked() {
                             pick_edges(&mut r.borders, edges, pen);
@@ -555,23 +569,26 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
                 }
             });
         });
-        ui.horizontal(|ui| {
+        rtl::row(ui, |ui| {
             ui.push_id("tstyle_fill", |ui| {
                 ui.label(tl!("Fill color:"));
                 color_menu(ui, &theme, &mut r.fill);
             });
             ui.add_space(12.0);
             ui.label(tl!("Alignment:"));
-            egui::Grid::new("tstyle_align").spacing(vec2(1.0, 1.0)).show(ui, |ui| {
-                for (i, ((n, v, h), tip)) in CELL_ALIGNS.iter().zip(ALIGN_TIPS).enumerate() {
-                    let on = r.align == *n;
-                    if align_button(ui, (*v, *h), on, tl!(tip)).clicked() {
-                        r.align = if on { String::new() } else { n.to_string() };
+            // The 3×3 cell-alignment grid keeps absolute directions (Ruling R14).
+            rtl::fitted(ui, "tstyle_align", |ui| {
+                egui::Grid::new("tstyle_align").spacing(vec2(1.0, 1.0)).show(ui, |ui| {
+                    for (i, ((n, v, h), tip)) in CELL_ALIGNS.iter().zip(ALIGN_TIPS).enumerate() {
+                        let on = r.align == *n;
+                        if align_button(ui, (*v, *h), on, tl!(tip)).clicked() {
+                            r.align = if on { String::new() } else { n.to_string() };
+                        }
+                        if i % 3 == 2 {
+                            ui.end_row();
+                        }
                     }
-                    if i % 3 == 2 {
-                        ui.end_row();
-                    }
-                }
+                })
             });
         });
     }

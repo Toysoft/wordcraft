@@ -24,7 +24,9 @@ pub use kurbo::BezPath;
 pub use script::{fallback_rank, needs_layout_tables, script_fallbacks};
 use skrifa::MetadataProvider;
 use skrifa::instance::Size;
-pub use ui_fallback::{SystemUiFont, is_cjk, system_cjk_ui_font, system_cjk_ui_font_for, ui_needs_system_cjk, ui_uncovered_cjk};
+pub use ui_fallback::{
+    SystemUiFont, is_cjk, system_arabic_ui_font, system_cjk_ui_font, system_cjk_ui_font_for, ui_needs_system_cjk, ui_uncovered_cjk,
+};
 
 /// A font from the optional craft-fonts build input (https://github.com/storytold/craft-fonts;
 /// empty unless built with `CRAFT_FONTS_DIR`, see `build.rs`).
@@ -91,6 +93,16 @@ pub fn ui_cjk_fonts_for(prefer_hans: bool, prefer_korean: bool) -> Vec<&'static 
     } else {
         ja.chain(zh).chain(ko).collect()
     }
+}
+
+/// The craft-fonts Arabic interface faces (`"Arab"` script, family ending in `" UI"`), ordered
+/// Regular, Medium, SemiBold to match Inter's three interface families. Empty without
+/// craft-fonts.
+pub fn arabic_ui_fonts() -> Vec<&'static CraftFont> {
+    let rank = |style: &str| ["Regular", "Medium", "SemiBold"].iter().position(|s| *s == style);
+    let mut v: Vec<_> = CRAFT_FONTS.iter().filter(|f| f.scripts.contains(&"Arab") && f.family.ends_with(" UI") && rank(f.style).is_some()).collect();
+    v.sort_by_key(|f| rank(f.style));
+    v
 }
 
 /// The bundled serif used when a document asks for nothing better.
@@ -344,6 +356,35 @@ mod tests {
         assert!(!o.elements().is_empty());
         assert!(face.ascent > 0.0 && face.descent > 0.0 && face.cap_height > face.x_height);
         assert!(feature("abc").is_none());
+    }
+
+    #[test]
+    fn arabic_ui_faces_are_ordered_and_cover_the_alphabet() {
+        let faces = arabic_ui_fonts();
+        if faces.is_empty() {
+            eprintln!("skipped: built without craft-fonts Arabic UI faces (set CRAFT_FONTS_DIR to a checkout that has them)");
+            return;
+        }
+        assert_eq!(faces.iter().map(|f| f.style).collect::<Vec<_>>(), ["Regular", "Medium", "SemiBold"]);
+        let letters = ('\u{621}'..='\u{64A}').chain(['\u{60C}', '\u{61F}']).chain('\u{66A}'..='\u{66C}');
+        let letters: Vec<char> = letters.collect();
+        for cf in faces {
+            let font = skrifa::FontRef::new(cf.bytes).unwrap();
+            for ch in &letters {
+                assert!(font.charmap().map(*ch).is_some(), "{} {} lacks U+{:04X}", cf.family, cf.style, *ch as u32);
+            }
+        }
+    }
+
+    #[test]
+    fn system_arabic_font_maps_alef_and_lam_or_is_absent() {
+        let Some(f) = system_arabic_ui_font() else {
+            eprintln!("skipped: no installed Arabic-capable interface font found");
+            return;
+        };
+        let font = skrifa::FontRef::from_index(&f.bytes, f.index).unwrap();
+        assert!(font.charmap().map('\u{627}').is_some() && font.charmap().map('\u{644}').is_some(), "{} lacks alef or lam", f.family);
+        assert!(!f.family.is_empty());
     }
 
     #[test]

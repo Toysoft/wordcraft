@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
+use crate::rtl::HoverText as _;
 use egui::{Color32, Pos2, Rect, Sense, Stroke, TextureHandle, Ui, pos2, vec2};
 use serde_json::json;
 use wordcraft_doc::{PartKind, Pos, StoryRef};
@@ -120,6 +121,9 @@ pub struct CanvasState {
     /// The scroll offset and its maximum at the end of last frame.
     pub(crate) scroll_offset: egui::Vec2,
     scroll_max: egui::Vec2,
+    /// The vertical scroll bar's handle last frame, when WordCraft draws the bar itself (at the
+    /// left edge, for a right-to-left interface; egui draws it at the right otherwise).
+    pub(crate) rtl_vthumb: Option<Rect>,
     /// Explicit page turn to apply on the next frame (reading navigation buttons/keys).
     scroll_request: Option<egui::Vec2>,
     /// The viewport (the content's visible rect on screen) at the end of last frame; the
@@ -235,6 +239,7 @@ impl Default for CanvasState {
             auto_scroll: Default::default(),
             scroll_offset: egui::Vec2::ZERO,
             scroll_max: egui::Vec2::ZERO,
+            rtl_vthumb: None,
             scroll_request: None,
             viewport: None,
             cols: 1,
@@ -1010,7 +1015,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // Bringing the caret into view glides there, or jumps with animation effects off.
         .animated(animate)
         .scroll_source(egui::scroll_area::ScrollSource { mouse_wheel: false, ..Default::default() });
-    if app.session.view.read_mode {
+    // Right to left: WordCraft draws the bars itself, the vertical one at the left edge
+    // (`scroll::start_edge_bars`, below). egui's floating bars take no room, so hiding them
+    // leaves the viewport, and the pages, exactly where they are.
+    let own_bars = crate::rtl::is_rtl() && !app.session.view.read_mode;
+    if app.session.view.read_mode || own_bars {
         scroll_area = scroll_area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
     }
     if delta != egui::Vec2::ZERO || app.canvas.scroll_request.is_some() || app.session.view.read_mode {
@@ -1400,6 +1409,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         app.fonts_hans,
                         app.fonts_korean,
                         app.fonts_system_cjk,
+                        app.fonts_arabic,
                         &app.canvas.ime_faces,
                     );
                     ui.ctx().request_repaint();
@@ -1417,6 +1427,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         (resp, rects)
     });
     app.canvas.scroll_offset = out.state.offset;
+    app.canvas.rtl_vthumb = None;
+    let mut bar_busy = false;
+    if own_bars {
+        let bars = crate::scroll::start_edge_bars(ui, out.id.with("rtl_bars"), out.inner_rect, out.content_size, out.state.offset);
+        app.canvas.rtl_vthumb = bars.thumb;
+        bar_busy = bars.busy;
+        if let Some(offset) = bars.asked {
+            app.canvas.scroll_request = Some(offset);
+            ui.ctx().request_repaint();
+        }
+    }
     crate::ink::replay_bar(app, ui, out.inner_rect);
     app.canvas.scroll_max = (out.content_size - out.inner_rect.size()).max(egui::Vec2::ZERO);
     if app.session.view.read_mode {
@@ -1463,8 +1484,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     app.canvas.focused = resp.has_focus();
     // Screen readers: the document under the canvas, with the caret (#488).
     crate::a11y::expose(app, ui.ctx(), resp.id, &layout, &rects, area);
-    // The buttons that start or stop middle-click scrolling don't also click the page.
-    let middle_gesture = app.canvas.auto_scroll.blocks_input();
+    // The buttons that start or stop middle-click scrolling don't also click the page, and neither
+    // does a press on WordCraft's own (right-to-left) scroll bar over it: the pen, Draw Table and
+    // text selection read the raw pointer, which the bar doesn't hide from them.
+    let middle_gesture = app.canvas.auto_scroll.blocks_input() || bar_busy;
     // Double-click the space between two pages (or the line between them) to hide or show it.
     if resp.double_clicked()
         && app.session.view.mode == wordcraft_layout::ViewMode::Print
@@ -1546,7 +1569,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     } else {
         None
     };
-    let menu = egui::Popup::menu(&resp).open_memory(open);
+    let menu = crate::rtl::menu(&resp).open_memory(open);
     let menu = match app.canvas.context_menu_at {
         Some(p) => menu.at_position(p),
         None => menu.at_pointer_fixed(),
@@ -1591,13 +1614,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         ui.scope_builder(egui::UiBuilder::new().max_rect(footer), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(app.canvas.scroll_offset.x > 0.5, egui::Button::new("‹")).on_hover_text(tl!("Previous Page")).clicked() {
+                    if ui.add_enabled(app.canvas.scroll_offset.x > 0.5, egui::Button::new("‹")).rtl_hover_text(tl!("Previous Page")).clicked() {
                         turn_read_page(app, -1.0);
                     }
                     ui.label(format!("{} / {}", current.min(total.max(1)), total));
                     if ui
                         .add_enabled(app.canvas.scroll_offset.x + 0.5 < app.canvas.scroll_max.x, egui::Button::new("›"))
-                        .on_hover_text(tl!("Next Page"))
+                        .rtl_hover_text(tl!("Next Page"))
                         .clicked()
                     {
                         turn_read_page(app, 1.0);
@@ -1654,7 +1677,8 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     for (pos, author, props) in formats.into_iter().take(500) {
         let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
         let what = crate::panes::describe_props(&props).join(", ");
-        let text = if what.is_empty() { tl!("Formatted").to_string() } else { format!("{}: {what}", tl!("Formatted")) };
+        // The descriptions are catalog text (draw order already).
+        let text = if what.is_empty() { tl!("Formatted").to_string() } else { crate::i18n::labeled(tl!("Formatted"), &what) };
         by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Format(author, text), pos));
     }
     // Each end of a tracked move.
@@ -1668,7 +1692,8 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     let deletions = if app.session.revisions_in_balloons() { wordcraft_engine::cmd::review::deletion_balloons(&app.session) } else { Vec::new() };
     for d in deletions {
         let Some(c) = layout.caret_on(&d.at, app.session.page_hint) else { continue };
-        let text = format!("{}: {}", tl!("Deleted"), d.text);
+        // The deleted text is the document's, in its own direction.
+        let text = crate::i18n::labeled(tl!("Deleted"), &crate::i18n::user_text(&d.text));
         by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Format(d.author, text), d.at));
     }
     let palette = [t.blue, Color32::from_rgb(0xB0, 0x3A, 0x2E), Color32::from_rgb(0x2E, 0x7D, 0x32), Color32::from_rgb(0x8E, 0x44, 0xAD), t.orange];
@@ -1819,8 +1844,10 @@ enum Balloon {
     Format(String, String),
 }
 
+/// A balloon's author line: the document's author name in its own direction (draw order), or
+/// "Author" when there is none.
 fn author_name(a: &str) -> String {
-    if a.is_empty() { tl!("Author").to_string() } else { a.to_string() }
+    if a.is_empty() { tl!("Author").to_string() } else { crate::i18n::user_text(a).into_owned() }
 }
 
 /// A balloon card's background, border and author-colour stripe; `slot` paints them under
@@ -2682,7 +2709,7 @@ fn margin_handle(app: &mut WordApp, ui: &Ui, edge: MarginEdge, zone: Rect, to_pt
     let cursor =
         if matches!(edge, MarginEdge::Left | MarginEdge::Right) { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::ResizeVertical };
     let r = ui.interact(zone, ui.id().with(("ruler_margin", edge)), Sense::drag()).on_hover_cursor(cursor);
-    let r = if r.dragged() { r } else { r.on_hover_text(tl!(edge.label())) };
+    let r = if r.dragged() { r } else { r.rtl_hover_text(tl!(edge.label())) };
     if r.dragged()
         && let Some(pp) = r.interact_pointer_pos()
     {
@@ -2814,7 +2841,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     let item = |ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: serde_json::Value| {
         let sc = crate::widgets::shortcut_text(app, id);
         let on = crate::widgets::enabled(app, id);
-        if ui.add_enabled(on, egui::Button::new(tl!(label)).shortcut_text(sc)).clicked() {
+        if ui.add_enabled(on, crate::rtl::shortcut_item(tl!(label), sc)).clicked() {
             let _ = app.run(id, params);
             ui.close();
         }
@@ -2847,7 +2874,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     item(ui, app, "Paste", "edit.paste", json!({}));
     ui.separator();
     if let Some(syn) = app.canvas.context_synonyms.clone().and_then(|v| v.as_array().cloned()).filter(|a| !a.is_empty()) {
-        ui.menu_button(tl!("Synonyms"), |ui| {
+        crate::rtl::sub_menu(ui, tl!("Synonyms"), |ui| {
             for w in syn.iter().filter_map(|x| x.as_str()) {
                 if ui.button(w).clicked() {
                     let _ = app.run("select.word", json!({}));
@@ -2891,13 +2918,13 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         item(ui, app, "Size and Crop…", "ui.tab", json!({"tab": "Picture Format"}));
     }
     if object {
-        ui.menu_button(tl!("Wrap Text"), |ui| crate::ribbon::wrap_text_items(ui, app));
+        crate::rtl::sub_menu(ui, tl!("Wrap Text"), |ui| crate::ribbon::wrap_text_items(ui, app));
     }
     if app.session.sel.focus.path.cell().is_some() {
         // The table's items follow what is selected, as in Word (2019, Windows).
         let pick = table_pick(&app.session);
         ui.separator();
-        ui.menu_button(tl!("Insert"), |ui| {
+        crate::rtl::sub_menu(ui, tl!("Insert"), |ui| {
             item(ui, app, "Insert Columns to the Left", "table.insertColumnLeft", json!({}));
             item(ui, app, "Insert Columns to the Right", "table.insertColumnRight", json!({}));
             item(ui, app, "Insert Rows Above", "table.insertRowAbove", json!({}));
@@ -2905,7 +2932,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         });
         // Every Delete is there whatever is selected, as on Word's Delete button: with the caret
         // in a cell, Delete Table is how the table goes (#1198).
-        ui.menu_button(tl!("Delete"), |ui| {
+        crate::rtl::sub_menu(ui, tl!("Delete"), |ui| {
             item(ui, app, "Delete Cells", "table.deleteCells", json!({}));
             item(ui, app, "Delete Columns", "table.deleteColumn", json!({}));
             item(ui, app, "Delete Rows", "table.deleteRow", json!({}));
@@ -2922,7 +2949,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
             item(ui, app, "Distribute Columns", "table.distributeColumns", json!({}));
         }
         if pick == TablePick::Table {
-            ui.menu_button(tl!("AutoFit"), |ui| {
+            crate::rtl::sub_menu(ui, tl!("AutoFit"), |ui| {
                 item(ui, app, "AutoFit Contents", "table.autofit", json!({"mode": "contents"}));
                 item(ui, app, "AutoFit Window", "table.autofit", json!({"mode": "window"}));
                 item(ui, app, "Fixed Column Width", "table.autofit", json!({"mode": "fixed"}));
@@ -3063,6 +3090,47 @@ mod tests {
     use super::*;
     use crate::table_resize::tests::{H, cell, screen, steps, table_window};
 
+    /// Show Revisions in Balloons in Arabic: the deletion card reads "label: text" from the right
+    /// (the catalog's `{label}: {value}`, not `format!` order), the deleted Arabic text and the
+    /// author's Arabic name in their own direction; in English the card is unchanged.
+    #[test]
+    fn deletion_balloons_read_label_first_in_arabic() {
+        for code in ["ar", "en"] {
+            let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+            a.session.author = "سارة علي".into();
+            a.run("document.setText", serde_json::json!({"text": "keep نص قديم stay"})).unwrap();
+            a.run("review.trackChanges", serde_json::json!({"value": true})).unwrap();
+            a.run("select.text", serde_json::json!({"text": "نص قديم"})).unwrap();
+            a.run("text.delete", serde_json::json!({})).unwrap();
+            a.run("review.trackingOptions", serde_json::json!({"balloons": "revisions"})).unwrap();
+            a.run("ui.language", serde_json::json!({"value": code})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            h.run_steps(5);
+            let texts: Vec<String> = h
+                .output()
+                .shapes
+                .iter()
+                .filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.text().to_string()) } else { None })
+                .collect();
+            let (deleted, author) = if code == "ar" {
+                let label = crate::i18n::t_logical("Deleted");
+                (crate::bidi::visual(&format!("{label}: نص قديم"), true).into_owned(), crate::bidi::visual("سارة علي", true).into_owned())
+            } else {
+                (format!("Deleted: {}", crate::bidi::visual("نص قديم", true)), crate::bidi::visual("سارة علي", true).into_owned())
+            };
+            assert!(texts.contains(&deleted), "{code}: the card reads {deleted:?}: {texts:?}");
+            assert!(texts.contains(&author), "{code}: the author reads {author:?}: {texts:?}");
+        }
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+    }
+
     /// What `page_image` replaced: the raster un-premultiplied, for egui to premultiply again.
     fn by_straight_alpha(img: &wordcraft_render::Rendered) -> egui::ColorImage {
         egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.to_straight())
@@ -3185,6 +3253,152 @@ mod tests {
         );
         h.run_steps(4);
         assert!(h.state().canvas.caret_bg.is_none(), "no caret, no colour lookup");
+    }
+
+    /// The sample document in `lang` at 1440×900, with the pointer over the page: the canvas rect,
+    /// the page rects, the vertical scroll bars' rects (accessibility tree) and the RTL thumb.
+    fn scroll_bar_rects(lang: &str) -> (Rect, Vec<Rect>, Vec<Rect>, Option<Rect>) {
+        use egui_kittest::kittest::Queryable as _;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
+        a.run("ui.language", json!({"value": lang})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let canvas = h.state().canvas.canvas_rect.unwrap();
+        h.hover_at(canvas.center());
+        h.run_steps(4);
+        let bars = h.query_all_by_role(egui::accesskit::Role::ScrollBar).map(|n| n.rect()).filter(|r| r.height() > r.width()).collect();
+        let out = (canvas, h.state().canvas.page_rects.clone(), bars, h.state().canvas.rtl_vthumb);
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        out
+    }
+
+    /// Word puts the document's vertical scroll bar at the left edge for an Arabic interface.
+    #[test]
+    fn document_scrollbar_is_on_the_left_in_arabic() {
+        let (canvas, _, bars, _) = scroll_bar_rects("en");
+        assert!(!bars.is_empty() && bars.iter().all(|b| b.center().x > canvas.center().x), "english: the bar ({bars:?}) is at the right");
+        let (canvas, _, bars, thumb) = scroll_bar_rects("ar");
+        assert!(!bars.is_empty() && bars.iter().all(|b| b.center().x < canvas.center().x), "arabic: the bar ({bars:?}) is at the left");
+        let thumb = thumb.unwrap();
+        assert!(thumb.center().x < canvas.center().x, "arabic: the thumb ({thumb:?}) is at the left of the canvas ({canvas:?})");
+        assert!(thumb.left() >= canvas.left() - 0.5 && thumb.height() > 10.0, "arabic: the thumb sits inside the canvas, a real handle");
+    }
+
+    type RtlHarness = egui_kittest::Harness<'static, WordApp>;
+
+    /// The sample document in Arabic at 300%, scrolled sideways so a page runs under the left-edge
+    /// scroll bar, with the pointer over the page: the harness and the bar's strip.
+    fn rtl_bar_harness() -> (RtlHarness, Rect) {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
+        a.run("ui.language", json!({"value": "ar"})).unwrap();
+        a.run("view.zoom", json!({"value": 300})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.state_mut().canvas.scroll_request = Some(vec2(600.0, 0.0));
+        h.run_steps(2);
+        let vp = h.state().canvas.viewport.unwrap();
+        h.hover_at(vp.center());
+        h.run_steps(4);
+        let thumb = h.state().canvas.rtl_vthumb.unwrap();
+        (h, Rect::from_x_y_ranges(thumb.x_range(), vp.y_range()))
+    }
+
+    fn press(h: &RtlHarness, p: egui::Pos2, pressed: bool) {
+        h.event(egui::Event::PointerMoved(p));
+        h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+    }
+
+    /// As egui's bar: a click in the track off the handle jumps so the handle centres there (kept
+    /// inside the track), and dragging from a press near either end moves from the first pixels.
+    #[test]
+    fn rtl_scroll_bar_track_click_jumps_and_drags_without_a_dead_zone() {
+        let (mut h, strip) = rtl_bar_harness();
+        let x = strip.center().x;
+        let max = h.state().canvas.scroll_max.y;
+        assert!(max > 100.0 && h.state().canvas.scroll_offset.y < 1.0, "starts at the top of a long document");
+        // A press 3 pt above the track's bottom end: the handle jumps to the bottom.
+        let p = egui::pos2(x, strip.max.y - 3.0);
+        press(&h, p, true);
+        h.run_steps(3);
+        let at_end = h.state().canvas.scroll_offset.y;
+        assert!((at_end - max).abs() < 1.0, "a click near the end jumps to it ({at_end} of {max})");
+        // Two points up: the document moves at once (a dead zone of half the handle would not).
+        h.event(egui::Event::PointerMoved(egui::pos2(x, p.y - 2.0)));
+        h.run_steps(3);
+        let moved = h.state().canvas.scroll_offset.y;
+        assert!(moved < at_end - 1.0, "the first points of the drag scroll ({moved} vs {at_end})");
+        press(&h, egui::pos2(x, p.y - 2.0), false);
+        h.run_steps(2);
+        // Near the top end: a press jumps to the top, a small drag down moves at once.
+        let p = egui::pos2(x, strip.min.y + 3.0);
+        press(&h, p, true);
+        h.run_steps(3);
+        assert!(h.state().canvas.scroll_offset.y < 1.0, "a click near the top jumps there");
+        h.event(egui::Event::PointerMoved(egui::pos2(x, p.y + 2.0)));
+        h.run_steps(3);
+        assert!(h.state().canvas.scroll_offset.y > 1.0, "the first points of the drag scroll down");
+        press(&h, egui::pos2(x, p.y + 2.0), false);
+        h.run_steps(2);
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+    }
+
+    /// The left-edge bar covers the page there: a press-drag on it scrolls, and doesn't draw ink,
+    /// draw a table or move the text selection on the page underneath.
+    #[test]
+    fn rtl_scroll_bar_press_does_not_reach_the_page_tools() {
+        for tool in ["select", "pen", "table"] {
+            let (mut h, strip) = rtl_bar_harness();
+            let p = egui::pos2(strip.center().x, strip.center().y);
+            assert!(h.state().canvas.page_rects.iter().any(|r| r.contains(p)), "a page runs under the bar");
+            match tool {
+                "pen" => {
+                    h.state_mut().run("draw.pen", json!({})).unwrap();
+                }
+                "table" => h.state_mut().canvas.table_tool = Some(crate::table_pen::TableTool::Draw),
+                _ => {}
+            }
+            h.run_steps(2);
+            let (rev, sel) = (h.state().session.rev(), h.state().session.sel.clone());
+            press(&h, p, true);
+            h.run_steps(2);
+            for dy in [10.0, 30.0, 60.0] {
+                h.event(egui::Event::PointerMoved(egui::pos2(p.x, p.y + dy)));
+                h.run_steps(1);
+                assert!(h.state().canvas.ink.is_none(), "{tool}: no ink stroke starts under the bar");
+                assert!(h.state().canvas.table_stroke.is_none(), "{tool}: no table stroke starts under the bar");
+            }
+            press(&h, egui::pos2(p.x, p.y + 60.0), false);
+            h.run_steps(3);
+            assert_eq!(h.state().session.rev(), rev, "{tool}: the document is unchanged");
+            assert_eq!(h.state().session.sel, sel, "{tool}: the selection is unchanged");
+            assert!(h.state().canvas.scroll_offset.y > 1.0, "{tool}: the drag scrolled the document");
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+        }
+    }
+
+    /// The pages themselves don't move with the interface direction: only panes and the scroll bar
+    /// do, and with no pane open the scroll bar takes no room from the pages in either direction.
+    #[test]
+    fn canvas_page_rects_are_identical_in_both_directions() {
+        let (en_canvas, en, _, _) = scroll_bar_rects("en");
+        let (ar_canvas, ar, _, _) = scroll_bar_rects("ar");
+        assert_eq!(en_canvas, ar_canvas, "the canvas viewport is the same");
+        assert!(!en.is_empty());
+        assert_eq!(en, ar, "the page rects are the same");
     }
 
     /// #167: dragging a ruler's margin edge sets that margin, snapped, never negative, and
@@ -3562,7 +3776,7 @@ mod tests {
     fn balloon_glyphs(text: &str, width: f32) -> Option<Vec<(char, f32)>> {
         let face = wordcraft_fonts::FontDb::global().fallback_for('ش', u32::MAX)?;
         let ctx = egui::Context::default();
-        let mut fonts = crate::theme::font_definitions(false, false);
+        let mut fonts = crate::theme::font_definitions(false, false, false);
         crate::theme::add_fallback_faces(&mut fonts, &[face]);
         ctx.set_fonts(fonts);
         ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();

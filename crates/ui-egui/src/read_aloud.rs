@@ -55,83 +55,35 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         return;
     }
     let t = Tokens::get(ctx);
-    let state = app.session.read_aloud.state();
-    let (index, count) = app.session.read_aloud.progress();
     let mut open = true;
-    let mut run: Option<(&str, serde_json::Value)> = None;
-    let right_top = app.canvas.canvas_rect.map_or(ctx.content_rect().right_top() + vec2(-24.0, 160.0), |r| r.right_top() + vec2(-24.0, 16.0));
+    let mut run: Option<(&'static str, serde_json::Value)> = None;
+    let rtl = crate::rtl::is_rtl();
+    // Over the document's top corner at the end edge (the left under RTL).
+    let (corner, pivot) = match app.canvas.canvas_rect {
+        Some(r) if rtl => (r.left_top() + vec2(24.0, 16.0), egui::Align2::LEFT_TOP),
+        Some(r) => (r.right_top() + vec2(-24.0, 16.0), egui::Align2::RIGHT_TOP),
+        None if rtl => (ctx.content_rect().left_top() + vec2(24.0, 160.0), egui::Align2::LEFT_TOP),
+        None => (ctx.content_rect().right_top() + vec2(-24.0, 160.0), egui::Align2::RIGHT_TOP),
+    };
     egui::Window::new(tl!("Read Aloud"))
         .id(egui::Id::new("read-aloud-player"))
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
-        .pivot(egui::Align2::RIGHT_TOP)
-        .default_pos(right_top)
+        .pivot(pivot)
+        .default_pos(corner)
         .show(ctx, |ui| {
-            ui.set_width(236.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                if button(ui, &t, "mediaPrev", tl!("Previous sentence"), count > 0 && index > 0) {
-                    run = Some(("readAloud.previous", json!({})));
-                }
-                let (icon, tip) = if state == State::Playing { ("mediaPause", tl!("Pause")) } else { ("mediaPlay", tl!("Play")) };
-                if button(ui, &t, icon, tip, true) {
-                    run = Some(("readAloud.playPause", json!({})));
-                }
-                if button(ui, &t, "mediaNext", tl!("Next sentence"), index + 1 < count) {
-                    run = Some(("readAloud.next", json!({})));
-                }
-                if button(ui, &t, "mediaStop", tl!("Stop"), true) {
-                    run = Some(("readAloud.stop", json!({})));
-                }
-                ui.add_space(4.0);
-                let what = match state {
-                    State::Playing => format!("{} {} / {}", tl!("Sentence"), (index + 1).min(count), count),
-                    State::Paused => tl!("Paused").to_string(),
-                    State::Stopped if count > 0 && index >= count => tl!("Finished").to_string(),
-                    State::Stopped => tl!("Stopped").to_string(),
-                };
-                ui.label(egui::RichText::new(what).color(t.text_dim).small());
-            });
-            ui.add_space(6.0);
-            // Speed: applied when the slider is let go, so dragging doesn't restart the sentence
-            // on every frame.
-            let id = egui::Id::new("read-aloud-rate");
-            let mut rate = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or_else(|| app.session.read_aloud.rate());
-            ui.horizontal(|ui| {
-                ui.label(tl!("Speed"));
-                ui.spacing_mut().slider_width = 110.0;
-                let r = ui.add(
-                    egui::Slider::new(&mut rate, MIN_RATE..=MAX_RATE)
-                        .step_by(0.05)
-                        .trailing_fill(true)
-                        .custom_formatter(|v, _| format!("{v:.2}×"))
-                        .custom_parser(|s| s.trim().trim_end_matches(['×', 'x']).trim().parse().ok()),
-                );
-                if r.dragged() {
-                    ui.data_mut(|d| d.insert_temp(id, rate));
-                } else {
-                    ui.data_mut(|d| d.remove::<f32>(id));
-                    if r.changed() || r.drag_stopped() {
-                        run = Some(("readAloud.speed", json!({"value": rate})));
-                    }
-                }
-                if ui.small_button("1×").on_hover_text(tl!("Normal speed")).clicked() {
-                    run = Some(("readAloud.speed", json!({"value": 1.0})));
-                }
-            });
-            let mut skip = app.session.read_aloud.skip_citations;
-            if ui
-                .checkbox(&mut skip, tl!("Skip citations & bibliography"))
-                .on_hover_text(tl!("Don't read Zotero, Mendeley or EndNote citations and bibliographies"))
-                .changed()
-            {
-                run = Some(("readAloud.skipCitations", json!({"value": skip})));
-            }
-            // The error `poll` saw this frame, not the worker's latest: the player thread can set
-            // one between the two, and the window would show a message the status bar hasn't.
-            if let Some(e) = app.read_aloud_error.as_ref().filter(|e| app.session.read_aloud.error().as_ref() == Some(*e)) {
-                ui.label(egui::RichText::new(e.as_str()).color(t.red).small());
+            if rtl {
+                // The window is wider than 236 pt (English leaves the rest empty at the right),
+                // and the rows are wider too: right to left they would spill past its left edge
+                // and keep widening it. The column takes the window's own width, so the rows
+                // start at its right edge.
+                let w = ui.max_rect().width();
+                ui.set_width(if w.is_finite() { w.clamp(236.0, 600.0) } else { 236.0 });
+                crate::rtl::column(ui, |ui| player(app, ui, &t, &mut run));
+            } else {
+                ui.set_width(236.0);
+                player(app, ui, &t, &mut run);
             }
         });
     if !open {
@@ -142,6 +94,88 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         app.ui.read_aloud_rate = app.session.read_aloud.rate();
         app.ui.read_aloud_skip_citations = app.session.read_aloud.skip_citations;
         ctx.request_repaint();
+    }
+}
+
+/// The player's controls; `run` gets the command a control asks for.
+fn player(app: &mut WordApp, ui: &mut Ui, t: &Tokens, run: &mut Option<(&'static str, serde_json::Value)>) {
+    let state = app.session.read_aloud.state();
+    let (index, count) = app.session.read_aloud.progress();
+    let rtl = crate::rtl::is_rtl();
+    crate::rtl::row(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        // Playback controls keep their left-to-right order in every language.
+        let mut media = |ui: &mut Ui| {
+            if button(ui, t, "mediaPrev", tl!("Previous sentence"), count > 0 && index > 0) {
+                *run = Some(("readAloud.previous", json!({})));
+            }
+            let (icon, tip) = if state == State::Playing { ("mediaPause", tl!("Pause")) } else { ("mediaPlay", tl!("Play")) };
+            if button(ui, t, icon, tip, true) {
+                *run = Some(("readAloud.playPause", json!({})));
+            }
+            if button(ui, t, "mediaNext", tl!("Next sentence"), index + 1 < count) {
+                *run = Some(("readAloud.next", json!({})));
+            }
+            if button(ui, t, "mediaStop", tl!("Stop"), true) {
+                *run = Some(("readAloud.stop", json!({})));
+            }
+        };
+        if rtl {
+            let w = 4.0 * 30.0 + 3.0 * ui.spacing().item_spacing.x;
+            ui.allocate_ui_with_layout(vec2(w, 30.0), egui::Layout::left_to_right(egui::Align::Center), |ui| media(ui));
+        } else {
+            media(ui);
+        }
+        ui.add_space(4.0);
+        let n = (index + 1).min(count);
+        let what = match state {
+            // "Sentence 3 / 9", read from the right under RTL.
+            State::Playing => crate::i18n::suffixed(tl!("Sentence"), &format!(" {n} / {count}")),
+            State::Paused => tl!("Paused").to_string(),
+            State::Stopped if count > 0 && index >= count => tl!("Finished").to_string(),
+            State::Stopped => tl!("Stopped").to_string(),
+        };
+        ui.label(egui::RichText::new(what).color(t.text_dim).small());
+    });
+    ui.add_space(6.0);
+    // Speed: applied when the slider is let go, so dragging doesn't restart the sentence
+    // on every frame.
+    let id = egui::Id::new("read-aloud-rate");
+    let mut rate = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or_else(|| app.session.read_aloud.rate());
+    // The caption at the start edge; the slider keeps slow at its left.
+    crate::rtl::row(ui, |ui| {
+        ui.label(tl!("Speed"));
+        ui.spacing_mut().slider_width = 110.0;
+        let r = ui.add(
+            egui::Slider::new(&mut rate, MIN_RATE..=MAX_RATE)
+                .step_by(0.05)
+                .trailing_fill(true)
+                .custom_formatter(|v, _| format!("{v:.2}×"))
+                .custom_parser(|s| s.trim().trim_end_matches(['×', 'x']).trim().parse().ok()),
+        );
+        if r.dragged() {
+            ui.data_mut(|d| d.insert_temp(id, rate));
+        } else {
+            ui.data_mut(|d| d.remove::<f32>(id));
+            if r.changed() || r.drag_stopped() {
+                *run = Some(("readAloud.speed", json!({"value": rate})));
+            }
+        }
+        if ui.small_button("1×").on_hover_text(tl!("Normal speed")).clicked() {
+            *run = Some(("readAloud.speed", json!({"value": 1.0})));
+        }
+    });
+    let mut skip = app.session.read_aloud.skip_citations;
+    if crate::rtl::checkbox(ui, &mut skip, tl!("Skip citations & bibliography"))
+        .on_hover_text(tl!("Don't read Zotero, Mendeley or EndNote citations and bibliographies"))
+        .changed()
+    {
+        *run = Some(("readAloud.skipCitations", json!({"value": skip})));
+    }
+    // The error `poll` saw this frame, not the worker's latest: the player thread can set
+    // one between the two, and the window would show a message the status bar hasn't.
+    if let Some(e) = app.read_aloud_error.as_ref().filter(|e| app.session.read_aloud.error().as_ref() == Some(*e)) {
+        ui.label(egui::RichText::new(e.as_str()).color(t.red).small());
     }
 }
 

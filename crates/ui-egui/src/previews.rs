@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::rtl::HoverText as _;
 use egui::{Rect, Response, Sense, Stroke, TextureHandle, Ui, pos2, vec2};
 use serde_json::{Value, json};
 use wordcraft_doc::props::CharProps;
@@ -517,7 +518,9 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
     let (area, _) = ui.allocate_exact_size(vec2(visible as f32 * 76.0 + 18.0, crate::widgets::CONTENT_H), Sense::hover());
     ui.painter().rect(area.shrink(1.0), 4.0, t.input, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
     for (k, (id, name)) in styles.iter().skip(start).take(visible).enumerate() {
-        let r = Rect::from_min_size(pos2(area.min.x + 3.0 + k as f32 * 76.0, area.min.y + 3.0), vec2(74.0, area.height() - 6.0));
+        // Under RTL the tiles run from the right and the scroll arrows sit at the left end.
+        let r =
+            crate::rtl::rect(area, Rect::from_min_size(pos2(area.min.x + 3.0 + k as f32 * 76.0, area.min.y + 3.0), vec2(74.0, area.height() - 6.0)));
         let resp = ui.interact(r, ui.id().with(("style_tile", id)), Sense::click());
         let active = *id == current;
         resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, name));
@@ -532,7 +535,7 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
         let doc = &app.session.doc;
         let tex = app.previews.get_or(ui.ctx(), &key, || {
             // Sample letters in the interface's script (`АаБбВвГг` in Russian).
-            let mut p = Paragraph::with_text(tl!("AaBbCcDd"), CharProps::default()).styled(id);
+            let mut p = Paragraph::with_text(crate::i18n::t_logical("AaBbCcDd"), CharProps::default()).styled(id);
             p.props.space_before = Some(0.0);
             p.props.align = Some(wordcraft_doc::Align::Left);
             // Keep hanging indents (bullets) but start the first line at the tile's left edge.
@@ -546,6 +549,7 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
             let sz = h.size_vec2() / ppp;
             let ir = Rect::from_min_size(pos2(r.min.x + 3.0, r.min.y + 4.0), sz.min(vec2(68.0, 32.0)));
             let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0)));
+            let ir = crate::rtl::rect(r, ir);
             ui.painter().with_clip_rect(r).image(h.id(), ir, uv, preview_tint(&t, dark_page));
         }
         let mut job = egui::text::LayoutJob::single_section(name.clone(), egui::TextFormat::simple(regular(10.5), t.text));
@@ -554,7 +558,7 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
         let label_pos = pos2(r.center().x - galley.size().x / 2.0, r.max.y - 9.0 - galley.size().y / 2.0);
         ui.painter().with_clip_rect(r).galley(label_pos, galley, t.text);
         // Right-click a tile: the same style actions as the Styles pane.
-        resp.context_menu(|ui| {
+        crate::rtl::on_context_menu(&resp, |ui| {
             if ui.button(tl!("Update to Match Selection")).clicked() {
                 let _ = app.run("styles.updateToMatch", json!({"style": id}));
                 ui.close();
@@ -564,12 +568,12 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
                 ui.close();
             }
         });
-        if resp.on_hover_text(name).clicked() {
+        if resp.rtl_hover_text(name).clicked() {
             let _ = app.run("para.style", json!({"style": id}));
         }
     }
     // Scroll arrows and "more".
-    let ar = Rect::from_min_max(pos2(area.max.x - 16.0, area.min.y + 2.0), pos2(area.max.x - 2.0, area.max.y - 2.0));
+    let ar = crate::rtl::rect(area, Rect::from_min_max(pos2(area.max.x - 16.0, area.min.y + 2.0), pos2(area.max.x - 2.0, area.max.y - 2.0)));
     let thirds = ar.height() / 3.0;
     for (i, (icon, delta)) in [("chevronUp", -1i32), ("chevronDown", 1), ("more", 0)].iter().enumerate() {
         let br = Rect::from_min_size(pos2(ar.min.x, ar.min.y + thirds * i as f32), vec2(ar.width(), thirds));
@@ -609,12 +613,7 @@ pub fn style_set_gallery(app: &mut WordApp, ui: &mut Ui) {
         let tex = app.previews.get_or(ui.ctx(), &key, || {
             let mut s = wordcraft_engine::Session::new(Document::new());
             let _ = s.run("design.styleSet", &json!({"name": name}));
-            let blocks = vec![
-                Block::Para(Paragraph::with_text(crate::i18n::tc("preview", "Title"), CharProps::default()).styled("Title")),
-                Block::Para(Paragraph::with_text(tl!("Heading 1"), CharProps::default()).styled("Heading1")),
-                Block::Para(Paragraph::with_text(tl!("Body text in a short paragraph to show spacing."), CharProps::default())),
-            ];
-            snippet_blocks(&s.doc, blocks, 120.0, 110.0, ppp * 0.42, 6.0, None, false)
+            snippet_blocks(&s.doc, style_set_sample(), 120.0, 110.0, ppp * 0.42, 6.0, None, false)
         });
         if let Some(h) = tex {
             let sz = h.size_vec2() / ppp;
@@ -623,10 +622,20 @@ pub fn style_set_gallery(app: &mut WordApp, ui: &mut Ui) {
             let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0)));
             ui.painter().image(h.id(), ir, uv, preview_tint(&t, false));
         }
-        if resp.on_hover_text(format!("Style set: {name}")).clicked() {
+        if resp.rtl_hover_text(format!("Style set: {name}")).clicked() {
             let _ = app.run("design.styleSet", json!({"name": name}));
         }
     }
+}
+
+/// The sample a style-set tile lays out: a title, a heading and a line of body text, in the
+/// interface language, in reading order (a document does its own bidi; see `i18n::t_logical`).
+fn style_set_sample() -> Vec<Block> {
+    vec![
+        Block::Para(Paragraph::with_text(crate::i18n::tc_logical("preview", "Title"), CharProps::default()).styled("Title")),
+        Block::Para(Paragraph::with_text(crate::i18n::t_logical("Heading 1"), CharProps::default()).styled("Heading1")),
+        Block::Para(Paragraph::with_text(crate::i18n::t_logical("Body text in a short paragraph to show spacing."), CharProps::default())),
+    ]
 }
 
 /// Table Design: a tile previewing a table style.
@@ -686,6 +695,58 @@ mod tests {
             }
         }
         assert!(loaded.len() <= 2, "previewing loaded {loaded:?}");
+    }
+
+    /// L10N-AR.14: the style-set tiles are documents, which do their own bidi: the sample text
+    /// goes in in reading order (the catalog's logical text), not in the interface's draw order,
+    /// or it would be reordered twice («عنوان 1» drawn as "1 عنوان").
+    #[test]
+    fn style_set_samples_are_written_in_reading_order() {
+        let ar = crate::i18n::Lang::from_code("ar").unwrap();
+        crate::i18n::set_current(ar);
+        let texts: Vec<String> = style_set_sample().iter().filter_map(|b| if let Block::Para(p) = b { Some(p.plain_text()) } else { None }).collect();
+        // ar.tsv's only `preview` entry is one word («رئيسي»), which reads the same in both
+        // orders; the contextual path is shown on a multi-word value through its fallback to the
+        // plain entry (Title: «العنوان الرئيسي»).
+        let via_context = crate::i18n::tc_logical("no such context", "Title").to_string();
+        let drawn = crate::i18n::tc("no such context", "Title").to_string();
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        assert_eq!(via_context, "العنوان الرئيسي");
+        assert_ne!(drawn, via_context, "the draw-order value differs, so the probe means something");
+        // As ar.tsv writes them (logical order).
+        assert_eq!(texts, ["رئيسي", "عنوان 1", "نص أساسي في فقرة قصيرة لإظهار التباعد."]);
+        assert_ne!(texts[1], crate::i18n::tr(ar, "Heading 1"), "the draw-order value differs, so the probe means something");
+        let en: Vec<String> = style_set_sample().iter().filter_map(|b| if let Block::Para(p) = b { Some(p.plain_text()) } else { None }).collect();
+        assert_eq!(en, ["Title", "Heading 1", "Body text in a short paragraph to show spacing."]);
+    }
+
+    /// L10N-AR.14: an author's style named in Arabic reads right to left in the Home tab's Styles
+    /// gallery, in an English interface too; built-in names are unchanged.
+    #[test]
+    fn user_style_names_read_in_order_in_the_style_gallery() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = crate::WordApp::new(wordcraft_engine::Session::new(Document::new()), crate::Services::default());
+        a.session.doc.styles.upsert(wordcraft_doc::styles::Style {
+            id: "Memo2".into(),
+            name: "مذكرة 2".into(),
+            kind: wordcraft_doc::styles::StyleKind::Paragraph,
+            quick: true,
+            priority: Some(0),
+            ..Default::default()
+        });
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut crate::WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let drawn = crate::bidi::visual("مذكرة 2", true);
+        assert!(h.query_by_label(&drawn).is_some(), "the tile is labelled {drawn:?}");
+        assert!(h.query_by_label("مذكرة 2").is_none());
+        assert!(h.query_by_label("Normal").is_some());
     }
 
     /// #663: gallery previews are dimmed in the dark theme, unless they show Switch Modes' dark

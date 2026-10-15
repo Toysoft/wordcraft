@@ -172,8 +172,10 @@ pub fn popup(app: &mut WordApp, ctx: &egui::Context) {
             match &r.control.kind {
                 ControlKind::ComboBox { items, .. } | ControlKind::DropDown { items, .. } => {
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                        // The document's own entries, each in its own direction. They stay at the
+                        // left: right-aligned rows would stretch the popup to the screen's edge.
                         for (i, item) in items.iter().enumerate() {
-                            if ui.selectable_label(false, &item.display).clicked() {
+                            if ui.selectable_label(false, crate::i18n::user_text(&item.display).into_owned()).clicked() {
                                 let _ = app.run("developer.chooseItem", json!({"at": at_json, "index": i}));
                                 close = true;
                             }
@@ -209,12 +211,19 @@ pub fn popup(app: &mut WordApp, ctx: &egui::Context) {
 fn calendar(ui: &mut Ui, t: &Tokens, month: &mut (i64, u32)) -> Option<u32> {
     let (y, m) = *month;
     let mut picked = None;
-    ui.horizontal(|ui| {
-        if ui.small_button("‹").clicked() {
+    // Back at the start edge, its arrow pointing that way (right under RTL).
+    let (back, forward) = if crate::rtl::is_rtl() { ("›", "‹") } else { ("‹", "›") };
+    if crate::rtl::is_rtl() {
+        // Right-to-left rows take all the width they are given: in a popup (an area as wide as the
+        // screen) that is the popup's own width, a week of days.
+        ui.set_max_width(ui.min_rect().width().max(7.0 * 22.0 + 6.0 * 2.0));
+    }
+    crate::rtl::row(ui, |ui| {
+        if ui.small_button(back).clicked() {
             *month = if m == 1 { (y - 1, 12) } else { (y, m - 1) };
         }
         ui.label(egui::RichText::new(format!("{y:04}-{m:02}")).strong());
-        if ui.small_button("›").clicked() {
+        if ui.small_button(forward).clicked() {
             *month = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
         }
     });
@@ -223,21 +232,64 @@ fn calendar(ui: &mut Ui, t: &Tokens, month: &mut (i64, u32)) -> Option<u32> {
     // 1970-01-01 was a Thursday: Monday-first column of the 1st.
     let lead = (first + 3).rem_euclid(7) as u32;
     let days = wordcraft_engine::cmd::controls::days_in_month(y, m);
-    egui::Grid::new("cc_calendar").spacing(vec2(2.0, 2.0)).show(ui, |ui| {
-        for cell in 0..(lead + days) {
-            if cell < lead {
-                ui.label("");
+    // A week per row, Monday at the start edge (the right under RTL).
+    let rtl = crate::rtl::is_rtl();
+    crate::rtl::cell_grid(ui, "cc_calendar", Some(vec2(2.0, 2.0)), 7, (lead + days) as usize, |ui, cell| {
+        let cell = cell as u32;
+        if cell < lead {
+            if rtl {
+                // A right-to-left strip has no columns: a blank day takes a day's room.
+                ui.allocate_exact_size(vec2(22.0, 18.0), egui::Sense::hover());
             } else {
-                let d = cell - lead + 1;
-                let b = egui::Button::new(egui::RichText::new(d.to_string()).color(t.text)).min_size(vec2(22.0, 18.0));
-                if ui.add(b).clicked() {
-                    picked = Some(d);
-                }
+                ui.label("");
             }
-            if (cell + 1) % 7 == 0 {
-                ui.end_row();
+        } else {
+            let d = cell - lead + 1;
+            let b = egui::Button::new(egui::RichText::new(d.to_string()).color(t.text)).min_size(vec2(22.0, 18.0));
+            if ui.add(b).clicked() {
+                picked = Some(d);
             }
         }
     });
     picked
+}
+
+#[cfg(test)]
+mod tests {
+    use egui_kittest::kittest::Queryable;
+
+    /// The date picker's month in a popup like the real one, in `lang`: (day 1, day 2, popup).
+    fn january_2024(lang: &str) -> (egui::Rect, egui::Rect, egui::Rect) {
+        let set = move || crate::i18n::set_current(crate::i18n::Lang::from_code(lang).unwrap());
+        set();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui(move |ui| {
+            set();
+            let ctx = ui.ctx().clone();
+            let t = super::Tokens::get(&ctx);
+            egui::Area::new(egui::Id::new("calendar_popup")).fixed_pos(egui::pos2(300.0, 100.0)).show(&ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(180.0);
+                    // 2024-01-01 is a Monday: the 1st and the 2nd share the first row.
+                    let _ = super::calendar(ui, &t, &mut (2024, 1));
+                });
+            });
+        });
+        h.run_steps(4);
+        let day = |d: &str| h.get_by_role_and_label(egui::accesskit::Role::Button, d).rect();
+        let (one, two) = (day("1"), day("2"));
+        let popup = h.ctx.memory(|m| m.area_rect(egui::Id::new("calendar_popup"))).unwrap();
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        (one, two, popup)
+    }
+
+    /// Arabic weeks run from the right (Monday at the right), and the popup stays as narrow as
+    /// in English.
+    #[test]
+    fn date_picker_weeks_run_from_the_right_in_arabic() {
+        let (one, two, ar) = january_2024("ar");
+        assert!(one.left() >= two.right() - 0.5, "arabic: 1 ({one:?}) is right of 2 ({two:?})");
+        let (one, two, en) = january_2024("en");
+        assert!(one.right() <= two.left() + 0.5, "english: 1 ({one:?}) is left of 2 ({two:?})");
+        assert!(ar.is_finite() && ar.width() <= en.width() + 40.0, "arabic popup {ar:?}, english {en:?}");
+    }
 }

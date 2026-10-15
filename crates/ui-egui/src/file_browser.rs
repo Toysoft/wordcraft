@@ -13,7 +13,7 @@ use egui::{Align2, Rect, Sense, Ui, pos2, vec2};
 
 use crate::file_dialogs::{AfterPick, FileDialogRequest, open_filters};
 use crate::theme::{APP_COLOR, Tokens, regular};
-use crate::{WordApp, icons};
+use crate::{WordApp, icons, rtl};
 
 /// At most this many entries are listed; a bigger folder shows the first ones and says so.
 const MAX_LISTED: usize = 5000;
@@ -312,7 +312,8 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
         .open(&mut open)
         .show(ctx, |ui| {
             ui.set_width(620.0);
-            done = body(ui, &mut b, &t);
+            // Captions and rows start at the right under RTL.
+            done = if rtl::is_rtl() { rtl::column(ui, |ui| body(ui, &mut b, &t)).inner } else { body(ui, &mut b, &t) };
         });
     if !open {
         done = Some(None);
@@ -326,16 +327,17 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
 /// The browser's contents; `Some` once it closes (`Some(None)`: cancelled).
 fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>> {
     if b.unavailable {
-        ui.label(
-            egui::RichText::new(tl!(
+        rtl::wrapped_label(
+            ui,
+            tl!(
                 "The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity."
-            ))
-            .color(t.text_dim),
+            ),
+            |s| egui::RichText::new(s).color(t.text_dim),
         );
         ui.add_space(6.0);
     }
     let mut location_done = false;
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         if icon_button(ui, t, "chevronUp", tl!("Up one level"), b.dir.parent().is_some()) {
             b.up();
         }
@@ -371,9 +373,16 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
                     } else if resp.hovered() {
                         ui.painter().rect_filled(r, 2.0, t.hover);
                     }
-                    let icon = Rect::from_center_size(pos2(r.min.x + 14.0, r.center().y), vec2(18.0, 18.0));
+                    // RTL: the icon at the row's right, the name after it towards the left.
+                    let icon = Rect::from_center_size(pos2(rtl::x(r, r.min.x + 14.0), r.center().y), vec2(18.0, 18.0));
                     icons::paint(ui.painter(), icon, if e.dir { "folder" } else { "file" }, t.icon, t.accent);
-                    ui.painter().with_clip_rect(r).text(pos2(r.min.x + 30.0, r.center().y), Align2::LEFT_CENTER, &e.name, regular(13.0), t.text);
+                    ui.painter().with_clip_rect(r).text(
+                        pos2(rtl::x(r, r.min.x + 30.0), r.center().y),
+                        rtl::start_align2(egui::Align::Center),
+                        crate::i18n::file_name(&e.name),
+                        regular(13.0),
+                        t.text,
+                    );
                     if resp.double_clicked() {
                         if e.dir {
                             go = Some(e.path.clone());
@@ -411,7 +420,7 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
     }
     ui.add_space(6.0);
     let mut refilter = false;
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         let label = ui.label(tl!("File name:"));
         // The name field takes what the label (longer in some languages) and the type list leave.
         let width = (ui.available_width() - 170.0).max(120.0);
@@ -440,7 +449,8 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
     let mut cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
     let enter = !location_done && ui.input(|i| i.key_pressed(egui::Key::Enter));
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // At the end edge; Open/Save is the rightmost under RTL.
+        ui.with_layout(rtl::end_layout(egui::Align::Center), |ui| {
             cancel |= ui.button(tl!("Cancel")).clicked();
             let ok = ui.add(egui::Button::new(egui::RichText::new(tl!(b.ok_label())).color(egui::Color32::WHITE)).fill(APP_COLOR));
             pick |= ok.clicked() || enter;
@@ -463,7 +473,7 @@ fn icon_button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, enabled: bool) ->
     }
     let c = if enabled { t.icon } else { t.text_disabled };
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(18.0, 18.0)), icon, c, if enabled { t.accent } else { c });
-    resp.on_hover_text(tip).clicked()
+    rtl::hover_text(resp, tip).clicked()
 }
 
 #[cfg(test)]

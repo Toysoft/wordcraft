@@ -2672,3 +2672,11 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+
+# Picture Format crop sides and border menu; "Label: value" template (Arabic interface branch) (the letters stay as in English, as in Polish).
+	L	L
+	T	T
+	R	R
+	B	B
+	Border	Viền
+	{label}: {value}	{label}: {value}

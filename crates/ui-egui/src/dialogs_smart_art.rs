@@ -10,8 +10,8 @@ use serde_json::{Value, json};
 use wordcraft_doc::props::Rgb;
 use wordcraft_doc::smart_art::{MAX_ITEMS, SmartArtColors, SmartArtLayout, SmartArtSpec};
 
-use crate::WordApp;
 use crate::theme::{Tokens, c32, regular, semibold};
+use crate::{WordApp, rtl};
 
 /// The picker's categories (`All` first), in the order shown.
 pub const CATEGORIES: [&str; 8] = ["All", "List", "Process", "Cycle", "Hierarchy", "Relationship", "Matrix", "Pyramid"];
@@ -151,13 +151,20 @@ pub fn swatches(p: &Painter, r: Rect, colors: SmartArtColors, theme: &[Rgb]) {
     }
 }
 
+/// A layout's description under its preview, wrapped at the column's width. Under RTL the rows
+/// come from the sentence's logical text (`rtl::wrapped_label`), so its first words are on top
+/// (egui's own wrapping of the draw-order text put the end of the sentence first).
+fn description(ui: &mut Ui, text: &str) {
+    rtl::wrapped_label(ui, text, |s| egui::RichText::new(s));
+}
+
 /// The picker; returns true to close.
 pub fn picker_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SmartArtForm) -> bool {
     let t = Tokens::get(ui.ctx());
     let theme = app.session.doc.settings.theme_colors.clone();
     let mut chosen = None;
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
+    rtl::row_top(ui, |ui| {
+        rtl::column(ui, |ui| {
             ui.set_width(120.0);
             for cat in CATEGORIES {
                 if ui.selectable_label(f.category == cat, tl!(cat)).clicked() {
@@ -171,11 +178,13 @@ pub fn picker_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SmartArtForm) -> bool {
             }
         });
         ui.separator();
-        ui.vertical(|ui| {
+        rtl::column(ui, |ui| {
             ui.set_width(3.0 * 96.0 + 16.0);
             ui.set_min_height(2.0 * 96.0 + 8.0);
-            egui::Grid::new("smart_art_layouts").spacing(vec2(8.0, 8.0)).show(ui, |ui| {
-                for (k, layout) in f.shown().into_iter().enumerate() {
+            let shown = f.shown();
+            // The first layout at the start edge (the right under RTL).
+            rtl::cell_grid(ui, "smart_art_layouts", Some(vec2(8.0, 8.0)), 3, shown.len(), |ui, k| {
+                if let Some(&layout) = shown.get(k) {
                     let (rect, resp) = ui.allocate_exact_size(vec2(96.0, 96.0), Sense::click());
                     let on = f.layout == layout;
                     let fill = if on {
@@ -195,14 +204,20 @@ pub fn picker_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SmartArtForm) -> bool {
                         t.text_dim,
                     );
                     // A label wider than the tile (a long translation) breaks at its middle space.
+                    // Under RTL the label is in draw order: it breaks in reading order (the
+                    // catalog's logical text) and each line is converted, so the first words are on
+                    // top.
                     let label = tl!(layout.label());
+                    let rtl = rtl::is_rtl();
+                    let source = if rtl { crate::i18n::logical(label).unwrap_or(label) } else { label };
+                    let drawn = |s: &str| if rtl { crate::bidi::visual(s, true).into_owned() } else { s.to_string() };
                     let width = |text: &str| ui.ctx().fonts_mut(|f| f.layout_no_wrap(text.to_string(), regular(10.5), t.text).size().x);
                     let lines = if width(label) <= rect.width() - 6.0 {
                         vec![label.to_string()]
                     } else {
-                        let split = label
+                        let split = source
                             .match_indices(' ')
-                            .map(|(i, _)| (label[..i].to_string(), label[i + 1..].to_string()))
+                            .map(|(i, _)| (drawn(&source[..i]), drawn(&source[i + 1..])))
                             .min_by(|a, b| width(&a.0).max(width(&a.1)).total_cmp(&width(&b.0).max(width(&b.1))));
                         split.map_or_else(|| vec![label.to_string()], |(a, b)| vec![a, b])
                     };
@@ -215,28 +230,25 @@ pub fn picker_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SmartArtForm) -> bool {
                             t.text,
                         );
                     }
-                    let resp = resp.on_hover_text(label);
+                    let resp = rtl::hover_text(resp, label);
                     if resp.clicked() {
                         f.layout = layout;
                     }
                     if resp.double_clicked() {
                         chosen = Some(layout);
                     }
-                    if k % 3 == 2 {
-                        ui.end_row();
-                    }
                 }
             });
         });
         ui.separator();
-        ui.vertical(|ui| {
+        rtl::column(ui, |ui| {
             ui.set_width(200.0);
             let (rect, _) = ui.allocate_exact_size(vec2(200.0, 150.0), Sense::hover());
             ui.painter().rect(rect, 4.0, t.input, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
             preview(ui.painter(), rect.shrink(10.0), f.layout, SmartArtColors::default(), &theme, t.text_dim);
             ui.add_space(6.0);
             ui.label(egui::RichText::new(tl!(f.layout.label())).font(semibold(13.0)));
-            ui.add(egui::Label::new(tl!(f.layout.description())).wrap());
+            description(ui, tl!(f.layout.description()));
         });
     });
     let (ok, cancel) = crate::dialogs_insert::buttons(ui, "OK", "Cancel", true);
@@ -276,7 +288,7 @@ pub fn text_pane(app: &mut WordApp, ui: &mut Ui) {
     let mut typed = false;
     egui::ScrollArea::vertical().id_salt("smart_art_items").max_height((ui.available_height() - 40.0).max(60.0)).show(ui, |ui| {
         for (i, it) in g.items.iter().enumerate() {
-            ui.horizontal(|ui| {
+            rtl::row(ui, |ui| {
                 ui.add_space(f32::from(it.level) * 16.0);
                 ui.label(egui::RichText::new("•").color(t.text_dim));
                 let mut text = it.text.clone();
@@ -313,7 +325,7 @@ pub fn text_pane(app: &mut WordApp, ui: &mut Ui) {
     }
     ui.separator();
     let current = app.smart_art_item.filter(|i| *i < g.items.len());
-    ui.horizontal_wrapped(|ui| {
+    let buttons = |ui: &mut Ui| {
         let at = current.map_or(json!({}), |i| json!({"after": i}));
         if ui.add_enabled(g.items.len() < MAX_ITEMS, egui::Button::new(tl!("Add"))).clicked() {
             app.smart_art_typing = None;
@@ -336,12 +348,63 @@ pub fn text_pane(app: &mut WordApp, ui: &mut Ui) {
                 app.smart_art_item = i.checked_sub(1);
             }
         }
-    });
+    };
+    if rtl::is_rtl() {
+        // The buttons wrap from the right, whatever the parent's layout.
+        let size = vec2(ui.available_width().max(0.0), ui.spacing().interact_size.y);
+        ui.allocate_ui_with_layout(size, egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(true), buttons);
+    } else {
+        ui.horizontal_wrapped(buttons);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every text drawn last frame, with its rect.
+    fn texts(out: &egui::FullOutput) -> Vec<(String, Rect)> {
+        fn walk(shape: &egui::Shape, found: &mut Vec<(String, Rect)>) {
+            match shape {
+                egui::Shape::Text(t) => found.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2()))),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, found)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for s in &out.shapes {
+            walk(&s.shape, &mut found);
+        }
+        found
+    }
+
+    /// A long Arabic description in the picker's 200 pt column wraps with the start of the
+    /// sentence on the top row, every row ending at the right (the Arabic catalog's own sentence:
+    /// the layouts' descriptions are translated in another branch).
+    #[test]
+    fn arabic_descriptions_wrap_from_their_first_words() {
+        const KEY: &str = "Anyone can open this document. Encrypt it with a password to keep it private.";
+        const LOGICAL: &str = "يمكن لأي شخص فتح هذا المستند. شفِّره بكلمة مرور لإبقائه خاصًا.";
+        let set = || crate::i18n::set_current(crate::i18n::Lang::from_code("ar").unwrap());
+        set();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(600.0, 400.0)).build_ui(move |ui| {
+            set();
+            rtl::column(ui, |ui| {
+                ui.set_width(200.0);
+                description(ui, tl!(KEY));
+            });
+        });
+        h.run_steps(3);
+        let mut rows = texts(h.output());
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+        rows.sort_by(|a, b| a.1.top().total_cmp(&b.1.top()));
+        assert!(rows.len() >= 2, "the sentence wraps: {rows:?}");
+        // Back in logical order the rows, top to bottom, are the sentence.
+        let read: Vec<String> = rows.iter().map(|(t, _)| crate::bidi::visual(t, true).into_owned()).collect();
+        assert_eq!(read.join(" "), LOGICAL, "rows top to bottom: {read:?}");
+        let right = rows.iter().map(|(_, r)| r.right()).fold(f32::MIN, f32::max);
+        assert!(rows.iter().all(|(_, r)| (r.right() - right).abs() < 0.5), "every row ends at the right: {rows:?}");
+    }
 
     #[test]
     fn removing_an_item_lifts_the_items_under_it() {

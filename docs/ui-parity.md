@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (Modify Table Style formats every table style part, #714); previously trivial: a click on the ribbon chrome hands the keyboard to the page in the same frame, #1093 follow-up; previously trivial: Page Setup vertical alignment, #1320; previously trivial: the app opens on the Home tab every launch, as in Word; previously trivial: no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** trivial (GitHub main merged into the Arabic branch (L10N-AR.17); previously trivial: Modify Table Style formats every table style part, #714; previously trivial: why the RTL row's % and hours both rose: text-field bidi was under-counted; previously trivial: Arabic screenshot pass: RTL row re-measured, 85% → 90%; previously minor: mirrored interface for Arabic; previously trivial: no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -53,12 +53,60 @@ Document title opens Rename Document; the account badge opens Options › Genera
 | File dialogs (Open, Save As, Export, Insert Picture) | system dialog, without blocking the window (#94), its Save As type list naming every format with the document's own first (#1399); Linux/BSD without a file chooser portal or zenity: WordCraft's own browser, also File › Open › Browse in WordCraft… (#576) | system dialog | 95% | — |
 | Platform conventions (macOS menus/traffic lights #255, Windows title bar, Linux CSD on Wayland #78) | partial | native | 70% | 3–5 |
 | Screen readers (VoiceOver, Narrator, Orca) | AccessKit on; the document canvas describes paragraphs, headings (level), list items, tables, links, pictures (alt text) and the caret and selection, for the pages on screen (#488); Windows Magnifier follows the caret, also onto an empty line after Enter or Shift+Enter (#1119); not yet tried with real screen readers | full | 50% | 5–8 |
-| Right-to-left (mirrored) interface | ❌ | ✅ (Arabic, Hebrew Word) | 0% | in localization |
+| Right-to-left (mirrored) interface | ✅ Arabic (any interface language with `rtl: true` mirrors; Hebrew needs a catalog); see [Mirrored interface (Arabic)](#mirrored-interface-arabic) | ✅ (Arabic, Hebrew Word) | 90% (side-by-side screenshot pass done at 1440×900 and 1024×700; native review pending) | 6–10, up from 4–6 because text-field bidi was under-counted (`TextEdit` caret and selection 4–6, egui scroll bars and combo boxes 1–2, mirror leftovers 1–2; [gaps.md](gaps.md#arabic-interface-follow-ups)) |
+
+## Mirrored interface (Arabic)
+
+With an Arabic interface (`LangInfo.rtl`) the whole window mirrors. Helpers live in
+`crates/ui-egui/src/rtl.rs`; English output is unchanged (pixel-compared against the baseline).
+Interface text is reordered by our own bidi pass (`bidi.rs`, UAX #9 with epaint's quirks) because
+epaint draws neutrals and Latin as separate runs and does not mirror brackets; the catalog is stored
+in draw order, user and document text goes through `i18n::user_text`.
+
+Mirrored: title bar (AutoSave and the Quick Access Toolbar at the right, search and account at the
+left), status bar (counts at the right, zoom cluster at the left; the zoom slider keeps its
+left-to-right value axis, so the - and + buttons swap), ribbon (tabs, groups, grids and gallery strips
+start at the right; the scroll chevrons swap; the start of the strip is visible at the right and the end
+is reached with the left chevron), menus and sub-menus (arrows and check marks), mini toolbar, context
+menus, check boxes and radio buttons (box at the right), dialogs (label and field order, button rows),
+task panes, Backstage, tooltips (wrapped in logical order), and 15 icons that point or sit at a side.
+
+Task panes dock to the opposite side of their English dock: Navigation and Clipboard at the right;
+Styles, Accessibility and Comments at the left.
+
+Deliberate exceptions:
+
+- **Alignment icons** (left, right, justify) and left/right commands name physical sides and stay as
+  drawn; the Arabic words for left and right mean the physical side.
+- **Layout > Cell Alignment** 3x3 grid keeps absolute directions.
+- **Chevrons** are chosen by each caller, not flipped by the icon: ribbon scrolling and Print's
+  Previous/Next swap; Read Aloud's media controls stay left-to-right (like a media player).
+- **Dialog launchers** flip: the launcher sits at the group's end corner, which is the bottom left in
+  RTL, consistent with the ribbon strip.
+- **Data blocks and document previews** (page and font previews, number and size fields, code and
+  shortcut text, sample text in gallery tiles) stay left-to-right; so do code spans (`` `--control <port>` ``)
+  and file-type patterns (`(*.rtf)`) inside Arabic sentences.
+- **A lone Close** button moves to the left in RTL (OK and Cancel pairs mirror their order).
+- **File names and paths** are drawn with the interface direction as base (an English interface keeps
+  `.docx` at the right of an Arabic name; matches OS file managers), not the first strong character.
+- **egui widgets we do not own:** `ScrollArea` bars stay at the right, combo-box arrows are not
+  mirrored, `TextEdit` caret and selection work in logical order (editing Arabic inside a text field
+  is a non-goal for now); a comment with Arabic text is drawn as a bidi-ordered block until it is
+  clicked.
+- **Vertical ruler**, the Accessibility pane's collapse arrows and content-control list items keep
+  left-to-right placement (see the follow-ups).
+
+Known gaps are ranked in [gaps.md](gaps.md#arabic-interface-follow-ups). Catalog, terminology and
+conventions: [`localization-ar.md`](localization-ar.md).
 
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | GitHub main merged into the Arabic branch (L10N-AR.17): the tab strip's overflow menu, the Tabs dialog's stop table, Insert Hyperlink's places, the Bookmark dialog, the Print preview bar and the Paragraph dialog's blank fields mirror too |
+| 2026-10-15 | trivial | Why the RTL row's % and hours both rose in the screenshot pass: the screenshots confirmed the mirroring (85% → 90%), and showed that bidi caret and selection in `TextEdit` fields had been under-counted in the first 4–6 h estimate, so the remaining work grew to 6–10 h (L10N-AR.16 final review) |
+| 2026-10-15 | trivial | Arabic screenshot pass (every ribbon tab incl. contextual ones, Backstage, Options panes, Paragraph, Font, Page Setup, AutoCorrect, panes, menus): Table Styles strip, Info fields at 1024 pt, Options notes, size-box units, file patterns and code spans fixed; RTL row 85% → 90%, 6–10 h (L10N-AR.16) |
+| 2026-10-15 | minor | Mirrored (right-to-left) interface for Arabic: title bar, status bar, ribbon, menus, panes, dialogs, Backstage, icons, tooltips; exceptions and gaps listed (L10N-AR.16) |
 | 2026-10-13 | trivial | New/Modify Table Style: No Border on a part that inherits its lines hides them; emptying the font box makes the part's font inherited again (#1288) |
 | 2026-10-14 | trivial | Tab stops edited on the ruler: corner kind selector, click to set, drag to move or off to clear, per-kind markers mirrored for RTL; each gesture one `para.tabs` call and one undo step; Rulers 85% → 90% |
 | 2026-10-12 | trivial | Tables on the page: one selected cell (Select Cell, or a click along its left edge) is a cell selection when its border is dragged: the border moves in its row only (#962) |

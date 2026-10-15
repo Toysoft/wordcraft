@@ -14,9 +14,10 @@ use serde_json::{Value, json};
 use wordcraft_doc::section::LineNumberRestart;
 use wordcraft_engine::cmd::mailings::{ENVELOPE_SIZES, LABEL_PRODUCTS};
 
-use crate::WordApp;
+use crate::dialogs::label;
 use crate::options::MeasureExt;
 use crate::theme::semibold;
+use crate::{WordApp, rtl};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "form", rename_all = "camelCase")]
@@ -94,7 +95,7 @@ fn buttons(ui: &mut Ui, ok: &str, ok_enabled: bool) -> (bool, bool) {
     let mut r = (false, false);
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(rtl::end_layout(egui::Align::Center), |ui| {
             if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 r.1 = true;
             }
@@ -175,28 +176,43 @@ impl LineNumbersForm {
 }
 
 fn line_numbers_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LineNumbersForm) -> bool {
-    ui.checkbox(&mut f.on, tl!("Add line numbering"));
+    rtl::checkbox(ui, &mut f.on, tl!("Add line numbering"));
     ui.add_enabled_ui(f.on, |ui| {
-        egui::Grid::new("lnum").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-            ui.label(tl!("Start at:"));
-            ui.add(egui::DragValue::new(&mut f.start).range(1..=32_767));
-            ui.end_row();
-            ui.label(tl!("From text:"));
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut f.auto_distance, tl!("Auto"));
-                ui.add_enabled(
-                    !f.auto_distance,
-                    egui::DragValue::new(&mut f.distance).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2),
+        rtl::fitted(ui, "lnum", |ui| {
+            rtl::grid("lnum", 2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+                rtl::grid_row(
+                    ui,
+                    [&mut |ui: &mut Ui| label(ui, "Start at:"), &mut |ui: &mut Ui| {
+                        ui.add(egui::DragValue::new(&mut f.start).range(1..=32_767));
+                    }],
+                );
+                rtl::grid_row(
+                    ui,
+                    [&mut |ui: &mut Ui| label(ui, "From text:"), &mut |ui: &mut Ui| {
+                        rtl::row(ui, |ui| {
+                            rtl::checkbox(ui, &mut f.auto_distance, tl!("Auto"));
+                            ui.add_enabled(
+                                !f.auto_distance,
+                                egui::DragValue::new(&mut f.distance)
+                                    .speed(0.01)
+                                    .range(0.0..=22.0 * 72.0 / unit().pt_per_unit())
+                                    .measure(unit())
+                                    .max_decimals(2),
+                            );
+                        });
+                    }],
+                );
+                rtl::grid_row(
+                    ui,
+                    [&mut |ui: &mut Ui| label(ui, "Count by:"), &mut |ui: &mut Ui| {
+                        ui.add(egui::DragValue::new(&mut f.count_by).range(1..=100));
+                    }],
                 );
             });
-            ui.end_row();
-            ui.label(tl!("Count by:"));
-            ui.add(egui::DragValue::new(&mut f.count_by).range(1..=100));
-            ui.end_row();
         });
         heading(ui, "Numbering:");
         for (v, l) in [("restartPage", "Restart Each Page"), ("restartSection", "Restart Each Section"), ("continuous", "Continuous")] {
-            ui.radio_value(&mut f.restart, v.to_string(), tl!(l));
+            rtl::radio_value(ui, &mut f.restart, v.to_string(), tl!(l));
         }
     });
     let (ok, cancel) = buttons(ui, "OK", true);
@@ -237,18 +253,30 @@ impl HyphenationForm {
 }
 
 fn hyphenation_ui(app: &mut WordApp, ui: &mut Ui, f: &mut HyphenationForm) -> bool {
-    ui.checkbox(&mut f.auto, tl!("Automatically hyphenate document"));
-    ui.checkbox(&mut f.caps, tl!("Hyphenate words in CAPS"));
-    egui::Grid::new("hyph").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-        ui.label(tl!("Hyphenation zone:"));
-        ui.add(egui::DragValue::new(&mut f.zone).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2));
-        ui.end_row();
-        ui.label(tl!("Limit consecutive hyphens to:"));
-        let no_limit = tl!("No limit").to_string();
-        ui.add(
-            egui::DragValue::new(&mut f.limit).range(0..=99).custom_formatter(move |n, _| if n < 0.5 { no_limit.clone() } else { format!("{n:.0}") }),
-        );
-        ui.end_row();
+    rtl::checkbox(ui, &mut f.auto, tl!("Automatically hyphenate document"));
+    rtl::checkbox(ui, &mut f.caps, tl!("Hyphenate words in CAPS"));
+    rtl::fitted(ui, "hyph", |ui| {
+        rtl::grid("hyph", 2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+            rtl::grid_row(
+                ui,
+                [&mut |ui: &mut Ui| label(ui, "Hyphenation zone:"), &mut |ui: &mut Ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut f.zone).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2),
+                    );
+                }],
+            );
+            rtl::grid_row(
+                ui,
+                [&mut |ui: &mut Ui| label(ui, "Limit consecutive hyphens to:"), &mut |ui: &mut Ui| {
+                    let no_limit = tl!("No limit").to_string();
+                    ui.add(
+                        egui::DragValue::new(&mut f.limit)
+                            .range(0..=99)
+                            .custom_formatter(move |n, _| if n < 0.5 { no_limit.clone() } else { format!("{n:.0}") }),
+                    );
+                }],
+            );
+        });
     });
     ui.add_space(6.0);
     let manual = ui.button(tl!("Manual…")).clicked();
@@ -348,22 +376,26 @@ fn manual_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ManualForm) -> bool {
     }
     ui.label(tl!("Hyphenate at:"));
     // The word with every possible break; the chosen one is the hyphen that will be inserted.
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        let mut from = 0;
-        for pt in f.points.clone() {
-            ui.label(egui::RichText::new(f.word.chars().skip(from).take(pt.saturating_sub(from)).collect::<String>()).size(16.0));
-            if ui.selectable_label(f.choice == pt, egui::RichText::new("-").size(16.0)).clicked() {
-                f.choice = pt;
+    // The word reads in its own direction (left to right for the languages hyphenation knows),
+    // in a box of its own width: at the right under RTL.
+    rtl::fitted(ui, "hyphenate_word", |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let mut from = 0;
+            for pt in f.points.clone() {
+                ui.label(egui::RichText::new(f.word.chars().skip(from).take(pt.saturating_sub(from)).collect::<String>()).size(16.0));
+                if ui.selectable_label(f.choice == pt, egui::RichText::new("-").size(16.0)).clicked() {
+                    f.choice = pt;
+                }
+                from = pt;
             }
-            from = pt;
-        }
-        ui.label(egui::RichText::new(f.word.chars().skip(from).collect::<String>()).size(16.0));
+            ui.label(egui::RichText::new(f.word.chars().skip(from).collect::<String>()).size(16.0));
+        })
     });
     ui.add_space(8.0);
     let mut close = false;
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(rtl::end_layout(egui::Align::Center), |ui| {
             if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 close = true;
             }
@@ -462,12 +494,12 @@ fn language_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LanguageForm) -> bool {
         });
     });
     ui.add_space(4.0);
-    ui.checkbox(&mut f.no_proof, tl!("Do not check spelling or grammar"));
-    ui.checkbox(&mut f.detect, tl!("Detect language automatically"));
+    rtl::checkbox(ui, &mut f.no_proof, tl!("Do not check spelling or grammar"));
+    rtl::checkbox(ui, &mut f.detect, tl!("Detect language automatically"));
     ui.add_space(4.0);
     let set_default = ui.button(tl!("Set As Default")).clicked();
     if set_default && run(app, "review.language", json!({"lang": f.lang, "default": true, "detect": f.detect})) {
-        app.status(crate::i18n::fmt(tl!("{language} is now the document's default language."), &[("language", &language_name(&f.lang))]));
+        app.status(crate::i18n::fmt_translated(tl!("{language} is now the document's default language."), &[("language", &language_name(&f.lang))]));
     }
     let (ok, cancel) = buttons(ui, "OK", true);
     if ok {
@@ -507,12 +539,12 @@ impl EnvelopeForm {
 fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm) -> bool {
     ui.label(tl!("Delivery address:"));
     ui.add(egui::TextEdit::multiline(&mut f.delivery).desired_rows(4).desired_width(340.0));
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         ui.label(tl!("Return address:"));
-        ui.checkbox(&mut f.omit_return, tl!("Omit"));
+        rtl::checkbox(ui, &mut f.omit_return, tl!("Omit"));
     });
     ui.add_enabled(!f.omit_return, egui::TextEdit::multiline(&mut f.ret).desired_rows(3).desired_width(340.0));
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         ui.label(tl!("Envelope size:"));
         let label = |i: usize| ENVELOPE_SIZES.get(i).map(|(n, w, h)| envelope_label(n, *w, *h)).unwrap_or_default();
         egui::ComboBox::from_id_salt("env_size").selected_text(label(f.size)).width(220.0).show_ui(ui, |ui| {
@@ -525,7 +557,7 @@ fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm) -> bool {
     ui.add_space(8.0);
     let (mut add, mut new, mut cancel) = (false, false, false);
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(rtl::end_layout(egui::Align::Center), |ui| {
             cancel = ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
             new = ui.add_enabled(ready, egui::Button::new(tl!("New Document"))).clicked();
             add = ui.add_enabled(ready, crate::widgets::primary_button(ui, tl!("Add to Document"))).clicked();
@@ -624,13 +656,13 @@ fn product_label(i: usize) -> String {
 fn labels_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LabelsForm) -> bool {
     let has_recipients = !app.session.merge.rows.is_empty();
     if has_recipients {
-        ui.checkbox(&mut f.recipients, tl!("One label per recipient"));
+        rtl::checkbox(ui, &mut f.recipients, tl!("One label per recipient"));
     }
     ui.add_enabled_ui(!(has_recipients && f.recipients && !f.single), |ui| {
         ui.label(tl!("Address:"));
         ui.add(egui::TextEdit::multiline(&mut f.text).desired_rows(4).desired_width(340.0));
     });
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         ui.label(tl!("Label:"));
         egui::ComboBox::from_id_salt("label_product").selected_text(product_label(f.product)).width(300.0).show_ui(ui, |ui| {
             for i in 0..LABEL_PRODUCTS.len() {
@@ -640,9 +672,9 @@ fn labels_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LabelsForm) -> bool {
     });
     let (rows, cols) = LABEL_PRODUCTS.get(f.product).map_or((1, 1), |p| (p.rows, p.cols));
     heading(ui, "Print");
-    ui.radio_value(&mut f.single, false, tl!("Full page of the same label"));
-    ui.horizontal(|ui| {
-        ui.radio_value(&mut f.single, true, tl!("Single label"));
+    rtl::radio_value(ui, &mut f.single, false, tl!("Full page of the same label"));
+    rtl::row(ui, |ui| {
+        rtl::radio_value(ui, &mut f.single, true, tl!("Single label"));
         ui.add_enabled_ui(f.single, |ui| {
             ui.label(tl!("Row:"));
             ui.add(egui::DragValue::new(&mut f.row).range(1..=rows));
@@ -766,7 +798,8 @@ impl SortForm {
     /// A column's name in Sort by: its header text, or `Column n`.
     pub fn column_label(&self, i: usize) -> String {
         match self.headers.get(i).filter(|h| self.header && !h.is_empty()) {
-            Some(h) => h.clone(),
+            // The header is document text: in its own direction, in any interface language.
+            Some(h) => crate::i18n::user_text(h).into_owned(),
             None => crate::i18n::fmt(tl!("Column {n}"), &[("n", &(i + 1).to_string())]),
         }
     }
@@ -779,22 +812,22 @@ impl SortForm {
 
 fn sort_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SortForm) -> bool {
     heading(ui, "Sort by");
-    ui.horizontal(|ui| {
+    rtl::row_top(ui, |ui| {
         egui::ComboBox::from_id_salt("sort_column").selected_text(f.column_label(f.column)).width(180.0).show_ui(ui, |ui| {
             for i in 0..f.headers.len() {
                 let label = f.column_label(i);
                 ui.selectable_value(&mut f.column, i, label);
             }
         });
-        ui.vertical(|ui| {
-            ui.radio_value(&mut f.descending, false, tl!("Ascending"));
-            ui.radio_value(&mut f.descending, true, tl!("Descending"));
+        rtl::column(ui, |ui| {
+            rtl::radio_value(ui, &mut f.descending, false, tl!("Ascending"));
+            rtl::radio_value(ui, &mut f.descending, true, tl!("Descending"));
         });
     });
     heading(ui, "My list has");
-    ui.horizontal(|ui| {
-        ui.radio_value(&mut f.header, true, tl!("Header row"));
-        ui.radio_value(&mut f.header, false, tl!("No header row"));
+    rtl::row(ui, |ui| {
+        rtl::radio_value(ui, &mut f.header, true, tl!("Header row"));
+        rtl::radio_value(ui, &mut f.header, false, tl!("No header row"));
     });
     let (ok, cancel) = buttons(ui, "OK", true);
     if ok {

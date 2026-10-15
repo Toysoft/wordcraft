@@ -45,6 +45,9 @@ pub struct LangInfo {
     pub source: &'static str,
     /// Which CJK interface face comes first (Chinese text wants the Chinese face).
     pub prefer_hans: bool,
+    /// Is the interface written right to left? The catalog then stores every translation in draw
+    /// order (`bidi::visual`), and `fmt` and `location` follow suit.
+    pub rtl: bool,
     /// The language (BCP 47) new blank documents are written in with this interface, for
     /// languages WordCraft can proof; `None` keeps WordCraft's default, US English.
     pub editing_lang: Option<&'static str>,
@@ -52,14 +55,15 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
-    LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+pub static LANGUAGES: [LangInfo; 24] = [
+    LangInfo { code: "en", name: "English", source: "", prefer_hans: false, rtl: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
         code: "zh-hans",
         name: "简体中文",
         source: include_str!("zh-hans.tsv"),
         prefer_hans: true,
+        rtl: false,
         editing_lang: None,
         catalog: OnceLock::new(),
     },
@@ -69,23 +73,47 @@ pub static LANGUAGES: [LangInfo; 23] = [
         name: "繁體中文",
         source: include_str!("zh-hant.tsv"),
         prefer_hans: true,
+        rtl: false,
         editing_lang: None,
         catalog: OnceLock::new(),
     },
-    LangInfo { code: "ja", name: "日本語", source: include_str!("ja.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "ja",
+        name: "日本語",
+        source: include_str!("ja.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     LangInfo {
         code: "ko",
         name: "한국어",
         source: include_str!("ko.tsv"),
         prefer_hans: false, // 일본어처럼 CJK지만 한자 우선순위는 필요 없으므로 false
+        rtl: false,
         editing_lang: None, // 현재 한국어 맞춤법(proofing) 지원이 없으므로 None
         catalog: OnceLock::new(),
     },
     LangInfo {
-        code: "uk", name: "Українська", source: include_str!("uk.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new()
+        code: "uk",
+        name: "Українська",
+        source: include_str!("uk.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
     },
     // Spanish, neutral across Spain and Latin America; `es-ES`, `es-MX`, `es-419` … resolve here.
-    LangInfo { code: "es", name: "Español", source: include_str!("es.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "es",
+        name: "Español",
+        source: include_str!("es.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     // Brazilian Portuguese; `pt-BR` and `pt-BR-*` resolve here. Plain `pt` and `pt-PT` have no
     // catalog yet (the European vocabulary differs), so they stay in English.
     LangInfo {
@@ -93,12 +121,21 @@ pub static LANGUAGES: [LangInfo; 23] = [
         name: "Português (Brasil)",
         source: include_str!("pt-br.tsv"),
         prefer_hans: false,
+        rtl: false,
         editing_lang: Some("pt-BR"),
         catalog: OnceLock::new(),
     },
     // Serbian, Cyrillic script (the default per BCP 47 when no script is given); `sr`, `sr-RS`,
     // `sr-Cyrl-*` resolve here.
-    LangInfo { code: "sr", name: "Српски", source: include_str!("sr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "sr",
+        name: "Српски",
+        source: include_str!("sr.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     // Serbian, Latin script; `sr-Latn-*` resolves here (see `candidates`'s generic prefix
     // matching — no special-casing needed, unlike Chinese's script-by-region fallback).
     LangInfo {
@@ -106,6 +143,7 @@ pub static LANGUAGES: [LangInfo; 23] = [
         name: "Srpski (latinica)",
         source: include_str!("sr-latn.tsv"),
         prefer_hans: false,
+        rtl: false,
         editing_lang: None,
         catalog: OnceLock::new(),
     },
@@ -116,6 +154,7 @@ pub static LANGUAGES: [LangInfo; 23] = [
         name: "Polski",
         source: include_str!("pl.tsv"),
         prefer_hans: false,
+        rtl: false,
         editing_lang: Some("pl-PL"),
         catalog: OnceLock::new(),
     },
@@ -124,20 +163,46 @@ pub static LANGUAGES: [LangInfo; 23] = [
         name: "Čeština",
         source: include_str!("cs.tsv"),
         prefer_hans: false,
+        rtl: false,
         editing_lang: Some("cs-CZ"),
         catalog: OnceLock::new(),
     },
-    LangInfo { code: "et", name: "Eesti", source: include_str!("et.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "et",
+        name: "Eesti",
+        source: include_str!("et.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     // German, neutral across Germany, Austria and Switzerland; `de`, `de-DE`, `de-AT`, `de-CH` …
     // resolve here.
-    LangInfo { code: "de", name: "Deutsch", source: include_str!("de.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "de",
+        name: "Deutsch",
+        source: include_str!("de.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     // Russian; `ru`, `ru-RU`, `ru_RU.UTF-8` and other regions resolve here.
-    LangInfo { code: "ru", name: "Русский", source: include_str!("ru.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "ru",
+        name: "Русский",
+        source: include_str!("ru.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     LangInfo {
         code: "tr",
         name: "Türkçe",
         source: include_str!("tr.tsv"),
         prefer_hans: false,
+        rtl: false,
         editing_lang: Some("tr-TR"),
         catalog: OnceLock::new(),
     },
@@ -148,29 +213,86 @@ pub static LANGUAGES: [LangInfo; 23] = [
         name: "Italiano",
         source: include_str!("it.tsv"),
         prefer_hans: false,
+        rtl: false,
         editing_lang: Some("it-IT"),
         catalog: OnceLock::new(),
     },
     // Hungarian; `hu`, `hu-HU` and `hu_HU.UTF-8` resolve here.
-    LangInfo { code: "hu", name: "Magyar", source: include_str!("hu.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "hu",
+        name: "Magyar",
+        source: include_str!("hu.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     // French; `fr`, `fr-FR`, `fr_CA` and other regions resolve here.
-    LangInfo { code: "fr", name: "Français", source: include_str!("fr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "fr",
+        name: "Français",
+        source: include_str!("fr.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     // Bulgarian; `bg`, `bg-BG` and `bg_BG.UTF-8` resolve here.
     LangInfo {
-        code: "bg", name: "Български", source: include_str!("bg.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new()
+        code: "bg",
+        name: "Български",
+        source: include_str!("bg.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
     },
     // Vietnamese; `vi`, `vi-VN` and `vi_VN.UTF-8` resolve here.
-    LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("vi.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "vi",
+        name: "Tiếng Việt",
+        source: include_str!("vi.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     // Swedish; sv, sv-SE, sv-FI and sv_SE.UTF-8 resolve here.
-    LangInfo { code: "sv", name: "Svenska", source: include_str!("sv.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "sv",
+        name: "Svenska",
+        source: include_str!("sv.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
     // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
-    LangInfo { code: "hr", name: "Hrvatski", source: include_str!("hr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "hr",
+        name: "Hrvatski",
+        source: include_str!("hr.tsv"),
+        prefer_hans: false,
+        rtl: false,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
+    // Arabic; ar, ar-SA, ar_EG.UTF-8 and every ar-* region resolve here. Right-to-left: the interface mirrors (rtl.rs).
+    LangInfo {
+        code: "ar",
+        name: "العربية",
+        source: include_str!("ar.tsv"),
+        prefer_hans: false,
+        rtl: true,
+        editing_lang: None,
+        catalog: OnceLock::new(),
+    },
 ];
 
 impl LangInfo {
     fn catalog(&self) -> &Catalog {
         self.catalog.get_or_init(|| {
-            let (catalog, errors) = Catalog::parse(self.source);
+            let (catalog, errors) = Catalog::parse(self.source, self.rtl);
             for error in errors {
                 log::warn!("{} interface catalog: {error}; that entry shows in English", self.code);
             }
@@ -206,6 +328,11 @@ impl Lang {
 
     pub fn name(self) -> &'static str {
         self.0.name
+    }
+
+    /// Is the interface written right to left (its catalog is stored in draw order)?
+    pub fn is_rtl(self) -> bool {
+        self.0.rtl
     }
 
     pub fn prefers_hans(self) -> bool {
@@ -394,6 +521,18 @@ pub fn lowercase(s: &str) -> String {
     out
 }
 
+/// The logical (reading-order) text of `s` when the interface is right to left and `s` is exactly
+/// a translation its catalog stores in draw order (what [`t`] returns). `None` for anything else:
+/// English and left-to-right languages, untranslated strings, and composed text (`fmt` results,
+/// strings joined in code). Draw order can't be undone in general, so this is the way back.
+pub fn logical(s: &str) -> Option<&'static str> {
+    let lang = current();
+    if !lang.is_rtl() {
+        return None;
+    }
+    lang.catalog().logical(s)
+}
+
 /// `s` in `lang`; strings without a translation come back unchanged.
 pub fn tr(lang: Lang, s: &str) -> &str {
     #[cfg(test)]
@@ -403,11 +542,65 @@ pub fn tr(lang: Lang, s: &str) -> &str {
     lang.catalog().plain(s).unwrap_or(s)
 }
 
+/// `s` in the current language in reading (logical) order, for text that goes into a document
+/// (the style-set previews), never into egui: documents do their own bidi, so draw order would be
+/// reordered twice. Same as [`t`] for left-to-right languages.
+pub fn t_logical(s: &str) -> &str {
+    let drawn = t(s);
+    logical(drawn).unwrap_or(drawn)
+}
+
+/// [`t_logical`] worded for `context`, as [`tc`].
+pub fn tc_logical<'a>(context: &str, s: &'a str) -> &'a str {
+    let drawn = tc(context, s);
+    logical(drawn).unwrap_or(drawn)
+}
+
+/// Document or user text drawn on its own in the interface (a heading in the Navigation pane, a
+/// file name, an author's style or bookmark name): in draw order and in its own direction, in
+/// every interface language, since an English interface shows Arabic documents too. Text with no
+/// right-to-left character is returned as it is. To insert such text into a translated sentence,
+/// use [`fmt`] (or [`isolate`] with [`fmt_translated`]) instead.
+pub fn user_text(s: &str) -> std::borrow::Cow<'_, str> {
+    crate::bidi::own(s)
+}
+
+/// A file name drawn on its own (a recent file, a template, a folder entry, the title bar): in
+/// draw order with the *interface's* direction as its base, as file managers show file names
+/// (Ruling R22): in English «تقرير مالي.docx» keeps ".docx" at the right, under RTL at the left.
+/// Either way an Arabic name reads right to left. Folder paths stay left to right
+/// (`bidi::visual(path, false)`), as paths are written.
+pub fn file_name(name: &str) -> std::borrow::Cow<'_, str> {
+    crate::bidi::visual(name, current().is_rtl())
+}
+
 /// A style's name as the interface shows it: built-in styles (`Normal`, `Heading 2`, `TOC 3`) in
-/// the current language, styles the author made exactly as named. Display only: the document,
-/// commands and saved files keep the English name.
+/// the current language, styles the author made as named, in draw order ([`user_text`]). Display
+/// only: the document, commands and saved files keep the English name. Both kinds come back in
+/// draw order, so insert either into a sentence with [`fmt_translated`].
 pub fn style_name(style: &wordcraft_doc::Style) -> String {
-    if style.builtin { builtin_style_name(&style.name) } else { style.name.clone() }
+    if style.builtin { builtin_style_name(&style.name) } else { user_text(&style.name).into_owned() }
+}
+
+/// [`style_name`] in reading (logical) order, for sorting and comparing: the built-in name's
+/// catalog text before it is converted to draw order, an author's name as written.
+pub fn style_name_logical(style: &wordcraft_doc::Style) -> String {
+    if !style.builtin {
+        return style.name.clone();
+    }
+    let direct = t(&style.name);
+    if direct != style.name {
+        return t_logical(&style.name).to_string();
+    }
+    for (prefix, template) in [("Heading ", "Heading {n}"), ("TOC ", "TOC {n}"), ("Index ", "Index {n}")] {
+        if let Some(n) = style.name.strip_prefix(prefix)
+            && !n.is_empty()
+            && n.chars().all(|c| c.is_ascii_digit())
+        {
+            return t_logical(template).replace("{n}", n);
+        }
+    }
+    style.name.clone()
 }
 
 /// A built-in style's English name in the current language; numbered families go through one
@@ -430,7 +623,12 @@ pub fn builtin_style_name(name: &str) -> String {
 
 /// A ribbon location (`Home › Font`) in the current language, segment by segment.
 pub fn location(loc: &str) -> String {
-    loc.split(" › ").map(t).collect::<Vec<_>>().join(" › ")
+    let mut parts: Vec<&str> = loc.split(" › ").map(t).collect();
+    if current().is_rtl() {
+        parts.reverse();
+        return parts.join(" ‹ ");
+    }
+    parts.join(" › ")
 }
 
 /// A label with an action after a fixed English prefix, e.g. `Undo Typing`: both parts translated
@@ -439,12 +637,61 @@ pub fn prefixed(prefix: &str, rest: &str) -> String {
     if rest.is_empty() {
         return t(prefix).to_string();
     }
-    fmt(t(&format!("{prefix} {{action}}")), &[("action", t(rest))])
+    fmt_translated(t(&format!("{prefix} {{action}}")), &[("action", t(rest))])
 }
 
 /// Fill `{name}` placeholders in one pass. Unknown placeholders stay as written, and inserted
 /// values are never read as templates again, so a file name containing `{n}` stays intact.
+///
+/// Right to left: each value is converted to draw order on its own (see [`isolate`]), so use this
+/// for user and document text (file names, numbers, headings). Values that came out of the catalog
+/// (`t`, `tl!`, `tr`, `tc`, `location`, `builtin_style_name`) are already in draw order: pass them
+/// to [`fmt_translated`] instead, or they are reordered twice.
 pub fn fmt(template: &str, args: &[(&str, &str)]) -> String {
+    fill(template, args, current().is_rtl())
+}
+
+/// Like [`fmt`], for values that are already in draw order because they came from the catalog:
+/// they are inserted unchanged. When one call mixes translated and user values, run the user
+/// values through [`isolate`] first and call this.
+pub fn fmt_translated(template: &str, args: &[(&str, &str)]) -> String {
+    fill(template, args, false)
+}
+
+/// A translated label (in draw order, as `tl!` gives it) followed by `suffix`: "Author:",
+/// "Convert…", "Sentence 3 / 9". Under RTL the two are joined in logical order (the label's
+/// logical text from the catalog, or the label itself when it isn't a translation) and converted
+/// once, so the suffix ends the label in reading order whatever script the label is in: "DOI"
+/// kept as is, or "رقم ISBN", gets its colon at the left. English: `label` then `suffix`.
+pub fn suffixed(label: &str, suffix: &str) -> String {
+    if !current().is_rtl() {
+        return format!("{label}{suffix}");
+    }
+    let logical = logical(label).unwrap_or(label);
+    crate::bidi::visual(&format!("{logical}{suffix}"), true).into_owned()
+}
+
+/// "Label: value" through the catalog's `{label}: {value}`, so under RTL the label reads first
+/// (drawn at the right of the value) instead of `format!("{label}: {value}")` reading backwards.
+/// Both parts must already be in draw order: `label` from `tl!`/[`t`], `value` catalog text, a
+/// number, or user text through [`user_text`] (or [`isolate`]). English: `label: value`.
+pub fn labeled(label: &str, value: &str) -> String {
+    fmt_translated(t("{label}: {value}"), &[("label", label), ("value", value)])
+}
+
+/// A user or document value as it must be inserted into a translated, draw-order template with
+/// [`fmt_translated`] (or composed with catalog text in code under RTL): converted to draw order
+/// in its own direction when the interface is right to left, else unchanged, since an English
+/// template is drawn as it stands.
+///
+/// Only for that. A user or document value drawn **on its own** (a label, a list item, a
+/// tooltip) goes through [`user_text`] instead, which also reorders it in the English interface;
+/// a file name goes through [`file_name`].
+pub fn isolate(value: &str) -> String {
+    if current().is_rtl() { crate::bidi::visual(value, crate::bidi::first_strong_is_rtl(value)).into_owned() } else { value.to_string() }
+}
+
+fn fill(template: &str, args: &[(&str, &str)], convert: bool) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some((before, after_open)) = rest.split_once('{') {
@@ -455,6 +702,8 @@ pub fn fmt(template: &str, args: &[(&str, &str)]) -> String {
             return out;
         };
         match args.iter().find(|(key, _)| *key == name) {
+            // The template is already in draw order; a converted value stays intact inside it.
+            Some((_, value)) if convert => out.push_str(&crate::bidi::visual(value, crate::bidi::first_strong_is_rtl(value))),
             Some((_, value)) => out.push_str(value),
             None => {
                 out.push('{');

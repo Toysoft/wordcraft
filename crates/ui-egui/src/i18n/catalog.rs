@@ -32,6 +32,9 @@ pub struct Catalog {
     plain: HashMap<String, String>,
     /// (context, English source) → translation, for the few entries that need one.
     contextual: HashMap<(String, String), String>,
+    /// Right-to-left catalogs only: stored (draw-order) translation → the translation as written
+    /// (logical order), for code that must re-wrap a translation (`rtl::wrapped_label`).
+    logical: HashMap<String, String>,
 }
 
 fn unescape(text: &str) -> Result<String, String> {
@@ -118,10 +121,16 @@ pub fn parse_entries(text: &str) -> (Vec<Entry>, Vec<String>) {
 
 impl Catalog {
     /// Build a catalog from its valid entries; the errors of the skipped lines come back too.
-    pub fn parse(text: &str) -> (Catalog, Vec<String>) {
+    /// With `rtl`, every translation is stored in draw order (`bidi::visual`, right-to-left base).
+    pub fn parse(text: &str, rtl: bool) -> (Catalog, Vec<String>) {
         let (entries, errors) = parse_entries(text);
         let mut catalog = Catalog::default();
-        for e in entries {
+        for mut e in entries {
+            if rtl {
+                let drawn = crate::bidi::visual(&e.translation, true).into_owned();
+                // The first entry wins if two translations draw the same.
+                catalog.logical.entry(drawn.clone()).or_insert(std::mem::replace(&mut e.translation, drawn));
+            }
             if e.context.is_empty() {
                 catalog.plain.insert(e.source, e.translation);
             } else {
@@ -133,6 +142,12 @@ impl Catalog {
 
     pub fn plain(&self, s: &str) -> Option<&str> {
         self.plain.get(s).map(String::as_str)
+    }
+
+    /// Right-to-left catalogs: the logical text of `drawn` when it is exactly one of the stored
+    /// (draw-order) translations; `None` otherwise, and always for left-to-right catalogs.
+    pub fn logical(&self, drawn: &str) -> Option<&str> {
+        self.logical.get(drawn).map(String::as_str)
     }
 
     /// The entry for `s` in `context`, else the plain one.

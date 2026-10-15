@@ -2,6 +2,7 @@
 //! with the most-used formatting controls. It mirrors Word's trigger (selection, not caret),
 //! position (above, clamped to the viewport, flipping below when tight) and dismissal rules.
 
+use crate::rtl::HoverText as _;
 use egui::{Align, CornerRadius, Layout, Order, Rect, Sense, Vec2, pos2};
 use serde_json::{Value, json};
 
@@ -205,7 +206,8 @@ fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens) {
     let flag = |k: &str| st.get(k).and_then(Value::as_bool).unwrap_or(false);
     let align = app.session.doc.para_at(&app.session.sel.focus).map(|p| app.session.doc.styles.resolve_para(&p.props).align).unwrap_or_default();
     let row = |ui: &mut egui::Ui, app: &mut WordApp, add: &dyn Fn(&mut egui::Ui, &mut WordApp)| {
-        ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), ROW_H), Layout::left_to_right(Align::Center), |ui| {
+        // Under RTL each row starts at the bar's right edge.
+        ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), ROW_H), crate::rtl::row_layout(Align::Center), |ui| {
             ui.set_min_height(ROW_H);
             add(ui, app);
         });
@@ -275,19 +277,17 @@ fn sep(ui: &mut egui::Ui, t: &Tokens) {
 
 /// Highlight colour grid, matching the ribbon's.
 fn highlight_menu(ui: &mut egui::Ui, app: &mut WordApp) {
-    egui::Grid::new("mini_hl").spacing(Vec2::new(3.0, 3.0)).show(ui, |ui| {
-        for (i, h) in wordcraft_doc::props::Highlight::ALL.iter().enumerate().skip(1) {
-            let Some(c) = h.rgb() else { continue };
-            let (r, resp) = ui.allocate_exact_size(Vec2::new(18.0, 18.0), Sense::click());
-            ui.painter().rect_filled(r, 2.0, egui::Color32::from_rgb(c.0, c.1, c.2));
-            if resp.on_hover_text(h.name()).clicked() {
-                app.canvas.last_highlight = h.ooxml().to_string();
-                let _ = app.run("format.highlight", json!({"color": h.ooxml()}));
-                ui.close();
-            }
-            if i % 5 == 0 {
-                ui.end_row();
-            }
+    // The first entry is "none" (No Color below). Right to left the rows run from the right.
+    let all = wordcraft_doc::props::Highlight::ALL;
+    crate::rtl::cell_grid(ui, "mini_hl", Some(Vec2::new(3.0, 3.0)), 5, all.len().saturating_sub(1), |ui, i| {
+        let Some(h) = all.get(i + 1) else { return };
+        let Some(c) = h.rgb() else { return };
+        let (r, resp) = ui.allocate_exact_size(Vec2::new(18.0, 18.0), Sense::click());
+        ui.painter().rect_filled(r, 2.0, egui::Color32::from_rgb(c.0, c.1, c.2));
+        if resp.rtl_hover_text(h.name()).clicked() {
+            app.canvas.last_highlight = h.ooxml().to_string();
+            let _ = app.run("format.highlight", json!({"color": h.ooxml()}));
+            ui.close();
         }
     });
     if ui.selectable_label(false, "No Color").clicked() {
@@ -636,5 +636,36 @@ mod tests {
         click_at(&mut h, twenty);
         assert_eq!(format_state(&mut h).get("size").and_then(Value::as_f64), Some(20.0), "the bar's size list applied 20 pt");
         assert!(visible(h.state()) && bar_layer(&h).is_some(), "the bar stays up after its own list is used");
+    }
+
+    /// Arabic interface: the rows start at the bar's right edge, Bold right of Italic.
+    #[test]
+    fn mini_toolbar_rows_start_at_the_right_in_arabic() {
+        use egui_kittest::kittest::Queryable;
+        use wordcraft_engine::Session;
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "The quick brown fox jumps over the lazy dog"})).unwrap();
+        a.run("select.text", json!({"text": "brown fox"})).unwrap();
+        a.run("ui.language", json!({"value": "ar"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(Vec2::new(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let [bar, used] = h.ctx.data(|d| d.get_temp::<[Rect; 2]>(shown_id())).expect("the bar is shown over a selection");
+        let inner = bar.shrink2(Vec2::new(PAD_X, PAD_Y));
+        assert!(inner.max.x - used.max.x < 0.5, "the rows start at the bar's right edge: {used:?} in {inner:?}");
+        let ar = crate::i18n::Lang::from_code("ar").unwrap();
+        let x = |s: &str| {
+            let l = crate::i18n::tr(ar, s);
+            h.query_all_by_label(l).filter(|n| inner.contains(n.rect().center())).map(|n| n.rect().center().x).next().unwrap_or_else(|| panic!("{s}"))
+        };
+        assert!(x("Bold") > x("Italic"), "Bold is right of Italic");
     }
 }

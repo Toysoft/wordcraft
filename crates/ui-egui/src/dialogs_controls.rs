@@ -6,8 +6,8 @@ use egui::Ui;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::WordApp;
 use crate::theme::semibold;
+use crate::{WordApp, rtl};
 
 /// One list entry being edited.
 #[derive(Clone, Debug, Default, Serialize)]
@@ -113,35 +113,39 @@ impl ControlForm {
 /// Draws the dialog; returns true to close it.
 pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut ControlForm) -> bool {
     ui.set_width(420.0);
-    egui::Grid::new("cc_props").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-        ui.label(tl!("Title"));
-        ui.add(egui::TextEdit::singleline(&mut f.title).desired_width(280.0));
-        ui.end_row();
-        ui.label(tl!("Tag"));
-        ui.add(egui::TextEdit::singleline(&mut f.tag).desired_width(280.0));
-        ui.end_row();
-        if !matches!(f.kind.as_str(), "checkBox" | "picture" | "repeatingSection" | "repeatingSectionItem") {
-            ui.label(tl!("Placeholder text"));
-            ui.add(egui::TextEdit::singleline(&mut f.placeholder).desired_width(280.0));
-            ui.end_row();
-        }
+    let placeholder = !matches!(f.kind.as_str(), "checkBox" | "picture" | "repeatingSection" | "repeatingSectionItem");
+    rtl::fitted(ui, "cc_props", |ui| {
+        rtl::grid("cc_props", 2).spacing([10.0, 6.0]).show(ui, |ui| {
+            let mut fields = vec![("Title", &mut f.title), ("Tag", &mut f.tag)];
+            if placeholder {
+                fields.push(("Placeholder text", &mut f.placeholder));
+            }
+            for (caption, text) in fields {
+                rtl::grid_row(
+                    ui,
+                    [&mut |ui: &mut Ui| crate::dialogs::label(ui, caption), &mut |ui: &mut Ui| {
+                        crate::dialogs::text_field(ui, text, Some(280.0));
+                    }],
+                );
+            }
+        });
     });
     ui.add_space(6.0);
-    ui.checkbox(&mut f.lock_delete, tl!("Can't be deleted"));
-    ui.checkbox(&mut f.lock_edit, tl!("Contents can't be edited"));
-    ui.checkbox(&mut f.temporary, tl!("Remove the control once edited"));
+    rtl::checkbox(ui, &mut f.lock_delete, tl!("Can't be deleted"));
+    rtl::checkbox(ui, &mut f.lock_edit, tl!("Contents can't be edited"));
+    rtl::checkbox(ui, &mut f.temporary, tl!("Remove the control once edited"));
     match f.kind.as_str() {
         "plainText" => {
-            ui.checkbox(&mut f.multi_line, tl!("Allow line breaks"));
+            rtl::checkbox(ui, &mut f.multi_line, tl!("Allow line breaks"));
         }
         "comboBox" | "dropDown" => entries(ui, f),
         "date" => {
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            rtl::row(ui, |ui| {
                 ui.label(tl!("Date format"));
                 ui.add(egui::TextEdit::singleline(&mut f.format).desired_width(160.0));
             });
-            ui.horizontal(|ui| {
+            rtl::row(ui, |ui| {
                 for pic in ["M/d/yyyy", "d.M.yyyy", "yyyy-MM-dd", "dddd, MMMM d, yyyy"] {
                     if ui.small_button(pic).clicked() {
                         f.format = pic.to_string();
@@ -151,7 +155,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut ControlForm) -> bool {
         }
         "checkBox" => {
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            rtl::row(ui, |ui| {
                 ui.label(tl!("Checked symbol"));
                 ui.add(egui::TextEdit::singleline(&mut f.checked_symbol).desired_width(40.0));
                 ui.label(tl!("Unchecked symbol"));
@@ -163,7 +167,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: &mut ControlForm) -> bool {
     let mut done = false;
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::rtl::end_layout(egui::Align::Center), |ui| {
             if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 done = true;
             }
@@ -182,18 +186,36 @@ fn entries(ui: &mut Ui, f: &mut ControlForm) {
     ui.add_space(6.0);
     ui.label(egui::RichText::new(tl!("List entries")).font(semibold(12.0)));
     let mut remove = None;
-    egui::Grid::new("cc_entries").num_columns(3).spacing([6.0, 4.0]).show(ui, |ui| {
-        ui.label(egui::RichText::new(tl!("Display text")).small());
-        ui.label(egui::RichText::new(tl!("Value")).small());
-        ui.end_row();
-        for (i, e) in f.items.iter_mut().enumerate() {
-            ui.add(egui::TextEdit::singleline(&mut e.display).desired_width(170.0));
-            ui.add(egui::TextEdit::singleline(&mut e.value).desired_width(140.0));
-            if ui.small_button(tl!("Remove")).clicked() {
-                remove = Some(i);
+    rtl::fitted(ui, "cc_entries", |ui| {
+        rtl::grid("cc_entries", 3).spacing([6.0, 4.0]).show(ui, |ui| {
+            let small = |ui: &mut Ui, s: &str| {
+                ui.label(egui::RichText::new(tl!(s)).small());
+            };
+            if rtl::is_rtl() {
+                // A third (empty) cell keeps the captions over their columns when the row is reversed.
+                rtl::grid_row(ui, [&mut |ui: &mut Ui| small(ui, "Display text"), &mut |ui: &mut Ui| small(ui, "Value"), &mut |_: &mut Ui| {}]);
+            } else {
+                rtl::grid_row(ui, [&mut |ui: &mut Ui| small(ui, "Display text"), &mut |ui: &mut Ui| small(ui, "Value")]);
             }
-            ui.end_row();
-        }
+            for (i, e) in f.items.iter_mut().enumerate() {
+                rtl::grid_row(
+                    ui,
+                    [
+                        &mut |ui: &mut Ui| {
+                            crate::dialogs::text_field(ui, &mut e.display, Some(170.0));
+                        },
+                        &mut |ui: &mut Ui| {
+                            crate::dialogs::text_field(ui, &mut e.value, Some(140.0));
+                        },
+                        &mut |ui: &mut Ui| {
+                            if ui.small_button(tl!("Remove")).clicked() {
+                                remove = Some(i);
+                            }
+                        },
+                    ],
+                );
+            }
+        });
     });
     if let Some(i) = remove
         && i < f.items.len()

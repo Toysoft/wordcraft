@@ -8,8 +8,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use wordcraft_doc::chart::{ChartSpec, ChartType, MAX_POINTS, MAX_SERIES};
 
-use crate::WordApp;
 use crate::theme::{Tokens, c32};
+use crate::{WordApp, rtl};
 
 /// Insert › Chart (`change` false) or Chart Design › Change Chart Type (`change` true).
 #[derive(Clone, Debug, Serialize)]
@@ -197,8 +197,9 @@ pub fn type_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ChartTypeForm) -> bool {
     let t = Tokens::get(ui.ctx());
     let col = accents(app);
     let mut chosen = None;
-    egui::Grid::new("chart_types").spacing(vec2(8.0, 8.0)).show(ui, |ui| {
-        for (k, kind) in ChartType::ALL.into_iter().enumerate() {
+    // The first type at the start edge (the right under RTL).
+    rtl::cell_grid(ui, "chart_types", Some(vec2(8.0, 8.0)), 3, ChartType::ALL.len(), |ui, k| {
+        if let Some(&kind) = ChartType::ALL.get(k) {
             let (rect, resp) = ui.allocate_exact_size(vec2(112.0, 92.0), Sense::click());
             let on = f.kind == kind;
             ui.painter().rect(
@@ -230,9 +231,6 @@ pub fn type_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ChartTypeForm) -> bool {
             if resp.double_clicked() {
                 chosen = Some(kind);
             }
-            if k % 3 == 2 {
-                ui.end_row();
-            }
         }
     });
     let (ok, cancel) = crate::dialogs::buttons(ui, tl!("OK"));
@@ -249,50 +247,53 @@ pub fn data_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ChartDataForm) -> bool {
     let gap = ui.spacing().item_spacing.x;
     let table_w = (f.names.len() as f32 + 1.0) * (CELL_W + X_W + 2.0 * gap) + 16.0;
     ui.set_min_width(table_w.clamp(360.0, 760.0));
-    ui.label(tl!("Type the categories down the side and a column of values per series."));
+    rtl::wrapped_label(ui, tl!("Type the categories down the side and a column of values per series."), |s| egui::RichText::new(s));
     ui.add_space(6.0);
     let mut remove_series = None;
     let mut remove_row = None;
     let (can_remove_series, can_remove_row) = (f.names.len() > 1, f.categories.len() > 1);
-    egui::ScrollArea::horizontal().id_salt("chart_data_h").max_width(760.0).show(ui, |ui| {
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.add_sized([CELL_W, ROW_H - 4.0], egui::Label::new(egui::RichText::new(tl!("Categories")).strong()));
-                ui.allocate_exact_size(vec2(X_W, ROW_H - 4.0), Sense::hover());
-                for (j, n) in f.names.iter_mut().enumerate() {
-                    ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(n).hint_text(tl!("Series name")));
-                    let x = ui
-                        .add_enabled_ui(can_remove_series, |ui| ui.add_sized([X_W, ROW_H - 4.0], egui::Button::new("×")))
-                        .inner
-                        .on_hover_text(tl!("Remove series"));
-                    if x.clicked() {
-                        remove_series = Some(j);
-                    }
-                }
-            });
-            ui.separator();
-            let rows = f.categories.len();
-            egui::ScrollArea::vertical().id_salt("chart_data_v").max_height(280.0).show_rows(ui, ROW_H, rows, |ui, range| {
-                for i in range {
-                    ui.horizontal(|ui| {
-                        if let Some(c) = f.categories.get_mut(i) {
-                            ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(c));
-                        }
+    // The data reads left to right, like the chart's own data (a box of its own under RTL).
+    rtl::fitted(ui, "chart_data", |ui| {
+        egui::ScrollArea::horizontal().id_salt("chart_data_h").max_width(760.0).show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.add_sized([CELL_W, ROW_H - 4.0], egui::Label::new(egui::RichText::new(tl!("Categories")).strong()));
+                    ui.allocate_exact_size(vec2(X_W, ROW_H - 4.0), Sense::hover());
+                    for (j, n) in f.names.iter_mut().enumerate() {
+                        ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(n).hint_text(tl!("Series name")));
                         let x = ui
-                            .add_enabled_ui(can_remove_row, |ui| ui.add_sized([X_W, ROW_H - 4.0], egui::Button::new("×")))
+                            .add_enabled_ui(can_remove_series, |ui| ui.add_sized([X_W, ROW_H - 4.0], egui::Button::new("×")))
                             .inner
-                            .on_hover_text(tl!("Remove row"));
+                            .on_hover_text(tl!("Remove series"));
                         if x.clicked() {
-                            remove_row = Some(i);
+                            remove_series = Some(j);
                         }
-                        if let Some(row) = f.cells.get_mut(i) {
-                            for cell in row.iter_mut() {
-                                ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(cell).horizontal_align(egui::Align::Max));
-                                ui.allocate_exact_size(vec2(X_W, ROW_H - 4.0), Sense::hover());
+                    }
+                });
+                ui.separator();
+                let rows = f.categories.len();
+                egui::ScrollArea::vertical().id_salt("chart_data_v").max_height(280.0).show_rows(ui, ROW_H, rows, |ui, range| {
+                    for i in range {
+                        ui.horizontal(|ui| {
+                            if let Some(c) = f.categories.get_mut(i) {
+                                ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(c));
                             }
-                        }
-                    });
-                }
+                            let x = ui
+                                .add_enabled_ui(can_remove_row, |ui| ui.add_sized([X_W, ROW_H - 4.0], egui::Button::new("×")))
+                                .inner
+                                .on_hover_text(tl!("Remove row"));
+                            if x.clicked() {
+                                remove_row = Some(i);
+                            }
+                            if let Some(row) = f.cells.get_mut(i) {
+                                for cell in row.iter_mut() {
+                                    ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(cell).horizontal_align(egui::Align::Max));
+                                    ui.allocate_exact_size(vec2(X_W, ROW_H - 4.0), Sense::hover());
+                                }
+                            }
+                        });
+                    }
+                });
             });
         });
     });
@@ -312,7 +313,7 @@ pub fn data_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ChartDataForm) -> bool {
             f.cells.remove(i);
         }
     }
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         if ui.add_enabled(f.categories.len() < MAX_POINTS, egui::Button::new(tl!("Add Row"))).clicked() {
             f.add_row();
         }

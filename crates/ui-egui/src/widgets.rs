@@ -39,23 +39,32 @@ pub fn key_text(sc: &str) -> String {
     }
 }
 
+/// A tooltip title with its shortcut: `Bold (Ctrl+B)`. `label` is translated (draw order); under
+/// RTL the shortcut, a left-to-right run, is drawn at the left end so it reads after the label.
+pub fn with_shortcut(label: &str, sc: &str) -> String {
+    if crate::rtl::is_rtl() { format!("({}) {label}", crate::i18n::isolate(sc)) } else { format!("{label} ({sc})") }
+}
+
 /// `label` is already in the interface language.
 fn tooltip(app: &WordApp, resp: Response, label: &str, id: &str) -> Response {
     let sc = shortcut_text(app, id);
     let desc = app.session.registry.get(id).map(|s| crate::i18n::location(s.location)).unwrap_or_default();
     let enabled = app.session.registry.get(id).map(|s| (s.enabled)(&app.session).is_none()).unwrap_or(true);
-    resp.on_hover_ui(|ui| {
+    // Under RTL the tip hangs from the button's right edge and its rows line up on the right.
+    crate::rtl::on_hover_ui(resp, |ui| {
         ui.set_max_width(260.0);
+        let title = |s: &str| egui::RichText::new(s).font(crate::theme::semibold(12.0));
+        let note = |s: &str| egui::RichText::new(s).small().weak();
         if sc.is_empty() {
-            ui.label(egui::RichText::new(label).font(crate::theme::semibold(12.0)));
+            crate::rtl::wrapped_label(ui, label, title);
         } else {
-            ui.label(egui::RichText::new(format!("{label} ({sc})")).font(crate::theme::semibold(12.0)));
+            crate::rtl::wrapped_label(ui, &with_shortcut(label, &sc), title);
         }
         if !desc.is_empty() {
-            ui.label(egui::RichText::new(desc).small().weak());
+            crate::rtl::wrapped_label(ui, &desc, note);
         }
         if !enabled {
-            ui.label(egui::RichText::new(tl!("Not available right now")).small().weak());
+            crate::rtl::wrapped_label(ui, tl!("Not available right now"), note);
         }
     })
 }
@@ -195,11 +204,17 @@ pub fn small(ui: &mut Ui, app: &mut WordApp, icon: &str, label: Option<&str>, ti
     keytip_badge(ui, r, id, tip);
     let on = enabled(app, id);
     bg(ui, r, &resp, checked, &t);
-    let ic = Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(17.0, 17.0));
+    let ic = Rect::from_center_size(pos2(crate::rtl::x(r, r.min.x + 12.0), r.center().y), vec2(17.0, 17.0));
     let (c, a) = if on { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
     icons::paint(ui.painter(), ic, icon, c, a);
     if let Some(l) = label {
-        ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, l, regular(11.5), if on { t.text } else { t.text_disabled });
+        ui.painter().text(
+            pos2(crate::rtl::x(r, r.min.x + 24.0), r.center().y),
+            crate::rtl::start_align2(egui::Align::Center),
+            l,
+            regular(11.5),
+            if on { t.text } else { t.text_disabled },
+        );
     }
     let resp = tooltip(app, resp, tip, id);
     command_menu(&resp, app, id);
@@ -227,6 +242,8 @@ pub fn split(
     let (r, resp) = ui.allocate_exact_size(vec2(24.0, 22.0), Sense::click());
     keytip_badge(ui, r, id, tip);
     let (ar, aresp) = ui.allocate_exact_size(vec2(11.0, 22.0), Sense::click());
+    #[cfg(test)]
+    MENU_OPENERS.with(|m| m.borrow_mut().push((format!("{tip} (arrow)"), ar)));
     bg(ui, r, &resp, checked, &t);
     bg(ui, ar, &aresp, false, &t);
     let ic = Rect::from_center_size(r.center(), vec2(17.0, 17.0));
@@ -240,7 +257,7 @@ pub fn split(
     if resp.clicked() {
         run_from_ribbon(app, id, params);
     }
-    egui::Popup::menu(&aresp).show(|ui| {
+    crate::rtl::menu(&aresp).show(|ui| {
         ui.set_min_width(180.0);
         menu(ui, app);
     });
@@ -291,22 +308,31 @@ pub fn menu_button(
         let (r, resp) = ui.allocate_exact_size(vec2(24.0 + text_w + 10.0, 22.0), Sense::click());
         keytip_badge(ui, r, "menu", tip);
         bg(ui, r, &resp, false, &t);
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(17.0, 17.0)), icon, c, a);
+        let x = |v: f32| crate::rtl::x(r, v);
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(x(r.min.x + 12.0), r.center().y), vec2(17.0, 17.0)), icon, c, a);
         if let Some(l) = label {
-            ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, l, regular(11.5), text);
+            ui.painter().text(pos2(x(r.min.x + 24.0), r.center().y), crate::rtl::start_align2(egui::Align::Center), l, regular(11.5), text);
         }
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 6.0, r.center().y), vec2(DROPDOWN, DROPDOWN)), "dropdown", c, c);
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(x(r.max.x - 6.0), r.center().y), vec2(DROPDOWN, DROPDOWN)), "dropdown", c, c);
         resp
     };
-    let resp = resp.on_hover_text(tip);
+    let resp = crate::rtl::hover_text(resp, tip);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
     if !on {
         return;
     }
-    egui::Popup::menu(&resp).show(|ui| {
+    #[cfg(test)]
+    MENU_OPENERS.with(|m| m.borrow_mut().push((tip.to_string(), resp.rect)));
+    let shown = crate::rtl::menu(&resp).show(|ui| {
         ui.set_min_width(200.0);
         menu(ui, app);
     });
+    #[cfg(test)]
+    if let Some(s) = &shown {
+        MENU_RECTS.with(|m| m.borrow_mut().push((tip.to_string(), resp.rect, s.response.rect)));
+    }
+    #[cfg(not(test))]
+    let _ = shown;
 }
 
 #[cfg(test)]
@@ -314,6 +340,12 @@ thread_local! {
     /// Groups drawn taller than [`CONTENT_H`] (title and height): their content runs into the
     /// group label below, as View › Show did with four check boxes in one column.
     pub(crate) static TALL_GROUPS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Every group drawn, in drawing order: English title, group rect, dialog launcher rect.
+    pub(crate) static GROUP_RECTS: std::cell::RefCell<Vec<(String, Rect, Option<Rect>)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Every open [`menu_button`] menu drawn: its tooltip (as drawn), the button's rect, the menu's rect.
+    pub(crate) static MENU_RECTS: std::cell::RefCell<Vec<(String, Rect, Rect)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Every enabled control drawn that opens a menu (menu buttons, split-button arrows): name, rect.
+    pub(crate) static MENU_OPENERS: std::cell::RefCell<Vec<(String, Rect)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// A ribbon group: content, a centred label below and a divider on the right.
@@ -326,10 +358,13 @@ pub fn group(ui: &mut Ui, title: &str, launcher: Option<&str>, app: &mut WordApp
 pub fn group_titled(ui: &mut Ui, id_title: &str, title: &str, launcher: Option<&str>, app: &mut WordApp, add: impl FnOnce(&mut Ui, &mut WordApp)) {
     let t = Tokens::get(ui.ctx());
     let label_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(title.to_string(), regular(11.0), t.group_label).size().x);
+    // Under RTL the group starts at the row's right (its cursor) and its controls run leftwards;
+    // the dialog launcher moves to the bottom-left corner and the divider to the left side.
+    let rtl = crate::rtl::is_rtl();
     let start = ui.cursor().min;
-    let inner = ui.vertical(|ui| {
+    let inner = crate::rtl::column(ui, |ui| {
         ui.set_min_width(label_w + if launcher.is_some() { 22.0 } else { 10.0 });
-        let content = ui.allocate_ui_with_layout(vec2(ui.available_width(), CONTENT_H), egui::Layout::left_to_right(egui::Align::Min), |ui| {
+        let content = ui.allocate_ui_with_layout(vec2(ui.available_width(), CONTENT_H), crate::rtl::row_layout(egui::Align::Min), |ui| {
             ui.spacing_mut().item_spacing = vec2(1.0, 1.0);
             add(ui, app);
         });
@@ -341,22 +376,28 @@ pub fn group_titled(ui: &mut Ui, id_title: &str, title: &str, launcher: Option<&
         let _ = content;
     });
     let r = inner.response.rect;
-    let r = Rect::from_min_max(start, pos2(r.max.x, start.y + CONTENT_H + LABEL_H));
+    let left = if rtl { r.min.x } else { start.x };
+    let r = Rect::from_min_max(pos2(left, start.y), pos2(r.max.x, start.y + CONTENT_H + LABEL_H));
     let title_y = r.max.y - LABEL_H / 2.0;
     ui.painter().text(pos2(r.center().x, title_y), Align2::CENTER_CENTER, title, regular(11.0), t.group_label);
+    let launcher_rect = Rect::from_center_size(pos2(crate::rtl::x(r, r.max.x - 6.0), title_y), vec2(11.0, 11.0));
+    #[cfg(test)]
+    GROUP_RECTS.with(|g| g.borrow_mut().push((id_title.to_string(), r, launcher.map(|_| launcher_rect))));
     if let Some(cmd) = launcher {
-        let lr = Rect::from_center_size(pos2(r.max.x - 6.0, title_y), vec2(11.0, 11.0));
+        let lr = launcher_rect;
         let resp = ui.interact(lr, ui.id().with(("launch", id_title)), Sense::click());
         if resp.hovered() {
             ui.painter().rect_filled(lr.expand(2.0), 2.0, t.hover);
         }
         icons::paint(ui.painter(), lr, "launcher", t.text_dim, t.accent);
-        if resp.on_hover_text(crate::i18n::fmt(tl!("{group} settings"), &[("group", title)])).clicked() {
+        // A built-in title is translated (draw order); a custom group's name is the author's text.
+        let group = if title == tl!(id_title) { title.to_string() } else { crate::i18n::isolate(title) };
+        if crate::rtl::hover_text(resp, crate::i18n::fmt_translated(tl!("{group} settings"), &[("group", &group)])).clicked() {
             let _ = app.run(cmd, serde_json::json!({}));
         }
     }
     ui.add_space(5.0);
-    let x = ui.cursor().min.x;
+    let x = if rtl { ui.cursor().max.x } else { ui.cursor().min.x };
     ui.painter().line_segment([pos2(x, start.y + 4.0), pos2(x, start.y + CONTENT_H + LABEL_H - 4.0)], Stroke::new(1.0, t.border));
     ui.add_space(6.0);
 }
@@ -394,7 +435,7 @@ pub fn command_icon(id: &str) -> &str {
 /// Right-click on a command's button: put it on (or take it off) the Quick Access Toolbar, or
 /// open Customize Ribbon (#379).
 pub fn command_menu(resp: &Response, app: &mut WordApp, id: &str) {
-    resp.context_menu(|ui| {
+    crate::rtl::on_context_menu(resp, |ui| {
         let known = app.session.registry.get(id).is_some();
         let on_qat = app.session.ribbon.qat().contains(&id);
         if known && !on_qat && ui.button(tl!("Add to Quick Access Toolbar")).clicked() {
@@ -479,7 +520,7 @@ pub(crate) fn swatch(ui: &mut Ui, c: wordcraft_doc::Rgb) -> bool {
         Stroke::new(if resp.hovered() { 1.5 } else { 0.5 }, if resp.hovered() { t.accent } else { t.border_strong }),
         egui::StrokeKind::Inside,
     );
-    resp.on_hover_text(format!("#{}", c.hex())).clicked()
+    crate::rtl::hover_text(resp, format!("#{}", c.hex())).clicked()
 }
 
 /// A ribbon-style text field with a dropdown list. Returns a chosen/typed value; Enter commits
@@ -658,8 +699,9 @@ fn combo_impl(
         let arrow_box = egui::epaint::RectShape::new(under, ar_radius, fill, Stroke::new(ARROW_BORDER, t.input_border), egui::StrokeKind::Inside);
         ui.painter().set(arrow_bg, arrow_box);
         icons::paint(ui.painter(), Rect::from_center_size(ar.center(), vec2(DROPDOWN, DROPDOWN)), "dropdown", t.icon, t.accent);
-        // The list drops from the box's left edge, as in Word, not from the arrow (#535).
-        egui::Popup::menu(&aresp).anchor(resp.rect.union(ar)).show(|ui| {
+        // The list drops from the box's start edge (left; right under RTL), as in Word, not from
+        // the arrow (#535).
+        crate::rtl::menu(&aresp).anchor(resp.rect.union(ar)).show(|ui| {
             if let Some(v) = combo_list(ui, width, current, items, preview) {
                 out = Some(v);
                 ui.close();
@@ -680,7 +722,14 @@ fn combo_impl(
         if s.open && !s.matches.is_empty() {
             let matches = s.matches.clone();
             let scroll = reveal.then_some((s.offset, s.view_h));
-            let shown = egui::Area::new(search_id.with("list")).order(egui::Order::Tooltip).fixed_pos(resp.rect.left_bottom()).show(ui.ctx(), |ui| {
+            // From the box's start edge: its right under RTL.
+            let area = egui::Area::new(search_id.with("list")).order(egui::Order::Tooltip);
+            let area = if crate::rtl::is_rtl() {
+                area.pivot(Align2::RIGHT_TOP).fixed_pos(resp.rect.union(ar).right_bottom())
+            } else {
+                area.fixed_pos(resp.rect.left_bottom())
+            };
+            let shown = area.show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style())
                     .show(ui, |ui| {
                         let item = |k: usize| matches.get(k).and_then(|&i| items.get(i));
@@ -833,7 +882,7 @@ pub fn icon_button(ui: &mut Ui, icon: &str, tip: &str) -> Response {
     let st = drawn_state(ui, &resp, false);
     ui.painter().rect_filled(r, CornerRadius::same(4), st.fill);
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(14.0, 14.0)), icon, t.icon, t.accent);
-    resp.on_hover_text(tip)
+    crate::rtl::hover_text(resp, tip)
 }
 
 /// A text button with a drawn icon in front. Symbols such as ✎ or 💬 aren't in the interface
@@ -886,7 +935,7 @@ mod tests {
     #[test]
     fn big_button_label_lines_fit_their_slot() {
         let ctx = egui::Context::default();
-        ctx.set_fonts(crate::theme::font_definitions(false, false));
+        ctx.set_fonts(crate::theme::font_definitions(false, false, false));
         ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
         let h = ctx.fonts_mut(|f| f.layout_no_wrap("Page Number Mail Merge gjpqy".into(), crate::theme::regular(11.5), Color32::WHITE).size().y);
         assert!(h <= LABEL_LINE_H, "label line is {h} px tall");

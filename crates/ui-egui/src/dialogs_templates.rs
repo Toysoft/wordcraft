@@ -7,10 +7,10 @@ use egui::{Ui, vec2};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::WordApp;
 use crate::dialogs::{Dialog, buttons};
 use crate::file_dialogs::{AfterPick, FileDialogRequest};
 use crate::theme::{Tokens, semibold};
+use crate::{WordApp, rtl};
 
 /// The Templates and Add-ins dialog's fields.
 #[derive(Clone, Debug, Serialize)]
@@ -68,17 +68,18 @@ pub fn templates(app: &mut WordApp, ui: &mut Ui, f: &mut TemplatesForm) -> bool 
         f.path = p;
     }
     ui.label(egui::RichText::new(tl!("Document template:")).font(semibold(12.5)));
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         ui.add(egui::TextEdit::singleline(&mut f.path).desired_width(300.0));
         if ui.add_enabled(can_pick(app), egui::Button::new(tl!("Attach…"))).clicked() {
             pick(app);
         }
     });
-    ui.checkbox(&mut f.link, tl!("Automatically update document styles"));
+    rtl::checkbox(ui, &mut f.link, tl!("Automatically update document styles"));
     ui.add_space(6.0);
     let organizer = ui.button(tl!("Organizer…")).clicked();
     if !f.message.is_empty() {
-        ui.add(egui::Label::new(egui::RichText::new(f.message.as_str()).small().color(ui.visuals().error_fg_color)).wrap());
+        let color = ui.visuals().error_fg_color;
+        message(ui, &f.message, color);
     }
     let (ok, cancel) = buttons(ui, tl!("OK"));
     if organizer {
@@ -99,8 +100,8 @@ pub fn templates(app: &mut WordApp, ui: &mut Ui, f: &mut TemplatesForm) -> bool 
 pub struct OrganizerForm {
     /// The other file (empty: none open).
     pub file: String,
-    /// Its styles: (name, type).
-    pub other: Vec<(String, String)>,
+    /// Its styles: (name, type, built in).
+    pub other: Vec<(String, String, bool)>,
     /// Selected style id in this document.
     pub left: String,
     /// Selected style name in the other file.
@@ -138,7 +139,7 @@ impl OrganizerForm {
             Ok(v) => {
                 let list = v.get("file").and_then(|f| f.get("styles")).and_then(Value::as_array).cloned().unwrap_or_default();
                 let s = |x: &Value, k: &str| x.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-                self.other = list.iter().map(|x| (s(x, "name"), s(x, "type"))).collect();
+                self.other = list.iter().map(|x| (s(x, "name"), s(x, "type"), x.get("builtIn").and_then(Value::as_bool).unwrap_or(false))).collect();
                 self.file = path.to_string();
                 self.right.clear();
                 self.message.clear();
@@ -146,6 +147,23 @@ impl OrganizerForm {
             Err(e) => self.message = e.to_string(),
         }
     }
+}
+
+/// An error under the form, wrapping (from its first line down under RTL).
+fn message(ui: &mut Ui, text: &str, color: egui::Color32) {
+    if rtl::is_rtl() {
+        rtl::wrapped_label(ui, text, |s| egui::RichText::new(s).small().color(color));
+    } else {
+        ui.add(egui::Label::new(egui::RichText::new(text).small().color(color)).wrap());
+    }
+}
+
+/// A style in an Organizer list: its kind's glyph, then its name (the glyph at the start edge).
+/// A built-in style is named in the interface language, an author's style as named, in its own
+/// direction (in draw order either way). The lists' values stay the documents' own names.
+fn style_row(ty: &str, name: &str, builtin: bool) -> String {
+    let shown = if builtin { crate::i18n::builtin_style_name(name) } else { crate::i18n::user_text(name).into_owned() };
+    if rtl::is_rtl() { format!("{shown}  {}", glyph(ty)) } else { format!("{}  {shown}", glyph(ty)) }
 }
 
 fn glyph(ty: &str) -> &'static str {
@@ -181,32 +199,41 @@ pub fn organizer(app: &mut WordApp, ui: &mut Ui, f: &mut OrganizerForm) -> bool 
     let mut rename = false;
     let mut browse = false;
     let left_builtin = mine.iter().find(|x| s(x, "id") == f.left).is_none_or(|x| x.get("builtIn").and_then(Value::as_bool).unwrap_or(true));
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
+    rtl::row_top(ui, |ui| {
+        rtl::column(ui, |ui| {
             ui.label(egui::RichText::new(tl!("Document")).font(semibold(12.5)));
             list_frame(ui, "organizer_mine", &mut |ui| {
                 for st in &mine {
                     let id = s(st, "id");
-                    if ui.selectable_label(f.left == id, format!("{}  {}", glyph(&s(st, "type")), s(st, "name"))).clicked() {
+                    if ui
+                        .selectable_label(
+                            f.left == id,
+                            style_row(&s(st, "type"), &s(st, "name"), st.get("builtIn").and_then(Value::as_bool).unwrap_or(false)),
+                        )
+                        .clicked()
+                    {
                         f.left = id;
                         f.rename = None;
                     }
                 }
             });
         });
-        ui.vertical(|ui| {
+        rtl::column(ui, |ui| {
             ui.add_space(60.0);
             let w = vec2(96.0, 0.0);
-            copy = ui.add_enabled(!f.right.is_empty(), egui::Button::new(format!("◀ {}", tl!("Copy"))).min_size(w)).clicked();
+            // Toward this document's list: at the left, or under RTL at the right.
+            let copy_label = if rtl::is_rtl() { format!("{} ▶", tl!("Copy")) } else { format!("◀ {}", tl!("Copy")) };
+            copy = ui.add_enabled(!f.right.is_empty(), egui::Button::new(copy_label).min_size(w)).clicked();
             delete = ui.add_enabled(!left_builtin, egui::Button::new(tl!("Delete")).min_size(w)).clicked();
             rename = ui.add_enabled(!left_builtin, egui::Button::new(tl!("Rename…")).min_size(w)).clicked();
         });
-        ui.vertical(|ui| {
+        rtl::column(ui, |ui| {
             let name = std::path::Path::new(&f.file).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "—".into());
-            ui.label(egui::RichText::new(name).font(semibold(12.5))).on_hover_text(f.file.as_str());
+            ui.label(egui::RichText::new(crate::i18n::file_name(&name)).font(semibold(12.5)))
+                .on_hover_text(crate::bidi::visual(&f.file, false).into_owned());
             list_frame(ui, "organizer_other", &mut |ui| {
-                for (n, ty) in &f.other {
-                    if ui.selectable_label(f.right == *n, format!("{}  {n}", glyph(ty))).clicked() {
+                for (n, ty, builtin) in &f.other {
+                    if ui.selectable_label(f.right == *n, style_row(ty, n, *builtin)).clicked() {
                         f.right = n.clone();
                     }
                 }
@@ -232,7 +259,7 @@ pub fn organizer(app: &mut WordApp, ui: &mut Ui, f: &mut OrganizerForm) -> bool 
     let mut renamed = false;
     if let Some(new) = f.rename.as_mut() {
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
+        rtl::row(ui, |ui| {
             ui.label(tl!("Name:"));
             let r = ui.add(egui::TextEdit::singleline(new).desired_width(220.0));
             renamed = ui.button(tl!("OK")).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
@@ -243,7 +270,8 @@ pub fn organizer(app: &mut WordApp, ui: &mut Ui, f: &mut OrganizerForm) -> bool 
         f.message = r.err().unwrap_or_default();
     }
     if !f.message.is_empty() {
-        ui.add(egui::Label::new(egui::RichText::new(f.message.as_str()).small().color(ui.visuals().error_fg_color)).wrap());
+        let color = ui.visuals().error_fg_color;
+        message(ui, &f.message, color);
     }
     // Escape while renaming only stops renaming.
     if f.rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -254,7 +282,7 @@ pub fn organizer(app: &mut WordApp, ui: &mut Ui, f: &mut OrganizerForm) -> bool 
     ui.add_space(8.0);
     let mut close = ui.input(|i| i.key_pressed(egui::Key::Escape));
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::rtl::end_layout(egui::Align::Center), |ui| {
             close |= ui.add(crate::widgets::primary_button(ui, tl!("Close"))).clicked();
         });
     });
@@ -272,6 +300,44 @@ mod tests {
     use super::*;
     use crate::Services;
     use wordcraft_engine::Session;
+
+    /// L10N-AR.14: the Organizer names built-in styles in the interface language (`Normal` is
+    /// «عادي» in Arabic) and an author's styles as named, in bidi order in any language.
+    #[test]
+    fn organizer_translates_built_in_style_names() {
+        use egui_kittest::kittest::Queryable;
+        for lang in ["ar", "en"] {
+            let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+            a.session.doc.styles.upsert(wordcraft_doc::styles::Style {
+                id: "Memo2".into(),
+                name: "مذكرة 2".into(),
+                kind: wordcraft_doc::styles::StyleKind::Paragraph,
+                ..Default::default()
+            });
+            a.run("ui.language", json!({"value": lang})).unwrap();
+            a.dialog = Some(Dialog::Organizer { form: Box::new(OrganizerForm::read(&mut a, None)) });
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            h.run_steps(5);
+            let l = crate::i18n::Lang::from_code(lang).unwrap();
+            let user = crate::bidi::visual("مذكرة 2", true);
+            let (normal, memo) = if lang == "ar" {
+                (format!("{}  ¶", crate::i18n::tr(l, "Normal")), format!("{user}  ¶"))
+            } else {
+                ("¶  Normal".to_string(), format!("¶  {user}"))
+            };
+            let found = (h.query_by_label(&normal).is_some(), h.query_by_label(&memo).is_some());
+            crate::i18n::set_current(crate::i18n::Lang::EN);
+            assert!(found.0, "{lang}: the built-in style shows as {normal:?}");
+            assert!(found.1, "{lang}: the author's style shows as {memo:?}");
+        }
+    }
 
     /// The ribbon button opens Templates and Add-ins; OK attaches the typed template; the
     /// Organizer copies a style from it into the document and Close goes back.
@@ -300,7 +366,7 @@ mod tests {
         assert_eq!(a.session.doc.settings.attached_template.as_deref(), Some(p.as_str()));
 
         let mut org = OrganizerForm::read(&mut a, None);
-        assert!(org.other.iter().any(|(n, _)| n == "Memo"), "{:?}", org.other);
+        assert!(org.other.iter().any(|(n, _, builtin)| n == "Memo" && !builtin), "{:?}", org.other);
         org.right = "Memo".into();
         let r = a.run("styles.copyFrom", json!({"path": org.file, "styles": [org.right]}));
         assert!(r.is_ok(), "{r:?}");

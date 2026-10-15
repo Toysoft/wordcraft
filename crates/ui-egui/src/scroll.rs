@@ -324,11 +324,171 @@ pub fn notch_px(zoom: f32) -> f32 {
     NOTCH_PX * z
 }
 
+/// Where a scroll bar's handle sits along its track (`track.0..track.1`) for content of length
+/// `content` seen through a window of length `view` scrolled to `offset`: its start and length.
+/// The handle is at least `min_len` long; numbers that make no sense put it at the track's start.
+pub(crate) fn handle_span(track: (f32, f32), content: f32, view: f32, offset: f32, min_len: f32) -> (f32, f32) {
+    let (start, end) = track;
+    let len = end - start;
+    if !(len.is_finite() && content.is_finite() && view.is_finite() && offset.is_finite()) || len <= 0.0 || content <= 0.0 {
+        return (start, len.max(0.0));
+    }
+    // `f32::clamp` panics on a NaN bound: a nonsensical minimum counts as none.
+    let min = if min_len.is_finite() { min_len.clamp(0.0, len) } else { 0.0 };
+    let size = (len * (view / content)).clamp(min, len);
+    let max_offset = (content - view).max(0.0);
+    let t = if max_offset > 0.0 { (offset / max_offset).clamp(0.0, 1.0) } else { 0.0 };
+    (start + t * (len - size), size)
+}
+
+/// The document's scroll bars drawn by WordCraft, so that under a right-to-left interface the
+/// vertical bar sits at the left edge of `inner` (the viewport): egui always draws a scroll area's
+/// vertical bar at the right. The canvas hides egui's own bars then. Looks and behaves as egui
+/// 0.36's floating bars (thin until hovered; a press on the track centres the handle there; a drag
+/// moves it); the horizontal bar stays along the bottom.
+///
+/// `offset` is this frame's scroll offset of `content`. See [`Bars`] for what comes back.
+///
+/// The bar drawing follows egui 0.36.2's `ScrollArea` (MIT OR Apache-2.0), Copyright (c) 2018-2021
+/// Emil Ernerfeldt.
+pub(crate) fn start_edge_bars(ui: &mut egui::Ui, id: egui::Id, inner: egui::Rect, content: Vec2, offset: Vec2) -> Bars {
+    use egui::{Rect, Sense, emath::lerp};
+    let style = ui.spacing().scroll;
+    let mut asked = None;
+    let mut thumb = None;
+    let mut busy = false;
+    let hovering_view = ui.rect_contains_pointer(inner) && ui.ctx().dragged_id().is_none();
+    for d in 0..2 {
+        let too_large = inner.size()[d].ceil() < content[d];
+        let show = ui.ctx().animate_bool_responsive(id.with(("shown", d)), too_large);
+        if show <= 0.0 {
+            continue;
+        }
+        let outer_margin = show * style.bar_outer_margin;
+        let full = style.bar_width;
+        // d = 0: the horizontal bar along the bottom; d = 1: the vertical bar along the left edge.
+        let max_bar = if d == 0 { inner.with_min_y(inner.max.y - outer_margin - full) } else { inner.with_max_x(inner.min.x + outer_margin + full) };
+        let sense = if ui.is_enabled() { Sense::CLICK | Sense::DRAG } else { Sense::hover() };
+        let resp = ui.interact(max_bar, id.with(d), sense);
+        resp.widget_info(|| egui::WidgetInfo::new(egui::WidgetType::ScrollBar));
+        let active = resp.hovered() || resp.dragged();
+        // The page underneath reads raw presses too (ink, Draw Table): it must leave this one alone.
+        busy |= resp.is_pointer_button_down_on() || resp.dragged() || resp.drag_stopped() || resp.clicked();
+        let width = if style.floating {
+            show * lerp(style.floating_width..=full, ui.ctx().animate_bool_responsive(id.with(("wide", d)), active))
+        } else {
+            show * full
+        };
+        let track = (inner.min[d], inner.max[d]);
+        let span = |o: f32| handle_span(track, content[d], inner.size()[d], o, style.handle_min_length);
+        let handle = |(start, size): (f32, f32)| {
+            if d == 0 {
+                Rect::from_min_max(egui::pos2(start, inner.max.y - outer_margin - width), egui::pos2(start + size, inner.max.y - outer_margin))
+            } else {
+                Rect::from_min_max(egui::pos2(inner.min.x + outer_margin, start), egui::pos2(inner.min.x + outer_margin + width, start + size))
+            }
+        };
+        let mut o = offset[d];
+        let grab_id = id.with(("grab", d));
+        if let Some(p) = resp.interact_pointer_pos() {
+            let (start, size) = span(o);
+            let grab = ui.data_mut(|m| {
+                *m.get_temp_mut_or_insert_with(grab_id, || {
+                    // A press on the handle holds it where it was taken; elsewhere on the track it
+                    // centres the handle under the pointer, kept inside the track (as egui does), so
+                    // a press near either end moves with the first pixel of a drag.
+                    if (start..=start + size).contains(&p[d]) {
+                        p[d] - start
+                    } else {
+                        let top = (p[d] - size / 2.0).clamp(track.0, (track.1 - size).max(track.0));
+                        p[d] - top
+                    }
+                })
+            });
+            let travel = track.1 - track.0 - size;
+            let max_offset = (content[d] - inner.size()[d]).max(0.0);
+            let t = if travel > 0.0 { ((p[d] - grab - track.0) / travel).clamp(0.0, 1.0) } else { 0.0 };
+            let next = t * max_offset;
+            if next.is_finite() && (next - o).abs() > 0.01 {
+                o = next;
+                let mut v = asked.unwrap_or(offset);
+                v[d] = o;
+                asked = Some(v);
+            }
+        } else if ui.data(|m| m.get_temp::<f32>(grab_id).is_some()) {
+            ui.data_mut(|m| m.remove::<f32>(grab_id));
+        }
+        let rect = handle(span(o));
+        if d == 1 {
+            thumb = Some(rect);
+        }
+        let visuals = ui.visuals();
+        let hovering_handle = resp.hovered() && ui.input(|i| i.pointer.latest_pos().is_some_and(|p| rect.contains(p)));
+        let w = if resp.is_pointer_button_down_on() {
+            &visuals.widgets.active
+        } else if hovering_handle {
+            &visuals.widgets.hovered
+        } else {
+            &visuals.widgets.inactive
+        };
+        let (handle_opacity, background_opacity) = if !style.floating {
+            (1.0, 1.0)
+        } else if active {
+            (style.interact_handle_opacity, style.interact_background_opacity)
+        } else {
+            let t = ui.ctx().animate_bool_responsive(id.with(("over", d)), hovering_view);
+            (
+                lerp(style.dormant_handle_opacity..=style.active_handle_opacity, t),
+                if hovering_view { style.active_background_opacity } else { style.dormant_background_opacity },
+            )
+        };
+        let color = if style.foreground_color { w.fg_stroke.color } else { w.bg_fill };
+        let bar =
+            if d == 0 { Rect::from_x_y_ranges(inner.x_range(), rect.y_range()) } else { Rect::from_x_y_ranges(rect.x_range(), inner.y_range()) };
+        ui.painter().rect_filled(bar, w.corner_radius, visuals.extreme_bg_color.gamma_multiply(background_opacity));
+        ui.painter().rect_filled(rect, w.corner_radius, color.gamma_multiply(handle_opacity));
+    }
+    Bars { asked, thumb, busy }
+}
+
+/// What [`start_edge_bars`] did this frame.
+pub(crate) struct Bars {
+    /// The scroll offset a press or drag on a bar asks for (applied next frame).
+    pub asked: Option<Vec2>,
+    /// The vertical handle's rect, when there is a vertical bar.
+    pub thumb: Option<egui::Rect>,
+    /// A bar holds the pointer (pressed, dragged, or just released or clicked): the page under it
+    /// takes no press, drag or click this frame.
+    pub busy: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const FRAME: f32 = 1.0 / 60.0;
+
+    #[test]
+    fn scroll_bar_handle_follows_the_offset_and_survives_hostile_numbers() {
+        // A 100-long track, content four views long: a quarter-length handle.
+        assert_eq!(handle_span((0.0, 100.0), 400.0, 100.0, 0.0, 12.0), (0.0, 25.0));
+        assert_eq!(handle_span((0.0, 100.0), 400.0, 100.0, 300.0, 12.0), (75.0, 25.0));
+        assert_eq!(handle_span((0.0, 100.0), 400.0, 100.0, 9e9, 12.0), (75.0, 25.0), "past the end stays at the end");
+        assert_eq!(handle_span((0.0, 100.0), 1e9, 100.0, 0.0, 12.0).1, 12.0, "never shorter than the minimum");
+        for (track, content, view, offset, min) in [
+            ((0.0, 100.0), f32::NAN, 100.0, 0.0, 12.0),
+            ((0.0, 100.0), 0.0, 100.0, 0.0, 12.0),
+            ((0.0, 100.0), -5.0, f32::INFINITY, f32::NAN, -1.0),
+            ((100.0, 0.0), 400.0, 100.0, 10.0, 12.0),
+            ((0.0, 5.0), 400.0, 100.0, 10.0, 12.0),
+            ((0.0, 100.0), 400.0, 100.0, 10.0, f32::NAN),
+            ((0.0, 100.0), 400.0, 100.0, 10.0, f32::INFINITY),
+            ((0.0, 100.0), 400.0, 100.0, 10.0, f32::NEG_INFINITY),
+        ] {
+            let (start, len) = handle_span(track, content, view, offset, min);
+            assert!(start.is_finite() && len.is_finite() && len >= 0.0, "{track:?} {content} {view} {offset} {min} -> {start} {len}");
+        }
+    }
 
     fn flick(m: &mut Momentum) {
         for _ in 0..6 {

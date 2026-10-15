@@ -105,7 +105,7 @@ fn placeholders_fill_without_reinterpreting_values() {
 #[test]
 fn malformed_catalog_lines_are_skipped_not_fatal() {
     let (c, errors) =
-        Catalog::parse("# c\n\tHello\t你好\nctx\tA\tB\n\tOpen…\t打开\n\tPage {n}\t第 {m} 页\nno tabs\n\tHello\t重复\n\tLine\\nTwo\t一\\n二\n");
+        Catalog::parse("# c\n\tHello\t你好\nctx\tA\tB\n\tOpen…\t打开\n\tPage {n}\t第 {m} 页\nno tabs\n\tHello\t重复\n\tLine\\nTwo\t一\\n二\n", false);
     assert_eq!(errors.len(), 5, "{errors:?}");
     assert_eq!(c.plain("Hello"), Some("你好"), "the first entry wins");
     assert_eq!(c.plain("Line\nTwo"), Some("一\n二"));
@@ -465,7 +465,7 @@ fn chinese_interface_fonts_load_and_cover_simplified_hanzi() {
     // #241: without an embedded Chinese face the interface adds an installed CJK font; egui must
     // accept it (it panics on font data it can't parse) and draw simplified-only hanzi with it.
     let ctx = egui::Context::default();
-    ctx.set_fonts(crate::theme::font_definitions(true, true));
+    ctx.set_fonts(crate::theme::font_definitions(true, true, false));
     ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
     let covered = ctx.fonts_mut(|f| f.has_glyphs(&egui::FontId::proportional(14.0), "删除页选"));
     let (catalogs, _) = Lang::cjk_font_text(true);
@@ -478,7 +478,7 @@ fn chinese_interface_fonts_load_and_cover_simplified_hanzi() {
 #[test]
 fn korean_interface_fonts_load_and_cover_hangul() {
     let ctx = egui::Context::default();
-    ctx.set_fonts(crate::theme::font_definitions_language(false, true, true));
+    ctx.set_fonts(crate::theme::font_definitions_language(false, true, true, false));
     ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
     let covered = ctx.fonts_mut(|f| f.has_glyphs(&egui::FontId::proportional(14.0), "한글"));
     let (catalogs, names) = Lang::cjk_font_text_for(false, true);
@@ -505,7 +505,7 @@ fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
     for code in ["zh-hans", "zh-hant", "ja", "ko"] {
         let l = lang(code);
         let ctx = egui::Context::default();
-        ctx.set_fonts(crate::theme::font_definitions_language(l.prefers_hans(), l.prefers_korean(), false));
+        ctx.set_fonts(crate::theme::font_definitions_language(l.prefers_hans(), l.prefers_korean(), false, false));
         ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         let (entries, errors) = parse_entries(l.0.source);
         assert!(errors.is_empty(), "{code}: {errors:?}");
@@ -669,7 +669,7 @@ fn spanish_built_in_style_names_are_translated() {
 
 #[test]
 fn context_entries_override_only_their_context_and_unknown_contexts_are_rejected() {
-    let (c, errors) = Catalog::parse("\tTitle\tЗаголовок\npreview\tTitle\tТитул\n\tFont\tШрифт\nnope\tFont\tX\n");
+    let (c, errors) = Catalog::parse("\tTitle\tЗаголовок\npreview\tTitle\tТитул\n\tFont\tШрифт\nnope\tFont\tX\n", false);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(errors[0].contains("unknown context"));
     assert_eq!(c.plain("Title"), Some("Заголовок"));
@@ -1302,6 +1302,282 @@ fn bundled_interface_fonts_cover_bulgarian_without_system_fallbacks() {
     assert!(!lang("bg").uses_cjk());
 }
 
+// ---- right-to-left catalogs (L10N-AR.3) ----
+
+/// A test-only right-to-left language (no real one is registered yet).
+static TEST_RTL: LangInfo = LangInfo {
+    code: "xx-rtl",
+    name: "RTL",
+    source: "\tSaved {path}\tتم الحفظ: {path}\n\tPage {page} of {pages}\tصفحة {page} من {pages}\n\tHome\tالرئيسية\n\tFont\tالخط\n\tUndo {action}\tتراجع: {action}\n\tSave PDF\tحفظ PDF\n\tDOI\tDOI\n\tISBN Number\tرقم ISBN\n\tConvert\tتحويل\n\tChoose 2 Columns\tاختر 2 Columns لتقسيم النص المحدد في المستند الحالي إلى عمودين متساويين في العرض مع مسافة صغيرة بينهما ثم اضغط موافق للمتابعة\n",
+    prefer_hans: false,
+    rtl: true,
+    editing_lang: None,
+    catalog: OnceLock::new(),
+};
+
+/// The logical text of [`TEST_RTL`]'s "Choose 2 Columns": a number and a Latin run inside, so its
+/// draw order does not convert back with `bidi::visual`.
+const CHOOSE_2_COLUMNS: &str =
+    "اختر 2 Columns لتقسيم النص المحدد في المستند الحالي إلى عمودين متساويين في العرض مع مسافة صغيرة بينهما ثم اضغط موافق للمتابعة";
+
+/// A suffix ends its label in reading order under RTL whatever script the label is in: a
+/// translation kept identical to English ("DOI"), a mixed-script one ("رقم ISBN"), an Arabic one,
+/// and a label with no translation. English is unchanged.
+#[test]
+fn suffixes_end_their_label_in_reading_order() {
+    set_current(Lang(&TEST_RTL));
+    // Draw order: the colon (the end of the caption) at the left.
+    assert_eq!(suffixed(t("DOI"), ":"), ":DOI");
+    assert_eq!(suffixed(t("ISBN Number"), ":"), ":ISBN رقم");
+    assert_eq!(suffixed(t("Convert"), "…"), "…تحويل");
+    assert_eq!(suffixed(t("Untranslated"), ":"), ":Untranslated");
+    // A counter after a word: read from the right, the word, then 3 / 9.
+    assert_eq!(suffixed(t("Convert"), " 3 / 9"), "9 / 3 تحويل");
+    set_current(Lang::EN);
+    assert_eq!(suffixed(t("DOI"), ":"), "DOI:");
+    assert_eq!(suffixed(t("Sentence"), " 3 / 9"), "Sentence 3 / 9");
+}
+
+/// Ruling R16: a long translated tooltip wraps its logical text, which the catalog keeps.
+#[test]
+fn rtl_tooltips_wrap_the_logical_text_of_a_catalog_entry() {
+    set_current(Lang(&TEST_RTL));
+    let drawn = t("Choose 2 Columns").to_string();
+    assert_ne!(drawn, CHOOSE_2_COLUMNS, "stored in draw order");
+    assert_eq!(logical(&drawn), Some(CHOOSE_2_COLUMNS));
+    // `visual` maps it back to "اختر Columns 2 …", which draws the same on one line but wraps
+    // differently once a row ends between "2" and "Columns".
+    let back = crate::bidi::visual(&drawn, true).into_owned();
+    assert_ne!(back, CHOOSE_2_COLUMNS, "draw order does not undo itself here");
+    assert_eq!(logical("Choose 2 Columns"), None, "only stored translations");
+    assert_eq!(logical(&format!("{drawn} ")), None, "only exact translations");
+
+    let shown = drawn.clone();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 500.0)).build_ui(move |ui| {
+        set_current(Lang(&TEST_RTL));
+        let r = ui.button("B");
+        crate::rtl::hover_text(r, shown.clone());
+    });
+    let font = egui::TextStyle::Body.resolve(&h.ctx.global_style());
+    let ctx = h.ctx.clone();
+    let measure = |s: &str| ctx.fonts_mut(|f| f.layout_no_wrap(s.to_string(), font.clone(), egui::Color32::WHITE).size().x);
+    // A tooltip just wide enough for "اختر 2": the first row ends after the number.
+    h.run();
+    let width = measure("اختر 2") + 1.0;
+    h.ctx.all_styles_mut(|s| {
+        s.interaction.tooltip_delay = 0.0;
+        s.interaction.show_tooltips_only_when_still = false;
+        s.spacing.tooltip_width = width;
+    });
+    h.run();
+    {
+        use egui_kittest::kittest::Queryable;
+        h.get_by_label("B").hover();
+    }
+    h.run_steps(4);
+    let rows = crate::bidi::wrap(CHOOSE_2_COLUMNS, true, width, measure);
+    assert_ne!(rows, crate::bidi::wrap(&back, true, width, measure), "the fallback would wrap differently");
+    assert!(rows.len() >= 2, "long enough to wrap: {rows:?}");
+    // Every row text drawn, top to bottom, is exactly the wrapped logical text (short rows such
+    // as "في" repeat, so match the whole sequence).
+    let mut unique = rows.clone();
+    unique.sort();
+    unique.dedup();
+    let mut drawn_rows: Vec<(f32, String)> =
+        unique.iter().flat_map(|row| crate::rtl::text_rects(h.output(), row).into_iter().map(move |r| (r.top(), row.clone()))).collect();
+    drawn_rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let drawn_rows: Vec<String> = drawn_rows.into_iter().map(|(_, s)| s).collect();
+    assert_eq!(drawn_rows, rows, "the tooltip's rows, first line on top");
+    set_current(Lang::EN);
+    assert_eq!(logical(&drawn), None, "left to right: no logical lookup");
+}
+
+#[test]
+fn rtl_catalog_entries_are_stored_in_visual_order() {
+    let (c, errors) = Catalog::parse("\tSaved {path}\tتم الحفظ: {path}\n\tPage {page} of {pages}\tصفحة {page} من {pages}\n", true);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(c.plain("Page {page} of {pages}"), Some("{pages} من {page} صفحة"));
+    let (ltr, _) = Catalog::parse("\tPage {page} of {pages}\tصفحة {page} من {pages}\n", false);
+    assert_eq!(ltr.plain("Page {page} of {pages}"), Some("صفحة {page} من {pages}"));
+}
+
+#[test]
+fn fmt_isolates_inserted_values_in_rtl() {
+    set_current(Lang(&TEST_RTL));
+    let template = t("Saved {path}");
+    let english = fmt(template, &[("path", "report.docx")]);
+    assert!(english.contains("report.docx"), "{english}");
+    let arabic = fmt(template, &[("path", "تقرير.docx")]);
+    assert_eq!(arabic, crate::bidi::visual("تم الحفظ: تقرير.docx", true));
+    assert_eq!(fmt(t("Page {page} of {pages}"), &[("page", "3"), ("pages", "9")]), "9 من 3 صفحة");
+    set_current(Lang::EN);
+}
+
+#[test]
+fn ltr_fmt_is_unchanged() {
+    set_current(Lang::EN);
+    assert_eq!(fmt("Saved {path}", &[("path", "تقرير.docx")]), "Saved تقرير.docx");
+    assert_eq!(fmt("{a} {b} {c}", &[("a", "1"), ("b", "{a}")]), "1 {a} {c}");
+}
+
+#[test]
+fn translated_values_are_not_reordered_twice_in_rtl() {
+    set_current(Lang(&TEST_RTL));
+    // The catalog stores "حفظ PDF" as "PDF حفظ" (draw order); the whole sentence must come out as
+    // the logical "تراجع: حفظ PDF" converted once.
+    assert_eq!(t("Save PDF"), "PDF حفظ");
+    let whole = crate::bidi::visual("تراجع: حفظ PDF", true).into_owned();
+    assert_eq!(prefixed("Undo", "Save PDF"), whole);
+    assert_eq!(fmt_translated(t("Undo {action}"), &[("action", t("Save PDF"))]), whole);
+    // `fmt` is for user text: it converts a value that is still logical.
+    assert_eq!(fmt(t("Undo {action}"), &[("action", "حفظ PDF")]), whole);
+    assert_eq!(isolate("حفظ PDF"), "PDF حفظ");
+    set_current(Lang::EN);
+    assert_eq!(isolate("حفظ PDF"), "حفظ PDF");
+    assert_eq!(fmt_translated("{a}", &[("a", "{a}")]), "{a}");
+}
+
+#[test]
+fn rtl_locations_read_right_to_left() {
+    set_current(Lang(&TEST_RTL));
+    assert_eq!(location("Home › Font"), "الخط ‹ الرئيسية");
+    set_current(Lang::EN);
+    assert_eq!(location("Home › Font"), "Home › Font");
+}
+
+#[test]
+fn arabic_locales_and_saved_preference_work_without_changing_the_document() {
+    let ar = lang("ar");
+    for tag in ["ar", "ar-SA", "ar_EG.UTF-8", "AR-ae", "ar-Arab-MA", "ar_TN.UTF-8@euro"] {
+        assert_eq!(lang_from_tag(tag), Some(ar), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "ar-TN", "en-US"]), Some(ar));
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "AR"})).unwrap();
+    assert_eq!(result["effective"], "ar");
+    assert_eq!(app.ui.language, "ar");
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), ar);
+    assert_eq!(ar.name(), "العربية");
+    assert!(ar.is_rtl());
+    assert_eq!(ar.editing_lang(), None);
+}
+
+#[test]
+fn only_arabic_is_right_to_left() {
+    for l in Lang::all() {
+        assert_eq!(l.is_rtl(), l.code() == "ar", "{}", l.code());
+    }
+}
+
+#[test]
+fn arabic_catalog_has_the_core_terms_and_keeps_placeholders() {
+    let ar = lang("ar");
+    // Entries are stored in draw order: single words are one run and read the same.
+    assert_eq!(tr(ar, "File"), "ملف");
+    assert_eq!(tr(ar, "Save"), "حفظ");
+    assert_eq!(tr(ar, "Undo"), "تراجع");
+    assert_eq!(tr(ar, "Bold"), "غامق");
+    assert_eq!(tr(ar, "Home"), crate::bidi::visual("الصفحة الرئيسية", true));
+    assert_eq!(tr(ar, "Save As"), crate::bidi::visual("حفظ باسم", true));
+    assert_eq!(tr(ar, "Add Font…"), crate::bidi::visual("إضافة خط…", true));
+    assert_eq!(tr(ar, "unknown future label"), "unknown future label");
+    // Count-neutral wording; digits stay Western.
+    let words = fmt_translated(tr(ar, "{words} words"), &[("words", "21")]);
+    assert!(words.contains("21"), "{words}");
+    assert!(!words.chars().any(|c| ('\u{0660}'..='\u{0669}').contains(&c)));
+}
+
+/// Every Arabic character the catalog draws has a glyph in the interface fonts (the installed or
+/// craft-fonts Arabic face right after Inter), so nothing shows as a box.
+#[test]
+fn arabic_catalog_is_covered_by_the_interface_fonts() {
+    let available = wordcraft_fonts::system_arabic_ui_font().is_some() || !wordcraft_fonts::arabic_ui_fonts().is_empty();
+    if !available {
+        eprintln!("skipped: no Arabic face installed");
+        return;
+    }
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::theme::font_definitions(false, false, true));
+    // Fonts apply on the next pass.
+    let mut out = ctx.run_ui(egui::RawInput::default(), |_| {});
+    out.textures_delta.clear();
+    let (entries, errors) = parse_entries(lang("ar").0.source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let font = crate::theme::regular(12.5);
+    let mut chars: Vec<char> = entries
+        .iter()
+        .flat_map(|e| e.translation.chars())
+        .filter(|c| ('\u{0600}'..='\u{06FF}').contains(c) || ('\u{0750}'..='\u{077F}').contains(c) || ('\u{FB50}'..='\u{FEFF}').contains(c))
+        .collect();
+    chars.sort_unstable();
+    chars.dedup();
+    assert!(chars.len() > 30, "{} Arabic characters", chars.len());
+    let missing: Vec<String> =
+        ctx.fonts_mut(|f| chars.iter().filter(|c| !f.has_glyph(&font, **c)).map(|c| format!("{c} U+{:04X}", *c as u32)).collect());
+    assert!(missing.is_empty(), "Arabic characters without a glyph: {missing:?}");
+}
+
+#[test]
+fn switching_to_arabic_and_back_restores_fonts() {
+    let available = wordcraft_fonts::system_arabic_ui_font().is_some() || !wordcraft_fonts::arabic_ui_fonts().is_empty();
+    let ctx = egui::Context::default();
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let mut t = 0.0;
+    let mut frames = |app: &mut crate::WordApp| {
+        for _ in 0..4 {
+            t += 0.1;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0))),
+                time: Some(t),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            });
+            out.textures_delta.clear();
+        }
+    };
+    let font = crate::theme::regular(12.5);
+    let has_arabic_glyph = |ctx: &egui::Context| ctx.fonts_mut(|f| f.has_glyph(&font, '\u{0639}'));
+    frames(&mut app);
+    assert!(!app.fonts_arabic);
+    assert!(!has_arabic_glyph(&ctx));
+    app.run("ui.language", serde_json::json!({"value": "ar"})).unwrap();
+    frames(&mut app);
+    assert!(app.fonts_arabic);
+    if available {
+        assert!(has_arabic_glyph(&ctx), "the Arabic face is in the interface fonts while Arabic is current");
+    }
+    app.run("ui.language", serde_json::json!({"value": "en"})).unwrap();
+    frames(&mut app);
+    assert!(!app.fonts_arabic);
+    assert!(!has_arabic_glyph(&ctx), "the Arabic face is gone again");
+}
+
+/// Arabic is complete: it has every key Polish (the reference catalog) has.
+#[test]
+fn arabic_covers_every_key_of_the_polish_catalog() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    let mut missing: Vec<String> = keys(lang("pl").0.source).difference(&keys(lang("ar").0.source)).cloned().collect();
+    missing.sort();
+    assert!(missing.is_empty(), "ar lacks {} keys: {missing:?}", missing.len());
+    let ar = lang("ar");
+    assert_eq!(tr(ar, "File"), "ملف");
+    assert_eq!(tr(ar, "Save"), "حفظ");
+    assert_eq!(tr(ar, "unknown future label"), "unknown future label");
+    set_current(ar);
+    for count in [0, 1, 2, 3, 10, 11, 100, 1000] {
+        let n = count.to_string();
+        assert_eq!(fmt(tr(ar, "{words} words"), &[("words", &n)]), crate::bidi::visual(&format!("الكلمات: {count}"), true));
+    }
+    set_current(Lang::EN);
+}
 #[test]
 fn croatian_locales_and_saved_preference_work_without_changing_the_document() {
     let hr = lang("hr");

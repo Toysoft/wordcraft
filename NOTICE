@@ -73,6 +73,10 @@ list (author, source, license) is in ATTRIBUTION.md.
     FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
     OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
     DEALINGS IN THE SOFTWARE.
+- Portions of crates/ui-egui/src/rtl.rs (the right-to-left sub-menu, check box and radio button)
+  and crates/ui-egui/src/scroll.rs (the scroll-bar drawing) are adapted from egui 0.36.2,
+  Copyright (c) 2018-2021 Emil Ernerfeldt, used under the MIT License or the Apache License,
+  Version 2.0 (MIT OR Apache-2.0).
 - All UI icons are drawn in code (crates/ui-egui/src/icons.rs) and are original work, MIT OR Apache-2.0.
 
 Rust dependencies (egui, eframe, vello_cpu, skrifa, harfrust, krilla, quick-xml, zip, image, …)

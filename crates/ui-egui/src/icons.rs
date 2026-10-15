@@ -4,12 +4,35 @@
 
 use egui::{Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
 
+/// Icons whose artwork means a logical direction (back/forward, start/end of a line), so a
+/// right-to-left interface draws them mirrored. Alignment, text-direction, `chevronLeft` /
+/// `chevronRight` (callers pick the one they want) and symmetric icons are absolute and stay as drawn.
+const MIRRORED_ICONS: &[&str] = &[
+    "undo",
+    "redo",
+    "indent",
+    "outdent",
+    "bullets",
+    "numbering",
+    "multilevel",
+    "promote",
+    "demote",
+    "next",
+    "previous",
+    "first",
+    "last",
+    "pilcrow",
+    "launcher",
+];
+
 struct Pen<'a> {
     p: &'a Painter,
     r: Rect,
     c: Color32,
     a: Color32,
     w: f32,
+    /// Right-to-left interface and a directional icon: x is mirrored about the 20-unit grid centre.
+    flip: bool,
 }
 
 impl Pen<'_> {
@@ -19,6 +42,7 @@ impl Pen<'_> {
     fn pt(&self, x: f32, y: f32) -> Pos2 {
         let s = self.s();
         let o = self.r.center() - vec2(10.0 * s, 10.0 * s);
+        let x = if self.flip { 20.0 - x } else { x };
         pos2(o.x + x * s, o.y + y * s)
     }
     fn stroke(&self, c: Color32) -> Stroke {
@@ -40,10 +64,10 @@ impl Pen<'_> {
         self.p.add(Shape::convex_polygon(v, c, Stroke::NONE));
     }
     fn rect(&self, x0: f32, y0: f32, x1: f32, y1: f32, c: Color32) {
-        self.p.rect_stroke(Rect::from_min_max(self.pt(x0, y0), self.pt(x1, y1)), 1.0, self.stroke(c), egui::StrokeKind::Middle);
+        self.p.rect_stroke(Rect::from_two_pos(self.pt(x0, y0), self.pt(x1, y1)), 1.0, self.stroke(c), egui::StrokeKind::Middle);
     }
     fn frect(&self, x0: f32, y0: f32, x1: f32, y1: f32, c: Color32) {
-        self.p.rect_filled(Rect::from_min_max(self.pt(x0, y0), self.pt(x1, y1)), 0.5, c);
+        self.p.rect_filled(Rect::from_two_pos(self.pt(x0, y0), self.pt(x1, y1)), 0.5, c);
     }
     fn circle(&self, x: f32, y: f32, r: f32, c: Color32) {
         self.p.circle_stroke(self.pt(x, y), r * self.s(), self.stroke(c));
@@ -73,7 +97,8 @@ impl Pen<'_> {
 
 /// Paint icon `name` into `r`. `c` is the line colour; the accent comes from the theme.
 pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
-    let pen = Pen { p, r, c, a: accent, w: 1.25 };
+    let flip = crate::rtl::is_rtl() && MIRRORED_ICONS.contains(&name);
+    let pen = Pen { p, r, c, a: accent, w: 1.25, flip };
     let a = accent;
     let red = Color32::from_rgb(0xD1, 0x3B, 0x3B);
     let yellow = Color32::from_rgb(0xF2, 0xC8, 0x11);
@@ -1472,6 +1497,75 @@ pub fn library(p: &Painter, r: Rect, icon: &wordcraft_render::icon_lib::Icon, c:
                 p.circle_filled(*end, stroke.width / 2.0, c);
             }
             p.add(Shape::line(pts, stroke));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::{self, Lang};
+
+    /// Every vertex of every shape `name` paints into a 20×20 box, in the given language.
+    fn points(name: &str, code: &str) -> Vec<(f32, f32)> {
+        i18n::set_current(Lang::from_code(code).unwrap_or(Lang::EN));
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear(); // apply the fonts
+        let mut out = Vec::new();
+        let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let p = ui.painter().clone();
+            let r = Rect::from_min_size(pos2(0.0, 0.0), vec2(20.0, 20.0));
+            paint(&p, r, name, Color32::BLACK, Color32::BLUE);
+        });
+        fn walk(s: &Shape, out: &mut Vec<(f32, f32)>) {
+            match s {
+                Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                Shape::LineSegment { points, .. } => out.extend(points.iter().map(|p| (p.x, p.y))),
+                Shape::Path(p) => out.extend(p.points.iter().map(|p| (p.x, p.y))),
+                Shape::Rect(r) => {
+                    out.push((r.rect.min.x, r.rect.min.y));
+                    out.push((r.rect.max.x, r.rect.max.y));
+                }
+                Shape::Circle(c) => out.push((c.center.x, c.center.y)),
+                Shape::Text(t) => {
+                    let c = t.pos + t.galley.rect.center().to_vec2();
+                    out.push((c.x, c.y));
+                }
+                _ => {}
+            }
+        }
+        full.textures_delta.clear();
+        for c in &full.shapes {
+            walk(&c.shape, &mut out);
+        }
+        i18n::set_current(Lang::EN);
+        out
+    }
+
+    #[test]
+    fn directional_icons_mirror_in_rtl() {
+        for name in MIRRORED_ICONS {
+            let en = points(name, "en");
+            let ar = points(name, "ar");
+            assert!(!en.is_empty(), "{name} paints nothing");
+            if *name == "pilcrow" {
+                continue; // a centred glyph: mirroring leaves it in place
+            }
+            assert_ne!(en, ar, "{name} did not change in Arabic");
+            // Same vertex set mirrored about x = 10 (rects may swap which corner is min).
+            let mut want: Vec<(i32, i32)> = en.iter().map(|&(x, y)| (((20.0 - x) * 100.0).round() as i32, (y * 100.0).round() as i32)).collect();
+            let mut got: Vec<(i32, i32)> = ar.iter().map(|&(x, y)| ((x * 100.0).round() as i32, (y * 100.0).round() as i32)).collect();
+            want.sort();
+            got.sort();
+            assert_eq!(want, got, "{name} is not the mirror image of the English icon");
+        }
+    }
+
+    #[test]
+    fn alignment_icons_never_mirror() {
+        for name in ["alignLeft", "alignRight", "alignCenter", "justify", "chevronLeft", "chevronRight", "dropdown", "bold"] {
+            assert_eq!(points(name, "en"), points(name, "ar"), "{name} must keep its absolute direction");
         }
     }
 }

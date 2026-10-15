@@ -16,7 +16,7 @@ pub fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     }
     let issues = issues(app, ui);
     if issues.is_empty() {
-        ui.label(egui::RichText::new(tl!("No accessibility issues found.")).weak());
+        crate::rtl::wrapped_label(ui, tl!("No accessibility issues found."), |s| egui::RichText::new(s).weak());
         return;
     }
     let mut picked: Option<(Value, Option<Value>)> = None;
@@ -96,7 +96,7 @@ pub fn alt_text(app: &mut WordApp, ui: &mut Ui) {
     }
     if let Some((pos, obj)) = wordcraft_engine::cmd::objects::selected(&app.session) {
         let decorative = obj.is_decorative();
-        ui.label(egui::RichText::new(tl!("Describe what this object shows, for people who can't see it.")).weak());
+        crate::rtl::wrapped_label(ui, tl!("Describe what this object shows, for people who can't see it."), |s| egui::RichText::new(s).weak());
         ui.add_space(4.0);
         if let Some(text) = draft_box(ui, ("alt_obj", &pos), obj.alt_text(), !decorative, true)
             && still_selected(app, &pos)
@@ -105,10 +105,12 @@ pub fn alt_text(app: &mut WordApp, ui: &mut Ui) {
         }
         ui.add_space(6.0);
         let mut d = decorative;
-        if ui.checkbox(&mut d, tl!("Mark as decorative")).changed() {
+        if crate::rtl::checkbox(ui, &mut d, tl!("Mark as decorative")).changed() {
             let _ = app.run("object.altText", json!({"decorative": d}));
         }
-        ui.label(egui::RichText::new(tl!("Decorative objects only add visual interest: screen readers skip them.")).small().weak());
+        crate::rtl::wrapped_label(ui, tl!("Decorative objects only add visual interest: screen readers skip them."), |s| {
+            egui::RichText::new(s).small().weak()
+        });
         return;
     }
     let focus = app.session.sel.focus.clone();
@@ -117,7 +119,7 @@ pub fn alt_text(app: &mut WordApp, ui: &mut Ui) {
         .cell()
         .and_then(|(tp, _, _)| app.session.doc.table(focus.story, &tp).map(|t| (tp, t.props.caption.clone(), t.props.description.clone())));
     if let Some((tp, caption, description)) = table {
-        ui.label(egui::RichText::new(tl!("Describe what this table shows, for people who can't see it.")).weak());
+        crate::rtl::wrapped_label(ui, tl!("Describe what this table shows, for people who can't see it."), |s| egui::RichText::new(s).weak());
         ui.add_space(4.0);
         ui.label(tl!("Title:"));
         if let Some(t) = draft_box(ui, ("alt_table_title", &tp), caption.as_deref().unwrap_or(""), true, false) {
@@ -130,7 +132,7 @@ pub fn alt_text(app: &mut WordApp, ui: &mut Ui) {
         }
         return;
     }
-    ui.label(egui::RichText::new(tl!("Select a picture, shape, chart or table to describe it.")).weak());
+    crate::rtl::wrapped_label(ui, tl!("Select a picture, shape, chart or table to describe it."), |s| egui::RichText::new(s).weak());
 }
 
 fn still_selected(app: &WordApp, pos: &Pos) -> bool {

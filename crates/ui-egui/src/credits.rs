@@ -214,7 +214,7 @@ impl Default for View {
 pub fn contributors_ui(ui: &mut egui::Ui) {
     let id = egui::Id::new("credits_view");
     let mut v = ui.data_mut(|d| d.get_temp::<View>(id)).unwrap_or_default();
-    ui.horizontal_wrapped(|ui| {
+    let toolbar = |ui: &mut egui::Ui| {
         ui.label(tl!("Show"));
         for m in NameMode::ALL {
             if ui.selectable_label(v.names == m, tl!(m.label())).clicked() {
@@ -241,7 +241,14 @@ pub fn contributors_ui(ui: &mut egui::Ui) {
         if ui.selectable_label(v.table, tl!("Table")).clicked() {
             v.table = true;
         }
-    });
+    };
+    if crate::rtl::is_rtl() {
+        // The toolbar reads from the right; the names and the tables below stay left to right.
+        let size = egui::vec2(ui.available_width().max(0.0), ui.spacing().interact_size.y);
+        ui.allocate_ui_with_layout(size, egui::Layout::right_to_left(egui::Align::Center).with_main_wrap(true), toolbar);
+    } else {
+        ui.horizontal_wrapped(toolbar);
+    }
     let list = sorted(CONTRIBUTORS, v.names, v.key, v.ascending);
     let summary = crate::i18n::fmt(
         tl!("{contributors} contributors · {commits} commits"),

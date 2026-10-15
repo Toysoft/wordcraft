@@ -483,11 +483,17 @@ pub fn badge(ui: &Ui, rect: Rect, letter: &str) {
     let t = Tokens::get(ui.ctx());
     let font = semibold(if count > 3 { 8.5 } else { 10.0 });
     let width = ui.ctx().fonts_mut(|f| f.layout_no_wrap(letter.to_string(), font.clone(), t.on_accent).size().x);
-    let r = Rect::from_min_size(rect.min + Vec2::new(2.0, 1.0), Vec2::new((width + 4.0).max(15.0), 15.0));
+    let r = badge_rect(rect, width);
     let p = ui.painter();
     p.rect_filled(r, CornerRadius::same(3), t.accent);
     p.rect_stroke(r, CornerRadius::same(3), Stroke::new(1.0, t.menu), egui::StrokeKind::Inside);
     p.text(r.center(), Align2::CENTER_CENTER, letter, font, t.on_accent);
+}
+
+/// Where a badge for a `text_w`-wide label sits on its control's `rect`: at the control's top
+/// start corner (top right under RTL). The rects are the controls' own, already mirrored.
+pub(crate) fn badge_rect(rect: Rect, text_w: f32) -> Rect {
+    crate::rtl::rect(rect, Rect::from_min_size(rect.min + Vec2::new(2.0, 1.0), Vec2::new((text_w + 4.0).max(15.0), 15.0)))
 }
 
 /// Record a tab badge over a tab's real rect, called as each tab is laid out. After a typed

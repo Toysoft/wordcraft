@@ -231,16 +231,34 @@ pub fn show_alert(app: &mut WordApp, ctx: &egui::Context) {
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
         .show(ctx, |ui| {
+            // The window's own width, before it is capped (right-to-left rows fill it under RTL).
+            let window_width = ui.max_rect().width();
             ui.set_max_width(460.0);
-            ui.label(a.text.trim_end());
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                for (label, v) in buttons {
-                    if ui.button(tl!(label)).clicked() {
-                        picked = Some(*v);
+            let mut body = |ui: &mut egui::Ui| {
+                // Zotero's own words, in their own direction.
+                ui.label(crate::i18n::user_text(a.text.trim_end()).into_owned());
+                ui.add_space(8.0);
+                // The first answer (OK, Yes) at the start edge: the right under RTL.
+                crate::rtl::row(ui, |ui| {
+                    for (label, v) in buttons {
+                        if ui.button(tl!(label)).clicked() {
+                            picked = Some(*v);
+                        }
                     }
+                });
+            };
+            if crate::rtl::is_rtl() {
+                // Right-to-left rows fill all the width they are given (up to 460 pt here): the
+                // column takes the window's own width, so the answers start at its right edge
+                // and the window doesn't grow.
+                let w = window_width;
+                if w.is_finite() {
+                    ui.set_width(w.clamp(0.0, 460.0));
                 }
-            });
+                crate::rtl::column(ui, body);
+            } else {
+                body(ui);
+            }
         });
     if let Some(v) = picked {
         let _ = answer(app, v);
@@ -353,5 +371,42 @@ mod tests {
         pump(&mut app, &ctx, |a| a.zotero.busy.is_none());
         let last = app.run("ui.zotero.status", json!({})).unwrap()["last"].clone();
         assert!(last["error"].as_str().unwrap().contains("Zotero isn't running"), "{last}");
+    }
+
+    /// Zotero's question in Arabic: the first answer (Yes) at the right, No to its left; in
+    /// English the reverse.
+    #[test]
+    fn zotero_question_buttons_mirror_in_arabic() {
+        use egui_kittest::kittest::Queryable;
+        let mut widths = Vec::new();
+        for lang in ["ar", "en"] {
+            let mut app = WordApp::new(Session::new(Document::from_text("x")), Services::default());
+            app.run("ui.language", json!({"value": lang})).unwrap();
+            let (reply, _answers) = std::sync::mpsc::channel();
+            app.zotero.alert = Some(super::Alert { text: "Replace the citation?".into(), buttons: 2, reply });
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 700.0)).build_ui_state(
+                move |ui, app: &mut WordApp| {
+                    crate::i18n::set_current(crate::i18n::Lang::from_code(lang).unwrap());
+                    let ctx = ui.ctx().clone();
+                    super::show_alert(app, &ctx);
+                },
+                app,
+            );
+            h.run_steps(4);
+            let l = crate::i18n::Lang::from_code(lang).unwrap();
+            let yes = h.get_by_role_and_label(egui::accesskit::Role::Button, crate::i18n::tr(l, "Yes")).rect();
+            let no = h.get_by_role_and_label(egui::accesskit::Role::Button, crate::i18n::tr(l, "No")).rect();
+            assert_eq!(yes.center().x > no.center().x, lang == "ar", "{lang}: yes {yes:?}, no {no:?}");
+            let area = h.ctx.memory(|m| m.area_rect(egui::Id::new("zotero-alert"))).expect("the question is shown");
+            // The first answer hugs the start edge (the right under RTL).
+            let gap = if lang == "ar" { area.right() - yes.right() } else { yes.left() - area.left() };
+            assert!(gap < 20.0, "{lang}: Yes {yes:?} is {gap} pt from the start edge of {area:?}");
+            assert!(area.is_finite() && area.width() < 500.0, "{lang}: {area:?}");
+            widths.push(area.width());
+        }
+        if let [ar, en] = widths[..] {
+            assert!(ar <= en + 40.0, "the question is {ar} pt wide in arabic, {en} pt in english");
+        }
+        crate::i18n::set_current(crate::i18n::Lang::EN);
     }
 }

@@ -1,12 +1,12 @@
 # Localization parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (print-area strings translated in every catalog; previously trivial: Italian: the interface audit checks the Italian catalog, `Privacy Settings` wording; previously trivial: Italian grammar: `po'`, `qual è`, `È`, `un`/`un'` rules; more elisions and truncations in spelling; previously trivial: Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** trivial (GitHub main merged into the Arabic branch (L10N-AR.17); previously trivial: print-area strings translated in every catalog; previously trivial: catalog sizes re-measured, 2,071–2,468 entries; previously trivial: Arabic hours re-estimated after the screenshot pass, 2,463 entries; previously minor: Arabic interface: mirrored, 2,458 entries, native review pending; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Interface languages, script support and proofing per language. How translation works (catalog
 format, adding a language, clean-room rule): `crates/ui-egui/src/i18n/mod.rs`.
 
-**Dimension: ~29% (estimated; 28% before Italian proofing, 27% before Portuguese proofing, 25% before Polish and per-run proofing languages), 70–115 h to full
-for the twelve key languages** plus ~45 h for the other ~17 languages Word ships, plus
+**Dimension: ~29% (estimated; 28% before Italian proofing, 27% before Portuguese proofing, 25% before Polish and per-run proofing languages), 75–125 h to full
+for the twelve key languages** (70–115 before the Arabic re-estimate) plus ~45 h for the other ~17 languages Word ships, plus
 native-speaker review (human).
 
 ## What Word ships (measured by listing the bundle)
@@ -19,8 +19,8 @@ native-speaker review (human).
 
 ## What WordCraft ships (measured)
 
-- **23 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, Korean `ko` (#1216), `uk`, `es`, `pt-br`,
-  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434), Swedish `sv` (#1219) and Croatian `hr` (#1271). Catalogs have 2,061–2,504 entries
+- **24 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, Korean `ko` (#1216), `uk`, `es`, `pt-br`,
+  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434), Swedish `sv` (#1219), Croatian `hr` (#1271) and Arabic `ar` (the first with a mirrored interface). Catalogs have 2,061–2,507 entries
   each; Polish has every key of every other catalog, including the built-in style names and the equation gallery, except the citation style names only Hungarian, Bulgarian and Swedish translate so far (a test checks it). A test (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
   label and ribbon location is translated in every language.
   `pl`, `pl-PL` and `pl_PL.UTF-8` system locales pick Polish automatically.
@@ -50,7 +50,7 @@ shared items below.
 | Simplified Chinese (Mandarin) | zh-hans | 929 entries; 98% of extracted, ~95% of visible | most; newer panes English | CJK ✅, IME ✅; Windows UI font fixed (#248); interface font chain covers every catalog character, installed CJK font after the embedded ones when it doesn't, PingFang found on macOS 12 (#486); font list by Chinese names (宋体, 微软雅黑, #505); no vertical text | no | partial | 3–5 |
 | Spanish | es | ~930; 98% / ~95% | most | Latin ✅ | no | partial | 1–2 |
 | Hindi | hi | 0 | ❌ | Devanagari shaping via HarfRust, untested; no hyphenation | no | none | 4–6 |
-| Arabic | ar | 0 | ❌ | shaping, joining, lam-alef, bidi ✅ (#207); no kashida; **no mirrored UI** | no | none | 6–8 |
+| Arabic | ar | 2,463 entries (the Polish key set, [`localization-ar.md`](localization-ar.md)); mirrored UI ✅ | ✅ dialogs, panes, Backstage and menus mirrored; the 2026-10-15 screenshot pass found no English label left except the mailings envelope size | shaping, joining, lam-alef, bidi ✅ (#207); mirrored interface ✅; interface text reordered by our own bidi pass; no kashida; no Arabic proofing | no (pending) | partial | 9–15 (text-field caret and selection plus mirror follow-ups 6–10, Arabic proofing 3–5) + native review (human) + UI font (owner) |
 | French | fr | 2,033 entries | most; newer dialogs partly English | Latin ✅ | no | partial | 1–2 |
 | Portuguese | pt-br (pt-PT none) | ~930; 98% / ~95% (pt-BR) | most | Latin ✅ | no | partial | 2–4 (pt-BR finish + pt-PT) |
 | Indonesian | id | 0 | ❌ | Latin ✅ | no | none | 3–4 |
@@ -59,7 +59,7 @@ shared items below.
 | Korean | ko | 2,463 entries (all catalog keys and preview context) | most; newer panes English | Hangul ✅ (Korean-first embedded/system UI font fallback); macOS Korean IME fixes pending (#163, #164) | no | partial | 3–5 |
 | Vietnamese | vi | 2,448 entries; every key of the reference catalogs (#1434); 98% of extracted, ~95% of visible | most | Latin ✅ | no | partial | 0–1 (review) |
 
-Other shipped languages: **16** — Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian
+Other shipped languages: **16** (Arabic is in the table above) — Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian
 Cyrillic and Latin (`sr`, `sr-latn`, #250), Estonian (`et`), Turkish (`tr`), Russian (`ru`), Italian (`it`, #594), Polish (`pl`), Czech (`cs`), Hungarian (`hu`), French (`fr`), Bulgarian (`bg`), Vietnamese (`vi`, #1434), Swedish (`sv`, #1219) and Croatian (`hr`, #1271), all partial.
 Swedish (`sv-SE` and `sv-FI` system locales, `{"value":"sv"}`) has 2,504 entries. Counts use
 count-neutral wording (`{words} ord`: the noun is the same in the singular and the plural). The
@@ -81,6 +81,16 @@ Hungarian follows `hu-HU` system locales and `{"value":"hu"}`, with a complete c
 the Russian catalog, built-in style names shown translated, plus the citation style names. Hungarian proofing is not included; terminology and conventions:
 [`localization-hu.md`](localization-hu.md).
 
+Arabic (`ar`, any `ar-*` system locale, `{"value":"ar"}`) is the first right-to-left interface:
+the whole window mirrors (title bar, ribbon, menus, panes, dialogs, Backstage, icons that point or sit
+at a side), counts read "noun: n", and document, user and file-name text keeps its own direction.
+Details, exceptions and known gaps: [`localization-ar.md`](localization-ar.md),
+[`ui-parity.md`](ui-parity.md#mirrored-interface-arabic) and
+[gaps.md](gaps.md#arabic-interface-follow-ups). The Arabic UI font is not yet in `craft-fonts`
+(owner action): installed system fonts (Segoe UI, Tahoma, SF Arabic, Geeza Pro, Noto Sans Arabic)
+are used.
+
+
 Czech follows `cs-CZ` system locales and `{"value":"cs"}`, with 2,447 entries: every key of the
 Russian and Spanish catalogs, including built-in style names and numbered families, the equation
 gallery, watermarks, paper sizes and preview tiles. The Czech coverage test
@@ -92,8 +102,8 @@ in their proofing languages (`pl-PL`, `pt-BR`, `cs-CZ`).
 
 **Interface audit (runs in CI).** `untranslated_interface_text` lays the app out in a pseudo-language
 (every tab, File page, dialog, pane, the right-click menu, and a hover and a click on every ribbon
-control) and fails on visible text that skipped the catalog; then Russian, Hungarian, Turkish and
-Bulgarian must have every string it looked up. Proper names (citation styles such as APA or
+control) and fails on visible text that skipped the catalog; then Russian, Hungarian, Turkish,
+Bulgarian, Italian, Swedish, Croatian and Arabic must have every string it looked up. Proper names (citation styles such as APA or
 GOST, LaTeX, Unicode) and `bad parameters:` errors, which name a command's JSON parameters for
 scripts and MCP, stay English. Size labels (Envelopes, Labels, Layout › Size) are translated
 patterns (`{name}   {height} × {width} in`) with the region's decimal separator; paper names
@@ -183,15 +193,19 @@ WordCraft keeps 2,54 cm).
 | Item | Hours | Notes |
 |---|---|---|
 | Wrap the remaining English literals in `tl!` and translate them in every catalog | 4–6 | Makes the six partial languages full except script items |
-| Mirrored (right-to-left) interface for Arabic and Hebrew | 15–25 | Ribbon, panes, dialogs, rulers |
+| ~~Mirrored (right-to-left) interface~~ done for Arabic (L10N-AR); Hebrew needs only a catalog plus `rtl: true` on its `LangInfo` | 0 (Hebrew: catalog only) | Ribbon, panes, dialogs, Backstage mirrored; remaining mirror gaps in [gaps.md](gaps.md#arabic-interface-follow-ups) |
 | Vertical text, ruby, document grid (Chinese, Japanese, Korean) | counted in [layout-parity.md](layout-parity.md) | |
 | Proofing dictionaries, grammar and hyphenation for the 11 non-English key languages | 20–40 | Open dictionaries only (licence check per dictionary); issues #25, #40, #100. Per-run languages, the Hunspell-style affix engine and the TeX pattern reader landed with Polish, so a language with an open Hunspell dictionary and hyphenation patterns is mostly data plus grammar rules |
-| Native-speaker review of every catalog | human | Swedish: terminology and the running app reviewed (2026-10-13); the others not yet |
+| Native-speaker review of every catalog | human | Swedish: terminology and the running app reviewed (2026-10-13); Arabic (`ar.tsv`, written from the meaning of the English labels) and the others not yet |
 
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | GitHub main merged into the Arabic branch (L10N-AR.17): 24 interface languages (Korean, Vietnamese, Swedish and Croatian from main, Arabic from the branch); the Arabic catalog covers the keys main added |
+| 2026-10-15 | trivial | Catalog sizes re-measured from the `.tsv` files: 2,071–2,468 entries (Arabic 2,463) (L10N-AR.16 final review) |
+| 2026-10-15 | trivial | Arabic after the side-by-side screenshot pass: 2,463 entries (crop sides and Border added), hours to full 2–4 → 9–15 (text fields, mirror follow-ups and proofing counted); twelve-language total 70–115 → 75–125 h (L10N-AR.16) |
+| 2026-10-15 | minor | Arabic interface (`ar`): 2,458 entries (every key of the Polish catalog), fully mirrored window, own bidi reordering of interface text, Arabic UI font chain; 20 interface languages; native review, proofing and a craft-fonts UI face pending (L10N-AR.16) |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
 | 2026-10-13 | minor | Swedish interface catalog (2,504 entries), locale selection, saved preference, audit coverage and font checks (#1219) |

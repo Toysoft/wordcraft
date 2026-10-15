@@ -135,7 +135,7 @@ pub(crate) fn selector(app: &mut WordApp, ui: &Ui, corner: Rect) {
         _ => 0.0,
     };
     draw_tab_glyph(&p, b.center().x + nudge, b.max.y - 4.0, kind, false, Stroke::new(1.5, t.text));
-    r.on_hover_text(format!("{}: {}", tl!("Tabs"), tl!(kind_label(kind))));
+    crate::rtl::hover_text(r, crate::i18n::labeled(tl!("Tabs"), tl!(kind_label(kind))));
 }
 
 /// The ruler geometry the stops are drawn on.
@@ -202,7 +202,8 @@ pub(crate) fn stops(app: &mut WordApp, ui: &Ui, hp: &Painter, g: &Ruler<'_>, tab
         }
         open_dialog |= r.double_clicked();
         if !starts && app.canvas.tab_drag.is_none() {
-            r.on_hover_text(format!("{} {}", tl!(kind_label(tab.align)), units.format_with(tab.pos, decimal)));
+            // "Left 2.5 cm": the kind, then the position, read from the right under RTL.
+            crate::rtl::hover_text(r, crate::i18n::suffixed(tl!(kind_label(tab.align)), &format!(" {}", units.format_with(tab.pos, decimal))));
         }
     }
 

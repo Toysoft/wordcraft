@@ -7,9 +7,10 @@ use egui::{Color32, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::WordApp;
+use crate::dialogs::label;
 use crate::options::MeasureExt;
 use crate::theme::{Tokens, regular, semibold};
+use crate::{WordApp, rtl};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "form", rename_all = "camelCase")]
@@ -83,7 +84,7 @@ pub(crate) fn buttons(ui: &mut Ui, ok: &str, cancel: &str, ok_enabled: bool) -> 
     let mut r = (false, false);
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(rtl::end_layout(egui::Align::Center), |ui| {
             if ui.button(tl!(cancel)).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 r.1 = true;
             }
@@ -289,37 +290,36 @@ impl ColumnsForm {
 
 /// A preset tile: a small page with its columns.
 fn preset_tile(ui: &mut Ui, label: &str, widths: &[f32], on: bool, t: &Tokens) -> bool {
-    let resp = ui
-        .vertical(|ui| {
-            let (r, resp) = ui.allocate_exact_size(vec2(44.0, 52.0), Sense::click());
-            let fill = if on {
-                t.checked
-            } else if resp.hovered() {
-                t.hover
-            } else {
-                Color32::TRANSPARENT
-            };
-            ui.painter().rect(r, 3.0, fill, Stroke::new(1.0, if on { t.accent } else { t.border }), egui::StrokeKind::Inside);
-            let page = Rect::from_min_size(r.min + vec2(9.0, 7.0), vec2(26.0, 38.0));
-            ui.painter().rect(page, 0.0, t.input, Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
-            let inner = page.shrink(4.0);
-            let gap = 3.5;
-            let total: f32 = widths.iter().sum::<f32>().max(1.0);
-            let avail = inner.width() - gap * (widths.len() as f32 - 1.0);
-            let mut x = inner.min.x;
-            for w in widths {
-                let cw = avail * w / total;
-                let mut y = inner.min.y;
-                while y + 1.5 <= inner.max.y {
-                    ui.painter().line_segment([pos2(x, y), pos2(x + cw, y)], Stroke::new(1.0, t.text_dim));
-                    y += 3.0;
-                }
-                x += cw + gap;
+    let resp = rtl::column(ui, |ui| {
+        let (r, resp) = ui.allocate_exact_size(vec2(44.0, 52.0), Sense::click());
+        let fill = if on {
+            t.checked
+        } else if resp.hovered() {
+            t.hover
+        } else {
+            Color32::TRANSPARENT
+        };
+        ui.painter().rect(r, 3.0, fill, Stroke::new(1.0, if on { t.accent } else { t.border }), egui::StrokeKind::Inside);
+        let page = Rect::from_min_size(r.min + vec2(9.0, 7.0), vec2(26.0, 38.0));
+        ui.painter().rect(page, 0.0, t.input, Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
+        let inner = page.shrink(4.0);
+        let gap = 3.5;
+        let total: f32 = widths.iter().sum::<f32>().max(1.0);
+        let avail = inner.width() - gap * (widths.len() as f32 - 1.0);
+        let mut x = inner.min.x;
+        for w in widths {
+            let cw = avail * w / total;
+            let mut y = inner.min.y;
+            while y + 1.5 <= inner.max.y {
+                ui.painter().line_segment([pos2(x, y), pos2(x + cw, y)], Stroke::new(1.0, t.text_dim));
+                y += 3.0;
             }
-            ui.label(egui::RichText::new(tl!(label)).small());
-            resp
-        })
-        .inner;
+            x += cw + gap;
+        }
+        ui.label(egui::RichText::new(tl!(label)).small());
+        resp
+    })
+    .inner;
     resp.clicked()
 }
 
@@ -357,7 +357,7 @@ fn columns_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ColumnsForm) -> bool {
     ui.set_width(420.0);
     ui.label(egui::RichText::new(tl!("Presets")).font(semibold(12.5)));
     let current = f.current_preset();
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         for (key, label, widths) in [
             ("one", "One", &[1.0][..]),
             ("two", "Two", &[1.0, 1.0][..]),
@@ -371,54 +371,71 @@ fn columns_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ColumnsForm) -> bool {
         }
     });
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         ui.label(tl!("Number of columns:"));
         let mut n = f.count;
         if ui.add(egui::DragValue::new(&mut n).range(1..=12)).changed() {
             f.set_count(n);
         }
         ui.add_space(16.0);
-        ui.checkbox(&mut f.separator, tl!("Line between"));
+        rtl::checkbox(ui, &mut f.separator, tl!("Line between"));
     });
     ui.add_space(6.0);
     ui.label(egui::RichText::new(tl!("Width and spacing")).font(semibold(12.5)));
+    // In the right-aligned column `horizontal_top` already runs right to left.
     ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            let mut changed = None;
-            egui::ScrollArea::vertical().id_salt("columns_widths").max_height(130.0).show(ui, |ui| {
-                egui::Grid::new("columns_grid").num_columns(3).spacing(vec2(12.0, 4.0)).show(ui, |ui| {
-                    ui.label(tl!("Col #:"));
-                    ui.label(tl!("Width:"));
-                    ui.label(tl!("Spacing:"));
-                    ui.end_row();
-                    let n = f.cols.len();
-                    let max = f.text_width.max(0.1);
-                    for i in 0..n {
-                        let editable = i == 0 || !f.equal;
-                        ui.label(format!("{}:", i + 1));
-                        if let Some(c) = f.cols.get_mut(i) {
-                            let w = egui::DragValue::new(&mut c.0).speed(0.01).range(ColumnsForm::min_w()..=max).measure(unit).max_decimals(2);
-                            if ui.add_enabled(editable, w).changed() {
-                                changed = Some(i);
-                            }
-                            if i + 1 < n {
-                                let s = egui::DragValue::new(&mut c.1).speed(0.01).range(0.0..=max).measure(unit).max_decimals(2);
-                                if ui.add_enabled(editable, s).changed() {
-                                    changed = Some(i);
-                                }
-                            } else {
-                                ui.label("");
-                            }
+        rtl::column(ui, |ui| {
+            let changed = std::cell::Cell::new(None);
+            // The grid in a box of its own width (egui's Grid lays out from the left).
+            rtl::fitted(ui, "columns_widths", |ui| {
+                egui::ScrollArea::vertical().id_salt("columns_widths").max_height(130.0).show(ui, |ui| {
+                    rtl::grid("columns_grid", 3).spacing(vec2(12.0, 4.0)).show(ui, |ui| {
+                        rtl::grid_row(
+                            ui,
+                            [&mut |ui: &mut Ui| label(ui, "Col #:"), &mut |ui: &mut Ui| label(ui, "Width:"), &mut |ui: &mut Ui| {
+                                label(ui, "Spacing:")
+                            }],
+                        );
+                        let n = f.cols.len();
+                        let max = f.text_width.max(0.1);
+                        for i in 0..n {
+                            let editable = i == 0 || !f.equal;
+                            let Some(c) = f.cols.get_mut(i) else { continue };
+                            let (w, s) = (&mut c.0, &mut c.1);
+                            rtl::grid_row(
+                                ui,
+                                [
+                                    &mut |ui: &mut Ui| {
+                                        ui.label(format!("{}:", i + 1));
+                                    },
+                                    &mut |ui: &mut Ui| {
+                                        let w = egui::DragValue::new(w).speed(0.01).range(ColumnsForm::min_w()..=max).measure(unit).max_decimals(2);
+                                        if ui.add_enabled(editable, w).changed() {
+                                            changed.set(Some(i));
+                                        }
+                                    },
+                                    &mut |ui: &mut Ui| {
+                                        if i + 1 < n {
+                                            let s = egui::DragValue::new(&mut *s).speed(0.01).range(0.0..=max).measure(unit).max_decimals(2);
+                                            if ui.add_enabled(editable, s).changed() {
+                                                changed.set(Some(i));
+                                            }
+                                        } else {
+                                            ui.label("");
+                                        }
+                                    },
+                                ],
+                            );
                         }
-                        ui.end_row();
-                    }
+                    });
                 });
             });
+            let changed = changed.get();
             if let Some(i) = changed {
                 f.rebalance(i);
             }
             let mut equal = f.equal;
-            if ui.add_enabled(f.count > 1, egui::Checkbox::new(&mut equal, tl!("Equal column width"))).changed() {
+            if rtl::checkbox_enabled(ui, f.count > 1, &mut equal, tl!("Equal column width")).changed() {
                 f.equal = equal;
                 if equal {
                     f.even_out();
@@ -426,13 +443,13 @@ fn columns_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ColumnsForm) -> bool {
             }
         });
         ui.add_space(8.0);
-        ui.vertical(|ui| {
+        rtl::column(ui, |ui| {
             ui.label(tl!("Preview"));
             columns_preview(ui, f, &t);
         });
     });
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         ui.label(tl!("Apply to:"));
         let mut options = vec![("document", "Whole document"), ("forward", "This point forward")];
         if f.sections {
@@ -719,7 +736,7 @@ fn symbol_cell(app: &mut WordApp, ui: &mut Ui, font: &str, c: char, selected: bo
 fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
     let t = Tokens::get(ui.ctx());
     ui.set_width(GRID_COLS as f32 * CELL + 24.0);
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         for (i, l) in ["Symbols", "Special Characters"].into_iter().enumerate() {
             if ui.selectable_label(f.tab == i as u8, tl!(l)).clicked() {
                 f.tab = i as u8;
@@ -734,7 +751,7 @@ fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
         }
     } else {
         f.load();
-        ui.horizontal(|ui| {
+        rtl::row(ui, |ui| {
             ui.label(tl!("Font:"));
             let normal = tl!("(normal text)").to_string();
             let mut items = vec![normal.clone()];
@@ -749,7 +766,13 @@ fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
                     if resp.hovered() {
                         ui.painter().rect_filled(r, 3.0, t.hover);
                     }
-                    ui.painter().text(pos2(r.min.x + 8.0, r.center().y), egui::Align2::LEFT_CENTER, name, regular(12.0), t.text);
+                    ui.painter().text(
+                        pos2(rtl::x(r, r.min.x + 8.0), r.center().y),
+                        rtl::start_align2(egui::Align::Center),
+                        name,
+                        regular(12.0),
+                        t.text,
+                    );
                     resp
                 } else {
                     pf(ui, name)
@@ -789,7 +812,7 @@ fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
         area.show_rows(ui, CELL, rows, |ui, range| {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             for row in range {
-                ui.horizontal(|ui| {
+                rtl::row(ui, |ui| {
                     for c in chars.iter().skip(row * GRID_COLS).take(GRID_COLS) {
                         let resp = symbol_cell(app, ui, &font, *c, f.selected == Some(*c), &t);
                         if resp.clicked() {
@@ -813,7 +836,7 @@ fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
         ui.add_space(6.0);
         ui.label(tl!("Recently used symbols:"));
         let recent = app.ui.recent_symbols.clone();
-        ui.horizontal(|ui| {
+        rtl::row(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             for r in recent.iter().take(GRID_COLS) {
                 let Some(c) = r.ch.chars().next() else { continue };
@@ -835,10 +858,10 @@ fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
             }
         });
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
+        rtl::row(ui, |ui| {
             let name = f.selected.map(|c| format!("U+{:04X}", c as u32)).unwrap_or_default();
             ui.label(egui::RichText::new(name).font(semibold(12.0)));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(rtl::end_layout(egui::Align::Center), |ui| {
                 ui.label(tl!("from Unicode (hex)"));
                 let resp = ui.add(egui::TextEdit::singleline(&mut f.code).desired_width(70.0).font(egui::TextStyle::Monospace));
                 if resp.changed() {
@@ -876,26 +899,51 @@ fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
 /// The Special Characters tab; returns true to close.
 fn special_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm, insert: &mut Option<(Value, String, String)>, t: &Tokens) -> bool {
     let mut double = false;
-    egui::ScrollArea::vertical().id_salt("special_chars").max_height(CELL * GRID_ROWS as f32 + 60.0).auto_shrink([false, false]).show(ui, |ui| {
-        egui::Grid::new("special_grid").num_columns(3).striped(true).spacing(vec2(14.0, 4.0)).show(ui, |ui| {
-            ui.label(egui::RichText::new(tl!("Character")).font(semibold(12.0)));
-            ui.label("");
-            ui.label(egui::RichText::new(tl!("Shortcut key:")).font(semibold(12.0)));
-            ui.end_row();
-            for (i, (name, c, cmd)) in SPECIAL.iter().enumerate() {
-                let shown = if c.is_whitespace() || matches!(*c, '\u{00AD}' | '\u{200B}' | '\u{2060}') { String::new() } else { c.to_string() };
-                ui.label(egui::RichText::new(shown).font(regular(15.0)).color(t.text));
-                let resp = ui.selectable_label(f.special == i, tl!(name));
-                if resp.clicked() {
-                    f.special = i;
+    // The grid in a box of its own width (egui's Grid lays out from the left); its columns run
+    // right to left under RTL.
+    rtl::fitted(ui, "special_chars", |ui| {
+        egui::ScrollArea::vertical().id_salt("special_chars").max_height(CELL * GRID_ROWS as f32 + 60.0).auto_shrink([false, false]).show(ui, |ui| {
+            rtl::grid("special_grid", 3).striped(true).spacing(vec2(14.0, 4.0)).show(ui, |ui| {
+                rtl::grid_row(
+                    ui,
+                    [
+                        &mut |ui: &mut Ui| {
+                            ui.label(egui::RichText::new(tl!("Character")).font(semibold(12.0)));
+                        },
+                        &mut |ui: &mut Ui| {
+                            ui.label("");
+                        },
+                        &mut |ui: &mut Ui| {
+                            ui.label(egui::RichText::new(tl!("Shortcut key:")).font(semibold(12.0)));
+                        },
+                    ],
+                );
+                for (i, (name, c, cmd)) in SPECIAL.iter().enumerate() {
+                    let shown = if c.is_whitespace() || matches!(*c, '\u{00AD}' | '\u{200B}' | '\u{2060}') { String::new() } else { c.to_string() };
+                    let shortcut = cmd.map(|id| crate::widgets::shortcut_text(app, id)).unwrap_or_default();
+                    rtl::grid_row(
+                        ui,
+                        [
+                            &mut |ui: &mut Ui| {
+                                ui.label(egui::RichText::new(shown.as_str()).font(regular(15.0)).color(t.text));
+                            },
+                            &mut |ui: &mut Ui| {
+                                let resp = ui.selectable_label(f.special == i, tl!(name));
+                                if resp.clicked() {
+                                    f.special = i;
+                                }
+                                if resp.double_clicked() {
+                                    f.special = i;
+                                    double = true;
+                                }
+                            },
+                            &mut |ui: &mut Ui| {
+                                ui.label(shortcut.as_str());
+                            },
+                        ],
+                    );
                 }
-                if resp.double_clicked() {
-                    f.special = i;
-                    double = true;
-                }
-                ui.label(cmd.map(|id| crate::widgets::shortcut_text(app, id)).unwrap_or_default());
-                ui.end_row();
-            }
+            });
         });
     });
     let (ok, close) = buttons(ui, "Insert", "Close", true);
@@ -1169,9 +1217,10 @@ fn merge_field_name(code: &str) -> String {
 fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> bool {
     let t = Tokens::get(ui.ctx());
     ui.set_width(620.0);
+    // In the right-aligned column `horizontal_top` already runs right to left.
     ui.horizontal_top(|ui| {
-        // Left: category and field names.
-        ui.vertical(|ui| {
+        // Left (right under RTL): category and field names.
+        rtl::column(ui, |ui| {
             ui.set_width(200.0);
             ui.label(egui::RichText::new(tl!("Pick a field from the list")).font(semibold(12.5)));
             ui.label(tl!("Categories:"));
@@ -1197,11 +1246,14 @@ fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> bool {
             }
         });
         ui.add_space(14.0);
-        // Right: the field's options, or its code.
-        ui.vertical(|ui| {
+        // Right (left under RTL): the field's options, or its code.
+        rtl::column(ui, |ui| {
             ui.label(egui::RichText::new(tl!("Field properties")).font(semibold(12.5)));
             if let Some((_, _, desc)) = FIELDS.iter().find(|(n, _, _)| *n == f.name) {
-                ui.label(egui::RichText::new(format!("{} {}", tl!("Description:"), tl!(desc))).small().color(t.text_dim));
+                // Two catalog strings in draw order: the caption reads first, at the right under RTL.
+                let line =
+                    if rtl::is_rtl() { format!("{} {}", tl!(desc), tl!("Description:")) } else { format!("{} {}", tl!("Description:"), tl!(desc)) };
+                ui.label(egui::RichText::new(line).small().color(t.text_dim));
             }
             ui.add_space(4.0);
             if f.codes {
@@ -1211,16 +1263,16 @@ fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> bool {
             } else {
                 field_options(ui, f, &t);
                 ui.add_space(4.0);
-                ui.checkbox(&mut f.preserve, tl!("Preserve formatting during updates"));
+                rtl::checkbox(ui, &mut f.preserve, tl!("Preserve formatting during updates"));
             }
         });
     });
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         ui.label(egui::RichText::new(tl!("Field code:")).font(semibold(12.0)));
         ui.label(egui::RichText::new(f.final_code()).monospace());
     });
-    ui.horizontal(|ui| {
+    rtl::row(ui, |ui| {
         let label = if f.codes { "Hide Codes" } else { "Field Codes" };
         if ui.button(tl!(label)).clicked() {
             if !f.codes {
@@ -1305,7 +1357,7 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
             ui.add_space(4.0);
             for (c, label) in STYLEREF_SWITCHES {
                 let mut on = f.style_switches.contains(*c);
-                if ui.checkbox(&mut on, tl!(label)).changed() {
+                if rtl::checkbox(ui, &mut on, tl!(label)).changed() {
                     f.style_switches.retain(|x| x != *c);
                     if on {
                         f.style_switches.push(*c);

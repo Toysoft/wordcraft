@@ -2632,3 +2632,11 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+
+# Picture Format crop sides and border menu; "Label: value" template (Arabic interface branch) (the letters stay as in English, as in Polish).
+	L	L
+	T	T
+	R	R
+	B	B
+	Border	Obrub
+	{label}: {value}	{label}: {value}

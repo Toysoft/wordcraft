@@ -830,6 +830,7 @@
 	lowercase	małe litery
 	{group} settings	Ustawienia: {group}
 	{key}+Click to follow link	{key}+kliknięcie otwiera link
+	{label}: {value}	{label}: {value}
 	{selected} of {words} words	Słowa: {selected} z {words}
 	{words} words	Słowa: {words}
 	➕ New comment	➕ Nowy komentarz
@@ -2535,6 +2536,14 @@ preview	Title	Tytuł
 	Leave out the date and time of comments and tracked changes when saving	Pomiń datę i godzinę komentarzy i śledzonych zmian przy zapisywaniu
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Edytowany dokument zachowuje nazwiska i daty; pomija je tylko zapisany plik.
 	Privacy Settings	Bieżące ustawienia prywatności
+# Picture Format crop sides and border menu (L10N-AR.16; the letters stay as in English).
+	L	L
+	T	T
+	R	R
+	B	B
+	Border	Obramowanie
+
+# Main, up to fd0bb2f.
 	Waiting for the save to finish…	Oczekiwanie na zakończenie zapisywania…
 	Saving {name} was cancelled, so it is still open and nothing was lost.	Zapisywanie pliku {name} zostało anulowane. Dokument jest nadal otwarty i nic nie zostało utracone.
 	Paper	Papier
