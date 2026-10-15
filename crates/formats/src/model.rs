@@ -506,8 +506,9 @@ impl<'a> Builder<'a> {
         let mut out = Paragraph::new();
         out.props = para_props(p, list_num);
         if let Some(c) = &p.fmt_change {
-            // The old list membership has no list instance of its own: it is left out.
-            out.props.fmt_change = PropChange::boxed(self.revision(RevisionKind::Format, &c.mark), para_props(&c.old, None));
+            // A list item stays in its list instance (only its level may differ).
+            let old = para_props(&c.old, c.old.list.and(list_num));
+            out.props.fmt_change = PropChange::boxed(self.revision(RevisionKind::Format, &c.mark), old);
         }
         out.section.clone_from(&p.section);
         // Inlines are appended in order, so build the runs directly: inserting each one through
@@ -522,8 +523,16 @@ impl<'a> Builder<'a> {
                     if let Some(c) = &f.fmt_change {
                         cp.fmt_change = PropChange::boxed(self.revision(RevisionKind::Format, &c.mark), char_props(&c.old));
                     }
-                    if p.kind == Kind::Code && cp.font.as_deref() == Some(MONO_FONT) {
-                        cp.font = None;
+                    if p.kind == Kind::Code {
+                        // Code's font comes from its style, before a change as after it.
+                        if cp.font.as_deref() == Some(MONO_FONT) {
+                            cp.font = None;
+                        }
+                        if let Some(c) = cp.fmt_change.as_deref_mut()
+                            && c.old.font.as_deref() == Some(MONO_FONT)
+                        {
+                            c.old.font = None;
+                        }
                     }
                     append(&mut out, &t, &cp, None);
                 }

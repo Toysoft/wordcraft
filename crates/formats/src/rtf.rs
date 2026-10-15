@@ -259,7 +259,12 @@ impl Writer {
         if let Some(c) = &p.fmt_change {
             // RTF 1.9.1: the paragraph formatting before the change, then who changed it and when.
             let old = self.para_ctl(&c.old, intbl);
-            out.push_str(&format!("{{\\*\\oldpprops {old}}}"));
+            // The old list is the same list instance (only its level may differ).
+            let list = match (c.old.list, &ls) {
+                (Some(li), Some((n, _))) => format!("\\ls{n}\\ilvl{}", li.level.min(8)),
+                _ => String::new(),
+            };
+            out.push_str(&format!("{{\\*\\oldpprops {old}{list}}}"));
             let words = self.rev_words("\\prauth", "\\prdate", &c.mark);
             out.push_str(&words);
         }
@@ -1008,7 +1013,7 @@ impl Reader {
     /// headers and footers read since the last break. Inside a header, footer or table, and past
     /// [`MAX_SECTIONS`], it only ends the paragraph.
     fn end_section(&mut self) {
-        self.end_para(false);
+        self.end_para_mark();
         if self.hf.is_some() || self.st.intbl || self.section_parts.len() + 1 >= MAX_SECTIONS {
             return;
         }
@@ -1329,7 +1334,7 @@ impl Reader {
         p
     }
 
-    /// `\par`: end the paragraph, whose mark is tracked as inserted or deleted when the text
+    /// `\par` (or `\sect`): end the paragraph, whose mark is tracked as inserted or deleted when the text
     /// at it is.
     fn end_para_mark(&mut self) {
         let r = self.st.rev;
@@ -1351,25 +1356,13 @@ impl Reader {
         if let Some(old) = &c.old {
             p.fmt_change = Some(Box::new(model::FmtChange { mark: self.rev_mark(c.auth, c.date), old: (**old).clone() }));
         }
-        // Headings and code keep their style formatting implicit.
-        if matches!(p.kind, Kind::Heading(_) | Kind::Code | Kind::Title) {
-            for i in &mut p.inlines {
-                if let Inline::Text(_, f) = i {
-                    f.size = None;
-                    if p.kind != Kind::Title {
-                        f.bold = false;
-                    }
-                    if p.kind == Kind::Code {
-                        f.code = false;
-                        f.font = None;
-                    }
-                }
-            }
-        }
-        if p.kind == Kind::Quote {
-            for i in &mut p.inlines {
-                if let Inline::Text(_, f) = i {
-                    f.italic = false;
+        // Headings, code, titles and quotes keep their style formatting implicit, in the text's
+        // formatting and in the formatting before a tracked change alike.
+        for i in &mut p.inlines {
+            if let Inline::Text(_, f) = i {
+                drop_style_formatting(p.kind, f);
+                if let Some(c) = f.fmt_change.as_deref_mut() {
+                    drop_style_formatting(p.kind, &mut c.old);
                 }
             }
         }
@@ -1664,6 +1657,8 @@ impl Reader {
             Dest::Info(_) | Dest::FldInst | Dest::Bookmark => {}
             // Old formatting takes formatting words only: no text, structure or document state.
             Dest::OldProps(_) if !is_format_word(w) => return,
+            // Border words there would edit the cell definition being read, not the group's copy.
+            Dest::OldProps(_) if self.cell_side.is_some() && w.starts_with("brdr") => return,
             Dest::OldProps(_) | Dest::Body => {}
         }
         match w {
@@ -1882,6 +1877,23 @@ impl Reader {
 
     fn in_info(&self) -> bool {
         self.info_depth.is_some_and(|d| self.depth() > d)
+    }
+}
+
+/// Clear from `f` the formatting a paragraph of kind `kind` gets from its style.
+fn drop_style_formatting(kind: Kind, f: &mut Fmt) {
+    if matches!(kind, Kind::Heading(_) | Kind::Code | Kind::Title) {
+        f.size = None;
+        if kind != Kind::Title {
+            f.bold = false;
+        }
+        if kind == Kind::Code {
+            f.code = false;
+            f.font = None;
+        }
+    }
+    if kind == Kind::Quote {
+        f.italic = false;
     }
 }
 
@@ -2866,6 +2878,56 @@ mod tests {
     }
 
     #[test]
+    fn list_item_with_a_formatting_change_keeps_its_list_on_reject() {
+        use model::{FmtChange, ListInfo};
+        // A numbered item Alice centred (it was left-aligned), and a second plain item.
+        let li = Some(ListInfo { ordered: true, level: 0 });
+        let mark = RevMark { author: "Alice".into(), date: "2024-03-15T10:30:00Z".into(), id: None };
+        let old = Para { list: li, align: Some(Align::Left), ..Default::default() };
+        let mut item = Para { list: li, align: Some(Align::Center), fmt_change: Some(Box::new(FmtChange { mark, old })), ..Default::default() };
+        item.push_text("Item", &Fmt::default());
+        let mut next = Para { list: li, ..Default::default() };
+        next.push_text("Next", &Fmt::default());
+        let flow = Flow { blocks: vec![FBlock::Para(item), FBlock::Para(next)], meta: Meta::default() };
+        let check = |doc: &Document, what: &str| {
+            let paras = doc_paras(doc);
+            let p = paras.first().unwrap();
+            assert!(p.props.numbering.is_some(), "{what}: the item is in a list");
+            let change = p.props.fmt_change.as_deref().unwrap_or_else(|| panic!("{what}: change kept"));
+            assert_eq!(change.old.align, Some(Align::Left), "{what}");
+            // Reject puts the old properties back: the item stays in its list, with its style.
+            let rejected = change.old.formatting();
+            assert_eq!(rejected.numbering, p.props.numbering, "{what}");
+            assert_eq!(rejected.style, p.props.style, "{what}");
+        };
+        let doc = model::to_doc(&flow);
+        check(&doc, "flow to document");
+        let rtf = export(&doc);
+        check(&import(rtf.as_bytes()).unwrap(), &format!("RTF round trip\n{rtf}"));
+    }
+
+    #[test]
+    fn heading_formatting_change_has_no_style_formatting_in_the_old_formatting() {
+        // A heading's runs repeat its style's bold and size; the old formatting does too.
+        let rtf = br"{\rtf1{\stylesheet{\s0 Normal;}{\s1 heading 1;}}{\*\revtbl {Unknown;}{Alice;}}
+\pard\s1\b\fs32 {\i\crauth1{\*\oldcprops \plain\b\fs32}Head}\par}";
+        let doc = import(rtf).unwrap();
+        let paras = doc_paras(&doc);
+        let cp = paras.first().unwrap().props_of_char(0);
+        let old = cp.fmt_change.as_deref().map(|c| c.old.clone()).expect("change kept");
+        assert_eq!((old.bold, old.size), (cp.bold, cp.size));
+    }
+
+    #[test]
+    fn a_section_break_under_a_deletion_has_a_deleted_mark() {
+        let rtf = br"{\rtf1{\*\revtbl {Unknown;}{Bob;}}\deleted\revauthdel1 one\sect\pard\plain two\par}";
+        let doc = import(rtf).unwrap();
+        let paras = doc_paras(&doc);
+        assert_eq!(paras.first().map(|p| p.text.as_str()), Some("one"));
+        assert_eq!(rev_of(&doc, paras.first().and_then(|p| p.mark.del)).map(|r| r.1).as_deref(), Some("Bob"));
+    }
+
+    #[test]
     fn hostile_formatting_revisions_never_panic() {
         let text = |rtf: &[u8]| import(rtf).map(|d| doc_paras(&d).iter().map(|p| p.text.clone()).collect::<Vec<_>>());
         // Old properties without an author: the text is kept and nothing else appears.
@@ -2883,6 +2945,11 @@ mod tests {
             Some("z")
         );
         assert_eq!(text(br"{\rtf1{\b\crauth1{\*\oldcprops {\*\oldcprops \i}\par x}y}\par}").unwrap().first().map(String::as_str), Some("y"));
+        // Border words in old properties don't edit the cell border being defined.
+        let f = parse(br"{\rtf1\ansi\trowd\clbrdrt\brdrs\brdrw10{\*\oldpprops \brdrdb\brdrw120\brdrcf1}\cellx2000\pard\intbl a\cell\row}").unwrap();
+        let FBlock::Table(t) = &f.blocks[0] else { panic!() };
+        let top = t.rows[0][0].borders.and_then(|b| b.top).unwrap();
+        assert_eq!((top.style, top.width, top.color), (wordcraft_doc::props::BorderStyle::Single, 0.5, None));
         // Unterminated groups and deep nesting.
         for bad in [
             &br"{\rtf1\pard\prauth1\prdate5{\*\oldpprops \pard\qc"[..],
