@@ -987,9 +987,10 @@ fn polish_covers_every_key_of_every_other_catalog() {
     use std::collections::HashSet;
     let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
     let polish = keys(lang("pl").0.source);
+    // Complete catalogs such as Korean also carry citation names and legacy labels that Polish omits.
     // Italian and Hungarian still carry "Style: APA", which the interface no longer shows;
     // Hungarian and Bulgarian also name the citation styles, and Bulgarian has a few one-line
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr")) {
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "ko")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
@@ -1550,4 +1551,43 @@ fn bundled_interface_fonts_cover_vietnamese_letters() {
         }
     }
     assert!(!lang("vi").uses_cjk());
+}
+
+#[test]
+fn korean_covers_catalog_contexts_and_preserves_templates() {
+    use std::collections::HashSet;
+    let ko = lang("ko");
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| (e.context, e.source)).collect::<HashSet<_>>();
+    let korean = keys(ko.0.source);
+    for other in Lang::all() {
+        let mut missing: Vec<_> = keys(other.0.source).difference(&korean).cloned().collect();
+        missing.sort();
+        assert!(missing.is_empty(), "ko lacks {}'s {missing:?}", other.code());
+    }
+    assert_eq!(trc(ko, "template", "Letter"), "편지");
+    assert_eq!(tr(ko, "Columns"), "단");
+    assert_eq!(tr(ko, "Professional"), "조판형");
+    assert_eq!(tr(ko, "Script"), "첨자");
+    assert_eq!(tr(ko, "unknown future label"), "unknown future label");
+    assert_eq!(fmt(tr(ko, "Auto ({percent}%)"), &[("percent", "125")]), "자동(125%)");
+    assert_eq!(fmt(tr(ko, "Exported {path}"), &[("path", "draft-{words}.docx")]), "draft-{words}.docx 내보냄");
+}
+
+#[test]
+fn korean_saved_preference_keeps_document_and_proofing_language() {
+    let ko = lang("ko");
+    for tag in ["ko", "ko-KR", "ko_KR.UTF-8", "KO-kr", "ko-KP"] {
+        assert_eq!(lang_from_tag(tag), Some(ko), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "ko-KR", "en-US"]), Some(ko));
+    assert_eq!(ko.editing_lang(), None);
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "KO"})).unwrap();
+    assert_eq!(result["effective"], "ko");
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(restored.language, "ko");
+    assert_eq!(Lang::from_pref(&restored.language), ko);
 }

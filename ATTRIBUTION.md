@@ -8,6 +8,7 @@ Generated-in-code art is original and has no file to list: the UI icon set (`cra
 
 | Asset | Author | Source | Licence | Notes |
 |---|---|---|---|---|
+| `crates/ui-egui/src/i18n/ko.tsv` | WordCraft contributors (@heogun; additions by @back2zion with Codex) | Original translations of the English interface keys in this repository | MIT OR Apache-2.0 | Korean catalog; 2,616 entries; independent native-speaker review pending |
 | `assets/hyphenation/en-us.pat` | DesignCraft contributors (generated) | trained from the Moby list by DesignCraft's patgen | Public Domain (CC0-1.0) | Our own Liang hyphenation patterns (no TeX patterns) |
 | `assets/hyphenation/en-us.dic` | Grady Ward (Moby Hyphenator II word list); converted by DesignCraft contributors | https://www.gutenberg.org/ebooks/3204 (file `mhyph.txt`, SHA-256 `eeb30474c86b8af3469035ec1a0913e35905325ca885290db9dfed9881e230ac`), via DesignCraft | Public Domain | ~165k words with break points; drives spelling and hyphenation |
 | `assets/spelling/en-extra.txt` | WordCraft contributors | original word list written for this repository (common modern words the Moby list lacks); no other dictionary copied | MIT OR Apache-2.0 | ~240 lowercase English base forms supplementing spelling (#520), including British spellings (#40) |
