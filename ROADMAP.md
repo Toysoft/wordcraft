@@ -113,10 +113,10 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Vietnamese | vi | partial (#1434) | ~95% |
 
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries); Swedish (`sv`) covers that too, plus 44 newer strings no other catalog has yet (2,504 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
-system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish, Italian and Czech proofing are not included. Hungarian (`hu`) has a
+system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish and Italian proofing are not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
 2,448-entry catalog, also without proofing.
-Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), chosen per run from its language. Word ships
+Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), plus Czech (system Hunspell spelling, generic checks), chosen per run from its language. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
 ## Upcoming
@@ -171,6 +171,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-14 | All Caps and Small Caps draw ß as SS, as Word does (#1581): "Straße" in All Caps reads STRASSE, not STRASE, and other letters whose capital is two characters (ﬀ, ŉ) draw in full. The ß is still one character: the caret never stops between the two S, and a click on them lands before or after it |
 | 2026-10-13 | Windows Magnifier follows the caret onto a new line: after Enter or Shift+Enter the view moves to the empty line at once, instead of staying on the line above until two more letters are typed (#1119) |
 | 2026-10-13 | A window too big for its screen shrinks to fit when it opens (#1215): on a laptop screen the first window reached under the taskbar or past the screen edge, with the end of the scroll bar, so dragging the scroll bar stopped where the pointer met the edge. A window saved that size is fitted on its next launch too |
+| 2026-10-14 | `layout.pageSetup` with a `section` checks its values like Margins, Size and Columns (#1582): non-finite numbers and margins that leave no room for text are refused with nothing changed; page sides, column count and gap, header/footer distances and line-numbering values are clamped to the same ranges |
 | 2026-10-13 | `wordcraft --control` checks its port (#1426): a missing port, one outside 1–65535 or one that isn't a number prints an error naming it and exits with status 2, instead of starting without the control channel (and dropping `WORDCRAFT_CONTROL_PORT`); a flag right after it, such as `--sample` or `--version`, is read as a flag rather than as the port |
 | 2026-10-14 | Text wrap (#1376): in the narrow strip beside a square-wrapped picture, a word that doesn't fit moves on whole to the next row; it used to be split across the strip ("docu" / "mentazione") |
 | 2026-10-14 | DOCX files with legacy VML preset shapes show them (#1377): Word's right arrow (`_x0000_t13`) and the other presets appear with their fill, outline and size, drawn as WordCraft draws the same DrawingML preset (the nearest shape when it has no exact one), and saving keeps them as DrawingML shapes; before, they were dropped |
@@ -280,6 +281,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Hide White Space (#645): `view.hideWhiteSpace` (View › Show checkbox, or double-click the gap between pages) collapses margins, headers and footers between pages to a thin line in Print Layout; screen only, page count unchanged |
 | 2026-10-11 | Fonts: Palatino Linotype and Book Antiqua fall back to Palatino (macOS) or TeX Gyre Pagella / P052 / URW Palladio (Linux) before generic serif (#670) |
 |---|---|
+| 2026-10-12 | Czech proofing: cs-CZ spelling reads the installed Hunspell dictionary (`hunspell-cs` on Debian/Ubuntu), suggestions use runtime MAP/REP/TRY/KEY tables, generic repeated-word and spacing checks explain in Czech; Review › Language offers Czech/Čeština; the Czech interface writes new documents and opened TXT/Markdown in cs-CZ. Affix headers accept trailing comments. No system dictionary data or Czech hyphenation patterns bundled; parity estimates unchanged |
 | 2026-10-12 | Tables: dragging the border of one selected cell (Select Cell, or a click along its left edge) moves it in that cell's row only, as in Word, like the border of cells selected across (#962) |
 | 2026-10-13 | Korean interface catalog completed: all 2,463 entries translated; the ko-KR system locale and saved language choice select the interface. The UI prefers Korean embedded/system font faces so Hangul renders instead of boxes, and print settings and printer feedback are translated. Korean proofing remains unavailable; macOS Korean IME fixes are still pending (#163, #164) |
 | 2026-10-12 | Word default shortcuts expanded (gap #24): 140 commands bound on macOS (169 combinations), 158 on Linux/Windows (188 combinations). Bound Style Inspector (Shift+F1), Macros (Alt+F8), Strikethrough (Mod+Shift+X), Find Next (Shift+F4), Copy/Paste (Mod+Insert, Shift+Insert), Go Back (Mod+Alt+Z), File Open/Save/Save As/Print (Mod+Alt+F2, Alt+Shift+F2, Alt+F2, Mod+Alt+I), Field navigation (Alt+F1, Alt+Shift+F1), Outline show first line (Alt+Shift+L), Next Footnote (Alt+Shift+>), Link to Previous (Alt+Shift+R), AutoText (Alt+F3), Spelling on Mac (Mod+Alt+L) |
@@ -399,6 +401,8 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
+| 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
+| 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |
 | 2026-10-12 | trivial | Progress log: one selected cell's border drags in its row only (#962) |
 | 2026-10-12 | minor | Progress log: Word default shortcuts expanded to 140 commands on macOS (169 combinations) and 158 on Linux/Windows (188 combinations), addressing gap #24 |
 | 2026-10-13 | trivial | Web/Draft long-page blur fixed with visible full-resolution raster tiles |
@@ -428,6 +432,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-14 | trivial | Progress log: All Caps and Small Caps draw ß as SS (#1581) |
 | 2026-10-13 | trivial | Progress log: Windows Magnifier follows the caret onto a new line (#1119) |
 | 2026-10-13 | trivial | Progress log: a window too big for its screen shrinks to fit (#1215) |
+| 2026-10-14 | trivial | Progress log: Page Setup sections are validated (#1582) |
 | 2026-10-13 | trivial | Progress log: `--control` checks its port (#1426) |
 | 2026-10-14 | trivial | Progress log: words beside a floating picture are no longer split (#1376) |
 | 2026-10-14 | trivial | Progress log: VML preset shapes (#1377) |
