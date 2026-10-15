@@ -246,6 +246,41 @@ pub fn split(
     });
 }
 
+/// A labelled split button in a single row, including when placed in a vertical ribbon stack.
+/// The label belongs to the command half; the adjacent arrow only opens its menu.
+pub fn split_labeled(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str, params: Value, menu: impl FnOnce(&mut Ui, &mut WordApp)) {
+    let label = tl!(label);
+    let t = Tokens::get(ui.ctx());
+    let on = enabled(app, id);
+    let (c, a, text) = if on { (t.icon, t.accent, t.text) } else { (t.text_disabled, t.text_disabled, t.text_disabled) };
+    let galley = ui.painter().layout_no_wrap(label.to_string(), regular(11.5), text);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        let (r, resp) = ui.allocate_exact_size(vec2(30.0 + galley.size().x, 22.0), Sense::click());
+        let (ar, aresp) = ui.allocate_exact_size(vec2(11.0, 22.0), Sense::click());
+        keytip_badge(ui, r, id, label);
+        bg(ui, r, &resp, false, &t);
+        bg(ui, ar, &aresp, false, &t);
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(17.0, 17.0)), icon, c, a);
+        ui.painter().galley(pos2(r.min.x + 24.0, r.center().y - galley.size().y / 2.0), galley, text);
+        icons::paint(ui.painter(), Rect::from_center_size(ar.center(), vec2(DROPDOWN, DROPDOWN)), "dropdown", c, a);
+        let resp = tooltip(app, resp, label, id);
+        let aresp = tooltip(app, aresp, label, id);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, label));
+        aresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, on, label));
+        command_menu(&resp, app, id);
+        if on && resp.clicked() {
+            run_from_ribbon(app, id, params);
+        }
+        if on {
+            egui::Popup::menu(&aresp).show(|ui| {
+                ui.set_min_width(180.0);
+                menu(ui, app);
+            });
+        }
+    });
+}
+
 /// Whether a menu button whose menu is about command `id` is on ("" = always).
 pub fn menu_enabled(app: &WordApp, id: &str) -> bool {
     id.is_empty() || enabled(app, id)

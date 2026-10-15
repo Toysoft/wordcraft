@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::colors::{Remember, Target};
 use crate::options::MeasureExt;
 use crate::theme::{Tokens, medium, regular, semibold};
-use crate::widgets::{CONTENT_H, LABEL_H, big, big_toggle, combo, font_combo, group, menu_button, small, split};
+use crate::widgets::{CONTENT_H, LABEL_H, big, big_toggle, combo, font_combo, group, menu_button, small, split, split_labeled};
 use crate::{WordApp, icons};
 
 pub const TABS: [&str; 13] = wordcraft_engine::ribbon::TABS;
@@ -2510,7 +2510,7 @@ fn table_design(app: &mut WordApp, ui: &mut Ui) {
                     ui.close();
                 }
             });
-            split(ui, app, "shading", "Shading", "table.shading", json!({"color": app.canvas.last_shading.clone()}), false, None, |ui, app| {
+            split_labeled(ui, app, "shading", "Shading", "table.shading", json!({"color": app.canvas.last_shading.clone()}), |ui, app| {
                 mi(ui, app, "No Color", "table.shading", json!({"color": null}));
                 let theme = app.session.doc.settings.theme_colors.clone();
                 crate::colors::menu(ui, app, &theme, Target::cmd("table.shading").remember(Remember::Shading));
@@ -2680,6 +2680,120 @@ fn table_layout(app: &mut WordApp, ui: &mut Ui) {
 mod tests {
     use super::*;
     use wordcraft_engine::Session;
+
+    fn table_design_harness(language: &str, theme: egui::Theme) -> egui_kittest::Harness<'static, WordApp> {
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+        app.run("ui.language", json!({"value": language})).unwrap();
+        app.run("ui.theme", json!({"value": if theme == egui::Theme::Dark { "dark" } else { "light" }})).unwrap();
+        egui_kittest::Harness::builder().with_size(vec2(1600.0, 700.0)).with_theme(theme).build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                assert_eq!(ctx.global_style().visuals.dark_mode, theme == egui::Theme::Dark, "the requested palette is active while drawing");
+                ui.horizontal_top(|ui| table_design(app, ui));
+            },
+            app,
+        )
+    }
+
+    /// #1726: the text must actually be painted, and both hit targets must share one row in
+    /// Table Styles' vertical stack. Accessibility labels alone cannot prove visible text.
+    #[test]
+    fn table_shading_label_is_painted_beside_its_arrow() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        for language in ["en", "vi", "de"] {
+            for theme in [egui::Theme::Light, egui::Theme::Dark] {
+                let mut h = table_design_harness(language, theme);
+                h.run_steps(3);
+                let label = tl!("Shading");
+                let main = h.get_by_role_and_label(Role::Button, label).rect();
+                let arrow = h.get_by_role_and_label(Role::ComboBox, label).rect();
+                assert!((main.top() - arrow.top()).abs() < 0.01 && (main.bottom() - arrow.bottom()).abs() < 0.01);
+                assert!((main.right() - arrow.left()).abs() < 0.01, "{language}: {main:?}, {arrow:?}");
+                let text = h
+                    .output()
+                    .shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        egui::Shape::Text(t) if t.galley.text() == label => Some(t),
+                        _ => None,
+                    })
+                    .expect("Shading is drawn as text, not just a hover tip");
+                let text_rect = Rect::from_min_size(text.pos, text.galley.size());
+                assert!(main.contains_rect(text_rect), "{language}: {text_rect:?} outside {main:?}");
+                assert!(text_rect.left() >= main.left() + 24.0, "the label starts after the icon");
+            }
+        }
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+    }
+
+    fn first_cell_shading(app: &WordApp) -> Option<wordcraft_doc::Rgb> {
+        app.session.doc.body.iter().find_map(|b| b.as_table()).unwrap().rows[0].cells[0].props.shading
+    }
+
+    fn painted_text_rect(output: &egui::FullOutput, text: &str) -> Option<Rect> {
+        output.shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == text => Some(Rect::from_min_size(t.pos, t.galley.size())),
+            _ => None,
+        })
+    }
+
+    /// #1726: the arrow opens the real colour menu without applying the remembered colour;
+    /// picking a swatch remembers it, and the command half reapplies it after one-step undo.
+    #[test]
+    fn table_shading_split_keeps_palette_and_apply_separate() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut h = table_design_harness("en", egui::Theme::Light);
+        h.state_mut().canvas.last_shading = "0070C0".into();
+        h.run_steps(3);
+        let original = first_cell_shading(h.state());
+        h.get_by_role_and_label(Role::ComboBox, "Shading").click();
+        h.run();
+        assert_eq!(first_cell_shading(h.state()), original, "opening the palette must not apply the last colour");
+        assert!(painted_text_rect(h.output(), "No Color").is_some(), "the arrow opens the shading palette");
+        // Swatches are drawn controls; locate the red standard swatch from its painted box.
+        let red = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Rect(r) if r.fill == egui::Color32::RED && r.rect.size() == vec2(15.0, 15.0) => Some(r.rect.center()),
+                _ => None,
+            })
+            .expect("red standard colour is visible in the palette");
+        h.hover_at(red);
+        h.drag_at(red);
+        h.drop_at(red);
+        h.run();
+        assert_eq!(first_cell_shading(h.state()), Some(wordcraft_doc::Rgb(255, 0, 0)));
+        assert_eq!(h.state().canvas.last_shading, "FF0000");
+        assert!(painted_text_rect(h.output(), "No Color").is_none(), "a colour pick closes the palette");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        h.run_steps(2);
+        assert_eq!(first_cell_shading(h.state()), original);
+        h.get_by_role_and_label(Role::Button, "Shading").click();
+        h.run();
+        assert_eq!(first_cell_shading(h.state()), Some(wordcraft_doc::Rgb(255, 0, 0)));
+        assert!(painted_text_rect(h.output(), "No Color").is_none(), "the command half must not open the palette");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(first_cell_shading(h.state()), original);
+        h.get_by_role_and_label(Role::Button, "Shading").click();
+        h.run();
+        assert_eq!(first_cell_shading(h.state()), Some(wordcraft_doc::Rgb(255, 0, 0)));
+        h.get_by_role_and_label(Role::ComboBox, "Shading").click();
+        h.run();
+        let clear = painted_text_rect(h.output(), "No Color").expect("No Color is visible in the palette").center();
+        h.hover_at(clear);
+        h.drag_at(clear);
+        h.drop_at(clear);
+        h.run();
+        assert_eq!(first_cell_shading(h.state()), None);
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(first_cell_shading(h.state()), Some(wordcraft_doc::Rgb(255, 0, 0)), "No Color is undone in one step");
+    }
 
     fn png_data() -> String {
         let img = image::RgbaImage::from_fn(20, 10, |x, y| {
