@@ -219,8 +219,8 @@ pub fn specs() -> Vec<CommandSpec> {
             } else {
                 return Err(CmdError::Params("`path` or `data` required".into()));
             };
-            wordcraft_render::image_size(&bytes).ok_or_else(|| CmdError::Failed("not a supported image".into()))?;
-            let key = s.doc.add_media(bytes.clone(), super::insert::image_ext(&bytes));
+            let (_, _, ext) = super::insert::picture_size(&bytes)?;
+            let key = s.doc.add_media(bytes, ext);
             with_obj(s, |o| {
                 if let InlineObject::Image { media, .. } = o {
                     *media = key.clone();

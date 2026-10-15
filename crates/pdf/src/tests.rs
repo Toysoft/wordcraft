@@ -1018,6 +1018,7 @@ fn bookmark_destination_is_the_page_of_its_start() {
         cmaps: HashMap::new(),
         images: HashMap::new(),
         vectors: HashMap::new(),
+        svgs: HashMap::new(),
         tags: Vec::new(),
         tag_index: HashMap::new(),
         links: Vec::new(),
@@ -1485,4 +1486,35 @@ fn bundled_unicode_glyphs_are_visible_and_extractable() {
     let bytes = export_layout(&d, &lay, &PdfOptions::default()).unwrap();
     assert!(String::from_utf8_lossy(&bytes).contains("/ToUnicode"));
     assert_eq!(squash(&extract_text(&bytes).concat()), TEXT);
+}
+
+/// #1910: an SVG picture is drawn into the PDF as vector paths, not as an image.
+#[test]
+fn svg_pictures_are_drawn_as_vector_paths() {
+    let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect x="20" width="20" height="40" fill="#ff0000"/></svg>"##;
+    let mut d = Document::new();
+    let media = d.add_media(svg.to_vec(), "svg");
+    let mut p = Paragraph::with_text("Figure: ", CharProps::default());
+    let n = p.len();
+    let obj = InlineObject::Image { media, w: 70.0, h: 70.0, alt: "red".into(), float: Default::default(), crop: [0.0; 4], ole: None };
+    p.insert_object(n, obj, &CharProps::default()).unwrap();
+    d.body = vec![para_block(p)];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap();
+    let raw = String::from_utf8_lossy(&bytes);
+    assert!(raw.contains("1 0 0 rg"), "the red rectangle is filled as a path");
+    assert!(!raw.contains("/Subtype /Image"), "no image XObject");
+    assert!(!raw.contains("0.8156"), "the grey placeholder box is not drawn");
+}
+
+/// A broken SVG picture is the grey box, and the export still succeeds.
+#[test]
+fn unreadable_svg_picture_is_the_grey_box() {
+    let mut d = Document::new();
+    let media = d.add_media(b"<svg xmlns=\"http://www.w3.org/2000/svg\"".to_vec(), "svg");
+    let mut p = Paragraph::new();
+    let obj = InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None };
+    p.insert_object(0, obj, &CharProps::default()).unwrap();
+    d.body = vec![para_block(p)];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("0.8156"), "the grey placeholder box is drawn");
 }

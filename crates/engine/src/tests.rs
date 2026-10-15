@@ -7232,3 +7232,52 @@ fn vertical_align_command_sets_justified() {
         assert_eq!(serde_json::to_value(crate::cmd::page::sect(&s)).unwrap()["valign"], json!(name));
     }
 }
+
+/// #1910: Insert › Picture takes SVG at its natural size (CSS pixels at 96 ppi), stored as SVG.
+#[test]
+fn insert_picture_takes_an_svg() {
+    let svg =
+        br##"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="48" viewBox="0 0 2 1"><rect width="1" height="1" fill="#ff0000"/></svg>"##;
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    let r = run(&mut s, "insert.picture", json!({"data": crate::cmd::insert::base64_encode(svg)}));
+    assert_eq!((r["width"].as_f64(), r["height"].as_f64()), (Some(72.0), Some(36.0)), "{r}");
+    let key = r["media"].as_str().unwrap().to_string();
+    assert!(key.ends_with(".svg"), "{key}");
+    assert_eq!(s.doc.media.get(&key).map(|b| b.as_slice()), Some(svg.as_slice()));
+    // Picture edits that need pixels refuse an SVG instead of failing on it.
+    for (id, v) in
+        [("picture.color", json!({"mode": "grayscale"})), ("picture.compress", json!({})), ("picture.corrections", json!({"brightness": 20}))]
+    {
+        assert!(s.run(id, &v).is_err(), "{id} on an SVG is an error");
+    }
+    assert_eq!(s.doc.media.get(&key).map(|b| b.as_slice()), Some(svg.as_slice()), "the SVG is untouched");
+}
+
+/// #1910: Change Picture takes an SVG too.
+#[test]
+fn picture_change_takes_an_svg() {
+    let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>"##;
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    run(&mut s, "insert.picture", json!({"data": crate::cmd::insert::base64_encode(&tiny_png())}));
+    run(&mut s, "picture.change", json!({"data": crate::cmd::insert::base64_encode(svg)}));
+    let mut media = String::new();
+    s.doc.objects_in_reading_order(&mut |o| {
+        if let wordcraft_doc::para::InlineObject::Image { media: m, .. } = o {
+            media = m.clone();
+        }
+    });
+    assert!(media.ends_with(".svg"), "{media}");
+}
+
+/// #1910: a malformed, hostile or oversized SVG is "not a supported image", never a panic.
+#[test]
+fn hostile_svg_pictures_are_refused() {
+    let deep = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}</svg>"#, "<g>".repeat(100_000));
+    let zero = br#"<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0"/>"#.to_vec();
+    for bad in [b"<svg".to_vec(), b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1e40\" height=\"1\"><g".to_vec(), deep.into_bytes(), zero] {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        let err = s.run("insert.picture", &json!({"data": crate::cmd::insert::base64_encode(&bad)})).unwrap_err();
+        assert!(err.to_string().contains("not a supported image"), "{err}");
+        assert!(s.doc.media.is_empty());
+    }
+}

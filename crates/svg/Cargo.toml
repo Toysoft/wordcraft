@@ -1,0 +1,13 @@
+[package]
+name = "wordcraft-svg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WordCraft SVG pictures: safe parsing (usvg), natural size and rasterising (resvg), no file or network access"
+
+[lints]
+workspace = true
+
+[dependencies]
+usvg = { workspace = true }
+resvg = { workspace = true }
