@@ -73,6 +73,8 @@ pub struct CanvasState {
     pub last_font_color: String,
     pub last_shading: String,
     pub open_url: Option<String>,
+    /// Review › Translate's popup, while open.
+    pub translate: Option<crate::translate::Popup>,
     /// Screen rects of pages last frame (for the control channel: page ↔ screen coordinates).
     pub page_rects: Vec<Rect>,
     /// Effective scale (screen points per document point).
@@ -205,6 +207,7 @@ impl Default for CanvasState {
             last_font_color: "C00000".into(),
             last_shading: "FFF2CC".into(),
             open_url: None,
+            translate: None,
             page_rects: Vec::new(),
             scale: PX_PER_PT,
             canvas_rect: None,
@@ -1582,6 +1585,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     {
         crate::mini_toolbar::show(app, ui.ctx(), sel, out.inner_rect);
     }
+    crate::translate::show(app, ui.ctx(), out.inner_rect);
     if app.session.view.read_mode {
         // Fixed navigation chrome, independent of the horizontally moving columns.
         let step = app.session.view.read_width * app.canvas.scale + GAP;
@@ -2860,6 +2864,9 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
                 }
             }
         });
+    }
+    if !app.session.sel.is_collapsed() {
+        item(ui, app, "Translate", "review.translateSelection", json!({}));
     }
     item(ui, app, "Font…", "ui.dialog", json!({"name": "font"}));
     item(ui, app, "Paragraph…", "ui.dialog", json!({"name": "paragraph"}));

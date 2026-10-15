@@ -628,6 +628,15 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("review.language", "Language", "Review › Language", language).params(
             r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default language)}"#,
         ),
+        // The app fetches the translation (the Translate popup); this puts it in place of the
+        // selection, so agents that translate themselves use the same command.
+        CommandSpec::new("review.translateSelection", "Translate", "Review › Language", |s, v| {
+            let text = p::req_str(v, "text")?.to_string();
+            super::type_text(s, &text)?;
+            sel_result(s)
+        })
+        .params(r#"{"text": string (the translation; replaces the selection)}"#)
+        .when(|s| s.sel.is_collapsed().then_some("Select the text to translate")),
         CommandSpec::new("review.showMarkup", "Show Markup", "Review › Tracking", |s, v| {
             s.view.show_markup = p::bool(v, "value").unwrap_or(!s.view.show_markup);
             s.relayout();
@@ -1850,6 +1859,17 @@ mod tests {
         s.run("caret.docEnd", &json!({})).unwrap();
         s.run("insert.quickParts", &json!({"insert": "m"})).unwrap();
         assert!(s.doc.plain_text(StoryRef::Body).ends_with("Membership"));
+    }
+
+    /// Translate puts the translation in place of the selection; it needs both.
+    #[test]
+    fn translate_replaces_the_selection() {
+        let mut s = Session::new(Document::from_text("Hello world"));
+        assert!(s.run("review.translateSelection", &json!({"text": "Xin chào"})).is_err(), "nothing selected");
+        s.run("select.text", &json!({"text": "Hello"})).unwrap();
+        assert!(s.run("review.translateSelection", &json!({})).is_err(), "no translation");
+        s.run("review.translateSelection", &json!({"text": "Xin chào"})).unwrap();
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Xin chào world");
     }
 
     /// #407 Language: the selection's language and "do not check", the default language and

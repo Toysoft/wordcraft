@@ -2624,3 +2624,6 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+	Google Cloud Translation API key:	Klíč API pro Google Cloud Translation:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Zadejte svůj klíč API pro Google Cloud Translation v nabídce Soubor › Možnosti › Jazyk. Vybraný text se k překladu odesílá společnosti Google. Nebo pro vyhledávání slov offline vložte slovník StarDict (soubory .ifo, .idx a .dict) do složky se slovníky v Soubor › Možnosti › Kontrola pravopisu.
+	Select less text: Translate takes up to {count} characters at a time.	Vyberte méně textu: Přeložit zpracuje najednou nejvýše tento počet znaků: {count}.

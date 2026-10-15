@@ -2632,3 +2632,6 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+	Google Cloud Translation API key:	API ključ za Google Cloud Translation:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Dodajte svoj API ključ za Google Cloud Translation u Datoteka › Mogućnosti › Jezik. Odabrani tekst šalje se Googleu na prijevod. Ili, za traženje riječi izvan mreže, stavite rječnik StarDict (datoteke .ifo, .idx i .dict) u mapu rječnika u Datoteka › Mogućnosti › Jezična provjera.
+	Select less text: Translate takes up to {count} characters at a time.	Odaberite manje teksta. Najviše znakova koje Prevedi obrađuje odjednom: {count}.

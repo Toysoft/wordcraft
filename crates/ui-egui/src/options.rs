@@ -424,6 +424,12 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     ui.add_space(8.0);
     section(ui, "Proofing language");
     note(ui, "Spelling and grammar are checked in English (United States).");
+    ui.add_space(8.0);
+    section(ui, "Translate");
+    ui.horizontal(|ui| {
+        ui.label(tl!("Google Cloud Translation API key:"));
+        ui.add(egui::TextEdit::singleline(&mut app.ui.translate_key).password(true).desired_width(260.0));
+    });
 }
 
 fn accessibility(app: &mut WordApp, ui: &mut Ui) {

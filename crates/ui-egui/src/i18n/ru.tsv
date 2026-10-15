@@ -2630,3 +2630,6 @@ preview	Title	Пример
 # Reading Mode column widths (#1040)
 	Narrow	Узкая
 	Medium	Средняя
+	Google Cloud Translation API key:	Ключ API Google Cloud Translation:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Добавьте свой ключ API Google Cloud Translation в разделе Файл › Параметры › Язык. Выделенный текст отправляется в Google для перевода. Или, чтобы искать слова без интернета, поместите словарь StarDict (файлы .ifo, .idx и .dict) в папку словарей в разделе Файл › Параметры › Правописание.
+	Select less text: Translate takes up to {count} characters at a time.	Выделите меньше текста. Максимум знаков для перевода за один раз: {count}.

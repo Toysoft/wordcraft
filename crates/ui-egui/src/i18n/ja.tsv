@@ -2233,3 +2233,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	狭い
 	Medium	中
+	Google Cloud Translation API key:	Google Cloud Translation の API キー:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Google Cloud Translation の API キーを [ファイル] › [オプション] › [言語] で追加してください。選択したテキストは翻訳のために Google に送信されます。オフラインで単語を調べるには、StarDict 辞書 (.ifo、.idx、.dict ファイル) を [ファイル] › [オプション] › [文章校正] の辞書フォルダーに置いてください。
+	Select less text: Translate takes up to {count} characters at a time.	選択するテキストを減らしてください。翻訳で一度に処理できるのは {count} 文字までです。

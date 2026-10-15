@@ -2641,3 +2641,6 @@ preview	Title	Esempio
 # Reading Mode column widths (#1040)
 	Narrow	Stretta
 	Medium	Media
+	Google Cloud Translation API key:	Chiave API di Google Cloud Translation:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Aggiungi la tua chiave API di Google Cloud Translation in File › Opzioni › Lingua. Il testo selezionato viene inviato a Google per essere tradotto. Oppure, per cercare le parole offline, metta un dizionario StarDict (file .ifo, .idx e .dict) nella cartella dei dizionari in File › Opzioni › Strumenti di correzione.
+	Select less text: Translate takes up to {count} characters at a time.	Seleziona meno testo: Traduci accetta al massimo {count} caratteri alla volta.

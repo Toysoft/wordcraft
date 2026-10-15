@@ -27,6 +27,10 @@ image = { workspace = true }
 # The system's preferred interface languages (#8) and region (#838). Native: OS APIs; wasm:
 # the browser's languages (`js`).
 sys-locale = { version = "0.3", features = ["js"] }
+# Review › Translate: one HTTPS request to Google Cloud Translation (native: ureq; wasm: fetch).
+ehttp = "0.7"
+# Translate Selection without a key: StarDict `.dict.dz` files are gzip.
+miniz_oxide = { workspace = true }
 
 # Linux only, where winit reports no system theme: the desktop portal's light/dark answer (see
 # `desktop_theme.rs`). Already in the tree, with these features, through egui's own accessibility

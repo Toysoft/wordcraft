@@ -2243,3 +2243,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Uska
 	Medium	Srednja
+	Google Cloud Translation API key:	API ključ za Google Cloud Translation:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Dodajte svoj API ključ za Google Cloud Translation u Fajl › Opcije › Jezik. Izabrani tekst se šalje Google-u radi prevoda. Ili, za traženje reči van mreže, stavite StarDict rečnik (datoteke .ifo, .idx i .dict) u fasciklu rečnika u Fajl › Opcije › Provera pisanja.
+	Select less text: Translate takes up to {count} characters at a time.	Izaberite manje teksta. Najviše znakova koje Prevedi obrađuje odjednom: {count}.

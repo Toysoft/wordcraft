@@ -2621,3 +2621,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+	Google Cloud Translation API key:	Ключ за API на Google Cloud Translation:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Добавете своя ключ за API на Google Cloud Translation от Файл › Опции › Език. Избраният текст се изпраща на Google за превод. Или, за да търсите думи офлайн, поставете речник StarDict (файлове .ifo, .idx и .dict) в папката с речници от Файл › Опции › Проверка.
+	Select less text: Translate takes up to {count} characters at a time.	Изберете по-малко текст: Превод обработва наведнъж най-много {count} знака.

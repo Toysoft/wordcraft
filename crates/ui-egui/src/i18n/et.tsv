@@ -2267,3 +2267,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Kitsas
 	Medium	Keskmine
+	Google Cloud Translation API key:	Google Cloud Translationi API-võti:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Lisage oma Google Cloud Translationi API-võti jaotises Fail › Valikud › Keel. Valitud tekst saadetakse tõlkimiseks Google'ile. Või sõnade võrguühenduseta otsimiseks pange StarDicti sõnastik (failid .ifo, .idx ja .dict) sõnastike kausta, mis on määratud jaotises Fail › Valikud › Keelekontroll.
+	Select less text: Translate takes up to {count} characters at a time.	Valige vähem teksti: Tõlgi töötleb korraga kuni {count} märki.

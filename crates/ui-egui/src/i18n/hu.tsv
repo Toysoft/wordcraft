@@ -2628,3 +2628,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	Keskeny
 	Medium	Közepes
+	Google Cloud Translation API key:	Google Cloud Translation API-kulcs:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Adja meg a Google Cloud Translation API-kulcsát a Fájl › Beállítások › Nyelv helyen. A kijelölt szöveget a WordCraft a fordításhoz elküldi a Google-nek. Vagy a szavak offline kereséséhez tegyen egy StarDict-szótárt (.ifo, .idx és .dict fájlok) a Fájl › Beállítások › Nyelvi ellenőrzés alatt megadott szótármappába.
+	Select less text: Translate takes up to {count} characters at a time.	Jelöljön ki kevesebb szöveget: a Fordítás egyszerre legfeljebb {count} karaktert dolgoz fel.

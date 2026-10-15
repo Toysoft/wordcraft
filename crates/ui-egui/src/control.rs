@@ -47,8 +47,11 @@ fn err(e: impl std::fmt::Display) -> Outcome {
 pub fn inspect(app: &mut WordApp, ctx: &egui::Context) -> Value {
     let r = ctx.content_rect();
     let caret = crate::canvas::caret_screen(app).map(|(p, h)| json!({"x": p.x, "y": p.y, "h": h}));
+    let mut ui = app.prefs();
+    // The user's translation API key stays out of the control channel (and so of MCP agents).
+    ui.translate_key.clear();
     json!({
-        "ui": app.prefs(),
+        "ui": ui,
         "view": app.session.view,
         "dialog": app.dialog.as_ref().map(|d| serde_json::to_value(d).unwrap_or_default()),
         "window": [r.width(), r.height()],

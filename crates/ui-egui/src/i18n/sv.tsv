@@ -2647,3 +2647,6 @@ preview	Title	Titel
 	Bottom Right Cell	Nedre högra cellen
 	Inside Horizontal Border	Inre vågrät kantlinje
 	Inside Vertical Border	Inre lodrät kantlinje
+	Google Cloud Translation API key:	API-nyckel för Google Cloud Translation:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Lägg till din API-nyckel för Google Cloud Translation under Arkiv › Alternativ › Språk. Den markerade texten skickas till Google för översättning. Eller, för att slå upp ord offline, lägg en StarDict-ordlista (filerna .ifo, .idx och .dict) i mappen för ordlistor under Arkiv › Alternativ › Korrektur.
+	Select less text: Translate takes up to {count} characters at a time.	Markera mindre text: Översätt hanterar högst {count} tecken åt gången.

@@ -2245,3 +2245,6 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+	Google Cloud Translation API key:	Google Cloud Translation API 密钥：
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	请在 文件 › 选项 › 语言 中添加你的 Google Cloud Translation API 密钥。所选文本会发送给 Google 进行翻译。或者，要离线查词，请将 StarDict 词典（.ifo、.idx 和 .dict 文件）放入“文件 › 选项 › 校对”中的词典文件夹。
+	Select less text: Translate takes up to {count} characters at a time.	请少选一些文本：翻译每次最多处理 {count} 个字符。

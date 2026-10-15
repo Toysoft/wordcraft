@@ -73,12 +73,14 @@ pub mod read_aloud;
 pub mod ribbon;
 pub mod ruler_tabs;
 pub mod scroll;
+pub mod stardict;
 pub mod system_clipboard;
 pub mod table_mouse;
 pub mod table_pen;
 pub mod table_resize;
 pub mod table_ruler;
 pub mod theme;
+pub mod translate;
 pub mod widgets;
 pub mod window_geometry;
 pub mod wordart_menus;
@@ -323,6 +325,10 @@ pub struct UiState {
     pub update_fields_before_print: bool,
     /// The custom dictionary (File › Options › Proofing, Add to Dictionary), kept between runs.
     pub dictionary: Vec<String>,
+    /// File › Options › Language: the user's Google Cloud Translation API key (Review › Translate).
+    pub translate_key: String,
+    /// The interface language code Translate last translated into; empty = the interface's.
+    pub translate_to: String,
 }
 
 /// The ribbon tab the app opens on, and the one it falls back to when the tab that was showing
@@ -378,6 +384,8 @@ impl Default for UiState {
             print_backgrounds: false,
             update_fields_before_print: false,
             dictionary: Vec::new(),
+            translate_key: String::new(),
+            translate_to: String::new(),
         }
     }
 }
@@ -754,6 +762,11 @@ impl WordApp {
         if id == "file.recover" && params.as_object().is_none_or(|p| p.is_empty()) {
             self.ui.backstage = true;
             self.ui.backstage_page = "recover".into();
+        }
+        // Translate without a translation opens the popup under the selection, which fetches one.
+        if id == "review.translateSelection" && params.get("text").is_none() && widgets::enabled(self, id) {
+            self.canvas.translate = Some(translate::Popup::new(self));
+            return Ok(json!({"pending": "translate"}));
         }
         // A button whose command needs input the user hasn't given yet opens its dialog (#240).
         if let Some(name) = input_dialog(id, &params)
@@ -2001,6 +2014,8 @@ impl WordApp {
         if self.session.view.focus_mode && self.dialog.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
             let _ = self.run("view.focus", json!({"value": false}));
         }
+        // The back arrow closes the Backstage mid-frame; the page is only drawn from next frame.
+        let page_drawn = !self.ui.backstage && self.has_document();
         if self.ui.backstage {
             backstage::show(self, ui);
         } else if !self.has_document() {
@@ -2029,7 +2044,7 @@ impl WordApp {
         read_aloud::show(self, &ctx);
         crate::keytips::show(self, &ctx, ui);
         keys::global_shortcuts(self, &ctx);
-        self.refocus_after_chrome_click(&ctx);
+        self.refocus_after_chrome_click(&ctx, page_drawn);
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
@@ -2076,8 +2091,10 @@ impl WordApp {
     /// on any click elsewhere; only a click that left nothing focused counts, so a text field
     /// (font size, zoom, command search) keeps the focus it took, and clicks on a dialog, menu or
     /// popup, or while one is open, leave focus alone. Clicks on the page are the canvas's own.
-    fn refocus_after_chrome_click(&mut self, ctx: &egui::Context) {
-        if self.ui.backstage || self.dialog.is_some() || self.colors.is_some() {
+    /// `page_drawn`: focusing a canvas that wasn't drawn this frame points AccessKit at a missing
+    /// node, which panics (the back arrow closed the app).
+    fn refocus_after_chrome_click(&mut self, ctx: &egui::Context, page_drawn: bool) {
+        if !page_drawn || self.ui.backstage || self.dialog.is_some() || self.colors.is_some() {
             return;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -3734,6 +3751,33 @@ mod tests {
         let (req, _reply) = ControlRequest::new("ui.wheel", json!({"x": at.x}));
         let control::Outcome::Done(v) = control::handle(&mut a, &ctx, &req) else { panic!("ui.wheel replies at once") };
         assert_eq!(v["ok"], false, "y is required: {v}");
+    }
+
+    #[test]
+    fn translate_popup_closes_when_another_selection_is_made() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "Hello world"})).unwrap();
+        a.run("select.text", json!({"text": "Hello"})).unwrap();
+        a.run("review.translateSelection", json!({})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let frame = |a: &mut WordApp| {
+            let input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| translate::show(a, ui.ctx(), screen)).drop_without_applying_deltas();
+        };
+        frame(&mut a);
+        assert!(a.canvas.translate.is_some(), "open while its text stays selected");
+        a.run("select.text", json!({"text": "world"})).unwrap();
+        frame(&mut a);
+        assert!(a.canvas.translate.is_none(), "selecting other text closes it");
+    }
+
+    #[test]
+    fn ui_inspect_keeps_the_translate_key_secret() {
+        let mut a = app();
+        a.ui.translate_key = "s3cret-key".into();
+        let v = control::inspect(&mut a, &egui::Context::default());
+        assert!(!v.to_string().contains("s3cret-key"), "{v}");
     }
 
     /// Issue #123: zoomed out, pages sit side by side, and clicks map to the page under the pointer.

@@ -2672,3 +2672,6 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+	Google Cloud Translation API key:	Khóa API Google Cloud Translation:
+	Add your Google Cloud Translation API key in File › Options › Language. The selected text is sent to Google to translate it. Or, to look words up offline, put a StarDict dictionary (.ifo, .idx and .dict files) in the dictionaries folder in File › Options › Proofing.	Hãy nhập khóa API Google Cloud Translation trong Tệp › Tùy chọn › Ngôn ngữ. Đoạn văn bản đã chọn sẽ được gửi tới Google để dịch. Hoặc, để tra từ ngoại tuyến, hãy đặt một từ điển StarDict (các tệp .ifo, .idx và .dict) vào thư mục từ điển trong Tệp › Tùy chọn › Hiệu đính.
+	Select less text: Translate takes up to {count} characters at a time.	Hãy chọn ít văn bản hơn: mỗi lần Dịch chỉ nhận tối đa {count} ký tự.
