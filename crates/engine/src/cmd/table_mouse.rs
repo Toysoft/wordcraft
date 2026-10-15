@@ -186,7 +186,10 @@ fn row_bar(l: &DocLayout, doc: &Document, page: usize, geom: &ResizeTarget, y: f
     }
     let rtl = t.props.bidi_visual;
     let blocked = wordcraft_layout::hit::page_lines(p, StoryRef::Body).iter().any(|ln| {
-        ln.path.0.len() <= 1 && ln.top < row.bottom && ln.bottom > row.top && if rtl { ln.right > geom.right() } else { ln.left < geom.left() }
+        ln.path.0.len() <= 1
+            && ln.top < row.bottom - 0.5
+            && ln.bottom > row.top + 0.5
+            && if rtl { ln.right > geom.right() } else { ln.left < geom.left() }
     });
     if blocked {
         return None;
@@ -851,6 +854,18 @@ mod tests {
         let r0 = cell_rect(&mut s, 0, 0);
         assert!(r0.x > 300.0, "the table floats at the right: {r0:?}");
         assert_eq!(spot_at(&mut s, 10.0, mid_y(r0)), None, "the text wrapped beside it has the line bar");
+    }
+
+    /// A paragraph right above the table (no space after) doesn't hide the first row's bar.
+    #[test]
+    fn a_paragraph_flush_above_the_table_keeps_the_row_bar() {
+        let mut d = Document::from_text("Above");
+        d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().props.space_after = Some(0.0);
+        d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(Table::new(2, 2, 400.0))).unwrap();
+        let mut s = Session::new(d);
+        let r0 = cell_rect(&mut s, 0, 0);
+        assert_eq!(spot_at(&mut s, 10.0, mid_y(r0)), Some(Spot::Row(0)));
+        assert_eq!(spot_at(&mut s, 10.0, r0.y + 0.3), Some(Spot::Row(0)), "even at the very top of the row");
     }
 
     /// The insert buttons add a row or column at their border, one undo step, and select it (as

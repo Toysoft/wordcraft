@@ -122,7 +122,9 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
 
 /// Whether the selection's anchor (or its selected cells) is in the table at `tp`.
 fn in_table(app: &WordApp, tp: &wordcraft_doc::Path) -> bool {
-    app.session.cell_range().is_some_and(|c| &c.table == tp) || app.session.sel.anchor.path.cell().is_some_and(|(t, ..)| &t == tp)
+    let body = |story| story == wordcraft_doc::StoryRef::Body;
+    app.session.cell_range().is_some_and(|c| body(c.story) && &c.table == tp)
+        || (body(app.session.sel.anchor.story) && app.session.sel.anchor.path.cell().is_some_and(|(t, ..)| &t == tp))
 }
 
 /// The pointer: the move arrows on the handle, the plain arrow on an insert button; over a
