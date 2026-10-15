@@ -2632,3 +2632,6 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+
+# New setting, added for #1934 (middle click pastes the primary selection on Linux).
+	Use the middle mouse button to paste instead of autoscroll	Koristite srednji gumb miša za lijepljenje umjesto automatskog pomicanja
