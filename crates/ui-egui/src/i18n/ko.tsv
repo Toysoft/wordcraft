@@ -250,7 +250,7 @@
 	Colors	색
 	Column	열
 	Column Break	단 나누기
-	Columns	열
+	Columns	단
 	Combine	결합
 	Commands	명령
 	Comment	댓글
@@ -1066,10 +1066,10 @@
 	Close Equation	수식 닫기
 	Insert New Equation	새 수식 삽입
 	Built-In	기본 제공
-	Professional	전문가용
+	Professional	조판형
 	Linear	선형
 	Fraction	분수
-	Script	스크립트
+	Script	첨자
 	Radical	근호
 	Integral	적분
 	Large\nOperator	큰\n연산자
@@ -2141,7 +2141,7 @@
 	URGENT	긴급
 	Plain Table 1	일반 표 1
 	Grid Table 1 Light	눈금 표 1 밝게
-	Convert between built-up and linear form	전문 형식과 선형 형식 간 전환
+	Convert between built-up and linear form	조판 형식과 선형 형식 간 전환
 	Justification of a display equation	별도 행 수식의 맞춤
 	Number the equation; the number sits at the right margin (or type # then the number)	수식에 번호를 매깁니다. 번호는 오른쪽 여백에 놓입니다 (또는 #를 입력한 다음 번호를 입력하세요)
 	Show the equation in the line of text	수식을 텍스트 줄 안에 표시
@@ -2346,9 +2346,9 @@
 	Yields	결과
 	x bar	x 윗줄
 	All - Linear	모두 - 선형
-	All - Professional	모두 - 전문
+	All - Professional	모두 - 조판형
 	Current - Linear	현재 - 선형
-	Current - Professional	현재 - 전문
+	Current - Professional	현재 - 조판형
 	Centered as Group	그룹으로 가운데 맞춤
 	✓ None	✓ 없음
 	Typing	입력
@@ -2488,3 +2488,136 @@ preview	Title	제목
 	Bottom Right Cell	오른쪽 아래 셀
 	Inside Horizontal Border	안쪽 가로 테두리
 	Inside Vertical Border	안쪽 세로 테두리
+
+# Additional interface labels, translated from the English keys (2026-10-15).
+	APA	APA
+	Account	계정
+	Add Condition	조건 추가
+	Add whether it is above or below	위쪽 또는 아래쪽 여부 포함
+	And	그리고
+	Ascending	오름차순
+	Auto ({percent}%)	자동({percent}%)
+	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10.12인치 × 14.33인치
+	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7.17인치 × 10.12인치
+	Chicago	Chicago
+	Column width	단 너비
+	Compare to	비교할 값
+	Comparison	비교
+	Contains	포함
+	Croatian	크로아티아어
+	Custom size	사용자 지정 크기
+	Descending	내림차순
+	Dictionaries	사전
+	Dictionaries folder:	사전 폴더:
+	Document name	문서 이름
+	Does not contain	포함하지 않음
+	Edit Document	문서 편집
+	Enter bookmark name:	책갈피 이름 입력:
+	Envelope #10	봉투 #10
+	Envelope #10   4.12" × 9.50"	봉투 #10   4.12인치 × 9.50인치
+	Envelope DL	봉투 DL
+	Envelope DL   4.33" × 8.66"	봉투 DL   4.33인치 × 8.66인치
+	Equal to	같음
+	Executive   7.25" × 10.50"	Executive   7.25인치 × 10.50인치
+	Existing File or Web Page	기존 파일 또는 웹 페이지
+	Filter and Sort	필터 및 정렬
+	Find “{text}” in the document	문서에서 “{text}” 찾기
+	For which item:	참조할 항목:
+	Full\nScreen	전체\n화면
+	GB/T 7714	GB/T 7714
+	GOST (name sort)	GOST(이름순)
+	GOST (title sort)	GOST(제목순)
+	Go to what:	이동 대상:
+	Greater than	보다 큼
+	Greater than or equal	크거나 같음
+	Harvard (Anglia)	Harvard (Anglia)
+	Heading	제목
+	Heading text	제목 텍스트
+	Hidden bookmarks	숨겨진 책갈피
+	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	이 폴더의 Hunspell .aff 및 .dic 파일(pl_PL, pt_BR, it_IT, hr_HR, tr_TR)을 시스템 사전보다 먼저 사용합니다.
+	IEEE	IEEE
+	ISO 690 (author-date)	ISO 690(작성자-날짜)
+	ISO 690 (numerical)	ISO 690(번호)
+	In the margin	여백에 표시
+	Insert reference to:	삽입할 참조 내용:
+	Is blank	비어 있음
+	Is not blank	비어 있지 않음
+	Language Preferences…	언어 기본 설정…
+	Large	크게
+	Leave out the date and time of comments and tracked changes when saving	저장할 때 댓글 및 추적된 변경 내용의 날짜와 시간 제외
+	Legal   8.50" × 14.00"	Legal   8.50인치 × 14.00인치
+	Less than	보다 작음
+	Less than or equal	작거나 같음
+	Letter   8.50" × 11.00"	Letter   8.50인치 × 11.00인치
+	Limit and	극한 및
+	Link to:	연결 대상:
+	Log	로그
+	MLA	MLA
+	Makes the ribbon, menus and dialogs larger or smaller. Auto follows your system's display scaling; 100% is one screen pixel per point. Document zoom is separate.	리본, 메뉴 및 대화 상자의 크기를 조절합니다. 자동은 시스템의 디스플레이 배율을 따르며, 100%는 1포인트를 화면의 1픽셀로 표시합니다. 문서 확대/축소는 별도로 설정합니다.
+	Mirror margins	대칭 여백
+	More Paper Sizes…	기타 용지 크기…
+	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	이동하는 개체를 페이지 가장자리와 가운데, 여백 및 다른 개체에 맞춥니다. Alt 키를 누르면 자유롭게 이동할 수 있습니다.
+	No document is open. Create a document or open one first.	열린 문서가 없습니다. 먼저 문서를 만들거나 여세요.
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	{language} 맞춤법 사전이 설치되어 있지 않아 검사하지 않습니다. WordCraft는 WORDCRAFT_DICTIONARIES 폴더와 시스템의 기본 위치에서 Hunspell 사전 {name}을(를) 찾습니다.
+	Not equal to	같지 않음
+	Not set: the system's usual places	설정되지 않음: 시스템의 기본 위치 사용
+	Number only, without the label's words	레이블 없이 번호만
+	Only for the selected text	선택한 텍스트에만 적용
+	Or	또는
+	Paper	용지
+	Paper size:	용지 크기:
+	Place in This Document	현재 문서의 위치
+	Print settings	인쇄 설정
+	Privacy for this document	이 문서의 개인 정보
+	Reading Mode	읽기 모드
+	Recover	복구
+	Reference type:	참조 유형:
+	Remove condition	조건 제거
+	Remove my name from comments, changes and file properties when saving	저장할 때 댓글, 변경 내용 및 파일 속성에서 내 이름 제거
+	Rename	이름 바꾸기
+	Researcher needs an online service; WordCraft keeps your documents offline.	자료 조사에는 온라인 서비스가 필요합니다. WordCraft는 문서를 오프라인으로 유지합니다.
+	SIST02	SIST02
+	Saving {name} was cancelled, so it is still open and nothing was lost.	{name} 저장을 취소했습니다. 문서는 계속 열려 있으며 내용은 유지됩니다.
+	Set Proofing Language…	교정 언어 설정…
+	Show alignment guides when moving pictures and shapes	그림과 도형을 이동할 때 맞춤 안내선 표시
+	Show its list number	목록 번호 표시
+	Show its number relative to this field	이 필드를 기준으로 한 상대 번호 표시
+	Show its number with all higher levels	상위 수준을 모두 포함한 번호 표시
+	Sort by	정렬 기준
+	Sort by:	정렬 기준:
+	Statement   5.50" × 8.50"	Statement   5.50인치 × 8.50인치
+	Style name:	스타일 이름:
+	Style: APA	스타일: APA
+	Submit print job	인쇄 작업 전송
+	Suggested	추천
+	Tabloid   11.00" × 17.00"	Tabloid   11.00인치 × 17.00인치
+	Take the last match on the page	페이지에서 마지막으로 일치하는 항목 사용
+	Text of the nearest paragraph with a given style (running headers)	지정한 스타일이 적용된 가장 가까운 단락의 텍스트(자동 머리글)
+	Text size	텍스트 크기
+	The document you are editing keeps the names and dates; only the saved file leaves them out.	편집 중인 문서에는 이름과 날짜가 유지되며, 저장된 파일에서만 제외됩니다.
+	The margins don't fit on a page this size; make the margins smaller first.	이 용지 크기에는 여백이 너무 큽니다. 먼저 여백을 줄이세요.
+	Then by	다음 정렬 기준
+	These settings will be used for new documents.	새 문서에 이 설정을 사용합니다.
+	This document has no bookmarks.	이 문서에는 책갈피가 없습니다.
+	Trust Center	보안 센터
+	Turabian	Turabian
+	Type +2 or -1 to move from the page you are on.	현재 페이지를 기준으로 이동하려면 +2 또는 -1을 입력하세요.
+	Type a page number, or +2 / -1.	페이지 번호 또는 +2 / -1을 입력하세요.
+	Use the browser's full screen (F11)	브라우저 전체 화면 사용(F11)
+	Wait for the print job to finish submitting before closing.	인쇄 작업 전송이 완료된 뒤 닫으세요.
+	Waiting for the save to finish…	저장 완료 대기 중…
+	Word 2003 XML Document (*.xml)	Word 2003 XML 문서 (*.xml)
+	can't split at the first row	첫 행에서는 표를 나눌 수 없습니다
+	select two or more cells to merge	병합할 셀을 두 개 이상 선택하세요
+	there is no ink to replay	재생할 잉크가 없습니다
+	there's no citation after the caret	캐럿 뒤에 인용이 없습니다
+	this item is already at the top level	이 항목은 이미 최상위 수준입니다
+	{count} of {total} recipients will be merged.	전체 받는 사람 {total}명 중 {count}명을 병합합니다.
+	{kind}, {columns} × {rows}, {size} ({paper})	{kind}, {columns} × {rows}, {size} ({paper})
+	{language} (no dictionary)	{language}(사전 없음)
+	{language}: no dictionary found	{language}: 사전을 찾을 수 없음
+	{language}: {file}	{language}: {file}
+	{name}   {height} × {width} in	{name}   {height} × {width}인치
+	{name}   {height} × {width} mm	{name}   {height} × {width}mm
+	{width} × {height} mm	{width} × {height}mm
+template	Letter	편지
