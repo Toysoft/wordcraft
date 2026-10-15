@@ -2484,7 +2484,7 @@ mod tests {
             let n = p.len();
             p.insert_text(n, " page ", &CharProps::default()).unwrap();
             let n = p.len();
-            let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() };
+            let field = InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() };
             p.insert_object(n, field, &CharProps::default()).unwrap();
             d.body = vec![para_block(p)];
             d
