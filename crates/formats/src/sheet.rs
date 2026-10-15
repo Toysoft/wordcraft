@@ -763,22 +763,46 @@ fn iso_datetime(v: &str) -> Option<String> {
     Some(out)
 }
 
-/// An ISO 8601 duration time (`PT13H45M00S`) as `hh:mm[:ss]`.
+/// An ISO 8601 duration time (`PT13H45M00S`) or clock time (`13:45:00`) as `hh:mm[:ss]`.
 fn iso_time(v: &str) -> Option<String> {
-    let t = v.trim().strip_prefix("PT")?;
-    let (mut h, mut m, mut s) = (0u64, 0u64, 0f64);
-    let mut num = String::new();
-    for c in t.chars() {
-        match c {
-            'H' => h = std::mem::take(&mut num).parse().ok()?,
-            'M' => m = std::mem::take(&mut num).parse().ok()?,
-            'S' => s = std::mem::take(&mut num).parse().ok()?,
-            c if num.len() < 20 => num.push(c),
-            _ => return None,
+    let s = v.trim();
+    if let Some(rest) = s.strip_prefix('P') {
+        let (mut d, mut h, mut m, mut sec) = (0u64, 0u64, 0u64, 0f64);
+        let (days_part, time_part) = rest.split_once('T').unwrap_or(("", rest));
+        let mut num = String::new();
+        for c in days_part.chars() {
+            match c {
+                'D' => d = std::mem::take(&mut num).parse().ok()?,
+                c if num.len() < 20 => num.push(c),
+                _ => return None,
+            }
+        }
+        num.clear();
+        for c in time_part.chars() {
+            match c {
+                'H' => h = std::mem::take(&mut num).parse().ok()?,
+                'M' => m = std::mem::take(&mut num).parse().ok()?,
+                'S' => sec = std::mem::take(&mut num).parse().ok()?,
+                c if num.len() < 20 => num.push(c),
+                _ => return None,
+            }
+        }
+        h = h.saturating_add(d.saturating_mul(24));
+        let mut s = sec.round() as u64;
+        m = m.saturating_add(s / 60);
+        s %= 60;
+        h = h.saturating_add(m / 60);
+        m %= 60;
+        return Some(if s == 0 { format!("{h:02}:{m:02}") } else { format!("{h:02}:{m:02}:{s:02}") });
+    }
+    let parts: Vec<u32> = s.split(':').filter_map(|p| p.parse().ok()).collect();
+    if let [h, m, rest @ ..] = parts.as_slice() {
+        let s = rest.first().copied().unwrap_or(0);
+        if *h < 24 && *m < 60 && s < 60 {
+            return Some(if s == 0 { format!("{h:02}:{m:02}") } else { format!("{h:02}:{m:02}:{s:02}") });
         }
     }
-    let s = s.round() as u64;
-    Some(if s == 0 { format!("{h:02}:{m:02}") } else { format!("{h:02}:{m:02}:{s:02}") })
+    None
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1065,5 +1089,11 @@ mod tests {
         assert_eq!(serial_date(-1.0, false, DateKind::Date), None);
         assert_eq!(number(1234567.0), "1234567");
         assert_eq!(number(0.1 + 0.2), "0.3");
+        assert_eq!(iso_time("PT13H45M59.8S").as_deref(), Some("13:46"));
+        assert_eq!(iso_time("PT59.9S").as_deref(), Some("00:01"));
+        assert_eq!(iso_time("PT1H90M").as_deref(), Some("02:30"));
+        assert_eq!(iso_time("P1DT2H30M").as_deref(), Some("26:30"));
+        assert_eq!(iso_time("13:45:00").as_deref(), Some("13:45"));
+        assert_eq!(iso_time("13:45:30").as_deref(), Some("13:45:30"));
     }
 }
