@@ -15,7 +15,7 @@ pub(super) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     // A new document gets the usual mode (0666 less the umask); a replaced one keeps its own,
     // and its temporary file stays private until that mode is applied.
     let private = permissions.is_some();
-    replace_with(path, private, |file| {
+    let written = replace_with(path, private, |file| {
         file.write_all(bytes)?;
         if let Some(permissions) = permissions {
             file.set_permissions(permissions)?;
@@ -23,13 +23,39 @@ pub(super) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         // Synchronize the prepared file before replacing the destination. Directory durability
         // and network-filesystem/power-loss guarantees are outside this operation's contract.
         file.sync_all()
-    })
+    });
+    written.map_err(explain)
 }
 
 fn replace_with(path: &Path, private: bool, prepare: impl FnOnce(&mut File) -> io::Result<()>) -> io::Result<()> {
-    let mut temp = Temporary::create(path, private)?;
+    let mut temp = match Temporary::create(path, private) {
+        Ok(temp) => temp,
+        // macOS only lets an app write the file picked in the Save panel inside a protected
+        // folder (Desktop, Documents, Downloads, iCloud Drive), not a sibling temporary file
+        // (#2138); a read-only folder with a writable file refuses it too. Write the file itself:
+        // without a temporary file there is nothing else to protect the original with.
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+            return prepare(&mut file);
+        }
+        Err(e) => return Err(e),
+    };
     prepare(temp.file()?)?;
     temp.commit(path)
+}
+
+/// A permission error on macOS usually means its privacy protection keeps WordCraft out of the
+/// folder; say where to allow it.
+fn explain(e: io::Error) -> io::Error {
+    if cfg!(target_os = "macos") && e.kind() == io::ErrorKind::PermissionDenied {
+        return io::Error::new(
+            e.kind(),
+            format!(
+                "{e}. macOS may be blocking WordCraft from this folder: allow it in System Settings › Privacy & Security › Files and Folders, or save somewhere else"
+            ),
+        );
+    }
+    e
 }
 
 struct Temporary {
@@ -165,6 +191,27 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), b"Exported bytes.");
         assert_eq!(fs::read(&alias).unwrap(), b"Original bytes.");
         assert_eq!(fs::read_dir(&d.0).unwrap().count(), 2);
+    }
+
+    /// #2138: where no sibling temporary file may be created (macOS privacy protection, or a
+    /// read-only folder) but the chosen file is writable, the save writes the file itself.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_refusing_the_temporary_file_still_saves_the_chosen_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = Scratch::new();
+        let path = d.target();
+        fs::write(&path, b"Original bytes.").unwrap();
+        fs::set_permissions(&d.0, fs::Permissions::from_mode(0o555)).unwrap();
+        let probe = fs::write(d.0.join("probe"), b"");
+        let saved = write(&path, b"Saved bytes.");
+        fs::set_permissions(&d.0, fs::Permissions::from_mode(0o755)).unwrap();
+        if probe.is_ok() {
+            return; // Running as root: the folder isn't read-only to us.
+        }
+        saved.unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"Saved bytes.");
+        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 1);
     }
 
     #[cfg(unix)]
