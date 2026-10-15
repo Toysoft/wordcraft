@@ -167,9 +167,20 @@ fn vectors() -> &'static Mutex<MediaCache<Option<Arc<Vector>>>> {
     C.get_or_init(|| Mutex::new(MediaCache { map: HashMap::new(), bytes: 0 }))
 }
 
-/// Decode an encoded image to a premultiplied pixmap.
+/// Largest side (pixels) a document picture may decode to: what a `Pixmap` can hold (`u16`
+/// sides, which [`premul_pixmap`] enforces after decoding). Applying it as a decode limit rejects
+/// a small file that declares a bigger image at header time, before anything is allocated.
+const MAX_DECODE_SIDE: u32 = u16::MAX as u32;
+
+/// Decode an encoded image to a premultiplied pixmap. The dimension limit above and the default
+/// allocation cap (512 MB, what `load_from_memory` applied) bound the decode during paint.
 pub fn decode_pixmap(bytes: &[u8]) -> Option<Pixmap> {
-    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DECODE_SIDE);
+    limits.max_image_height = Some(MAX_DECODE_SIDE);
+    reader.limits(limits);
+    let img = reader.decode().ok()?.to_rgba8();
     let (w, h) = img.dimensions();
     premul_pixmap(w, h, img.as_raw())
 }
@@ -331,6 +342,37 @@ fn device_pixel(view: Affine) -> f64 {
     if scale.is_finite() && scale > 1e-9 { 1.0 / scale } else { 1.0 }
 }
 
+/// Largest page-background picture decoded, in pixels (hostile files).
+const MAX_BACKGROUND_PIXELS: u64 = 64 * 1024 * 1024;
+
+/// Draw the page's picture or texture fill (Design › Page Color › Fill Effects) behind the content:
+/// tiled at its natural size (96 dpi) for a `tile` fill, stretched over the page otherwise.
+fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view: Affine) {
+    let Some(pic) = &doc.settings.page_picture else { return };
+    let Some(bytes) = doc.media.get(&pic.media) else { return };
+    match image_size(bytes) {
+        Some((w, h)) if w > 0 && h > 0 && (w as u64) * (h as u64) <= MAX_BACKGROUND_PIXELS => {}
+        _ => return,
+    }
+    let Some(pm) = pixmap_for(doc, &pic.media) else { return };
+    let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
+    let (w, h) = (page.w as f64, (page.h as f64).min(1e6));
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return;
+    }
+    let tile = pic.fill_type.eq_ignore_ascii_case("tile");
+    let (sx, sy) = if tile { (0.75, 0.75) } else { (w / pw, h / ph) };
+    let extend = if tile { peniko::Extend::Repeat } else { peniko::Extend::Pad };
+    ctx.set_transform(view);
+    ctx.set_paint(vello_cpu::Image {
+        image: vello_cpu::ImageSource::Pixmap(pm),
+        sampler: peniko::ImageSampler::default().with_quality(peniko::ImageQuality::Medium).with_extend(extend),
+    });
+    ctx.set_paint_transform(Affine::scale_non_uniform(sx, sy));
+    ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w, h));
+    ctx.reset_paint_transform();
+}
+
 fn pixmap_for(doc: &Document, key: &str) -> Option<Arc<Pixmap>> {
     let bytes = doc.media.get(key)?;
     if let Some(v) = lock(images()).get(key, bytes) {
@@ -458,6 +500,7 @@ pub fn render_region(doc: &Document, page: &Page, w: u32, h: u32, view: Affine, 
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(color(opts.ink(doc.settings.page_color.unwrap_or(opts.paper)), 1.0));
     ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64));
+    draw_page_picture(&mut ctx, doc, page, view);
     let items = page_display(doc, page, &opts.display);
     let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
     if let Some(wm) = &doc.settings.watermark {
@@ -767,7 +810,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 gx += face.advance(gid) * k;
             }
         }
-        Draw::Image { rect, media, crop, alpha } => {
+        Draw::Image { rect, media, crop, alpha, .. } => {
             let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
             if !r.overlaps(*visible) {
                 return;
@@ -995,7 +1038,16 @@ pub fn shape_path(kind: ShapeKind, r: kurbo::Rect, corner: Option<u32>) -> BezPa
             kurbo::RoundedRect::from_rect(r, f64::from(radius)).to_path(0.1)
         }
         ShapeKind::Ellipse => kurbo::Ellipse::from_rect(r).to_path(0.1),
+        ShapeKind::FlowchartOr => {
+            let mut p = kurbo::Ellipse::from_rect(r).to_path(0.1);
+            p.move_to((r.x0, cy));
+            p.line_to((r.x1, cy));
+            p.move_to((cx, r.y0));
+            p.line_to((cx, r.y1));
+            p
+        }
         ShapeKind::Triangle => poly(&[(cx, r.y0), (r.x1, r.y1), (r.x0, r.y1)]),
+        ShapeKind::RightTriangle => poly(&[(r.x0, r.y0), (r.x1, r.y1), (r.x0, r.y1)]),
         ShapeKind::Diamond => poly(&[(cx, r.y0), (r.x1, cy), (cx, r.y1), (r.x0, cy)]),
         // DrawingML's `line`: top-left to bottom-right (flips give the other directions).
         ShapeKind::Line => {
@@ -1255,6 +1307,28 @@ mod tests {
         assert!(b as f64 > a as f64 * 1.08 && (b as f64) < a as f64 * 1.6, "plain {a}, darkened {b}");
         // Off by default: exports and thumbnails are untouched.
         assert!(!RenderOptions::default().text_darkening);
+    }
+
+    #[test]
+    fn page_picture_is_painted_behind_the_text() {
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 200, 30, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let mut d = Document::new();
+        d.media.insert("bg.png".into(), Arc::new(png));
+        for kind in ["tile", "frame"] {
+            d.settings.page_picture = Some(wordcraft_doc::PagePicture { media: "bg.png".into(), fill_type: kind.into(), title: String::new() });
+            let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+            let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+            let i = ((300 * img.width + 300) * 4) as usize;
+            assert_eq!(&img.pixels[i..i + 3], &[10, 200, 30], "{kind}");
+        }
+        // An undecodable picture leaves the paper alone.
+        d.media.insert("bg.png".into(), Arc::new(b"junk".to_vec()));
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+        assert_eq!(&img.pixels[0..3], &[255, 255, 255]);
     }
 
     #[test]
@@ -1549,8 +1623,23 @@ mod tests {
     #[test]
     fn shapes_have_paths() {
         let r = kurbo::Rect::new(0.0, 0.0, 10.0, 10.0);
-        for k in [ShapeKind::Rectangle, ShapeKind::Ellipse, ShapeKind::Star, ShapeKind::Heart, ShapeKind::Arrow, ShapeKind::Line] {
+        for k in
+            [ShapeKind::Rectangle, ShapeKind::Ellipse, ShapeKind::FlowchartOr, ShapeKind::Star, ShapeKind::Heart, ShapeKind::Arrow, ShapeKind::Line]
+        {
             assert!(!shape_path(k, r, None).elements().is_empty());
+        }
+    }
+
+    #[test]
+    fn flowchart_or_spokes() {
+        let r = kurbo::Rect::new(0.0, 0.0, 10.0, 10.0);
+        let path = shape_path(ShapeKind::FlowchartOr, r, None);
+        let elements = path.elements();
+        for pair in [
+            [kurbo::PathEl::MoveTo((0.0, 5.0).into()), kurbo::PathEl::LineTo((10.0, 5.0).into())],
+            [kurbo::PathEl::MoveTo((5.0, 0.0).into()), kurbo::PathEl::LineTo((5.0, 10.0).into())],
+        ] {
+            assert!(elements.windows(2).any(|w| w == pair), "missing spoke {pair:?}");
         }
     }
 

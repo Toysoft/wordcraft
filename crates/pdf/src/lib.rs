@@ -557,7 +557,15 @@ fn shape_path(kind: ShapeKind, r: &Rect, corner: Option<u32>) -> Option<Path> {
             pb.close();
         }
         ShapeKind::Ellipse => ellipse(&mut pb, cx, cy, r.w / 2.0, r.h / 2.0),
+        ShapeKind::FlowchartOr => {
+            ellipse(&mut pb, cx, cy, r.w / 2.0, r.h / 2.0);
+            pb.move_to(x0, cy);
+            pb.line_to(x1, cy);
+            pb.move_to(cx, y0);
+            pb.line_to(cx, y1);
+        }
         ShapeKind::Triangle => poly(&mut pb, &[(cx, y0), (x1, y1), (x0, y1)]),
+        ShapeKind::RightTriangle => poly(&mut pb, &[(x0, y0), (x1, y1), (x0, y1)]),
         ShapeKind::Diamond => poly(&mut pb, &[(cx, y0), (x1, cy), (cx, y1), (x0, cy)]),
         // DrawingML's `line`: top-left to bottom-right (flips give the other directions).
         ShapeKind::Line => {
@@ -755,6 +763,9 @@ impl Exporter<'_> {
                 s.set_fill(None);
             });
         }
+        if let Some(pic) = self.doc.settings.page_picture.clone() {
+            self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.page_picture(s, &pic, w, h));
+        }
         if let Some(wm) = self.doc.settings.watermark.clone()
             && !wm.text.trim().is_empty()
         {
@@ -784,10 +795,11 @@ impl Exporter<'_> {
                     for d in &draws {
                         match d {
                             Draw::Glyphs { .. } | Draw::Turned { .. } => self.tagged(s, Role::Para(idx), None, |me, s| me.draw(s, d)),
-                            Draw::Image { .. } => self.tagged(s, Role::Figure, None, |me, s| me.draw(s, d)),
+                            Draw::Image { alt, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| me.draw(s, d)),
                             // A rotated inline picture.
                             Draw::Rotated { items, .. } if items.iter().any(|i| matches!(i, Draw::Image { .. })) => {
-                                self.tagged(s, Role::Figure, None, |me, s| me.draw(s, d))
+                                let alt = items.iter().find_map(|i| if let Draw::Image { alt, .. } = i { Some(alt.as_str()) } else { None });
+                                self.tagged(s, Role::Figure, alt, |me, s| me.draw(s, d))
                             }
                             // An inline chart or diagram: its text is part of the figure, not the paragraph.
                             Draw::Figure { alt, kind, draws: inner } => self.tagged(s, Role::Figure, Some(graphic_alt(alt, *kind)), |me, s| {
@@ -832,8 +844,14 @@ impl Exporter<'_> {
 
     /// Display items for one placed item.
     fn draws(&self, page: &Page, it: &Placed, dopts: &DisplayOptions) -> Vec<Draw> {
-        let one =
-            Page { w: page.w, h: page.h, section: page.section, number: page.number, items: vec![it.clone()], body: page.body, ..Default::default() };
+        let mut items = vec![it.clone()];
+        // Lines in a cell cut off at its edge are drawn inside its clip: `page_display` finds the
+        // cell among the items (cells themselves draw nothing).
+        if matches!(it, Placed::Lines { .. }) {
+            let clipped = page.header.iter().chain(&page.footer).chain(&page.items).filter(|c| matches!(c, Placed::Cell { clip: true, .. }));
+            items.extend(clipped.cloned());
+        }
+        let one = Page { w: page.w, h: page.h, section: page.section, number: page.number, items, body: page.body, ..Default::default() };
         page_display(self.doc, &one, dopts)
     }
 
@@ -899,7 +917,7 @@ impl Exporter<'_> {
                 }
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
-            Draw::Image { rect, media, crop, alpha } => self.picture(s, rect, media, crop, *alpha),
+            Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
             Draw::Path { segs, fill: f, stroke, stroke_width } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
@@ -1129,6 +1147,36 @@ impl Exporter<'_> {
             }
         }
         s.set_stroke(None);
+    }
+
+    /// The page's picture or texture fill: tiled at 96 dpi for a `tile` fill (when that is a sane
+    /// number of tiles), else stretched over the page.
+    fn page_picture(&mut self, s: &mut Surface, pic: &wordcraft_doc::PagePicture, w: f32, h: f32) {
+        const MAX_TILES: f32 = 4096.0;
+        if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+            return;
+        }
+        let dims = self
+            .doc
+            .media
+            .get(&pic.media)
+            .and_then(|b| image::ImageReader::new(std::io::Cursor::new(b.as_slice())).with_guessed_format().ok()?.into_dimensions().ok());
+        if let Some((pw, ph)) = dims.filter(|_| pic.fill_type.eq_ignore_ascii_case("tile")) {
+            let (tw, th) = (pw as f32 * 0.75, ph as f32 * 0.75);
+            if tw >= 1.0 && th >= 1.0 && (w / tw).ceil() * (h / th).ceil() <= MAX_TILES {
+                let mut y = 0.0;
+                while y < h {
+                    let mut x = 0.0;
+                    while x < w {
+                        self.picture(s, &Rect::new(x, y, tw, th), &pic.media, &[0.0; 4], 1.0);
+                        x += tw;
+                    }
+                    y += th;
+                }
+                return;
+            }
+        }
+        self.picture(s, &Rect::new(0.0, 0.0, w, h), &pic.media, &[0.0; 4], 1.0);
     }
 
     fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32) {
@@ -1607,7 +1655,15 @@ fn path_from(b: &kurbo::BezPath) -> Option<Path> {
 /// can't fail the whole export).
 fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
     let fmt = image::guess_format(data).ok()?;
-    let dec = image::load_from_memory_with_format(data, fmt).ok()?;
+    // The side check below used to run only after a full decode; applying it as a decode limit
+    // rejects a small file that declares a huge image at header time instead. The default
+    // allocation cap (512 MB, what `load_from_memory_with_format` applied) stays in force.
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(data.as_slice())).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_IMAGE_SIDE);
+    reader.limits(limits);
+    let dec = reader.decode().ok()?;
     let (w, h) = (dec.width(), dec.height());
     if w == 0 || h == 0 || w > MAX_IMAGE_SIDE || h > MAX_IMAGE_SIDE {
         return None;

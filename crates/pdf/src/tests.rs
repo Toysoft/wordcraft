@@ -422,6 +422,7 @@ fn shapes_have_paths() {
         ShapeKind::Rectangle,
         ShapeKind::RoundedRectangle,
         ShapeKind::Ellipse,
+        ShapeKind::FlowchartOr,
         ShapeKind::Star,
         ShapeKind::Heart,
         ShapeKind::Arrow,
@@ -454,7 +455,7 @@ fn fields_put_their_shown_text_in_the_text_layer() {
     // characters, are what copying, search and screen readers get.
     let mut d = Document::new();
     let mut f = Paragraph::with_text("Page  of ", CharProps::default());
-    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: String::new(), locked: false, code: false };
+    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: String::new(), locked: false, code: false, form: String::new() };
     f.insert_object(5, field("PAGE"), &CharProps::default()).unwrap();
     let n = f.len();
     f.insert_object(n, field("NUMPAGES"), &CharProps::default()).unwrap();
@@ -469,6 +470,33 @@ fn fields_put_their_shown_text_in_the_text_layer() {
     assert_eq!(text.len(), 2);
     assert!(text.iter().all(|t| !t.contains('\u{FFFC}')), "{text:?}");
     assert!(squash(&text[0]).contains("Page 1 of 2") && squash(&text[1]).contains("Page 2 of 2"), "{text:?}");
+}
+
+/// #775: a running header `STYLEREF "Heading 1"` shows each page's chapter in the PDF.
+#[test]
+fn styleref_headers_show_each_page_s_chapter() {
+    let mut d = Document::new();
+    let mut h = Paragraph::new();
+    let field =
+        InlineObject::Field { instr: r#"STYLEREF "Heading 1""#.into(), result: "Stale".into(), locked: false, code: false, form: String::new() };
+    h.insert_object(0, field, &CharProps::default()).unwrap();
+    let id = d.add_part(wordcraft_doc::PartKind::Header, vec![para_block(h)]);
+    d.last_section.headers.default = Some(id);
+    d.body = ["Alpha", "Beta"]
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let mut p = Paragraph::with_text(&format!("Chapter{t}"), CharProps::default()).styled("Heading1");
+            p.props.page_break_before = Some(i > 0);
+            para_block(p)
+        })
+        .collect();
+    let text = extract_text(&export(&d, &PdfOptions::default()).unwrap());
+    assert_eq!(text.len(), 2);
+    let pages: Vec<String> = text.iter().map(|t| squash(t)).collect();
+    assert_eq!(pages[0].matches("ChapterAlpha").count(), 2, "{pages:?}");
+    assert_eq!(pages[1].matches("ChapterBeta").count(), 2, "{pages:?}");
+    assert!(!pages.iter().any(|p| p.contains("Stale")), "{pages:?}");
 }
 
 /// Bundled Source Sans 3 renamed to `family`, with glyph `gid` turned into a composite glyph whose
@@ -688,7 +716,7 @@ fn field_results_are_extractable_text() {
     let mut p = Paragraph::with_text("See  for details.", CharProps::default());
     p.insert_object(
         4,
-        InlineObject::Field { instr: " REF _RefTarget \\h ".into(), result: "Section 3.01".into(), locked: false, code: false },
+        InlineObject::Field { instr: " REF _RefTarget \\h ".into(), result: "Section 3.01".into(), locked: false, code: false, form: String::new() },
         &CharProps::default(),
     )
     .unwrap();
@@ -709,8 +737,12 @@ fn field_result_ligatures_extract_all_their_letters() {
     assert!(wordcraft_fonts::shape(&face, result, &[], |c| c).len() < result.chars().count(), "the result has ligatures");
     let mut d = Document::new();
     let mut p = Paragraph::with_text("See  here.", font.clone());
-    p.insert_object(4, InlineObject::Field { instr: " REF _RefTarget \\h ".into(), result: result.into(), locked: false, code: false }, &font)
-        .unwrap();
+    p.insert_object(
+        4,
+        InlineObject::Field { instr: " REF _RefTarget \\h ".into(), result: result.into(), locked: false, code: false, form: String::new() },
+        &font,
+    )
+    .unwrap();
     d.body = vec![para_block(p)];
     let text = extract_text(&export(&d, &PdfOptions::default()).unwrap()).concat();
     assert!(squash(&text).contains("See the first office here."), "{text:?}");
@@ -814,6 +846,25 @@ fn metafile_pictures_are_drawn_as_vector_paths() {
     let raw = String::from_utf8_lossy(&bytes);
     assert!(raw.contains("1 0 0 rg"), "the red rectangle is filled as a path");
     assert!(!raw.contains("0.8156"), "the grey placeholder box is not drawn");
+}
+
+/// #1502: an inline picture's Figure carries its own alt text, not the "picture" fallback.
+#[test]
+fn inline_picture_figure_keeps_its_alt_text() {
+    let raw = |alt: &str| {
+        let mut d = Document::new();
+        let media = d.add_media(red_right_half_emf(), "emf");
+        let mut p = Paragraph::with_text("Figure: ", CharProps::default());
+        let n = p.len();
+        let obj = InlineObject::Image { media, w: 70.0, h: 70.0, alt: alt.into(), float: Default::default(), crop: [0.0; 4], ole: None };
+        p.insert_object(n, obj, &CharProps::default()).unwrap();
+        d.body = vec![para_block(p)];
+        String::from_utf8_lossy(&export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap()).into_owned()
+    };
+    let with = raw("Blue rectangle used as test image");
+    assert!(with.contains("/Alt(Blue rectangle used as test image)"), "inline alt text lost");
+    assert!(!with.contains("/Alt(picture)"));
+    assert!(raw("").contains("/Alt(picture)"), "no alt text keeps the fallback");
 }
 
 /// An EMF file of the given records, with a 25 mm frame and 1000 device pixels across (0.04 per 0.01 mm).
@@ -1022,6 +1073,66 @@ fn internal_links_export_in_linear_time() {
     let _ = export(&small, &PdfOptions::default());
     let ratio = fastest(&big) / fastest(&small).max(1e-9);
     assert!(ratio < 9.0, "4x the paragraphs and links took {ratio:.1}x as long (quadratic would be ~16x)");
+}
+
+#[test]
+fn all_caps_and_small_caps_text_extracts_as_displayed() {
+    // #1473: All Caps / Small Caps text is drawn with capital glyphs, so it extracts in capitals
+    // (as Word's PDFs do), and later text without caps keeps its own case: a capital glyph
+    // first drawn for a lowercase letter must not make every later capital read as lowercase.
+    let mut d = Document::new();
+    d.styles.upsert(wordcraft_doc::Style {
+        id: "CapsPara".into(),
+        name: "Caps Para".into(),
+        kind: wordcraft_doc::StyleKind::Paragraph,
+        chr: CharProps { caps: Some(true), ..Default::default() },
+        ..Default::default()
+    });
+    let caps = CharProps { caps: Some(true), ..Default::default() };
+    let small = CharProps { small_caps: Some(true), ..Default::default() };
+    d.body = vec![
+        para_block(Paragraph::with_text("Employment Period. Your employment will begin on the date below.", CharProps::default()).styled("CapsPara")),
+        para_block(Paragraph::with_text("Direct caps on the run: Mixed Case Words.", caps.clone())),
+        para_block(Paragraph::with_text("Plain text, no caps: Employment Period.", CharProps::default())),
+        para_block(Paragraph::with_text("Small caps line: Quiet Words.", small)),
+        para_block(Paragraph::with_text("Straße", caps)),
+        para_block(Paragraph::with_text("Plain again: Straße, Quiet Period.", CharProps::default())),
+    ];
+    let text = extract_text(&export(&d, &PdfOptions::default()).unwrap()).concat();
+    let text = squash(&text);
+    for line in [
+        "EMPLOYMENT PERIOD. YOUR EMPLOYMENT WILL BEGIN ON THE DATE BELOW.",
+        "DIRECT CAPS ON THE RUN: MIXED CASE WORDS.",
+        "Plain text, no caps: Employment Period.",
+        "SMALL CAPS LINE: QUIET WORDS.",
+        "Plain again: Straße, Quiet Period.",
+    ] {
+        assert!(text.contains(line), "missing {line:?} in {text:?}");
+    }
+    // An All Caps ß is drawn as SS, as Word does (#1581), and reads as the SS drawn.
+    assert!(text.contains("STRASSE"), "{text:?}");
+}
+
+#[test]
+fn caps_list_labels_extract_as_displayed() {
+    // #1473: a lowercase-letter list label in an All Caps paragraph is drawn with capital glyphs;
+    // it reads as those capitals, and a later plain capital A still reads as "A".
+    let mut d = Document::new();
+    d.styles.upsert(wordcraft_doc::Style {
+        id: "CapsPara".into(),
+        name: "Caps Para".into(),
+        kind: wordcraft_doc::StyleKind::Paragraph,
+        chr: CharProps { caps: Some(true), ..Default::default() },
+        ..Default::default()
+    });
+    let list = d.numbering.add_list(ListKind::Numbered);
+    let mut item = Paragraph::with_text("item", CharProps::default()).styled("CapsPara");
+    item.props.numbering = Some(NumRef { num: list, level: 1 });
+    d.body = vec![para_block(item), para_block(Paragraph::with_text("Plain Apple.", CharProps::default()))];
+    let text = squash(&extract_text(&export(&d, &PdfOptions::default()).unwrap()).concat());
+    assert!(text.contains("A."), "the label reads as the capital drawn: {text:?}");
+    assert!(!text.contains("a."), "no lowercase label: {text:?}");
+    assert!(text.contains("Plain Apple."), "a plain capital A keeps its case: {text:?}");
 }
 
 /// The reporter's four paragraphs from #1383 (Hebrew, Arabic and mixed right-to-left paragraphs,

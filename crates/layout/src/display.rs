@@ -68,6 +68,8 @@ pub enum Draw {
         media: String,
         crop: [f32; 4],
         alpha: f32,
+        /// The picture's alt text (empty for a floating or diagram picture, which tag themselves).
+        alt: String,
     },
     Shape {
         rect: Rect,
@@ -82,73 +84,30 @@ pub enum Draw {
     },
     /// An ink stroke: a line through `pts` (page points) with round ends and joins, `width`
     /// wide, in `color` at opacity `alpha`.
-    Ink {
-        pts: Vec<(f32, f32)>,
-        color: Rgb,
-        width: f32,
-        alpha: f32,
-    },
+    Ink { pts: Vec<(f32, f32)>, color: Rgb, width: f32, alpha: f32 },
     /// A vector path (a chart's or diagram's polygons, slices, lines): filled, then stroked.
-    Path {
-        segs: Vec<PathSeg>,
-        fill: Option<Rgb>,
-        stroke: Option<Rgb>,
-        stroke_width: f32,
-    },
+    Path { segs: Vec<PathSeg>, fill: Option<Rgb>, stroke: Option<Rgb>, stroke_width: f32 },
     /// An inline chart or diagram's draws, as one figure with its alt text (for tagged PDF).
-    Figure {
-        alt: String,
-        kind: GraphicKind,
-        draws: Vec<Draw>,
-    },
+    Figure { alt: String, kind: GraphicKind, draws: Vec<Draw> },
     /// A formatting mark (¶ · → ↵) in the UI's mark colour, or in `color` (a tracked
     /// paragraph mark in its reviser's colour).
-    Mark {
-        x: f32,
-        baseline: f32,
-        size: f32,
-        ch: char,
-        color: Option<Rgb>,
-    },
+    Mark { x: f32, baseline: f32, size: f32, ch: char, color: Option<Rgb> },
     /// Turned text (a table cell's text direction): `items` are drawn in a frame turned `turn`
     /// whose origin is page point (`x`, `y`) (see [`crate::turn_point`]).
-    Turned {
-        x: f32,
-        y: f32,
-        turn: TextDirection,
-        items: Vec<Draw>,
-    },
+    Turned { x: f32, y: f32, turn: TextDirection, items: Vec<Draw> },
     /// A rotated or flipped picture, shape, chart, group or Drawing Canvas: `items` drawn
     /// turned by `spin` about page point (`cx`, `cy`) (see [`Spin::matrix`]).
-    Rotated {
-        cx: f32,
-        cy: f32,
-        spin: Spin,
-        items: Vec<Draw>,
-    },
+    Rotated { cx: f32, cy: f32, spin: Spin, items: Vec<Draw> },
     /// `items` clipped to `rect` (a Drawing Canvas's members to its frame). Inside a
     /// [`Draw::Rotated`], `rect` is in the turned frame's (unturned) coordinates.
-    Clip {
-        rect: Rect,
-        items: Vec<Draw>,
-    },
+    Clip { rect: Rect, items: Vec<Draw> },
     /// Text drawn from its outlines with WordArt effects (and bent, in a warped text box):
     /// `path` in page coordinates, painted as [`crate::wordart::art_layers`] says. `color` is the
     /// run's own colour, the fill when the effects set none.
-    Art {
-        path: BezPath,
-        fx: Box<wordcraft_doc::wordart::TextEffects>,
-        color: Rgb,
-        alpha: f32,
-    },
+    Art { path: BezPath, fx: Box<wordcraft_doc::wordart::TextEffects>, color: Rgb, alpha: f32 },
     /// A formatting-mark label (a section break's name) in the UI's mark colour, left edge at
     /// `x`, drawn with the same face as [`Draw::Mark`]. Screen only, like every mark.
-    MarkText {
-        x: f32,
-        baseline: f32,
-        size: f32,
-        text: String,
-    },
+    MarkText { x: f32, baseline: f32, size: f32, text: String },
 }
 
 impl Draw {
@@ -300,6 +259,17 @@ named! {
     }
 }
 
+named! {
+    /// How comments are shown beside the page.
+    CommentDisplay {
+        /// Every comment in the margin, as in Word.
+        #[default]
+        Margin = "margin",
+        /// Only the comment of the text under the caret (or the clicked one) floats beside the page.
+        Selected = "selected",
+    }
+}
+
 /// Track Changes Options: what markup shows and how revisions are drawn. A per-user preference,
 /// as in Word (saved with the interface settings, not the document).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -310,6 +280,7 @@ pub struct MarkupOptions {
     pub insertions_deletions: bool,
     pub formatting: bool,
     pub balloons: BalloonMode,
+    pub comment_display: CommentDisplay,
     pub insert_mark: InsertMark,
     /// `None` = by author.
     pub insert_color: Option<Rgb>,
@@ -331,6 +302,7 @@ impl Default for MarkupOptions {
             insertions_deletions: true,
             formatting: true,
             balloons: BalloonMode::default(),
+            comment_display: CommentDisplay::default(),
             insert_mark: InsertMark::default(),
             insert_color: None,
             delete_mark: DeleteMark::default(),
@@ -376,8 +348,17 @@ pub fn page_display(doc: &Document, page: &Page, opts: &DisplayOptions) -> Vec<D
     let ba = if opts.dim_body { 0.45 } else { 1.0 };
     for (items, a) in [(&page.header, ha), (&page.footer, ha), (&page.items, ba)] {
         let warps = warped_boxes(doc, items);
+        let clips = clipped_cells(items);
         let mut done: Vec<u32> = Vec::new();
         for it in items.iter() {
+            if let Placed::Lines { story, path, .. } = it
+                && let Some(rect) = cell_clip(&clips, *story, &path.0)
+            {
+                let mut inner = Vec::new();
+                item(doc, it, opts, a, &mut inner);
+                out.push(Draw::Clip { rect, items: inner });
+                continue;
+            }
             match it {
                 Placed::Lines { story: StoryRef::Part(id), .. } if warps.iter().any(|(w, ..)| w == id) => {
                     // A warped text box's lines are drawn together, bent, where its first one is.
@@ -416,6 +397,27 @@ pub fn object_display(doc: &Document, page: &Page, o: &InlineObject, rect: Rect,
         }
     }
     out
+}
+
+/// The cells among `items` whose content is cut off at their edge (see [`Placed::Cell`]'s
+/// `clip`): their story, the path of their content (table, row, cell) and their area.
+fn clipped_cells(items: &[Placed]) -> Vec<(StoryRef, Vec<u32>, Rect)> {
+    items
+        .iter()
+        .filter_map(|it| match it {
+            Placed::Cell { rect, table, row, cell, story, clip: true, .. } => {
+                let mut prefix = table.0.clone();
+                prefix.extend([u32::try_from(*row).ok()?, u32::try_from(*cell).ok()?]);
+                Some((*story, prefix, *rect))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The area to clip a line at `path` of `story` to: its cell's, when that cell is clipped.
+fn cell_clip(clips: &[(StoryRef, Vec<u32>, Rect)], story: StoryRef, path: &[u32]) -> Option<Rect> {
+    clips.iter().find(|(s, prefix, _)| *s == story && path.starts_with(prefix)).map(|(_, _, r)| *r)
 }
 
 /// The text boxes among `items` whose text is warped (Text Effects › Transform, drawn bent): their
@@ -577,7 +579,7 @@ fn item_in(doc: &Document, it: &Placed, opts: &DisplayOptions, alpha: f32, outer
         Placed::Fill { rect, color } => out.push(Draw::Fill { rect: *rect, color: *color, alpha, text_bg: false }),
         Placed::Rule { x0, y0, x1, y1, border } => out.push(rule(*x0, *y0, *x1, *y1, border, alpha)),
         Placed::Image { rect, media, crop, spin, .. } => {
-            spun(*spin, *rect, vec![Draw::Image { rect: *rect, media: media.clone(), crop: *crop, alpha }], out)
+            spun(*spin, *rect, vec![Draw::Image { rect: *rect, media: media.clone(), crop: *crop, alpha, alt: String::new() }], out)
         }
         Placed::Shape { rect, kind, fill, stroke, stroke_width, effects, freeform, spin, extra } => {
             let mut items = Vec::new();
@@ -696,7 +698,7 @@ fn lines(
             char_box(&ob, x0, x1, top, bottom, alpha, out);
         }
         // Label.
-        if li == 0
+        if li == pl.label_line()
             && let Some(lab) = &pl.label
         {
             let gx = x + lab.x;
@@ -763,13 +765,25 @@ fn lines(
                     if let Ok(i) = pl.shown.binary_search_by_key(&k, |(i, _, _)| *i)
                         && let Some((_, s, r)) = pl.shown.get(i)
                     {
-                        text.push_str(s);
+                        // All Caps field results read as the capitals drawn (#1473). `r` holds
+                        // byte ranges into `s`, so a character whose capital has another UTF-8
+                        // length keeps its own form and every range still lands where it did.
+                        text.extend(s.chars().map(|ch| {
+                            let up = crate::para::caps_char(&st.rc, ch);
+                            if up.len_utf8() == ch.len_utf8() { up } else { ch }
+                        }));
                         shown = Some(r);
                     } else if let Some(p) = para {
                         let t = p.text.get(c.start..c.end).unwrap_or("");
                         // Symbol-font characters (Wingdings…) read as the Unicode symbols drawn.
                         if wordcraft_doc::symbol_fonts::is_symbol_font(&st.rc.font) {
                             text.push_str(&wordcraft_doc::symbol_fonts::map_text(&st.rc.font, t));
+                        } else if st.rc.caps || st.rc.small_caps {
+                            // All Caps and Small Caps read as the capitals drawn (#1473), mapped
+                            // as drawn, so a glyph never stands for two cases and ß reads as SS (#1581).
+                            for ch in t.chars() {
+                                crate::para::push_caps(&st.rc, ch, &mut text);
+                            }
                         } else {
                             text.push_str(t);
                         }
@@ -1266,7 +1280,9 @@ fn graphic_draws(doc: &Document, g: &Graphic, rect: Rect, alpha: f32) -> Vec<Dra
                 out.push(Draw::Path { segs, fill: *fill, stroke: *stroke, stroke_width: stroke_width * k })
             }
             GraphicItem::Text { rect: r, .. } => out.extend(text_glyphs(doc, inside(r), it, alpha, k)),
-            GraphicItem::Image { rect: r, media } => out.push(Draw::Image { rect: inside(r), media: media.clone(), crop: [0.0; 4], alpha }),
+            GraphicItem::Image { rect: r, media } => {
+                out.push(Draw::Image { rect: inside(r), media: media.clone(), crop: [0.0; 4], alpha, alt: String::new() })
+            }
         }
     }
     out
@@ -1351,6 +1367,12 @@ fn shape_draws(
                 if closed && let Some(first) = pts.first().copied() {
                     pts.push(first);
                 }
+                if !closed
+                    && extra.arrow_end
+                    && let Some(arrow) = path_arrowhead(&pts, color, width)
+                {
+                    out.push(arrow);
+                }
                 out.push(Draw::Ink { pts, color, width: width.max(0.25), alpha: f.alpha });
             }
             continue;
@@ -1363,7 +1385,34 @@ fn shape_draws(
             segs.push(PathSeg::Close);
         }
         out.push(Draw::Path { segs, fill: if closed { fill } else { None }, stroke, stroke_width: width });
+        if !closed
+            && extra.arrow_end
+            && let Some(color) = stroke
+        {
+            let points: Vec<(f32, f32)> = pts.iter().map(|[x, y]| (*x, *y)).collect();
+            if let Some(arrow) = path_arrowhead(&points, color, width) {
+                out.push(arrow);
+            }
+        }
     }
+}
+
+fn path_arrowhead(points: &[(f32, f32)], color: Rgb, stroke_width: f32) -> Option<Draw> {
+    let tip = *points.last()?;
+    let (prev_x, prev_y) = points.iter().rev().skip(1).copied().find(|p| *p != tip)?;
+    let dx = tip.0 - prev_x;
+    let dy = tip.1 - prev_y;
+    let length = dx.hypot(dy);
+    if !length.is_finite() || length <= f32::EPSILON {
+        return None;
+    }
+    let (dx, dy) = (dx / length, dy / length);
+    let width = if stroke_width.is_finite() { stroke_width.clamp(0.25, 200.0) } else { 0.75 };
+    let len = (width * 3.5).max(7.0);
+    let (bx, by) = (tip.0 - dx * len, tip.1 - dy * len);
+    let (nx, ny) = (-dy * len * 0.45, dx * len * 0.45);
+    let segs = vec![PathSeg::Move(tip.0, tip.1), PathSeg::Line(bx + nx, by + ny), PathSeg::Line(bx - nx, by - ny), PathSeg::Close];
+    Some(Draw::Path { segs, fill: Some(color), stroke: None, stroke_width: 0.0 })
 }
 
 /// A line or connector at `rect` (its unflipped frame: flips are the frame's turn), with its
@@ -1511,7 +1560,9 @@ fn spun(spin: Spin, rect: Rect, items: Vec<Draw>, out: &mut Vec<Draw>) {
 fn object_draws(o: &InlineObject, rect: Rect, outer: Spin, alpha: f32, opts: &DisplayOptions, out: &mut Vec<Draw>) {
     let own = o.frame().map(|(_, _, f)| f.spin()).unwrap_or_default();
     match o {
-        InlineObject::Image { media, crop, .. } => spun(own, rect, vec![Draw::Image { rect, media: media.clone(), crop: *crop, alpha }], out),
+        InlineObject::Image { media, crop, alt, .. } => {
+            spun(own, rect, vec![Draw::Image { rect, media: media.clone(), crop: *crop, alpha, alt: alt.clone() }], out)
+        }
         InlineObject::Shape { kind, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
             let effects = effects_in(*effects, own.within(outer));
             let mut items = Vec::new();
