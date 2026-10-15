@@ -1593,9 +1593,9 @@ impl Reader {
             "cell" => self.end_cell(),
             "nestcell" => self.end_para(true),
             "row" => self.end_row(),
-            "line" => self.ch('\n'),
+            "line" | "softline" => self.ch('\n'),
             "tab" => self.ch('\t'),
-            "page" => self.ch('\u{000C}'),
+            "page" | "softpage" => self.ch('\u{000C}'),
             "emdash" => self.ch('—'),
             "endash" => self.ch('–'),
             "bullet" => self.ch('•'),
@@ -1608,6 +1608,8 @@ impl Reader {
             "qmspace" => self.ch('\u{2005}'),
             "zwj" => self.ch('\u{200D}'),
             "zwnj" => self.ch('\u{200C}'),
+            "zwbo" => self.ch('\u{200B}'),
+            "zwnbo" => self.ch('\u{2060}'),
             "u" => {
                 let u = (pv as i64).rem_euclid(65_536) as u16;
                 if (0xD800..0xDC00).contains(&u) {
@@ -1956,7 +1958,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                         i += 2;
                         continue;
                     }
-                    b'~' => {
+                    b'~' | b' ' => {
                         r.ch('\u{00A0}');
                         i += 2;
                     }
@@ -2684,5 +2686,13 @@ mod tests {
     #[test]
     fn escapes() {
         assert_eq!(esc("a{b}\\c\té😀"), "a\\{b\\}\\\\c\\tab \\u233?\\u-10179?\\u-8704?");
+    }
+
+    #[test]
+    fn rtf_backslash_space_and_special_breaks() {
+        let rtf = br"{\rtf1\ansi A\ B\~C\zwbo D\softline E\softpage F\par}";
+        let doc = import(rtf).unwrap();
+        let p = doc.body.first().unwrap().as_para().unwrap();
+        assert_eq!(p.text, "A\u{00A0}B\u{00A0}C\u{200B}D\nE\u{000C}F");
     }
 }
