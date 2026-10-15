@@ -348,7 +348,7 @@ pub fn open_path_with(path: &std::path::Path, password: Option<&str>) -> Result<
 pub fn open_path_in(path: &std::path::Path, password: Option<&str>, region: &wordcraft_geom::Region) -> Result<(Document, bool), String> {
     crate::file_access::check_read(&path.to_string_lossy())?;
     let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if meta.len() > 2 << 30 {
+    if meta.len() > 2u64 << 30 {
         return Err(format!("{}: file is larger than 2 GB", path.display()));
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
