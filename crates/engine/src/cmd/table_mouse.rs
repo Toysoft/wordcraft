@@ -16,7 +16,7 @@ use wordcraft_doc::{Document, Path, Pos, StoryRef, Table};
 use wordcraft_geom::{Point, Rect};
 use wordcraft_layout::{DocLayout, Placed};
 
-use super::table_resize::{self, CellBox, Edge, REACH, ResizeTarget};
+use super::table_resize::{self, CellBox, Edge, Layer, REACH, ResizeTarget};
 use super::{sel_result, table};
 use crate::{CellRange, CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
@@ -54,7 +54,7 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"page": n, "x": pt, "y": pt, "toX": pt, "toY": pt, "reach"?: pt} (a drag from the move handle past a table's top-left corner: the table floats where it's dropped, the text wrapping around it; tables in the main text only)"#,
         ),
         CommandSpec::new("table.fitColumn", "AutoFit Column by Double-Clicking", "Table Layout › Cell Size", fit_column).params(
-            r#"{"page": n, "x": pt, "y": pt, "reach"?: pt} (a double-click on a column border: the column left of it fits its contents and the columns right of it keep their widths, moving with the border, so the table narrows or widens (up to the right margin), as in Word)"#,
+            r#"{"page": n, "x": pt, "y": pt, "reach"?: pt} (a double-click on a column border: the column left of it fits its contents and the columns right of it keep their widths, moving with the border, so the table narrows or widens (up to the right margin), as in Word; the header's and footer's tables are in reach while the caret is in one of them)"#,
         ),
     ]
 }
@@ -169,11 +169,12 @@ pub fn target_at(l: &DocLayout, doc: &Document, story: StoryRef, page: usize, x:
         return None;
     }
     let reach = clean_reach(reach);
-    if table_resize::resize_target(l, doc, page, x, y, reach).is_some() {
+    // The main text's tables: a header's or footer's only resize (`table_resize`).
+    if table_resize::resize_target(l, doc, page, x, y, reach, Layer::Body).is_some() {
         return None;
     }
-    let boxes = table_resize::cell_boxes(l, page);
-    table_resize::tables_on(l, doc, page)
+    let boxes = table_resize::cell_boxes(l, page, Layer::Body);
+    table_resize::tables_on(l, doc, page, Layer::Body)
         .into_iter()
         .filter(|g| g.story == story)
         .filter_map(|geom| {
@@ -190,7 +191,7 @@ pub fn handle_table(l: &DocLayout, doc: &Document, story: StoryRef, page: usize,
         return None;
     }
     let pad = clean_reach(reach) / 2.0;
-    table_resize::tables_on(l, doc, page)
+    table_resize::tables_on(l, doc, page, Layer::Body)
         .into_iter()
         .filter(|g| {
             let h = handle(g);
@@ -482,7 +483,8 @@ fn move_drag(s: &mut Session, v: &Value) -> CmdResult {
 fn fit_column(s: &mut Session, v: &Value) -> CmdResult {
     let (page, x, y, reach) = point(v)?;
     let l = s.layout();
-    let Some((target, line)) = table_resize::resize_target(&l, &s.doc, page, x, y, reach).and_then(|t| match t.edge {
+    let layer = Layer::editing(s, &l);
+    let Some((target, line)) = table_resize::resize_target(&l, &s.doc, page, x, y, reach, layer).and_then(|t| match t.edge {
         Edge::Column(line) => Some((t, line)),
         _ => None,
     }) else {
@@ -496,7 +498,7 @@ fn fit_column(s: &mut Session, v: &Value) -> CmdResult {
     // As in Word, the columns right of it keep their widths and move with the border, so the
     // table narrows or widens: up to the right margin (a nested table's cell's), never below the
     // column's narrowest content.
-    let room = current + (room_right(&l, &s.doc, page, &target) - target.right()).max(0.0);
+    let room = current + (room_right(&l, &s.doc, page, &target, layer) - target.right()).max(0.0);
     let want = widest.min(room.max(narrowest));
     if let Some(w) = target.plan(want - current, 0.0, true).widths {
         let t = s.doc.table_mut(target.story, &target.table)?;
@@ -506,13 +508,13 @@ fn fit_column(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// Where the room right of table `target` ends on page `page` (page x): the right margin, or
-/// for a table nested in a cell the right edge of that cell's text.
-fn room_right(l: &DocLayout, doc: &Document, page: usize, target: &ResizeTarget) -> f32 {
+/// Where the room right of table `target` (drawn in `layer`) ends on page `page` (page x): the
+/// right margin, or for a table nested in a cell the right edge of that cell's text.
+fn room_right(l: &DocLayout, doc: &Document, page: usize, target: &ResizeTarget, layer: Layer) -> f32 {
     let margin = l.pages.get(page).map_or(target.right(), |pg| pg.body.right());
     let Some((outer, row, cell)) = target.table.cell() else { return margin };
     let Some(t) = doc.table(target.story, &outer) else { return margin };
-    let boxes = table_resize::cell_boxes(l, page);
+    let boxes = table_resize::cell_boxes(l, page, layer);
     let Some(b) = boxes.iter().find(|b| b.story == target.story && b.table == outer && b.row == row && b.cell == cell) else {
         return margin;
     };
@@ -607,7 +609,7 @@ mod tests {
         assert_eq!(spot_at(&mut s, b.x, top - 8.0), Some(Spot::InsertColumn(1)));
         assert_eq!(spot_at(&mut s, left - 10.0, a.bottom()), Some(Spot::InsertRow(1)));
         assert_eq!(spot_at(&mut s, left - 10.0, top), Some(Spot::InsertRow(0)));
-        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0)[0]);
+        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0, Layer::Body)[0]);
         assert_eq!(spot_at(&mut s, h.x + h.w / 2.0, h.y + h.h / 2.0), Some(Spot::Handle));
         // Another story's tables aren't in reach.
         let l = s.layout();
@@ -728,7 +730,7 @@ mod tests {
         let range = s.cell_range().cloned().unwrap();
         assert_eq!((range.rows, range.cols, range.stream), ((0, 2), (0, 2), true));
         // The move handle selects the table.
-        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0)[0]);
+        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0, Layer::Body)[0]);
         s.run("table.selectAt", &json!({"page": 0, "x": h.x + 4.0, "y": h.y + 4.0})).unwrap();
         assert_eq!(s.cell_range().map(|r| (r.rows, r.cols)), Some(((0, 2), (0, 2))));
         // The ribbon's Select Row is the same whole-cell selection.
@@ -783,7 +785,7 @@ mod tests {
     fn dragging_the_handle_moves_the_table() {
         let mut s = table_session(2, 2);
         let a = cell_rect(&mut s, 0, 0);
-        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0)[0]);
+        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0, Layer::Body)[0]);
         let (hx, hy) = (h.x + h.w / 2.0, h.y + h.h / 2.0);
         s.run("table.moveDrag", &json!({"page": 0, "x": hx, "y": hy, "toX": hx, "toY": hy})).unwrap();
         assert!(first_table(&s).props.float.is_none(), "a click doesn't move it");
@@ -793,7 +795,7 @@ mod tests {
         let moved = cell_rect(&mut s, 0, 0);
         assert!((moved.x - (a.x + 50.0)).abs() < 0.5 && (moved.y - (a.y + 30.0)).abs() < 0.5, "{a:?} → {moved:?}");
         // Moving it again starts from where it floats.
-        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0)[0]);
+        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0, Layer::Body)[0]);
         let (hx, hy) = (h.x + h.w / 2.0, h.y + h.h / 2.0);
         s.run("table.moveDrag", &json!({"page": 0, "x": hx, "y": hy, "toX": hx - 20.0, "toY": hy + 10.0})).unwrap();
         let again = cell_rect(&mut s, 0, 0);
@@ -803,7 +805,7 @@ mod tests {
         assert!(first_table(&s).props.float.is_none());
         assert_eq!(cell_rect(&mut s, 0, 0), a);
         // Nested tables and tables outside the main text stay where they are.
-        let mut nested = table_resize::tables_on(&s.layout(), &s.doc, 0)[0].clone();
+        let mut nested = table_resize::tables_on(&s.layout(), &s.doc, 0, Layer::Body)[0].clone();
         assert!(movable(&nested));
         nested.table = Path(vec![0, 0, 0, 1]);
         assert!(!movable(&nested));
@@ -1020,7 +1022,7 @@ mod tests {
         assert!(s.run("table.insertAt", &json!({"page": 0, "x": a.x - 10.0, "y": mid_y(a)})).is_err());
         assert_eq!(first_table(&s), start);
         // A drag to the ends of the earth keeps the table on its page.
-        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0)[0]);
+        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0, Layer::Body)[0]);
         s.run("table.moveDrag", &json!({"page": 0, "x": h.x + 4.0, "y": h.y + 4.0, "toX": 3e38, "toY": -3e38})).unwrap();
         let f = first_table(&s).props.float.unwrap();
         assert!(f.x.is_finite() && f.y.is_finite());

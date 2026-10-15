@@ -2543,7 +2543,8 @@ fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
     let Some(t) = app.session.doc.table(story, &tp) else { return };
     let row = t.rows.get(r).map(|x| x.props.clone()).unwrap_or_default();
     let stored_w = t.grid.get(t.grid_col(r, c)).copied();
-    let laid = app.session.layout().pages.iter().flat_map(|pg| pg.items.iter()).find_map(|it| match it {
+    // A header's or footer's table is drawn with the page's header and footer.
+    let laid = app.session.layout().pages.iter().flat_map(|pg| pg.items.iter().chain(&pg.header).chain(&pg.footer)).find_map(|it| match it {
         wordcraft_layout::Placed::Cell { rect, table, row, cell, story: st, .. } if *table == tp && *row == r && *cell == c && *st == story => {
             Some(*rect)
         }
@@ -2556,7 +2557,7 @@ fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
         .layout()
         .pages
         .iter()
-        .flat_map(|pg| pg.items.iter())
+        .flat_map(|pg| pg.items.iter().chain(&pg.header).chain(&pg.footer))
         .filter_map(|it| match it {
             wordcraft_layout::Placed::Cell { rect, table, row, story: st, .. } if *table == tp && *row == r && *st == story => Some(rect.h),
             _ => None,
@@ -2932,6 +2933,32 @@ mod tests {
             h.run_steps(2);
             assert_eq!(h.state().ui.tab, tab);
         }
+    }
+
+    /// #1930: Table Layout › Cell Size shows a header table's cell as drawn. Its row has no set
+    /// height, so the Height box shows the height its text gives it, not 0 (which the box would
+    /// raise to its 0.02" minimum and write to the row): showing the boxes changes nothing.
+    #[test]
+    fn cell_size_boxes_show_a_header_tables_cell_without_changing_it() {
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("insert.editHeader", json!({})).unwrap();
+        app.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+        app.ui.tab = "Table Layout".into();
+        let (story, depth) = (app.session.sel.focus.story, app.session.undo_depth());
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        assert_eq!(h.state().ui.tab, "Table Layout");
+        assert_eq!(h.state().session.undo_depth(), depth, "showing the boxes changes nothing");
+        let (tp, ..) = h.state().session.sel.focus.path.cell().unwrap();
+        let t = h.state().session.doc.table(story, &tp).unwrap();
+        assert_eq!(t.rows[0].props.height, None, "no row height written");
     }
 
     #[test]
