@@ -16,7 +16,7 @@
 //! number, conversion) first apply the pending edit. The widget never touches the shared egui
 //! context's fonts, visuals or style; it draws with its own bundled fonts.
 
-use equashion_egui::EquationEditor;
+use equashion_egui::{Edge, EquationEditor};
 use serde_json::{Value, json};
 use wordcraft_doc::math::{Arg, Math, parse_linear};
 use wordcraft_doc::{InlineObject, Pos};
@@ -60,6 +60,9 @@ pub struct EquationHost {
     pub(crate) open: Option<Open>,
     /// Undo depth at the end of the last frame.
     seen_depth: usize,
+    /// The editor is about to open because an arrow key crossed into the equation: the caret
+    /// starts at this edge, and that same key press must not also move it.
+    entering: Option<Edge>,
 }
 
 impl EquationHost {
@@ -79,6 +82,29 @@ impl EquationHost {
     }
 }
 
+/// Left or Right with the caret directly after or before an inline equation (nothing selected)
+/// goes into the equation, at that end, instead of stepping over it.
+fn enter_by_arrow(app: &mut WordApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
+    let left = match id {
+        "caret.left" => true,
+        "caret.right" => false,
+        _ => return None,
+    };
+    if params.get("extend").and_then(Value::as_bool).unwrap_or(false) || app.session.sel.anchor != app.session.sel.focus {
+        return None;
+    }
+    let f = app.session.sel.focus.clone();
+    let para = app.session.doc.para_at(&f)?;
+    let is_eq = |off: usize| matches!(para.object_at(off), Some(InlineObject::Equation { .. }));
+    let hit = if left { f.off.checked_sub(wordcraft_doc::para::OBJ.len_utf8()).is_some_and(is_eq) } else { is_eq(f.off) };
+    if !hit {
+        return None;
+    }
+    // Entering from the right end of the text puts the caret at the equation's right end.
+    app.equation.entering = Some(if left { Edge::Right } else { Edge::Left });
+    Some(app.execute("equation.edit", json!({})))
+}
+
 /// The equation object at `at`.
 fn equation_at(app: &WordApp, at: &Pos) -> Option<Equation> {
     match app.session.doc.para_at(at)?.object_at(at.off)? {
@@ -95,8 +121,12 @@ fn load(widget: &mut EquationEditor, eq: &Equation) {
 fn open(app: &mut WordApp, at: Pos, fresh: bool) {
     let Some(loaded) = equation_at(app, &at) else { return };
     let depth = app.session.undo_depth();
-    let mut widget = EquationEditor::new().inline(true).overlay(true).id_salt("wordcraft-equation-editor");
+    // Arrow keys at either end of the equation hand the caret back to the text around it.
+    let mut widget = EquationEditor::new().inline(true).overlay(true).exit_at_edges(true).id_salt("wordcraft-equation-editor");
     load(&mut widget, &loaded);
+    if let Some(edge) = app.equation.entering {
+        widget.caret_to(edge);
+    }
     app.equation.open = Some(Open { widget, at, loaded, fresh, applied: false, depth, error: None });
 }
 
@@ -153,7 +183,12 @@ fn cancel(app: &mut WordApp, o: Open) {
 
 /// Enter / Insert / Update: apply and leave the equation. The editor stays open with the
 /// reason when that fails.
-fn commit(app: &mut WordApp, mut o: Open) -> Option<Open> {
+fn commit(app: &mut WordApp, o: Open) -> Option<Open> {
+    commit_to(app, o, false)
+}
+
+/// [`commit`], leaving the caret before the equation instead of after it when `before`.
+fn commit_to(app: &mut WordApp, mut o: Open, before: bool) -> Option<Open> {
     if o.widget.editor().is_blank() && untouched_new(app, &o) {
         cancel(app, o);
         return None;
@@ -163,7 +198,7 @@ fn commit(app: &mut WordApp, mut o: Open) -> Option<Open> {
         return Some(o);
     }
     if app.session.math.as_ref().is_some_and(|e| e.at == o.at) {
-        let _ = app.execute("equation.exit", json!({}));
+        let _ = app.execute("equation.exit", json!({"before": before}));
     }
     app.canvas.want_focus = true;
     None
@@ -226,6 +261,14 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let mut leave = esc;
         let mut changed = false;
+        let mut exit: Option<Edge> = None;
+        // The arrow press that brought the caret into the equation is spent.
+        if app.equation.entering.take().is_some() {
+            ctx.input_mut(|i| {
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft);
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight);
+            });
+        }
         if let Some((x, baseline, pt)) = app.canvas.equation_screen {
             o.widget.set_font_size(f64::from(pt).clamp(4.0, 1200.0));
             // Laid out in the style the page draws it in (inline: text style).
@@ -243,13 +286,18 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
                     let r = o.widget.show(ui);
                     changed = r.changed;
                     leave |= r.committed || r.cancelled;
+                    exit = r.exit;
                 });
             ctx.request_repaint();
         }
         if changed && let Err(e) = apply(app, &mut o) {
             o.error = Some(e);
         }
-        if leave {
+        if let Some(edge) = exit.filter(|_| !leave) {
+            // An arrow at the end of the top row: keep the edit and carry on in the text, on the
+            // side the arrow pointed to.
+            app.equation.open = commit_to(app, o, edge == Edge::Left);
+        } else if leave {
             app.equation.open = commit(app, o);
         } else {
             app.equation.open = Some(o);
@@ -279,7 +327,9 @@ fn gallery_nodes(params: &Value) -> Option<Arg> {
 /// A user command while the editor is open: the Equation tab's galleries insert into the widget,
 /// and its options apply the pending edit first. `Some` when the command was handled here.
 pub(crate) fn intercept(app: &mut WordApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
-    app.equation.open.as_ref()?;
+    if app.equation.open.is_none() {
+        return enter_by_arrow(app, id, params);
+    }
     let into_widget = matches!(id, "equation.insertStructure" | "equation.insertSymbol")
         || (id == "insert.equation" && params.get("builtin").and_then(Value::as_str).is_some());
     if into_widget {
@@ -373,6 +423,46 @@ mod tests {
     fn type_text(h: &mut Harness<'static, WordApp>, t: &str) {
         h.event(egui::Event::Text(t.into()));
         steps(h, 2);
+    }
+
+    /// Right at the end of the equation goes on in the text after it; Left from there goes back
+    /// in at the right end; Left at the start of the equation goes on in the text before it.
+    #[test]
+    fn arrows_cross_the_equation_boundary_both_ways() {
+        let mut h = harness();
+        h.state_mut().run("text.insert", json!({"text": "ab"})).unwrap();
+        // (Not Alt+=: it arms the canvas to swallow the "=" a real keyboard then types.)
+        h.state_mut().run("insert.equation", json!({})).unwrap();
+        steps(&mut h, 3);
+        assert!(h.state().equation.is_open());
+        type_text(&mut h, "x");
+        let at = h.state().equation.open.as_ref().map(|o| o.at.clone()).expect("open");
+        // Right at the end of the equation: out, caret after it, typing is plain text.
+        h.key_press(egui::Key::ArrowRight);
+        steps(&mut h, 3);
+        assert!(!h.state().equation.is_open(), "Right at the end leaves the equation");
+        assert_eq!(h.state().session.sel.focus.off, at.off + wordcraft_doc::para::OBJ.len_utf8(), "caret right after it");
+        type_text(&mut h, "c");
+        assert_eq!(equations(h.state()).len(), 1);
+        assert_eq!(h.state().session.doc.para_at(&at).map(|p| p.text.clone()).unwrap_or_default(), format!("ab{}c", wordcraft_doc::para::OBJ));
+        // Left from just after the equation is where text meets it: step Left over "c", then
+        // Left again goes into the equation, at its right end.
+        h.key_press(egui::Key::ArrowLeft);
+        steps(&mut h, 3);
+        assert!(!h.state().equation.is_open(), "Left from after the text only steps over it");
+        h.key_press(egui::Key::ArrowLeft);
+        steps(&mut h, 3);
+        assert!(h.state().equation.is_open(), "Left next to the equation goes into it");
+        assert_eq!(h.state().equation.widget().map(|w| w.linear()), Some("x".to_string()));
+        type_text(&mut h, "y");
+        assert_eq!(h.state().equation.widget().map(|w| w.linear()), Some("xy".to_string()), "entered at the right end");
+        // Left through the equation and out at its start: caret before it.
+        for _ in 0..3 {
+            h.key_press(egui::Key::ArrowLeft);
+            steps(&mut h, 2);
+        }
+        assert!(!h.state().equation.is_open(), "Left at the start leaves the equation");
+        assert_eq!(h.state().session.sel.focus.off, at.off, "caret right before it");
     }
 
     #[test]
