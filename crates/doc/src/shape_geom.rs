@@ -283,8 +283,10 @@ pub fn shape_geom(kind: ShapeKind, w: f32, h: f32, adj: f32) -> Option<Vec<Shape
         ShapeKind::FlowChartSummingJunction => {
             vec![closed(ellipse_pts(0.5, 0.5, 0.5, 0.5, 48)), open(vec![(0.15, 0.15), (0.85, 0.85)]), open(vec![(0.85, 0.15), (0.15, 0.85)])]
         }
-        ShapeKind::FlowChartOr => {
-            vec![closed(ellipse_pts(0.5, 0.5, 0.5, 0.5, 48)), open(vec![(0.5, 0.15), (0.5, 0.85)]), open(vec![(0.15, 0.5), (0.85, 0.5)])]
+        // The OR symbol's spokes are diameters: they reach the ellipse, as the canvas
+        // and PDF renderers draw them.
+        ShapeKind::FlowchartOr => {
+            vec![closed(ellipse_pts(0.5, 0.5, 0.5, 0.5, 48)), open(vec![(0.5, 0.0), (0.5, 1.0)]), open(vec![(0.0, 0.5), (1.0, 0.5)])]
         }
         ShapeKind::FlowChartCollate => vec![closed(vec![(0.0, 0.0), (1.0, 0.5), (0.0, 1.0)]), open(vec![(0.2, 0.15), (0.2, 0.85)])],
         ShapeKind::FlowChartSort => vec![closed(vec![(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)])],

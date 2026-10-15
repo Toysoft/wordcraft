@@ -146,7 +146,11 @@ pub fn wrap_outline(o: &InlineObject, picture: impl FnOnce(&str, [f32; 4]) -> Op
         return Some(Arc::new(p.unit()));
     }
     match o {
-        InlineObject::Shape { kind, extra, .. } => shape_outline(*kind, w, h, extra.adj.unwrap_or(default_adj(*kind))).map(Arc::new),
+        InlineObject::Shape { kind, extra, .. } => {
+            // The stored adjustment in `adj` units: `adj` first, else `corner`.
+            let adj = extra.adj.or(extra.corner.map(|c| c as f32 / 100_000.0)).unwrap_or(default_adj(*kind));
+            shape_outline(*kind, w, h, adj).map(Arc::new)
+        }
         InlineObject::Image { media, crop, .. } => picture(media, *crop),
         _ => None,
     }
