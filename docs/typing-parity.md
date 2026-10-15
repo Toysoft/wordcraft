@@ -1,6 +1,6 @@
 # Typing parity with Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** trivial (Shift+Delete cuts the selection on every platform, #1669; previously trivial: Select All then Delete removes a table the document starts with, #1198; previously trivial: Alt+numpad character codes, #961; previously trivial: Down and Up from a line start beside a table go into it, #1007; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-15 · **Change:** trivial (Turkish and Azerbaijani case mapping in AutoCorrect, #1923; previously trivial: Shift+Delete cuts the selection on every platform, #1669; previously trivial: Select All then Delete removes a table the document starts with, #1198; previously trivial: Alt+numpad character codes, #961; previously trivial: Down and Up from a line start beside a table go into it, #1007; previously trivial: sample-text formulas on Enter, #1067; previously trivial: Track Changes: Accept All after a tracked delete from a paragraph end keeps the next paragraph; Reject All after typing into an empty paragraph keeps it (#864); previously minor: Correct TWo INitial CApitals, cAPS LOCK and table-cell capitals, #544; previously trivial: complex-script caret and Backspace, #604; Move Paragraph Up/Down, Promote/Demote, Go Back and Alt+X keys, #343) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 What Word does when you type, observed black-box (same keystrokes typed into Word and
 WordCraft, results read back paragraph by paragraph) and pinned by tests in
@@ -122,6 +122,14 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
 - Smileys `:)` `:-)` `:(` `:-(` `:|` → ☺ ☹ 😐, also straight after a word (`ok:)` → `ok☺`) ¹
   (`smileys_are_replaced_inside_words_too`).
 
+- Turkish, Azerbaijani and Crimean Tatar text (the word's language, else the editing language)
+  maps `i` → `İ` and `ı` → `I` when a sentence or day is capitalised, and `I` → `ı` when
+  TWo INitial CApitals / cAPS LOCK lowercase a letter (`istanbul` → `İstanbul`, `İNgilizce` →
+  `İngilizce`, `ılık` → `Ilık`; observed in Word for Mac with Turkish proofing). Lowercasing `İ`
+  gives the single letter `i` in every language, never `i` + combining dot. Other languages keep
+  the Unicode default (`istanbul` → `Istanbul` in English)
+  (`autocorrect_capitalisation_follows_turkic_case_mapping`). Format > Change Case is not yet
+  Turkish-aware.
 - Names of days are capitalised (`monday` → `Monday`). AutoCorrect Options (#412,
   `tools.autocorrect`, saved per user) switch each of these off: replacements, sentence and
   table-cell capitals, days, smart quotes, fractions, ordinals, dashes, links, bulleted and
@@ -202,6 +210,7 @@ Word.
 | 2026-10-12 | trivial | Sample-text formulas on Enter (#1067), exact matching, bounded parameters, original English and one-step undo |
 | 2026-10-13 | minor | Alt+numpad decimal character codes: the ANSI code page with a leading 0, the OEM page without (the system locale's on Windows: 1250–1254, 437/737/850/852/857/866), Unicode above 255 (#961) |
 | 2026-10-13 | trivial | Fields: text typed or pasted just after a field (a Zotero citation) goes outside it (#898) |
+| 2026-10-15 | trivial | AutoCorrect: Turkish/Azerbaijani case mapping (i↔İ, ı↔I), no combining dot from İ (#1923) |
 | 2026-10-14 | trivial | Track Changes: a table delete over text already marked deleted changes nothing, so Reject All still restores it (#1329 review 2) |
 | 2026-10-14 | trivial | Track Changes: empty tables are removed under tracking; Delete Columns leaves merged cells that keep a column; repeated Change Case reads only live text (#1329 review) |
 | 2026-10-14 | trivial | Track Changes: table deletes mark the cells' text deleted and keep the table; Change Case is a tracked delete+insert (differs from Word's hidden formatting revision); Unlink Fields stays untracked; all three refuse locked content controls (#1329) |

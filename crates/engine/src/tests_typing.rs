@@ -1140,3 +1140,40 @@ fn typing_after_a_citation_goes_outside_its_field() {
     let inside = Pos { off: f[0].start.off + wordcraft_doc::para::OBJ.len_utf8(), ..f[0].start.clone() };
     assert_eq!(s.doc.copy_range(&inside, &f[0].end).plain_text(), "(Smith 2020)");
 }
+
+/// #1923: Turkish and Azerbaijani case mapping (i↔İ, ı↔I) in AutoCorrect, checked against Word
+/// with Turkish proofing; other languages keep the Unicode default.
+#[test]
+fn autocorrect_capitalisation_follows_turkic_case_mapping() {
+    for tag in ["tr-TR", "az-AZ"] {
+        let mut s = s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "istanbul güzel. ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "İstanbul güzel. ", "{tag}: i capitalises to İ");
+        let mut s = self::s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "İNgilizce ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "İngilizce ", "{tag}: İ kept, N lowercased, no combining dot");
+        let mut s = self::s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "ılık ırmak. ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Ilık ırmak. ", "{tag}: ı capitalises to I");
+        let mut s = self::s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "iSTANBUL ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "İstanbul ", "{tag}: cAPS LOCK fix");
+        let mut s = self::s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "kızım. ISparta ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Kızım. Isparta ", "{tag}: TWo INitial CApitals lowercases I to ı only before lowercase");
+    }
+    // Other languages are unchanged; a stray İ still lowercases to a single "i".
+    let mut s = s();
+    run(&mut s, "review.language", json!({"lang": "en-US", "default": true}));
+    typ(&mut s, "istanbul güzel. ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Istanbul güzel. ");
+    let mut s = self::s();
+    run(&mut s, "review.language", json!({"lang": "en-US", "default": true}));
+    typ(&mut s, "İNgilizce ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "İngilizce ", "no combining dot in any language");
+}
