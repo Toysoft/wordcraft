@@ -42,7 +42,6 @@ pub fn submit() -> Submit {
                 scaling: craft_print::Scaling::ShrinkToFit,
                 title: "WordCraft document".into(),
                 options,
-                ..Default::default()
             };
             let _ = sender.send(craft_print::submit(&bytes, &job).map_err(|error| error.to_string()));
         });
