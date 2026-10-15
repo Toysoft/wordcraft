@@ -3830,9 +3830,20 @@ fn a_floating_table_ignores_a_paragraphs_empty_lines() {
     use wordcraft_doc::para::Anchor;
     use wordcraft_doc::props::TableFloat;
 
-    let mut doc = Document::from_text(&[""; 9].join("\n"));
-    doc.body.push(wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Visible\n\n\n", Default::default())));
-    doc.body.extend((0..14).map(|_| wordcraft_doc::para_block(wordcraft_doc::Paragraph::new())));
+    let doc_with = |empty_after: usize| {
+        let mut doc = Document::from_text(&[""; 9].join("\n"));
+        doc.body.push(wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Visible\n\n\n", Default::default())));
+        doc.body.extend((0..empty_after).map(|_| wordcraft_doc::para_block(wordcraft_doc::Paragraph::new())));
+        doc
+    };
+    // Empty paragraphs down the page, leaving two of them free: the table doesn't fit below the
+    // text before it. How many fit follows the installed fonts' line height (#2069), so count them.
+    let fit = lay(&doc_with(60)).pages[0]
+        .items
+        .iter()
+        .filter(|item| matches!(item, Placed::Lines { path, .. } if path.0.first().is_some_and(|block| *block >= 10)))
+        .count();
+    let mut doc = doc_with(fit - 2);
     let mut table = Table::new(12, 1, 300.0);
     for (i, row) in table.rows.iter_mut().enumerate() {
         row.cells[0].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&format!("Approval {i}"), Default::default()))];
@@ -4445,19 +4456,31 @@ fn an_inherited_footer_sizes_its_percentage_table_by_its_own_section() {
 
 #[test]
 fn a_row_with_less_room_than_its_minimum_height_moves_on_whole() {
-    use wordcraft_doc::props::HeightRule;
+    use wordcraft_doc::props::{HeightRule, LineSpacing};
     // Measured in Word: with 49 pt left on the page, a row of eight lines splits, but the same row
     // with an at-least height of 63.6 pt goes to the next page whole.
     let first_row_line_page = |min: Option<f32>| {
-        let lines: Vec<String> = (1..=200).map(|i| format!("Filler {i}")).collect();
-        let one_page = lay(&Document::from_text(&lines.join("\n"))).pages[0].items.iter().filter(|i| matches!(i, Placed::Lines { .. })).count();
         let mut t = Table::new(1, 1, 400.0);
         t.rows[0].props.height = min;
         t.rows[0].props.height_rule = HeightRule::AtLeast;
         t.rows[0].cells[0].blocks =
             (1..=8).map(|k| wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&format!("Row line {k}"), Default::default()))).collect();
-        // Fill the page, leaving two filler paragraphs' room (less than 63.6 pt) for the row.
-        let mut d = Document::from_text(&lines[..one_page - 2].join("\n"));
+        // Fill the page, leaving those 49 pt for the row: 25 lines of an exact height. Lines of the
+        // default font's height leave a room that changes with the installed fonts (#2069).
+        let mut d = Document::from_text("");
+        let filler = ParaProps {
+            line_spacing: Some(LineSpacing::Exactly((d.last_section.text_height() - 49.0) / 25.0)),
+            space_before: Some(0.0),
+            space_after: Some(0.0),
+            ..Default::default()
+        };
+        d.body = (1..=25)
+            .map(|i| {
+                let mut p = wordcraft_doc::Paragraph::with_text(&format!("Filler {i}"), Default::default());
+                p.props = filler.clone();
+                wordcraft_doc::para_block(p)
+            })
+            .collect();
         let end = d.body.len();
         d.insert_block(StoryRef::Body, &Path::top(end), wordcraft_doc::Block::Table(t)).unwrap();
         let l = lay(&d);
