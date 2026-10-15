@@ -689,6 +689,73 @@ fn page_break_char_starts_new_page() {
 }
 
 #[test]
+fn an_empty_section_mark_stays_on_a_full_page() {
+    use wordcraft_doc::section::SectionProps;
+    // Measured in Word: a page filled to the bottom, then an empty paragraph carrying a next-page
+    // section break, makes no page for the mark; the next section starts on page 2. A plain empty
+    // paragraph moves on as usual.
+    let pages = |carries_section: bool| {
+        let lines: Vec<String> = (1..=200).map(|i| format!("Line {i}")).collect();
+        let d = Document::from_text(&lines.join("\n"));
+        let one_page = lay(&d).pages[0].items.iter().filter(|i| matches!(i, Placed::Lines { .. })).count();
+        let mut d = Document::from_text(&format!("{}\n\nNext", lines[..one_page].join("\n")));
+        let mark = d.para_mut(StoryRef::Body, &Path::top(one_page)).unwrap();
+        if carries_section {
+            mark.section = Some(Box::new(SectionProps::default()));
+        } else {
+            d.para_mut(StoryRef::Body, &Path::top(one_page + 1)).unwrap().props.page_break_before = Some(true);
+        }
+        lay(&d).pages.len()
+    };
+    assert_eq!(pages(true), 2);
+    assert_eq!(pages(false), 3);
+}
+
+#[test]
+fn a_bookmark_after_a_page_break_takes_no_line() {
+    // "Before", a page break, then a bookmark start (Word writes the next heading's TOC bookmark
+    // there): the bookmark takes no room, so "After" starts at the top of page 2, as in Word.
+    let top_of_after = |bookmark: bool| {
+        let mut d = Document::from_text("Before\nAfter");
+        d.insert_text(&Pos::body(0, 6), "\u{000C}", &Default::default()).unwrap();
+        if bookmark {
+            let mark = InlineObject::BookmarkStart { name: "_Toc1".into() };
+            d.insert_object(&Pos::body(0, 7), mark, &Default::default()).unwrap();
+        }
+        let l = lay(&d);
+        let page = l.pages.last().unwrap();
+        let after = page.items.iter().find_map(|i| match i {
+            Placed::Lines { path, y, .. } if path.0 == [1] => Some(*y),
+            _ => None,
+        });
+        (l.pages.len(), after.map(|y| y - page.body.y))
+    };
+    assert_eq!(top_of_after(true), top_of_after(false));
+}
+
+#[test]
+fn a_page_break_then_a_new_page_makes_one_page() {
+    use wordcraft_doc::section::SectionProps;
+    // "Before", a paragraph of only a page break, then "After" starting a page by itself: a page
+    // break before, or a next-page section break carried by the break's own paragraph. Word's
+    // output for a report: the break's mark stays on the old page, and "After" starts the next.
+    let doc = |section_on_break: bool| {
+        let mut d = Document::from_text("Before\n\u{000C}\nAfter");
+        if section_on_break {
+            d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().section = Some(Box::new(SectionProps::default()));
+        } else {
+            d.para_mut(StoryRef::Body, &Path::top(2)).unwrap().props.page_break_before = Some(true);
+        }
+        d
+    };
+    for section_on_break in [false, true] {
+        let l = lay(&doc(section_on_break));
+        let firsts: Vec<usize> = l.pages.iter().map(|p| p.first_block).collect();
+        assert_eq!(l.pages.len(), 2, "section break on the page break: {section_on_break}; pages start at blocks {firsts:?}");
+    }
+}
+
+#[test]
 fn page_numbers_can_restart_at_zero() {
     // `w:pgNumType w:start="0"`: a cover page numbered 0, so the page after it reads 1.
     let mut d = Document::from_text("Cover\u{000C}Contents");
@@ -764,6 +831,26 @@ fn lists_get_labels_and_indent() {
     assert_eq!(labels, vec!["1.", "2.", "3."]);
     let x = l.caret(&Pos::body(0, 0)).unwrap().x;
     assert!((x - 108.0).abs() < 0.5, "{x}");
+}
+
+#[test]
+fn a_numbered_heading_opening_with_a_page_break_takes_its_number_along() {
+    // "Before", then a numbered paragraph whose text opens with a page break: Word draws its
+    // number on the next page with the text, not alone at the bottom of the first.
+    let mut d = Document::from_text("Before\n\u{000C}Heading");
+    let id = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    d.format_paragraphs(&Pos::body(1, 0), &Pos::body(1, 1), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
+    let l = lay(&d);
+    let label_pages: Vec<usize> = l
+        .pages
+        .iter()
+        .enumerate()
+        .filter(|(_, pg)| {
+            flat(display::page_display(&d, pg, &Default::default())).iter().any(|x| matches!(x, display::Draw::Glyphs { text, .. } if text == "1."))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(label_pages, [1]);
 }
 
 #[test]
@@ -1303,6 +1390,39 @@ fn space_between_paragraphs_is_the_larger_of_after_and_before() {
     assert!((gap(0.0, 6.0, false) - 6.0).abs() < 0.01);
     // Contextual spacing drops both between paragraphs of one style.
     assert!(gap(6.0, 12.0, true).abs() < 0.01);
+}
+
+#[test]
+fn space_between_paragraphs_is_their_sum_when_html_auto_spacing_is_off() {
+    // Measured in Word (compatibility modes 14 and 15): with `w:doNotUseHTMLParagraphAutoSpacing`,
+    // 12 pt after and 12 pt before leave 24 pt; without it, 12 pt.
+    let gaps = |sum: bool| -> (f32, f32) {
+        let mut d = Document::from_text("One\nTwo");
+        d.settings.sum_paragraph_spacing = sum;
+        for i in 0..2 {
+            let p = d.para_mut(StoryRef::Body, &Path::top(i)).unwrap();
+            (p.props.space_after, p.props.space_before) = (Some(12.0), Some(12.0));
+        }
+        let mut t = Table::new(1, 1, 468.0);
+        t.rows[0].cells[0].blocks = d.body.clone();
+        d.insert_block(StoryRef::Body, &Path::top(2), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let tops = |cell: bool| -> Vec<(f32, f32)> {
+            l.pages[0]
+                .items
+                .iter()
+                .filter_map(|it| match it {
+                    Placed::Lines { path, y, para, .. } if (path.0.len() == 4) == cell => Some((*y, para.height)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let gap = |ys: Vec<(f32, f32)>| ys[1].0 - (ys[0].0 + ys[0].1);
+        (gap(tops(false)), gap(tops(true)))
+    };
+    let near = |(a, b): (f32, f32), want: f32| (a - want).abs() < 0.01 && (b - want).abs() < 0.01;
+    assert!(near(gaps(true), 24.0), "{:?}", gaps(true));
+    assert!(near(gaps(false), 12.0), "{:?}", gaps(false));
 }
 
 #[test]
@@ -2096,7 +2216,8 @@ fn split_row_cells_each_continue_at_the_top() {
 }
 
 /// Word never splits a row of an exact height: one the page bottom cuts through, its text
-/// included, moves to the next page whole (an "at least" row of that height splits).
+/// included, moves to the next page whole. An at-least row also moves when the remaining
+/// room is less than its minimum height.
 #[test]
 fn exact_rows_move_on_whole() {
     let text = "Dotted leader lines to fill in by hand later on. ".repeat(14);
@@ -2129,7 +2250,8 @@ fn exact_rows_move_on_whole() {
     assert_eq!(exact.len(), 2);
     assert_eq!(exact[0], 0, "the exact row moves on whole: {exact:?}");
     let at_least = lay_row(wordcraft_doc::props::HeightRule::AtLeast);
-    assert!(at_least[0] > 0 && at_least.get(1).is_some_and(|n| *n > 0), "an at-least row splits: {at_least:?}");
+    assert_eq!(at_least[0], 0, "less than the minimum height remains: {at_least:?}");
+    assert!(at_least.get(1).is_some_and(|n| *n > 0), "the at-least row moves: {at_least:?}");
 }
 
 /// A nested table's cell the page bottom cuts through goes on at the top of the next page with
@@ -4079,6 +4201,87 @@ fn autofit_handles_spanning_cells_long_words_and_empty_tables() {
     }
     let [(x, _, _)] = table_x(t, &[0, 0, 1, 0])[..] else { panic!("second cell missing") };
     assert!(x > 72.0 + 200.0, "the second 50% column starts at {x}");
+}
+
+#[test]
+fn an_inherited_footer_sizes_its_percentage_table_by_its_own_section() {
+    use wordcraft_doc::section::SectionProps;
+    // Measured in Word: a 100%-wide footer table defined by a portrait section keeps that width on
+    // a landscape page that inherits the footer, centred there; a landscape section naming the
+    // same footer itself gets the landscape width.
+    let table_width = |landscape_names_it: bool| {
+        let mut d = Document::from_text("Portrait\nLandscape");
+        let mut t = Table::new(1, 2, 100.0);
+        t.props.width_pct = Some(100.0);
+        let footer = d.add_part(wordcraft_doc::PartKind::Footer, vec![std::sync::Arc::new(wordcraft_doc::Block::Table(t))]);
+        let mut portrait = SectionProps::default();
+        portrait.footers.default = Some(footer);
+        d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().section = Some(Box::new(portrait.clone()));
+        let mut landscape = portrait.clone();
+        (landscape.page_w, landscape.page_h) = (portrait.page_h, portrait.page_w);
+        if !landscape_names_it {
+            landscape.footers.default = None;
+        }
+        d.last_section = landscape;
+        let l = lay(&d);
+        let cells: Vec<Rect> = l.pages[1].footer.iter().filter_map(|i| if let Placed::Cell { rect, .. } = i { Some(*rect) } else { None }).collect();
+        let (x0, x1) = cells.iter().fold((f32::MAX, f32::MIN), |(a, b), r| (a.min(r.x), b.max(r.right())));
+        (x1 - x0, portrait.text_width(), d.last_section.text_width())
+    };
+    let (inherited, portrait_w, _) = table_width(false);
+    assert!((inherited - portrait_w).abs() < 1.0, "inherited: {inherited} wide, portrait text {portrait_w}");
+    let (own, _, landscape_w) = table_width(true);
+    assert!((own - landscape_w).abs() < 1.0, "own footer: {own} wide, landscape text {landscape_w}");
+}
+
+#[test]
+fn a_row_with_less_room_than_its_minimum_height_moves_on_whole() {
+    use wordcraft_doc::props::HeightRule;
+    // Measured in Word: with 49 pt left on the page, a row of eight lines splits, but the same row
+    // with an at-least height of 63.6 pt goes to the next page whole.
+    let first_row_line_page = |min: Option<f32>| {
+        let lines: Vec<String> = (1..=200).map(|i| format!("Filler {i}")).collect();
+        let one_page = lay(&Document::from_text(&lines.join("\n"))).pages[0].items.iter().filter(|i| matches!(i, Placed::Lines { .. })).count();
+        let mut t = Table::new(1, 1, 400.0);
+        t.rows[0].props.height = min;
+        t.rows[0].props.height_rule = HeightRule::AtLeast;
+        t.rows[0].cells[0].blocks =
+            (1..=8).map(|k| wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&format!("Row line {k}"), Default::default()))).collect();
+        // Fill the page, leaving two filler paragraphs' room (less than 63.6 pt) for the row.
+        let mut d = Document::from_text(&lines[..one_page - 2].join("\n"));
+        let end = d.body.len();
+        d.insert_block(StoryRef::Body, &Path::top(end), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        l.pages.iter().position(|p| p.items.iter().any(|i| matches!(i, Placed::Lines { path, .. } if path.0.first() == Some(&(end as u32)))))
+    };
+    assert_eq!(first_row_line_page(None), Some(0), "a row without a minimum height splits");
+    assert_eq!(first_row_line_page(Some(63.6)), Some(1), "a row with a minimum height that doesn't fit moves on");
+}
+
+#[test]
+fn text_overflowing_an_exact_row_is_clipped_to_it() {
+    use wordcraft_doc::props::HeightRule;
+    // An exactly 12 pt row holding three lines: Word shows what fits and cuts the rest at the row's
+    // edge, rather than drawing it over the rows below.
+    let mut t = Table::new(2, 1, 200.0);
+    t.rows[0].props.height = Some(12.0);
+    t.rows[0].props.height_rule = HeightRule::Exact;
+    t.rows[0].cells[0].blocks =
+        ["one", "two", "three"].iter().map(|s| wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(s, Default::default()))).collect();
+    t.rows[1].cells[0].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("below", Default::default()))];
+    let mut d = Document::from_text("After");
+    d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(t)).unwrap();
+    let draws = display::page_display(&d, &lay(&d).pages[0], &Default::default());
+    let clipped = |want: &str| {
+        draws.iter().any(|x| match x {
+            display::Draw::Clip { items, .. } => {
+                flat(items.clone()).iter().any(|i| matches!(i, display::Draw::Glyphs { text, .. } if text.contains(want)))
+            }
+            _ => false,
+        })
+    };
+    assert!(clipped("three"), "the overflowing row's text is drawn inside a clip");
+    assert!(!clipped("below"), "a row that fits isn't clipped");
 }
 
 #[test]
