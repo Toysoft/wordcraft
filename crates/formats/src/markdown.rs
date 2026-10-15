@@ -5,7 +5,7 @@
 //! bottom-border paragraph), bullet and ordered lists (nested by indentation), GFM pipe tables,
 //! and inlines: emphasis/strong (the CommonMark delimiter algorithm), `~~strike~~`, code spans,
 //! inline links, autolinks, images (`data:` URIs become pictures, others their alt text),
-//! backslash escapes, entities, `<br>` and `<a id>` anchors.
+//! backslash escapes, entities, HTML comments (`<!-- ... -->`), `<br>` and `<a id>` anchors.
 //!
 //! Export writes the same constructs; pictures become `![alt](media-name)` placeholders.
 
@@ -231,6 +231,7 @@ fn interrupts(l: &str) -> bool {
         || thematic_break(t)
         || fence(t).is_some()
         || t.starts_with('>')
+        || t.starts_with("<!--")
         || list_marker(t).is_some_and(|m| (!m.ordered || m.start == 1) && !is_blank(t.get(m.len..).unwrap_or("")))
 }
 
@@ -240,7 +241,11 @@ fn flush_para(lines: &mut Vec<String>, out: &mut Vec<FBlock>, depth: usize) {
     }
     let text = join_lines(lines);
     lines.clear();
-    let p = Para { inlines: parse_inlines(&text, &Fmt::default(), depth), ..Default::default() };
+    let inlines = parse_inlines(&text, &Fmt::default(), depth);
+    if inlines.is_empty() {
+        return;
+    }
+    let p = Para { inlines, ..Default::default() };
     out.push(FBlock::Para(p));
 }
 
@@ -347,6 +352,16 @@ fn parse_blocks(lines: &[String], depth: usize, level: u8) -> Vec<FBlock> {
                     break;
                 }
                 out.push(code_para(strip_indent(l, ind)));
+            }
+            continue;
+        }
+        if t.starts_with("<!--") {
+            flush_para(&mut para, &mut out, depth);
+            while let Some(l) = lines.get(i) {
+                i += 1;
+                if l.contains("-->") {
+                    break;
+                }
             }
             continue;
         }
@@ -849,6 +864,12 @@ fn tokenize(s: &str, base: &Fmt, depth: usize) -> Vec<Node> {
                 }
             }
             b'<' => {
+                if let Some(pos) = s.get(i..).and_then(|r| r.strip_prefix("<!--")).and_then(|r| r.find("-->")) {
+                    flush!();
+                    i += 4 + pos + 3;
+                    text_start = i;
+                    continue;
+                }
                 let rest = s.get(i + 1..).unwrap_or("");
                 let end = within(rest, MAX_TAG).find('>');
                 let inner = end.and_then(|e| rest.get(..e)).unwrap_or("");
@@ -1680,4 +1701,22 @@ mod tests {
         assert_eq!(back_table2.rows[1][0].text(), "a`b|c");
         assert_eq!(back_table2.rows[1][1].text(), "CRITICAL_DISTINCTIVE_INFO");
     }
+
+    #[test]
+    fn html_comments_are_ignored_in_blocks_and_inlines() {
+        let md = "<!-- block comment -->\n\nHello <!-- inline comment -->world!\n\n<!--\nmultiline\ncomment\n-->\n\nAfter comment.";
+        let flow = parse(md);
+        assert_eq!(flow.blocks.len(), 2);
+        if let FBlock::Para(p) = &flow.blocks[0] {
+            assert_eq!(p.text(), "Hello world!");
+        } else {
+            panic!("expected para");
+        }
+        if let FBlock::Para(p) = &flow.blocks[1] {
+            assert_eq!(p.text(), "After comment.");
+        } else {
+            panic!("expected para");
+        }
+    }
 }
+
