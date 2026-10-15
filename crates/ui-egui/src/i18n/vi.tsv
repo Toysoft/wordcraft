@@ -509,7 +509,7 @@
 	Multiple Pages	Nhiều trang
 	Name (A–Z)	Tên (A–Z)
 	Name:	Tên:
-	Narrow  0.5" all	Hẹp  0,5" mọi cạnh
+	Narrow  {size} all	Hẹp  {size} mọi cạnh
 	Navigation	Điều hướng
 	Navigation Pane	Ngăn điều hướng
 	New	Mới
@@ -537,7 +537,7 @@
 	Nonbreaking Hyphen	Gạch nối không ngắt dòng
 	Nonbreaking Space	Khoảng trắng không ngắt dòng
 	None	Không có
-	Normal  1" all	Thường  1" mọi cạnh
+	Normal  {size} all	Thường  {size} mọi cạnh
 	Normal Style	Kiểu Thường
 	Not available right now	Hiện không khả dụng
 	Not saved	Chưa lưu
@@ -2671,3 +2671,6 @@ file	Home	Trang chủ
 	Wait for the print job to finish submitting before closing.	Hãy chờ lệnh in được gửi xong rồi mới đóng.
 # Template names in File › New (#1271)
 template	Letter	Thư
+# Reading Mode column widths (#1040)
+	Narrow	Hẹp
+	Medium	Trung bình
