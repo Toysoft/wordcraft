@@ -56,11 +56,16 @@ pub fn tw(e: &El, attr: &str) -> Option<f32> {
     e.attr(attr).and_then(|v| measure(v, 20.0))
 }
 
+/// ST_OnOff string value: `0`, `false`, `off` = off (case-insensitive); everything else = on.
+pub fn parse_on_off(s: &str) -> bool {
+    !matches!(s.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off")
+}
+
 /// ST_OnOff: absent `w:val` = on; `0`, `false`, `off` = off.
 pub fn on_off(e: &El) -> bool {
     match e.attr("w:val") {
         None => true,
-        Some(v) => !matches!(v.trim(), "0" | "false" | "off" | "False" | "FALSE"),
+        Some(v) => parse_on_off(v),
     }
 }
 
@@ -100,5 +105,23 @@ mod tests {
         assert_eq!(measure("x", 20.0), None);
         assert_eq!(int("12.6"), Some(13));
         assert_eq!(u32_of("-5"), Some(0));
+    }
+
+    #[test]
+    fn on_off_parsing() {
+        assert!(parse_on_off("1"));
+        assert!(parse_on_off("true"));
+        assert!(parse_on_off("True"));
+        assert!(parse_on_off("TRUE"));
+        assert!(parse_on_off("on"));
+        assert!(parse_on_off("On"));
+        assert!(parse_on_off("ON"));
+        assert!(!parse_on_off("0"));
+        assert!(!parse_on_off("false"));
+        assert!(!parse_on_off("False"));
+        assert!(!parse_on_off("FALSE"));
+        assert!(!parse_on_off("off"));
+        assert!(!parse_on_off("Off"));
+        assert!(!parse_on_off("OFF"));
     }
 }
