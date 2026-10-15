@@ -224,10 +224,10 @@ impl Writer<'_> {
         }
         // Taken before the content so a nested story (a text box in an entry) can't claim them.
         if std::mem::take(&mut self.toc_begin_here)
-            && let Some((instr, locked, props)) = self.toc_field.take()
+            && let Some((instr, locked, dirty, props)) = self.toc_field.take()
         {
             self.rev_open(w, &props);
-            self.field_start(w, &instr, locked, false, "", &props);
+            self.field_start(w, &instr, locked, dirty, "", &props);
             self.rev_close(w, &props);
         }
         let toc_end = std::mem::take(&mut self.toc_end_here);
@@ -496,7 +496,7 @@ impl Writer<'_> {
                     None => super::math::write_equation(w, linear, *display, math, color),
                 }
             }
-            InlineObject::Field { instr, result, locked, form, .. } => self.field(w, instr, result, *locked, form, props),
+            InlineObject::Field { instr, result, locked, dirty, form, .. } => self.field(w, instr, result, *locked, *dirty, form, props),
             InlineObject::FieldStart { instr, locked, dirty } => {
                 self.rev_open(w, props);
                 self.field_start(w, instr, *locked, *dirty, "", props);
@@ -795,11 +795,11 @@ impl Writer<'_> {
         }
     }
 
-    fn field(&mut self, w: &mut W, instr: &str, result: &str, locked: bool, form: &str, props: &CharProps) {
+    fn field(&mut self, w: &mut W, instr: &str, result: &str, locked: bool, dirty: bool, form: &str, props: &CharProps) {
         if self.toc_hold_end && is_toc(instr) {
             // A TOC heading's field opens in the first entry and closes after the last (see `toc_span`).
             self.toc_hold_end = false;
-            self.toc_field = Some((instr.to_string(), locked, props.clone()));
+            self.toc_field = Some((instr.to_string(), locked, dirty, props.clone()));
             return;
         }
         if let Some(e) = wordcraft_doc::eq::Enclosure::parse(instr) {
@@ -816,7 +816,7 @@ impl Writer<'_> {
             w.close("w:r");
         };
         self.rev_open(w, props);
-        self.field_start(w, instr, locked, false, form, props);
+        self.field_start(w, instr, locked, dirty, form, props);
         // Field result inherits the field's formatting but not the deletion marking.
         let mut result_props = props.clone();
         result_props.del = None;
@@ -913,7 +913,7 @@ impl Writer<'_> {
             w.close("w:r");
         };
         run(w, &|w| {
-            let mut attrs = vec![("w:fldCharType", "begin")];
+            let mut attrs: Vec<(&str, &str)> = vec![("w:fldCharType", "begin")];
             if locked {
                 attrs.push(("w:fldLock", "1"));
             }
@@ -999,7 +999,9 @@ impl Writer<'_> {
             ShapeKind::Rectangle | ShapeKind::TextBox | ShapeKind::Freeform => "rect",
             ShapeKind::RoundedRectangle => "roundRect",
             ShapeKind::Ellipse => "ellipse",
+            ShapeKind::FlowchartOr => "flowChartOr",
             ShapeKind::Triangle => "triangle",
+            ShapeKind::RightTriangle => "rtTriangle",
             ShapeKind::Diamond => "diamond",
             ShapeKind::Line => "line",
             ShapeKind::StraightConnector => "straightConnector1",
@@ -1375,7 +1377,7 @@ fn sectpr_body(w: &mut W, s: &SectionProps) {
             let refs: Vec<(&str, &str)> = a.iter().map(|(k, v)| (*k, v.as_str())).collect();
             w.empty("w:lnNumType", &refs);
         }
-        if s.page_num_start.is_some() || s.page_num_format != wordcraft_doc::section::NumFormat::Decimal {
+        if s.page_num_set || s.page_num_start.is_some() || s.page_num_format != wordcraft_doc::section::NumFormat::Decimal {
             let mut a = vec![("w:fmt", s.page_num_format.ooxml().to_string())];
             if let Some(st) = s.page_num_start {
                 a.push(("w:start", st.to_string()));
@@ -1402,15 +1404,19 @@ fn sectpr_body(w: &mut W, s: &SectionProps) {
             let refs: Vec<(&str, &str)> = ca.iter().map(|(k, v)| (*k, v.as_str())).collect();
             w.empty("w:cols", &refs);
         }
+        if let Some(on) = s.form_prot {
+            w.empty("w:formProt", if on { &[] } else { &[("w:val", "0")] });
+        }
         match s.valign {
-            wordcraft_doc::props::VAlign::Top => {}
-            wordcraft_doc::props::VAlign::Center => w.val("w:vAlign", "center"),
-            wordcraft_doc::props::VAlign::Bottom => w.val("w:vAlign", "bottom"),
+            wordcraft_doc::section::PageVAlign::Top => {}
+            wordcraft_doc::section::PageVAlign::Center => w.val("w:vAlign", "center"),
+            wordcraft_doc::section::PageVAlign::Justify => w.val("w:vAlign", "both"),
+            wordcraft_doc::section::PageVAlign::Bottom => w.val("w:vAlign", "bottom"),
         }
         if s.title_page {
             w.empty("w:titlePg", &[]);
         }
-        if s.text_direction.is_turned() {
+        if s.text_direction.is_turned() || s.text_direction_set {
             w.val("w:textDirection", s.text_direction.ooxml());
         }
         if s.rtl {

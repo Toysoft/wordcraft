@@ -63,6 +63,7 @@ struct FieldState {
     buf: Vec<(Item, CharProps)>,
     props: CharProps,
     locked: bool,
+    /// `w:dirty` from the begin marker: the result is stale, Word refreshes it on open.
     dirty: bool,
     /// Kept as a range field: its result flows into the document as ordinary content between
     /// `FieldStart` and `FieldEnd` markers instead of being buffered.
@@ -398,6 +399,11 @@ impl Reader<'_> {
         para.text = pb.text;
         para.runs = pb.runs;
         para.objects = pb.objects;
+        // Paragraph boundaries inside an instruction are hidden with the field code.
+        // The result paragraph still takes a line, even when its cached text is empty.
+        if sc.fields.iter().any(|f| f.phase == Phase::Instr) && para.plain_text().is_empty() {
+            para.mark.hidden = Some(true);
+        }
         para.normalize();
         para
     }
@@ -614,6 +620,9 @@ impl Reader<'_> {
             }
             "w:tab" | "w:ptab" => self.emit_text(sc, pb, "\t", props),
             "w:br" => {
+                if sc.fields.iter().any(|f| f.phase == Phase::Instr) {
+                    return;
+                }
                 let c = match k.attr("w:type") {
                     Some("page") => "\u{000C}",
                     Some("column") => "\u{000E}",
@@ -621,7 +630,11 @@ impl Reader<'_> {
                 };
                 self.emit_text(sc, pb, c, props);
             }
-            "w:cr" => self.emit_text(sc, pb, "\n", props),
+            "w:cr" => {
+                if !sc.fields.iter().any(|f| f.phase == Phase::Instr) {
+                    self.emit_text(sc, pb, "\n", props);
+                }
+            }
             "w:noBreakHyphen" => self.emit_text(sc, pb, "\u{2011}", props),
             "w:softHyphen" => self.emit_text(sc, pb, "\u{00AD}", props),
             "w:sym" => {
@@ -697,7 +710,7 @@ impl Reader<'_> {
             "w:pgNum" => self.emit_obj(
                 sc,
                 pb,
-                InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, code: false, form: String::new() },
+                InlineObject::Field { instr: "PAGE".into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
                 props,
             ),
             "w:ruby" => self.read_ruby(sc, pb, k, props),
@@ -831,21 +844,8 @@ impl Reader<'_> {
             return;
         }
         if f.phase == Phase::Instr && !nested_in_instr && is_range_instr(&f.instr) {
+            // A range field with no result yet.
             self.emit_obj(sc, pb, InlineObject::FieldStart { instr: f.instr.trim().to_string(), locked: f.locked, dirty: f.dirty }, &f.props);
-            self.emit_obj(sc, pb, InlineObject::FieldEnd, &f.props);
-            return;
-        }
-        // A cached result with tracked revisions in it (an edited SUM subtotal, a formula
-        // whose result changed, #1037): the result is ordinary content between range markers
-        // so Accept/Reject All see the revisions, as pandoc does.
-        if !nested_in_instr && f.buf.iter().any(|(_, p)| (p.del.is_some() && p.del != f.props.del) || (p.ins.is_some() && p.ins != f.props.ins)) {
-            self.emit_obj(sc, pb, InlineObject::FieldStart { instr: f.instr.trim().to_string(), locked: f.locked, dirty: f.dirty }, &f.props);
-            for (it, p) in f.buf {
-                match it {
-                    Item::Text(t) => pb.push_text(&t, &p),
-                    Item::Obj(o) => pb.push_obj(*o, &p),
-                }
-            }
             self.emit_obj(sc, pb, InlineObject::FieldEnd, &f.props);
             return;
         }
@@ -879,7 +879,7 @@ impl Reader<'_> {
             Some(e) => (e.instr(), if result.is_empty() { e.text } else { result }),
             None => (f.instr.trim().to_string(), result),
         };
-        let obj = InlineObject::Field { instr, result, locked: f.locked, code: false, form: f.form };
+        let obj = InlineObject::Field { instr, result, locked: f.locked, dirty: f.dirty, code: false, form: f.form };
         // If this field is nested inside another field's instruction, append the result
         // to the parent's instruction text instead of emitting a separate object.
         if let Some(parent) = sc.fields.last_mut()
@@ -902,7 +902,7 @@ impl Reader<'_> {
             f.spilled = true;
             let form = std::mem::take(&mut f.form);
             pb.push_obj(
-                InlineObject::Field { instr: f.instr.trim().to_string(), result: String::new(), locked: f.locked, code: false, form },
+                InlineObject::Field { instr: f.instr.trim().to_string(), result: String::new(), locked: f.locked, dirty: f.dirty, code: false, form },
                 &f.props,
             );
             for (it, p) in f.buf.drain(..) {
@@ -1466,6 +1466,35 @@ impl Reader<'_> {
                 extra: Default::default(),
             });
         }
+        // A freeform: its `path`, in its `coordsize` space; a `v:fill` with no opacity
+        // or `nf` in the path leaves it unfilled. Not WordArt (`v:textpath`).
+        if shape.local() == "shape"
+            && shape.child("v:textpath").is_none()
+            && let Some(path) = shape.attr("path")
+            && let Some(vp) = super::freeform::vml_path(path, shape.attr("coordsize"), shape.attr("coordorigin"), w, h)
+        {
+            let opacity = |el: &str| shape.child(el).and_then(|e| e.attr("opacity")).and_then(vml_fraction).unwrap_or(1.0);
+            let fill = fill.filter(|_| !vp.no_fill && opacity("v:fill") > 0.0);
+            let stroke = stroke.filter(|_| !vp.no_stroke);
+            if stroke.is_none() && fill.is_none() {
+                return None;
+            }
+            let mut f = vp.freeform;
+            f.alpha = opacity("v:stroke");
+            return Some(InlineObject::Shape {
+                kind: ShapeKind::Freeform,
+                w,
+                h,
+                fill,
+                stroke,
+                stroke_width,
+                float,
+                story: None,
+                freeform: Some(Arc::new(f)),
+                effects: Default::default(),
+                extra: Default::default(),
+            });
+        }
         let kind = kind?;
         let mut extra = ShapeExtra::default();
         if kind == ShapeKind::Line {
@@ -1548,6 +1577,7 @@ impl Reader<'_> {
         collect(t, "w:tr", &mut rows, &mut Vec::new(), 0);
         for (tr, row_controls) in rows.into_iter().take(MAX_ROWS) {
             let mut row = Row { props: tr.child("w:trPr").map(trpr).unwrap_or_default(), cells: Vec::new(), controls: row_controls };
+            row.props.exceptions = tr.child("w:tblPrEx").map(|e| Box::new(self.pc.tblpr(e)));
             if let Some(ch) = tr.child("w:trPr").and_then(|p| p.child("w:trPrChange")) {
                 let old = ch.child("w:trPr").map(trpr).unwrap_or_default();
                 row.props.fmt_change = PropChange::boxed(self.revision(RevisionKind::Format, ch), old);

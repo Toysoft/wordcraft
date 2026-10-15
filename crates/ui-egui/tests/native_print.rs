@@ -19,7 +19,7 @@ fn control_print_discovery_reports_metadata_without_host_side_effects() {
         receiver
     }));
     let observed = submissions.clone();
-    app.services.print_native = Some(Box::new(move |_, _, _| {
+    app.services.print_native = Some(Box::new(move |_, _, _, _| {
         observed.set(observed.get() + 1);
         let (_, receiver) = std::sync::mpsc::channel();
         receiver
@@ -61,7 +61,7 @@ fn native_print_uses_selected_settings_and_reports_spool_errors() {
     app.run("text.insert", json!({"text": "A document to print"})).unwrap();
     let jobs = Rc::new(RefCell::new(Vec::new()));
     let observed = jobs.clone();
-    app.services.print_native = Some(Box::new(move |bytes, settings, collate| {
+    app.services.print_native = Some(Box::new(move |bytes, settings, collate, _| {
         observed.borrow_mut().push((bytes, settings, collate));
         let (sender, receiver) = std::sync::mpsc::channel();
         sender.send(Err("printer is offline".into())).unwrap();
@@ -93,13 +93,15 @@ fn native_print_uses_selected_settings_and_reports_spool_errors() {
 fn print_settings_are_visible_in_a_narrow_window() {
     use egui_kittest::kittest::{NodeT, Queryable};
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+    // The labels below are English; an integration test otherwise follows the machine's language.
+    app.ui.language = "en".into();
     app.run("text.insert", json!({"text": "A document to print"})).unwrap();
     app.services.printers = Some(Box::new(|| {
         let (sender, receiver) = std::sync::mpsc::channel();
         sender.send(vec![Printer { name: "Test queue".into(), default: true }]).unwrap();
         receiver
     }));
-    app.services.print_native = Some(Box::new(|_, _, _| {
+    app.services.print_native = Some(Box::new(|_, _, _, _| {
         let (sender, receiver) = std::sync::mpsc::channel();
         sender.send(Ok("queued".into())).unwrap();
         receiver
@@ -150,7 +152,7 @@ fn repeated_fast_jobs_each_surface_an_identical_receipt() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
     app.printing.printers.push(Printer { name: "Queue".into(), default: true });
     app.run("ui.printSettings", json!({"printer":"Queue"})).unwrap();
-    app.services.print_native = Some(Box::new(|_, _, _| {
+    app.services.print_native = Some(Box::new(|_, _, _, _| {
         let (sender, receiver) = std::sync::mpsc::channel();
         sender.send(Ok("same receipt".into())).unwrap();
         receiver
@@ -186,7 +188,7 @@ fn native_ranges_and_parity_do_not_duplicate_spooler_copies() {
     app.run("ui.printSettings", json!({"printer":"Queue","copies":3})).unwrap();
     let jobs = Rc::new(RefCell::new(Vec::new()));
     let observed = jobs.clone();
-    app.services.print_native = Some(Box::new(move |bytes, settings, collate| {
+    app.services.print_native = Some(Box::new(move |bytes, settings, collate, _| {
         observed.borrow_mut().push((bytes, settings, collate));
         let (sender, receiver) = std::sync::mpsc::channel();
         sender.send(Ok("queued".into())).unwrap();
@@ -222,4 +224,39 @@ fn empty_discovery_reports_no_printers_instead_of_silence() {
     let st = app.run("ui.printSettings", json!({})).unwrap();
     assert!(st["printers"].as_array().is_some_and(|p| p.is_empty()));
     assert_eq!(st["status"], "noPrinters", "{st}");
+}
+
+#[test]
+fn native_print_passes_orientation_options_to_spooler() {
+    let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+    app.run("text.insert", json!({"text": "Test orientation"})).unwrap();
+    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.run("ui.printSettings", json!({"printer":"Queue"})).unwrap();
+    let jobs = Rc::new(RefCell::new(Vec::new()));
+    let observed = jobs.clone();
+    app.services.print_native = Some(Box::new(move |bytes, settings, collate, options| {
+        observed.borrow_mut().push((bytes, settings, collate, options));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(Ok("queued".into())).unwrap();
+        receiver
+    }));
+
+    // 1. Default (auto for portrait document) sends orientation-requested=3
+    app.run("ui.printSubmit", json!({})).unwrap();
+    assert_eq!(jobs.borrow().last().unwrap().3, vec![("orientation-requested".to_owned(), "3".to_owned())]);
+    app.printing.poll(&egui::Context::default());
+    app.poll_printing(&egui::Context::default());
+
+    // 2. Explicit landscape sends orientation-requested=4 and landscape=true
+    app.run("ui.printSubmit", json!({"orientation": "landscape"})).unwrap();
+    assert_eq!(
+        jobs.borrow().last().unwrap().3,
+        vec![("orientation-requested".to_owned(), "4".to_owned()), ("landscape".to_owned(), "true".to_owned())]
+    );
+    app.printing.poll(&egui::Context::default());
+    app.poll_printing(&egui::Context::default());
+
+    // 3. Explicit portrait sends orientation-requested=3
+    app.run("ui.printSubmit", json!({"orientation": "portrait"})).unwrap();
+    assert_eq!(jobs.borrow().last().unwrap().3, vec![("orientation-requested".to_owned(), "3".to_owned())]);
 }

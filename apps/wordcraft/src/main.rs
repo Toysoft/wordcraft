@@ -284,6 +284,40 @@ fn build_sha() -> &'static str {
     option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or("dev")
 }
 
+/// The arguments as text, and apart the files whose names aren't valid Unicode, such as a Latin-1
+/// one (#1440). A `--control` port that isn't is an error.
+fn text_args() -> (Vec<String>, Vec<std::path::PathBuf>) {
+    let (mut args, mut files) = (Vec::new(), Vec::new());
+    for (i, a) in std::env::args_os().skip(1).enumerate() {
+        match a.into_string() {
+            Ok(a) => args.push(a),
+            Err(a) if args.last().is_some_and(|p| p == "--control") => {
+                // Unlike `eprintln!`, never panics.
+                let (n, lossy) = (i + 1, a.to_string_lossy());
+                let _ = std::io::Write::write_fmt(&mut std::io::stderr(), format_args!("wordcraft: argument {n} is not valid Unicode: {lossy}\n"));
+                std::process::exit(2);
+            }
+            Err(a) => files.push(a.into()),
+        }
+    }
+    (args, files)
+}
+
+/// Open a file whose name isn't valid Unicode (#1440). `file.open` takes its path as text, so it
+/// gets the file's bytes under the lossy name, and the document then keeps the real path to save to.
+fn open_non_unicode(app: &mut WordApp, path: &std::path::Path) {
+    let name = path.to_string_lossy();
+    let opened = std::fs::read(path)
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| app.run("file.open", serde_json::json!({"path": name, "data": wordcraft_engine::cmd::insert::base64_encode(&bytes)})));
+    match opened {
+        // Not when it waits for a password: that open names the document itself.
+        Ok(r) if r.get("pending").is_none() => app.session.path = Some(path.into()),
+        Ok(_) => {}
+        Err(e) => log::warn!("{name}: {e}"),
+    }
+}
+
 fn main() -> eframe::Result {
     // First, so the panic hook and every start-up warning are recorded (`logging`).
     let logger = logging::install();
@@ -291,8 +325,9 @@ fn main() -> eframe::Result {
     let mut control_port: Option<u16> = std::env::var("WORDCRAFT_CONTROL_PORT").ok().and_then(|p| p.parse().ok());
     let mut files = Vec::new();
     let mut sample = false;
+    let (args, other_files) = text_args();
     let mut bad_control: Option<Option<String>> = None;
-    let mut args = std::env::args().skip(1).peekable();
+    let mut args = args.into_iter().peekable();
     while let Some(a) = args.next() {
         match a.as_str() {
             // A flag after `--control` stays a flag; a bad or missing port is an error (#1426).
@@ -422,8 +457,8 @@ fn main() -> eframe::Result {
             }
             // Nothing to open (no files, no sample, no control channel driving the editor):
             // the last document when asked (#918), else File › Home as in Word (#766) unless
-            // the Start screen option is off. Files handed over later open on top of it.
-            if files.is_empty() && !sample && control_port.is_none() {
+            // the Start screen option is off. Files macOS hands over later open on top of it.
+            if files.is_empty() && other_files.is_empty() && !sample && control_port.is_none() {
                 let mut reopened = false;
                 if app.ui.reopen_last
                     && let Some(last) = app.ui.last_open.clone()
@@ -440,6 +475,9 @@ fn main() -> eframe::Result {
                     log::warn!("{f}: {e}");
                 }
             }
+            for f in other_files {
+                open_non_unicode(&mut app, &f);
+            }
             Ok(Box::new(App(
                 app,
                 // With nothing restored, the window the system placed is checked all the same.
@@ -453,8 +491,40 @@ fn main() -> eframe::Result {
     )
 }
 
-#[cfg(test)]
+// Not on macOS: APFS refuses file names that aren't valid UTF-8, so no such file can exist there.
+#[cfg(all(test, unix, not(target_os = "macos")))]
 mod tests {
+    use super::*;
+    use std::os::unix::ffi::OsStringExt;
+
+    #[test]
+    fn a_file_whose_name_isnt_unicode_opens_and_saves_back_to_itself() {
+        let dir = std::env::temp_dir().join(format!("wc-app-non-utf8-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(std::ffi::OsString::from_vec(b"caf\xe9.txt".to_vec()));
+        std::fs::write(&path, "Bonjour").unwrap();
+
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        open_non_unicode(&mut app, &path);
+        assert_eq!(app.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim(), "Bonjour");
+        assert_eq!(app.session.path.as_deref(), Some(path.as_path()));
+
+        app.run("caret.docEnd", serde_json::json!({})).unwrap();
+        app.run("text.insert", serde_json::json!({"text": " encore"})).unwrap();
+        app.run("file.save", serde_json::json!({})).unwrap();
+        assert!(std::fs::read_to_string(&path).unwrap().contains("Bonjour encore"));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "a second file was written");
+
+        // A file that can't be read is a warning, as one that fails to open by name is.
+        open_non_unicode(&mut app, &dir.join(std::ffi::OsString::from_vec(b"gon\xe9.txt".to_vec())));
+        assert_eq!(app.session.path.as_deref(), Some(path.as_path()));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod prefs_tests {
     use super::write_prefs;
 
     #[test]
