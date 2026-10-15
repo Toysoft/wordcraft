@@ -146,11 +146,12 @@ impl Writer {
     fn run(&mut self, t: &str, f: &Fmt, out: &mut String) {
         let mut ctl = String::new();
         if let Some(c) = &f.fmt_change {
-            // RTF 1.9.1: the formatting before the change, then who changed it and when. The
-            // group goes first so a control word, not the group, ends the run's properties.
-            let old = self.char_ctl(&c.old);
-            ctl.push_str(&format!("{{\\*\\oldcprops\\plain{old}}}"));
-            ctl.push_str(&self.rev_words("\\crauth", "\\crdate", &c.mark));
+            // RTF 1.9.1, as Word writes it: the properties the change altered, as they were,
+            // then who changed it and when, all in the group. The group goes first so a control
+            // word, not the group, ends the run's properties.
+            let old = self.char_diff(&c.old, f);
+            let words = self.rev_words("\\crauth", "\\crdate", &c.mark);
+            ctl.push_str(&format!("{{\\*\\oldcprops {old}{words}}}"));
         }
         ctl.push_str(&self.rev_ctl(f.ins.as_ref(), f.del.as_ref()));
         ctl.push_str(&self.char_ctl(f));
@@ -164,6 +165,59 @@ impl Writer {
             }
             None => out.push_str(&body),
         }
+    }
+
+    /// The character formatting control words that turn `cur` back into `old`: only the
+    /// properties that differ, with explicit "off" values (`\b0`, `\ulnone`, `\cf0`…).
+    fn char_diff(&mut self, old: &Fmt, cur: &Fmt) -> String {
+        // A link's underline and colour are the link's, before the change and after.
+        let old = &Fmt { link: cur.link.clone(), ..old.clone() };
+        let mut ctl = String::new();
+        let underline = |f: &Fmt| f.underline || f.link.is_some();
+        let flags = [
+            (old.bold, cur.bold, "\\b", "\\b0"),
+            (old.italic, cur.italic, "\\i", "\\i0"),
+            (underline(old), underline(cur), "\\ul", "\\ulnone"),
+            (old.strike, cur.strike, "\\strike", "\\strike0"),
+        ];
+        for (o, c, on, off) in flags {
+            if o != c {
+                ctl.push_str(if o { on } else { off });
+            }
+        }
+        if (old.sup, old.sub) != (cur.sup, cur.sub) {
+            ctl.push_str(if old.sup {
+                "\\super"
+            } else if old.sub {
+                "\\sub"
+            } else {
+                "\\nosupersub"
+            });
+        }
+        let font = |f: &Fmt| if f.code { Some(model::MONO_FONT.to_string()) } else { f.font.clone() };
+        let old_font = font(old);
+        if old_font != font(cur) {
+            // No font is the document's default font, font 0.
+            let i = old_font.map_or(0, |n| self.t.font(&n));
+            ctl.push_str(&format!("\\f{i}"));
+        }
+        let half_points = |s: Option<f32>| s.map(|s| (s * 2.0).round().clamp(2.0, 3276.0) as i32);
+        let old_size = half_points(old.size);
+        if old_size != half_points(cur.size) {
+            // No size is RTF's default, 12 pt.
+            ctl.push_str(&format!("\\fs{}", old_size.unwrap_or(24)));
+        }
+        let color = |f: &Fmt| f.color.or(if f.link.is_some() { Some(Rgb(0x05, 0x63, 0xC1)) } else { None });
+        let old_color = color(old);
+        if old_color != color(cur) {
+            let i = old_color.map_or(0, |c| self.t.color(c));
+            ctl.push_str(&format!("\\cf{i}"));
+        }
+        if old.background != cur.background {
+            let i = old.background.map_or(0, |c| self.t.color(c));
+            ctl.push_str(&format!("\\chcbpat{i}"));
+        }
+        ctl
     }
 
     /// Character formatting control words of `f` (no revision marks).
@@ -643,6 +697,12 @@ struct FmtRevSt<T> {
     old: Option<Box<T>>,
 }
 
+/// Character formatting words of an `\oldcprops` group, with their parameters.
+type OldWords = Vec<(String, Option<i32>)>;
+
+/// Most words kept from one `\oldcprops` group (hostile input).
+const MAX_OLD_WORDS: usize = 64;
+
 /// Most authors read from a `\revtbl` (hostile input).
 const MAX_REV_AUTHORS: usize = 10_000;
 
@@ -694,8 +754,14 @@ struct St {
     dest: Dest,
     fmt: Fmt,
     rev: RevSt,
-    /// Tracked change of the character formatting (reset by `\plain`).
-    chg_c: FmtRevSt<Fmt>,
+    /// Tracked change of the character formatting (reset by `\plain`). Its old formatting is
+    /// the `\oldcprops` words, applied on top of the run's formatting when text is read: Word
+    /// writes only the properties that changed there.
+    chg_c: FmtRevSt<OldWords>,
+    /// While an `\oldcprops` group is read: its character formatting words, and the author and
+    /// date of the change (`\crauth`/`\crdate`, which Word writes inside the group).
+    old_words: OldWords,
+    old_rev: (Option<i32>, Option<u32>),
     /// Tracked change of the paragraph formatting (reset by `\pard`).
     chg_p: FmtRevSt<Para>,
     uc: usize,
@@ -734,6 +800,8 @@ impl Default for St {
             rev: RevSt::default(),
             chg_c: FmtRevSt::default(),
             chg_p: FmtRevSt::default(),
+            old_words: Vec::new(),
+            old_rev: (None, None),
             uc: 1,
             hidden: false,
             align: None,
@@ -1115,7 +1183,13 @@ impl Reader {
             if para {
                 prev.chg_p.old = Some(Box::new(self.para_props(&self.st)));
             } else {
-                prev.chg_c.old = Some(Box::new(Fmt { link: None, ..self.st.fmt.clone() }));
+                prev.chg_c.old = Some(Box::new(std::mem::take(&mut self.st.old_words)));
+                if let Some(a) = self.st.old_rev.0 {
+                    prev.chg_c.auth = a;
+                }
+                if let Some(d) = self.st.old_rev.1 {
+                    prev.chg_c.date = d;
+                }
             }
         }
         if self.pict_depth.is_some_and(|d| self.depth() < d) {
@@ -1209,8 +1283,10 @@ impl Reader {
                     f.del = Some(self.rev_mark(r.authdel, r.dttmdel));
                 }
                 let c = &self.st.chg_c;
-                if let Some(old) = &c.old {
-                    f.fmt_change = Some(Box::new(model::FmtChange { mark: self.rev_mark(c.auth, c.date), old: (**old).clone() }));
+                if let Some(words) = c.old.clone() {
+                    let mark = self.rev_mark(c.auth, c.date);
+                    let old = self.old_fmt(&words);
+                    f.fmt_change = Some(Box::new(model::FmtChange { mark, old }));
                 }
                 self.para.push_text(s, &f);
                 self.para_has = true;
@@ -1288,6 +1364,18 @@ impl Reader {
             }
             Dest::Skip | Dest::ListTable | Dest::ListOverride | Dest::OldProps(_) => {}
         }
+    }
+
+    /// The formatting before a tracked character change: the current run's, with the
+    /// `\oldcprops` words applied (a `\plain` among them starts from none).
+    fn old_fmt(&mut self, words: &[(String, Option<i32>)]) -> Fmt {
+        let fmt = Fmt { link: None, ins: None, del: None, fmt_change: None, ..self.st.fmt.clone() };
+        let saved = std::mem::replace(&mut self.st, St { dest: Dest::OldProps(false), fmt, ..Default::default() });
+        for (w, p) in words {
+            self.word(w, *p, false, false);
+        }
+        let old = std::mem::replace(&mut self.st, saved).fmt;
+        Fmt { link: None, ..old }
     }
 
     fn ch(&mut self, c: char) {
@@ -1520,8 +1608,12 @@ impl Reader {
                     self.pict_sy = 0.0;
                 }
                 Dest::FldInst if self.st.field.is_none() => self.start_field(),
-                // Old formatting is complete: it starts from none.
-                Dest::OldProps(false) => self.st.fmt = Fmt::default(),
+                // Old character formatting holds the properties that changed (Word) or, after a
+                // `\plain`, all of them; old paragraph formatting is complete from `\pard`.
+                Dest::OldProps(false) => {
+                    self.st.old_words.clear();
+                    self.st.old_rev = (None, None);
+                }
                 Dest::OldProps(true) => self.word("pard", None, false, false),
                 _ => {}
             }
@@ -1655,11 +1747,25 @@ impl Reader {
             // Text destinations take Unicode escapes (with fallback skipping) like the body.
             Dest::Info(_) | Dest::FldInst | Dest::Bookmark if !matches!(w, "u" | "uc") => return,
             Dest::Info(_) | Dest::FldInst | Dest::Bookmark => {}
+            // Who changed the formatting and when, inside the old formatting (as Word writes it).
+            Dest::OldProps(false) if matches!(w, "crauth" | "crdate") => {
+                if w == "crauth" {
+                    self.st.old_rev.0 = Some(pv);
+                } else {
+                    self.st.old_rev.1 = Some(pv as u32);
+                }
+                return;
+            }
             // Old formatting takes formatting words only: no text, structure or document state.
             Dest::OldProps(_) if !is_format_word(w) => return,
             // Border words there would edit the cell definition being read, not the group's copy.
             Dest::OldProps(_) if self.cell_side.is_some() && w.starts_with("brdr") => return,
-            Dest::OldProps(_) | Dest::Body => {}
+            Dest::OldProps(false) => {
+                if is_char_format_word(w) && self.st.old_words.len() < MAX_OLD_WORDS {
+                    self.st.old_words.push((w.to_string(), p));
+                }
+            }
+            Dest::OldProps(true) | Dest::Body => {}
         }
         match w {
             "par" => self.end_para_mark(),
@@ -1945,6 +2051,30 @@ fn is_format_word(w: &str) -> bool {
             | "brdrcf"
     ) || (w.starts_with("ul") && w.len() <= 8)
         || w.starts_with("brdr")
+}
+
+/// A character formatting word: what an `\oldcprops` group's words are replayed from.
+fn is_char_format_word(w: &str) -> bool {
+    matches!(
+        w,
+        "plain"
+            | "b"
+            | "i"
+            | "strike"
+            | "striked"
+            | "super"
+            | "up"
+            | "sub"
+            | "dn"
+            | "nosupersub"
+            | "fs"
+            | "f"
+            | "cf"
+            | "highlight"
+            | "chcbpat"
+            | "cb"
+            | "v"
+    ) || (w.starts_with("ul") && w.len() <= 8)
 }
 
 /// The spacing and indents in points of the paragraph formatting `st`.
@@ -2916,6 +3046,97 @@ mod tests {
         let cp = paras.first().unwrap().props_of_char(0);
         let old = cp.fmt_change.as_deref().map(|c| c.old.clone()).expect("change kept");
         assert_eq!((old.bold, old.size), (cp.bold, cp.size));
+    }
+
+    #[test]
+    fn word_oldcprops_hold_only_the_changed_properties() {
+        use wordcraft_doc::RevisionKind;
+        // Word for Mac 16.113 saving tracked formatting changes as RTF: "beta" made bold,
+        // "gamma" (bold) grown from 12 to 16 pt. `\oldcprops` holds only what changed, with
+        // `\crauth`/`\crdate` inside the group; the rest of the old formatting is the run's.
+        let rtf = br"{\rtf1\ansi\deff0{\fonttbl{\f0 Times New Roman;}{\f1 Arial;}}{\*\revtbl {Unknown;}{Alice;}}
+\pard\plain \f1\fs24 alpha {\f1\fs24\b\insrsid12079894\charrsid12079894 {\*\oldcprops \b0\crauth1\crdate-2014675576\insrsid12079894\charrsid12079894}beta} {\b\f1\fs32 {\*\oldcprops \fs24\crauth1\crdate-2014675576\insrsid12079894\charrsid12079894}gamma}\par}";
+        let doc = import(rtf).unwrap();
+        let paras = doc_paras(&doc);
+        let p = paras.first().unwrap();
+        assert_eq!(p.text, "alpha beta gamma");
+        let word_rev = Some((RevisionKind::Format, "Alice".to_string(), "2026-10-15T22:08:00Z".to_string()));
+        // beta: Reject takes the bold off; font and size stay.
+        let beta = p.props_of_char(6);
+        assert_eq!(beta.bold, Some(true));
+        let old = beta.fmt_change.as_deref().expect("beta's change");
+        assert_eq!(rev_of(&doc, Some(old.rev)), word_rev);
+        assert_ne!(old.old.bold, Some(true), "{:?}", old.old);
+        assert_eq!((old.old.font.as_deref(), old.old.size), (beta.font.as_deref(), Some(12.0)), "{:?}", old.old);
+        // gamma: Reject puts 12 pt back; bold and font stay.
+        let gamma = p.props_of_char(11);
+        assert_eq!(gamma.size, Some(16.0));
+        let old = gamma.fmt_change.as_deref().expect("gamma's change");
+        assert_eq!(rev_of(&doc, Some(old.rev)), word_rev);
+        assert_eq!((old.old.bold, old.old.font.as_deref(), old.old.size), (Some(true), gamma.font.as_deref(), Some(12.0)), "{:?}", old.old);
+        assert_eq!(gamma.font.as_deref(), Some("Arial"));
+    }
+
+    #[test]
+    fn word_oldpprops_hold_the_full_old_paragraph_formatting() {
+        use wordcraft_doc::{Align, RevisionKind};
+        // Word for Mac 16.113: a paragraph centred with tracking on. `\oldpprops` is the full
+        // old set from `\pard`; `\prauth`/`\prdate` are on the paragraph.
+        let rtf = br"{\rtf1\ansi\deff0{\fonttbl{\f0 Times New Roman;}}{\*\revtbl {Unknown;}{Alice;}}
+\pard\plain \ltrpar\qc \li0\ri0\sa160\sl278\slmult1\widctlpar\wrapdefault\aspalpha\aspnum\faauto\adjustright\rin0\lin0\itap0\prauth1\prdate-2014675576{\*\oldpprops \pard \ltrpar\ql \li0\ri0\sa160\sl278\slmult1\widctlpar\wrapdefault\aspalpha\aspnum\faauto\adjustright\rin0\lin0\itap0\pararsid12079894}\fs24 Centred\par}";
+        let doc = import(rtf).unwrap();
+        let paras = doc_paras(&doc);
+        let p = paras.first().unwrap();
+        assert_eq!(p.text, "Centred");
+        assert_eq!(p.props.align, Some(Align::Center));
+        let c = p.props.fmt_change.as_deref().expect("paragraph change");
+        assert_eq!(rev_of(&doc, Some(c.rev)), Some((RevisionKind::Format, "Alice".into(), "2026-10-15T22:08:00Z".into())));
+        assert_eq!(c.old.align, Some(Align::Left));
+        assert_eq!(c.old.space_after, p.props.space_after);
+        assert_eq!(c.old.line_spacing, p.props.line_spacing);
+        assert!(p.props.space_after.is_some());
+    }
+
+    #[test]
+    fn oldcprops_are_written_as_the_differences() {
+        use wordcraft_doc::props::{CharProps, PropChange};
+        use wordcraft_doc::{Revision, RevisionKind};
+        let rev = || vec![Revision::new(RevisionKind::Format, "Alice", "2024-03-15T10:30:00Z")];
+        // Made bold: the group holds `\b0` and who changed it, nothing else.
+        let old = CharProps { font: Some("Arial".into()), size: Some(14.0), ..Default::default() };
+        let cp =
+            CharProps { bold: Some(true), font: Some("Arial".into()), size: Some(14.0), fmt_change: PropChange::boxed(0, old), ..Default::default() };
+        let rtf = export(&doc_with(vec![wordcraft_doc::Paragraph::with_text("Bold", cp)], rev()));
+        assert!(rtf.contains("{\\*\\oldcprops \\b0\\crauth1\\crdate-1480361314}"), "{rtf}");
+        // Several changes, on and off, round-trip.
+        let red = wordcraft_doc::props::TextColor::Rgb(wordcraft_doc::props::Rgb(255, 0, 0));
+        let old = CharProps {
+            italic: Some(true),
+            underline: Some(wordcraft_doc::props::Underline::Single),
+            size: Some(14.0),
+            color: Some(red),
+            font: Some("Arial".into()),
+            ..Default::default()
+        };
+        let cp = CharProps {
+            bold: Some(true),
+            size: Some(16.0),
+            font: Some("Courier New".into()),
+            fmt_change: PropChange::boxed(0, old.clone()),
+            ..Default::default()
+        };
+        let rtf = export(&doc_with(vec![wordcraft_doc::Paragraph::with_text("Mixed", cp)], rev()));
+        let back = import(rtf.as_bytes()).unwrap();
+        let paras = doc_paras(&back);
+        let cp = paras.first().unwrap().props_of_char(0);
+        assert_eq!((cp.bold, cp.size), (Some(true), Some(16.0)), "{rtf}");
+        let got = &cp.fmt_change.as_deref().expect("change read back").old;
+        assert_ne!(got.bold, Some(true), "{rtf}");
+        assert_eq!(
+            (got.italic, got.underline, got.size, got.color, got.font.as_deref()),
+            (old.italic, old.underline, old.size, old.color, old.font.as_deref()),
+            "{rtf}"
+        );
     }
 
     #[test]
