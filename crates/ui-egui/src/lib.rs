@@ -167,6 +167,39 @@ pub struct Services {
     /// `xdg-mime`. `None` (web, macOS) hides the button; macOS shows how to do it in Finder
     /// instead. An error means nothing changed.
     pub make_default_app: Option<Box<dyn Fn() -> Result<DefaultApp, String>>>,
+    /// Desktop: start another WordCraft window (a new process) showing a document. One window is
+    /// one document: New and Open from a window that already holds a document go here instead of
+    /// replacing it, as Word does. `None` (web, tests): the document is replaced in place.
+    pub new_window: Option<Box<dyn Fn(NewWindow) -> Result<(), String>>>,
+}
+
+/// What a new window should show ([`Services::new_window`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NewWindow {
+    /// Open this file.
+    Open(String),
+    /// A new document from this `file.new` template (`blank` if none was asked for).
+    New(String),
+}
+
+/// Whether the window's document is untouched and empty: a new blank document that was never
+/// edited or saved. Such a window is reused for the next New/Open instead of opening another.
+pub fn window_is_reusable(dirty: bool, has_path: bool, paragraphs: usize, words: usize) -> bool {
+    !dirty && !has_path && paragraphs <= 1 && words == 0
+}
+
+/// Where New/Open goes: `Some` when it must open in a new window (the current document stays
+/// untouched, so no Save Changes prompt is needed), `None` to run it here.
+pub fn new_window_for(id: &str, params: &Value, reusable: bool) -> Option<NewWindow> {
+    if reusable {
+        return None;
+    }
+    match id {
+        // `data` is the web's way of passing bytes; a path-less Open only shows the picker.
+        "file.open" if params.get("data").is_none() => params.get("path").and_then(Value::as_str).map(|p| NewWindow::Open(p.to_string())),
+        "file.new" => Some(NewWindow::New(params.get("template").and_then(Value::as_str).unwrap_or("blank").to_string())),
+        _ => None,
+    }
 }
 
 /// How Save in the Save Changes prompt went.
@@ -761,6 +794,19 @@ impl WordApp {
         {
             self.dialog = dialogs::Dialog::open(name, self);
             return Ok(json!({"pending": name}));
+        }
+        if let Some(hook) = &self.services.new_window {
+            let reusable = window_is_reusable(self.session.dirty || self.save_unconfirmed(), self.session.path.is_some(), self.session.doc.paragraph_count(), self.session.doc.word_count());
+            if let Some(target) = new_window_for(id, &params, reusable) {
+                return match hook(target) {
+                    Ok(()) => Ok(json!({"newWindow": true})),
+                    Err(e) => {
+                        log::warn!("new window: {e}");
+                        self.status(e.clone());
+                        Err(e)
+                    }
+                };
+            }
         }
         if (self.session.dirty || self.save_unconfirmed()) && discards_document(id, &params) {
             let name = self.prompt_name();
@@ -2450,6 +2496,55 @@ mod tests_perf;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reusable_window_is_only_an_untouched_blank_one() {
+        assert!(window_is_reusable(false, false, 1, 0));
+        assert!(!window_is_reusable(true, false, 1, 0), "edited");
+        assert!(!window_is_reusable(false, true, 1, 0), "has a file");
+        assert!(!window_is_reusable(false, false, 3, 12), "has text");
+    }
+
+    #[test]
+    fn new_and_open_go_to_a_new_window_unless_the_window_is_reusable() {
+        let open = json!({"path": "/tmp/a.docx"});
+        assert_eq!(new_window_for("file.open", &open, false), Some(NewWindow::Open("/tmp/a.docx".into())));
+        assert_eq!(new_window_for("file.open", &open, true), None);
+        assert_eq!(new_window_for("file.open", &json!({}), false), None, "the picker is shown here");
+        assert_eq!(new_window_for("file.open", &json!({"path": "a", "data": "x"}), false), None, "web bytes");
+        assert_eq!(new_window_for("file.new", &json!({"template": "letter"}), false), Some(NewWindow::New("letter".into())));
+        assert_eq!(new_window_for("file.new", &json!({}), false), Some(NewWindow::New("blank".into())));
+        assert_eq!(new_window_for("file.new", &json!({}), true), None);
+        assert_eq!(new_window_for("file.save", &open, false), None);
+    }
+
+    #[test]
+    fn run_opens_a_new_window_for_a_used_document_and_keeps_it_intact() {
+        use std::{cell::RefCell, rc::Rc};
+        let seen: Rc<RefCell<Vec<NewWindow>>> = Rc::default();
+        let log = seen.clone();
+        let mut a = app();
+        a.services.new_window = Some(Box::new(move |w| {
+            log.borrow_mut().push(w);
+            Ok(())
+        }));
+        // Untouched blank window: reused, nothing spawned (the missing file just errors here).
+        let _ = a.run("file.open", json!({"path": "/nonexistent/x.docx"}));
+        assert!(seen.borrow().is_empty());
+        // Edited: the next Open/New goes elsewhere, with no Save Changes prompt, text intact.
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        assert!(a.session.dirty);
+        let r = a.run("file.open", json!({"path": "/tmp/b.docx"})).unwrap();
+        assert_eq!(r["newWindow"], true);
+        a.run("file.new", json!({})).unwrap();
+        assert_eq!(*seen.borrow(), vec![NewWindow::Open("/tmp/b.docx".into()), NewWindow::New("blank".into())]);
+        assert!(a.dialog.is_none(), "no prompt: nothing is discarded");
+        assert!(a.session.dirty && a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Hello"));
+        // Without the hook (web, scripts) the old behaviour stays: the prompt.
+        a.services.new_window = None;
+        a.run("file.new", json!({})).unwrap();
+        assert!(matches!(a.dialog, Some(dialogs::Dialog::SaveChanges { .. })));
+    }
+
     use super::*;
     use egui_kittest::kittest::Queryable;
 
