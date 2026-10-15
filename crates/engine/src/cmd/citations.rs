@@ -3,6 +3,7 @@
 //! of authorities, footnote options.
 
 use serde_json::{Value, json};
+use wordcraft_doc::collate::{SortKey, heading_letter, sort_key};
 use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{CharProps, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::{Block, Document, Paragraph, Path, Pos, Source, StoryRef};
@@ -327,7 +328,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 return Err(CmdError::Params("select a citation or give `entry`".into()));
             }
             let (_, b) = s.sel.ordered();
-            s.doc.insert_object(&b, InlineObject::Field { instr: format!("TA \\l \"{}\"", entry.replace('"', "")), result: String::new(), locked: false, code: false }, &CharProps { hidden: Some(true), ..Default::default() })?;
+            s.doc.insert_object(&b, InlineObject::Field { instr: format!("TA \\l \"{}\"", entry.replace('"', "")), result: String::new(), locked: false, code: false, form: String::new() }, &CharProps { hidden: Some(true), ..Default::default() })?;
             Ok(json!({"entry": entry}))
         })
         .params(r#"{"entry"?: string}"#)
@@ -341,7 +342,7 @@ pub fn specs() -> Vec<CommandSpec> {
             sel_result(s)
         }),
         CommandSpec::new("insert.crossReference", "Cross-reference", "Insert › Links", cross_ref)
-            .params(r#"{"to": "heading|bookmark|figure|table", "target": string (text / name / number), "show"?: "text|page|number|aboveBelow"} or {} to list targets"#),
+            .params(r#"{"to": "heading|bookmark|figure|table|equation", "target": string (text / name / number), "show"?: "text|page|number|aboveBelow"} or {} to list targets"#),
         CommandSpec::new("references.noteOptions", "Footnote and Endnote", "References › Footnotes", super::references::note_options).params(
             r#"{"kind"?: "footnote|endnote", "pos"?: "pageBottom|beneathText" (footnotes) | "sectEnd|docEnd" (endnotes), "numFmt"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter|…", "numStart"?: 1-32767, "numRestart"?: "continuous|eachSect|eachPage" (each page: footnotes only), "scope"?: "document|section", "footnoteFormat"?: …, "endnoteFormat"?: …} — no settings: the options in effect at the caret"#,
         ),
@@ -563,11 +564,15 @@ fn citation(s: &mut Session, v: &Value) -> CmdResult {
     let src = s.doc.sources.iter().find(|x| x.tag == tag).cloned().ok_or_else(|| CmdError::Params(format!("no source `{tag}`")))?;
     let pages = p::str(v, "pages").unwrap_or("").to_string();
     let st = style(&s.bib_style);
-    let n = number_of(&s.doc, &bib_order(&s.doc, st), &tag);
+    let n = number_of(&s.doc, &bib_order(&s.doc, st, super::default_lang(s)), &tag);
     let props = s.typing_props();
     let at = delete_selection(s)?;
     let instr = if pages.is_empty() { format!("CITATION {tag}") } else { format!("CITATION {tag} \\p {pages}") };
-    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result: cite(&src, st.name, n, &pages), locked: false, code: false }, &props)?;
+    let end = s.doc.insert_object(
+        &at,
+        InlineObject::Field { instr, result: cite(&src, st.name, n, &pages), locked: false, code: false, form: String::new() },
+        &props,
+    )?;
     s.sel = Selection::caret(end);
     // A new citation can renumber the others (numbered styles count in order of first citation).
     if st.numbered() {
@@ -611,7 +616,7 @@ fn author_key(src: &Source) -> String {
 
 /// Indices into `doc.sources` in bibliography order: the cited sources (every source while
 /// nothing is cited), sorted or in order of first citation as the style asks.
-fn bib_order(doc: &Document, st: &CiteStyle) -> Vec<usize> {
+fn bib_order(doc: &Document, st: &CiteStyle, lang: Option<String>) -> Vec<usize> {
     let cited = cited_tags(doc);
     let mut idx: Vec<usize> = if cited.is_empty() {
         (0..doc.sources.len()).collect()
@@ -621,8 +626,10 @@ fn bib_order(doc: &Document, st: &CiteStyle) -> Vec<usize> {
         let cited: std::collections::HashSet<&str> = cited.iter().map(String::as_str).collect();
         doc.sources.iter().enumerate().filter(|(_, x)| cited.contains(x.tag.as_str())).map(|(i, _)| i).collect()
     };
-    let key =
-        |i: &usize, by_title: bool| doc.sources.get(*i).map(|x| if by_title { x.title.to_lowercase() } else { author_key(x) }).unwrap_or_default();
+    // Sorted in the document's language (Polish authors `Łukasiewicz` before `Mazur`).
+    let key = |i: &usize, by_title: bool| {
+        sort_key(&doc.sources.get(*i).map(|x| if by_title { x.title.clone() } else { author_key(x) }).unwrap_or_default(), lang.as_deref())
+    };
     match st.order {
         Order::Author => idx.sort_by_cached_key(|i| key(i, false)),
         Order::Title => idx.sort_by_cached_key(|i| key(i, true)),
@@ -645,7 +652,7 @@ pub fn update_citations(s: &mut Session) -> Result<(), CmdError> {
 /// Refresh the results of the CITATION fields in the body.
 fn refresh_citations(s: &mut Session) -> Result<(), CmdError> {
     let st = style(&s.bib_style);
-    let order = bib_order(&s.doc, st);
+    let order = bib_order(&s.doc, st, super::default_lang(s));
     for path in s.doc.para_paths(StoryRef::Body) {
         let Some(p) = s.doc.para(StoryRef::Body, &path) else { continue };
         let updates: Vec<(usize, String)> = p
@@ -686,7 +693,7 @@ pub(crate) fn generated_list(s: &mut Session, instr: &str, title: &str) -> Resul
     let end = head.len();
     head.insert_object(
         end,
-        InlineObject::Field { instr: instr.to_string(), result: String::new(), locked: false, code: false },
+        InlineObject::Field { instr: instr.to_string(), result: String::new(), locked: false, code: false, form: String::new() },
         &CharProps::default(),
     )?;
     let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) { at.path.last() } else { s.doc.split_paragraph(&at)?.path.last() };
@@ -708,17 +715,6 @@ const ENTRY_STYLE: &str = "ListEntry";
 
 /// Rebuild every generated list.
 pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
-    if s.doc.styles.get(ENTRY_STYLE).is_none() {
-        s.doc.styles.upsert(wordcraft_doc::Style {
-            id: ENTRY_STYLE.into(),
-            name: "List Entry".into(),
-            kind: wordcraft_doc::StyleKind::Paragraph,
-            based_on: Some("Normal".into()),
-            para: wordcraft_doc::ParaProps { space_after: Some(4.0), ..Default::default() },
-            hidden: true,
-            ..Default::default()
-        });
-    }
     let mut i = 0;
     while i < s.doc.body.len() {
         let kind = s.doc.body.get(i).and_then(|b| b.as_para()).and_then(list_kind);
@@ -726,6 +722,7 @@ pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
             i += 1;
             continue;
         };
+        add_entry_style(s);
         if kind.starts_with("INDEX") {
             super::index::rebuild(s, i, None)?;
             i += 1;
@@ -754,6 +751,23 @@ pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
     Ok(())
 }
 
+/// Add the style generated list entries take, if the document doesn't have it yet. Only when a
+/// list is there: a new style changes the formatting every paragraph is laid out with, so the
+/// layout cache starts over (and the saved file would gain a style it doesn't use).
+fn add_entry_style(s: &mut Session) {
+    if s.doc.styles.get(ENTRY_STYLE).is_none() {
+        s.doc.styles.upsert(wordcraft_doc::Style {
+            id: ENTRY_STYLE.into(),
+            name: "List Entry".into(),
+            kind: wordcraft_doc::StyleKind::Paragraph,
+            based_on: Some("Normal".into()),
+            para: wordcraft_doc::ParaProps { space_after: Some(4.0), ..Default::default() },
+            hidden: true,
+            ..Default::default()
+        });
+    }
+}
+
 fn page_of(s: &mut Session, pos: &Pos) -> u32 {
     let l = s.layout();
     l.caret(pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1)
@@ -763,7 +777,7 @@ fn page_of(s: &mut Session, pos: &Pos) -> u32 {
 fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
     if kind.starts_with("BIBLIOGRAPHY") {
         let st = style(&s.bib_style);
-        return bib_order(&s.doc, st)
+        return bib_order(&s.doc, st, super::default_lang(s))
             .into_iter()
             .enumerate()
             .filter_map(|(k, i)| s.doc.sources.get(i).map(|x| (entry(x, st.name, k.saturating_add(1)), !st.numbered())))
@@ -824,21 +838,22 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
         return with_pages.into_iter().map(|(t, p)| (format!("{t}\t{p}"), false)).collect();
     }
     // Index / TOA: group by entry, sort, list pages.
-    let mut grouped: std::collections::BTreeMap<String, Vec<u32>> = Default::default();
+    let lang = super::default_lang(s);
+    let mut grouped: std::collections::BTreeMap<(SortKey, String), Vec<u32>> = Default::default();
     for (e, p) in with_pages {
-        let pages = grouped.entry(e).or_default();
+        let pages = grouped.entry((sort_key(&e, lang.as_deref()), e)).or_default();
         if !pages.contains(&p) {
             pages.push(p);
         }
     }
     let mut out = Vec::new();
     let mut letter = None;
-    for (e, pages) in grouped {
-        let first = e.chars().next().map(|c| c.to_ascii_uppercase());
+    for ((_, e), pages) in grouped {
+        let first = heading_letter(&e, lang.as_deref());
         if kind.starts_with("INDEX") && first != letter {
-            letter = first;
+            letter = first.clone();
             if let Some(l) = first {
-                out.push((l.to_string(), false));
+                out.push((l, false));
             }
         }
         let list = pages.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ");
@@ -882,13 +897,14 @@ fn cross_ref(s: &mut Session, v: &Value) -> CmdResult {
         ref_bookmark(s, &pos, show == "number", at)?
     };
     let instr = format!("{} {name} \\h", if show == "page" { "PAGEREF" } else { "REF" });
-    let end = s.doc.insert_object(&at, InlineObject::Field { instr, result: result.clone(), locked: false, code: false }, &props)?;
+    let end =
+        s.doc.insert_object(&at, InlineObject::Field { instr, result: result.clone(), locked: false, code: false, form: String::new() }, &props)?;
     s.sel = Selection::caret(end);
     Ok(json!({"inserted": result}))
 }
 
 /// Cross-reference targets of a kind: (shown text or bookmark name, position).
-fn ref_targets(s: &Session, to: &str) -> Vec<(String, Pos)> {
+pub fn ref_targets(s: &Session, to: &str) -> Vec<(String, Pos)> {
     let mut targets: Vec<(String, Pos)> = Vec::new();
     match to {
         "bookmark" => targets = s.doc.bookmarks(),
@@ -976,6 +992,22 @@ mod tests {
         assert!(t.contains("(Rivera and Chen)"), "{t}");
         s.run("references.citationStyle", &json!({"style": "IEEE"})).unwrap();
         assert!(s.doc.plain_text(StoryRef::Body).contains("[1]"));
+    }
+
+    /// Updating fields in a document without generated lists leaves its styles alone: a new
+    /// style would make the next layout start over from nothing.
+    #[test]
+    fn update_fields_adds_the_entry_style_only_with_a_list() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("plain text"));
+        s.run("select.all", &json!({})).unwrap();
+        s.run("references.updateFields", &json!({})).unwrap();
+        assert!(s.doc.styles.get(ENTRY_STYLE).is_none());
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("references.citation", &json!({"source": {"author": "Rivera, Alex", "title": "Shared Spaces", "year": "2021"}})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("references.bibliography", &json!({})).unwrap();
+        assert!(s.doc.styles.get(ENTRY_STYLE).is_some());
     }
 
     #[test]

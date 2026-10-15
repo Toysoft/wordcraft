@@ -32,7 +32,7 @@ pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
     match id {
         "edit.undo" => app.session.can_undo(),
         "edit.redo" => app.session.can_redo(),
-        "file.save" => true,
+        "file.save" => app.has_document(),
         _ => crate::widgets::enabled(app, id),
     }
 }
@@ -58,6 +58,9 @@ fn quick_access(ui: &mut Ui, app: &mut WordApp) {
             }
         }
         crate::widgets::command_menu(&resp, app, id);
+        if id == "edit.undo" {
+            undo_list_button(ui, app, enabled);
+        }
     }
     let t = Tokens::get(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
@@ -71,6 +74,85 @@ fn quick_access(ui: &mut Ui, app: &mut WordApp) {
         ui.set_min_width(220.0);
         qat_menu(ui, app);
     });
+}
+
+/// The Undo button's drop-down arrow (#701), which opens [`undo_list`].
+pub(crate) fn undo_list_button_id() -> egui::Id {
+    egui::Id::new("qat_undo_list")
+}
+
+/// Row `i` of the Undo list (0 = the newest step).
+fn undo_list_row_id(i: usize) -> egui::Id {
+    undo_list_button_id().with(("row", i))
+}
+
+/// The Undo list's rows, newest first: each step named as the Undo button's tooltip names it.
+pub(crate) fn undo_list_rows(app: &WordApp) -> Vec<String> {
+    app.session.undo_history().into_iter().map(|l| tl!(l).to_string()).collect()
+}
+
+/// The Undo list's footer: how many steps a click undoes, or Cancel while none is highlighted.
+pub(crate) fn undo_list_footer(n: usize) -> String {
+    match n {
+        0 => tl!("Cancel").to_string(),
+        1 => tl!("Undo 1 Action").to_string(),
+        n => crate::i18n::fmt(tl!("Undo {n} Actions"), &[("n", &n.to_string())]),
+    }
+}
+
+/// The small arrow beside Undo: opens the list of steps to undo several at once.
+fn undo_list_button(ui: &mut Ui, app: &mut WordApp, enabled: bool) {
+    let t = Tokens::get(ui.ctx());
+    let (r, _) = ui.allocate_exact_size(vec2(12.0, 24.0), Sense::hover());
+    let resp = ui.interact(r, undo_list_button_id(), if enabled { Sense::click() } else { Sense::hover() });
+    if resp.hovered() && enabled {
+        ui.painter().rect_filled(r, 4.0, t.hover);
+    }
+    let c = if enabled { t.icon } else { t.text_disabled };
+    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(9.0, 9.0)), "dropdown", c, c);
+    let resp = resp.on_hover_text(tl!("Undo History"));
+    egui::Popup::menu(&resp).show(|ui| undo_list(ui, app));
+}
+
+/// The Undo list (#701): recent steps, newest first. Hovering a row highlights it and every newer
+/// one; clicking it undoes them all in one go (`edit.undoTo`).
+fn undo_list(ui: &mut Ui, app: &mut WordApp) {
+    const W: f32 = 210.0;
+    const ROW: f32 = 20.0;
+    let t = Tokens::get(ui.ctx());
+    let rows = undo_list_rows(app);
+    ui.set_width(W);
+    let (mut hovered, mut clicked) = (None, None);
+    egui::ScrollArea::vertical().max_height(ROW * 18.0).auto_shrink([false, true]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let rects: Vec<Rect> = (0..rows.len())
+            .map(|i| {
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
+                let resp = ui.interact(r, undo_list_row_id(i), Sense::click());
+                if resp.hovered() {
+                    hovered = Some(i);
+                }
+                if resp.clicked() {
+                    clicked = Some(i);
+                }
+                r
+            })
+            .collect();
+        for (i, (r, label)) in rects.iter().zip(&rows).enumerate() {
+            if hovered.is_some_and(|h| i <= h) {
+                ui.painter().rect_filled(*r, 0.0, t.selection);
+            }
+            // Clipped to its row: a long label never runs into the scroll bar.
+            ui.painter_at(r.shrink2(vec2(6.0, 0.0))).text(pos2(r.min.x + 6.0, r.center().y), Align2::LEFT_CENTER, label, regular(12.0), t.text);
+        }
+    });
+    ui.separator();
+    let footer = undo_list_footer(hovered.map_or(0, |h| h + 1));
+    ui.vertical_centered(|ui| ui.label(egui::RichText::new(footer).font(regular(12.0)).color(t.text)));
+    if let Some(i) = clicked {
+        let _ = app.run("edit.undoTo", json!({"count": i + 1}));
+        ui.close();
+    }
 }
 
 /// The Quick Access Toolbar's menu button (…), which opens [`qat_menu`].
@@ -115,15 +197,42 @@ const MAC_LIGHTS_LEFT: f32 = 10.0;
 /// from the top of the window.
 pub const MAC_CONTENT_LEFT: f32 = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT + (MAC_TITLE_BAR - MAC_LIGHT) / 2.0;
 
+/// The macOS title bar as laid out around the traffic lights: its height and where content starts
+/// after the lights. The app measures the real buttons (they grew in macOS 26); until then, or if it
+/// can't, the standard layout above.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MacTitleBar {
+    pub height: f32,
+    pub content_left: f32,
+}
+
+impl Default for MacTitleBar {
+    fn default() -> Self {
+        Self { height: MAC_TITLE_BAR, content_left: MAC_CONTENT_LEFT }
+    }
+}
+
+impl MacTitleBar {
+    /// The bar for traffic lights whose right edge is `lights_right` and whose centre is
+    /// `lights_centre_y` below the top of the window: the lights centred in it, and content the
+    /// same gap after them as they keep from the top. Never smaller than the standard layout.
+    pub fn around_lights(lights_right: f32, lights_centre_y: f32, light: f32) -> Self {
+        let height = (2.0 * lights_centre_y).max(MAC_TITLE_BAR);
+        let gap = (height - light) / 2.0;
+        Self { height, content_left: (lights_right + gap).clamp(MAC_CONTENT_LEFT, f32::from(i8::MAX)) }
+    }
+}
+
 pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
     // shrink to keep a margin above and below them.
     let mac = app.integrated_titlebar;
-    let left = if mac { MAC_CONTENT_LEFT as i8 } else { 8 };
+    let bar = app.mac_titlebar;
+    let left = if mac { bar.content_left as i8 } else { 8 };
     let control_h = if mac { 22.0 } else { 26.0 };
     egui::Panel::top("title_bar")
-        .exact_size(if mac { MAC_TITLE_BAR } else { 38.0 })
+        .exact_size(if mac { bar.height } else { 38.0 })
         .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
@@ -177,9 +286,12 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     // Account / community.
                     let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
                     ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Account")));
                     let initials: String = app.session.user_initials().chars().take(2).collect();
                     ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
-                    resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author));
+                    if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
+                        let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
+                    }
                     ui.add_space(8.0);
                     if app.ui.show_discord {
                         let (r, resp) = ui.allocate_exact_size(vec2(84.0, 22.0), Sense::click());
@@ -219,34 +331,61 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         ptrack,
                         t.text_dim,
                     );
-                    if resp.clicked() {
-                        let _ = app.run("ui.dialog", json!({"name": "commands"}));
+                    if app.ui.keytips == crate::keytips::Phase::Tabs {
+                        app.keytip_rects.push((r, crate::keytips::SEARCH_LETTER.to_string()));
+                    }
+                    let tip = match crate::widgets::shortcut_text(app, "tools.search") {
+                        k if k.is_empty() => tl!("Search").to_string(),
+                        k => format!("{} ({k})", tl!("Search")),
+                    };
+                    if resp.on_hover_text(tip).clicked() {
+                        let _ = app.run("tools.search", json!({}));
                     }
                     right_start = ui.min_rect().min.x;
                 });
             });
             // Centred title.
-            let title = format!(
-                "{} — {}",
-                app.title_stem(),
-                if app.session.dirty {
-                    tl!("Edited")
-                } else if app.session.path.is_some() {
-                    tl!("Saved")
-                } else {
-                    tl!("Not saved")
-                }
-            );
+            let title = if !app.has_document() {
+                // No document open (#1129): the app's name alone.
+                "WordCraft".to_string()
+            } else {
+                format!(
+                    "{} — {}",
+                    app.title_stem(),
+                    if app.session.dirty {
+                        tl!("Edited")
+                    } else if app.session.path.is_some() {
+                        tl!("Saved")
+                    } else {
+                        tl!("Not saved")
+                    }
+                )
+            };
             let font = TypeRung::Chrome.semibold();
             let track = TypeRung::Chrome.tracking();
-            let w = text_width(ui.painter(), &title, &font, track, t.text);
             let cx = full.center().x;
-            if cx - w / 2.0 > qat_end + 10.0 && cx + w / 2.0 < right_start - 10.0 {
+            let available = 2.0 * (cx - qat_end - 10.0).min(right_start - 10.0 - cx);
+            let mut shown: String = title.chars().take(240).collect();
+            if text_width(ui.painter(), &shown, &font, track, t.text) > available {
+                while !shown.is_empty() && text_width(ui.painter(), &format!("{shown}…"), &font, track, t.text) > available {
+                    shown.pop();
+                }
+                shown.push('…');
+            }
+            let w = text_width(ui.painter(), &shown, &font, track, t.text);
+            if available > 24.0 {
+                let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));
+                let response = ui.interact(rect, ui.id().with("document_name"), Sense::click()).on_hover_text(tl!("Rename Document"));
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
+                if response.clicked() {
+                    let _ = app.run("file.rename", json!({}));
+                }
+
                 paint_text(
                     ui.painter(),
                     pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
                     Align2::LEFT_TOP,
-                    &title,
+                    &shown,
                     &font,
                     track,
                     t.text,
@@ -266,16 +405,25 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 .stroke(Stroke::new(1.0, t.border)),
         )
         .show(ui, |ui| {
+            // No document open (#1129): an empty status bar.
+            if !app.has_document() {
+                return;
+            }
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing = vec2(14.0, 0.0);
                 let l = app.session.layout();
-                let page = l.caret_on(&app.session.sel.focus, app.session.page_hint).map(|c| c.page + 1).unwrap_or(1);
+                let page = if app.session.selects_whole_story() {
+                    app.session.page_hint.min(l.pages.len().saturating_sub(1)) + 1
+                } else {
+                    l.caret_on(&app.session.sel.focus, app.session.page_hint).map(|c| c.page + 1).unwrap_or(1)
+                };
                 let st = |ui: &mut Ui, s: &str| {
                     let font = TypeRung::Caption.regular();
                     let track = TypeRung::Caption.tracking();
                     let w = text_width(ui.painter(), s, &font, track, t.text_dim);
                     let (r, resp) = ui.allocate_exact_size(vec2(w + 1.0, TypeRung::Caption.line_height()), Sense::click());
                     paint_text(ui.painter(), pos2(r.min.x, r.min.y), Align2::LEFT_TOP, s, &font, track, t.text_dim);
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, s));
                     resp
                 };
                 if st(ui, &crate::i18n::fmt(tl!("Page {page} of {pages}"), &[("page", &page.to_string()), ("pages", &l.pages.len().to_string())]))
@@ -300,7 +448,16 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 }
                 // The language at the caret; a click sets the proofing language (Review › Language).
                 let lang = crate::ribbon::caret_language(app);
-                let resp = st(ui, &lang).on_hover_text(tl!("Language"));
+                let missing = crate::ribbon::caret_missing_dictionary(app);
+                let shown = if missing.is_some() { crate::i18n::fmt(tl!("{language} (no dictionary)"), &[("language", &lang)]) } else { lang.clone() };
+                let tip = match missing {
+                    Some(name) => crate::i18n::fmt(
+                        tl!("No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations."),
+                        &[("language", &lang), ("name", name)],
+                    ),
+                    None => tl!("Language").to_string(),
+                };
+                let resp = st(ui, &shown).on_hover_text(tip);
                 egui::Popup::menu(&resp).show(|ui| {
                     ui.set_min_width(200.0);
                     crate::ribbon::language_menu(ui, app);
@@ -357,10 +514,10 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     ui.add_space(10.0);
                     let mode = app.session.view.mode;
                     let read = app.session.view.read_mode;
-                    for (icon, id, on) in [
-                        ("webLayout", "view.webLayout", mode == wordcraft_layout::ViewMode::Web),
-                        ("printLayout", "view.printLayout", mode == wordcraft_layout::ViewMode::Print && !read),
-                        ("readMode", "view.readMode", read),
+                    for (icon, id, name, on) in [
+                        ("webLayout", "view.webLayout", tl!("Web Layout"), mode == wordcraft_layout::ViewMode::Web),
+                        ("printLayout", "view.printLayout", tl!("Print Layout"), mode == wordcraft_layout::ViewMode::Print && !read),
+                        ("readMode", "view.readMode", tl!("Read Mode"), read),
                     ] {
                         let (r, resp) = ui.allocate_exact_size(vec2(22.0, 20.0), Sense::click());
                         if on {
@@ -369,7 +526,8 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                             ui.painter().rect_filled(r, 3.0, t.hover);
                         }
                         icons::paint(ui.painter(), r.shrink(3.0), icon, t.icon, t.accent);
-                        if resp.on_hover_text(id.trim_start_matches("view.")).clicked() {
+                        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name));
+                        if resp.on_hover_text(name).clicked() {
                             let _ = app.run(id, json!({}));
                         }
                     }
@@ -392,6 +550,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                         ftrack,
                         t.text_dim,
                     );
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, focus));
                     if resp.clicked() {
                         let _ = app.run("view.focus", json!({}));
                     }
@@ -426,6 +585,63 @@ impl WordApp {
 mod tests {
     use super::*;
 
+    fn ctx() -> egui::Context {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, crate::theme::Appearance::Light);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+        ctx
+    }
+
+    fn frame(ctx: &egui::Context, n: &mut u32, events: Vec<egui::Event>, a: &mut WordApp) {
+        *n += 1;
+        let input = egui::RawInput { time: Some(f64::from(*n) / 60.0), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
+        ctx.run_ui(input, |ui| title_bar(a, ui)).drop_without_applying_deltas();
+    }
+
+    fn click(ctx: &egui::Context, n: &mut u32, pos: egui::Pos2, a: &mut WordApp) {
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(ctx, n, vec![egui::Event::PointerMoved(pos), button(true)], a);
+        frame(ctx, n, vec![button(false)], a);
+    }
+
+    /// #701: the arrow beside Undo lists the session's undo steps, newest first; clicking the third
+    /// row undoes three steps at once.
+    #[test]
+    fn undo_list_matches_the_session_and_undoes_up_to_the_clicked_row() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("format.bold", json!({})).unwrap();
+        a.run("format.italic", json!({})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        a.run("text.insert", json!({"text": " world"})).unwrap();
+        let session: Vec<String> = a.session.undo_history().into_iter().map(str::to_string).collect();
+        assert_eq!(session, ["Typing", "Italic", "Bold", "Typing"]);
+        assert_eq!(undo_list_rows(&a), session);
+        assert_eq!(undo_list_footer(0), "Cancel");
+        assert_eq!(undo_list_footer(1), "Undo 1 Action");
+        assert_eq!(undo_list_footer(3), "Undo 3 Actions");
+
+        let (ctx, mut n) = (ctx(), 0);
+        frame(&ctx, &mut n, vec![], &mut a);
+        let arrow = ctx.read_response(undo_list_button_id()).unwrap();
+        let popup = egui::Popup::default_response_id(&arrow);
+        click(&ctx, &mut n, arrow.rect.center(), &mut a);
+        assert!(egui::Popup::is_id_open(&ctx, popup), "the arrow opens the Undo list");
+        frame(&ctx, &mut n, vec![], &mut a);
+        for i in 0..4 {
+            assert!(ctx.read_response(undo_list_row_id(i)).is_some(), "row {i} is drawn");
+        }
+        assert!(ctx.read_response(undo_list_row_id(4)).is_none(), "one row per step");
+        let third = ctx.read_response(undo_list_row_id(2)).unwrap();
+        click(&ctx, &mut n, third.rect.center(), &mut a);
+        assert_eq!(a.session.undo_history(), ["Typing"], "three steps undone in one go");
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Hello");
+        frame(&ctx, &mut n, vec![], &mut a);
+        assert!(!egui::Popup::is_id_open(&ctx, popup), "the list closes");
+    }
+
     #[test]
     fn mac_title_bar_centres_and_clears_the_traffic_lights() {
         // The lights are centred in the bar, and content keeps the same gap after them.
@@ -434,5 +650,18 @@ mod tests {
         assert_eq!(MAC_CONTENT_LEFT - lights_end, margin);
         // `egui::Margin` is in `i8`.
         assert!(MAC_CONTENT_LEFT <= f32::from(i8::MAX));
+    }
+
+    #[test]
+    fn mac_title_bar_follows_the_measured_lights() {
+        // The standard lights give the standard bar.
+        let lights_end = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT;
+        assert_eq!(MacTitleBar::around_lights(lights_end, MAC_TITLE_BAR / 2.0, MAC_LIGHT), MacTitleBar::default());
+        // Larger, lower lights (macOS 26): a taller bar, and content clear of the green button.
+        let bar = MacTitleBar::around_lights(78.0, 18.0, 14.0);
+        assert_eq!(bar.height, 36.0);
+        assert_eq!(bar.content_left, 89.0);
+        // Never tighter than the standard layout.
+        assert_eq!(MacTitleBar::around_lights(40.0, 10.0, 12.0), MacTitleBar::default());
     }
 }

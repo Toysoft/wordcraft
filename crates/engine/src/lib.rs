@@ -14,6 +14,7 @@ mod io_ext;
 pub mod keymap;
 pub mod math_gallery;
 pub mod print;
+pub mod recovery;
 pub mod ribbon;
 pub mod sample;
 mod session;
@@ -26,7 +27,9 @@ use serde_json::Value;
 pub use io::Password;
 pub use keymap::KeyMap;
 pub use ribbon::RibbonLayout;
-pub use session::{ColumnBlock, EditSnapshot, FindState, MathEdit, Prefs, Selection, Session, ViewState, blank_document, set_system_locale};
+pub use session::{
+    CellRange, ColumnBlock, EditSnapshot, FindState, MathEdit, Prefs, Selection, Session, UNDO_LIST_MAX, ViewState, blank_document, set_system_locale,
+};
 pub use wordcraft_doc as doc;
 pub use wordcraft_geom::Region;
 pub use wordcraft_layout as layout;
@@ -168,6 +171,8 @@ mod tests;
 mod tests_bidi;
 #[cfg(test)]
 mod tests_fonts;
+#[cfg(test)]
+mod tests_revision_checks;
 #[cfg(test)]
 mod tests_typing;
 #[cfg(test)]
