@@ -1093,12 +1093,16 @@ fn normalize_blocks_bijoy(blocks: &mut [std::sync::Arc<wordcraft_doc::Block>], f
                                 let text = text.with_run_marks(&props);
                                 // Tab spaces are compacted within each run's text, as before runs were
                                 // converted together: spaces in one run are never shortened by a tab in another.
-                                for (segment, tag) in crate::cmd::bangla::ansi_to_unicode_tagged(text).segments() {
+                                let converted = crate::cmd::bangla::ansi_to_unicode_tagged(text);
+                                for (segment, tag) in converted.segments() {
                                     let segment = compact_bijoy_tab_spaces(&segment);
                                     if segment.is_empty() {
                                         continue;
                                     }
-                                    let run_props = props.get(crate::cmd::bangla::tag_index(tag)).cloned().unwrap_or_default();
+                                    let run_props = converted
+                                        .prop(tag)
+                                        .cloned()
+                                        .unwrap_or_else(|| props.get(crate::cmd::bangla::tag_index(tag)).cloned().unwrap_or_default());
                                     crate::cmd::bangla::push_run(&mut new_runs, segment.len(), run_props);
                                     new_text.push_str(&segment);
                                 }

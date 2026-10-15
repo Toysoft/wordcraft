@@ -799,11 +799,12 @@ pub fn find_bijoy_conjunct(c1: char, c2: char) -> Option<&'static str> {
 /// characters. A tag's [`Revision`] says whether its text is a tracked insertion or deletion: a deleted
 /// and an inserted character side by side are alternatives (one replaces the other), and a vowel sign or
 /// reph written around one of them is written around both, so the text reads right in either state.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Tagged {
     chars: Vec<(char, u32)>,
     classes: Vec<u32>,
     revisions: Vec<Revision>,
+    props: Vec<wordcraft_doc::CharProps>,
 }
 
 /// Whether a run is a tracked insertion, a tracked deletion, or neither (live text, or text inserted
@@ -853,7 +854,9 @@ impl Tagged {
         let mut seen: std::collections::HashMap<(Option<u32>, Option<u32>, bool, Option<&'a str>), u32> = std::collections::HashMap::new();
         self.classes.clear();
         self.revisions.clear();
+        self.props.clear();
         for p in props {
+            self.props.push(p.clone());
             let key = (p.ins, p.del, p.hidden == Some(true), p.link.as_deref());
             let next = u32::try_from(seen.len()).unwrap_or(u32::MAX);
             self.classes.push(*seen.entry(key).or_insert(next));
@@ -898,7 +901,29 @@ impl Tagged {
 
     /// An empty text with the same classes, for the next pass.
     pub(crate) fn empty_like(&self) -> Self {
-        Self { chars: Vec::with_capacity(self.chars.len()), classes: self.classes.clone(), revisions: self.revisions.clone() }
+        Self {
+            chars: Vec::with_capacity(self.chars.len()),
+            classes: self.classes.clone(),
+            revisions: self.revisions.clone(),
+            props: self.props.clone(),
+        }
+    }
+
+    pub(crate) fn prop(&self, tag: u32) -> Option<&wordcraft_doc::CharProps> {
+        usize::try_from(tag).ok().and_then(|idx| self.props.get(idx))
+    }
+
+    fn add_prop(&mut self, prop: wordcraft_doc::CharProps) -> u32 {
+        let tag = u32::try_from(self.props.len()).unwrap_or(u32::MAX);
+        let class = u32::try_from(self.classes.len()).unwrap_or(u32::MAX);
+        self.classes.push(class);
+        self.revisions.push(match (prop.ins.is_some(), prop.del.is_some()) {
+            (true, false) => Revision::Inserted,
+            (false, true) => Revision::Deleted,
+            _ => Revision::Live,
+        });
+        self.props.push(prop);
+        tag
     }
 
     fn char_at(&self, k: usize) -> Option<char> {
@@ -958,12 +983,72 @@ impl Tagged {
         self.replace_with(from, to, true);
     }
 
-    /// [`Tagged::replace`] for an entry whose characters have no separate form that reads the same
-    /// (`Av` is আ, but অ + া is not valid Bengali): it always applies, and the output takes the tags
-    /// `entry_sources` gives it. One character cannot show two revision states, so when the two characters
-    /// are tracked differently the output follows the first one's.
-    fn replace_fused(&mut self, from: &str, to: &str) {
-        self.replace_with(from, to, false);
+    /// Replaces `Av` with `আ`. When `A` and `v` share a revision class, they fuse directly.
+    /// When they carry different tracked revisions (e.g. an unchanged `A` followed by an inserted
+    /// `v`), fusing into one untracked character would drop the insertion and break Reject All.
+    /// Instead, we preserve both states by emitting a tracked replacement:
+    /// - An unchanged `A` with an inserted `v` becomes a tracked replacement: `অ` (deleted) followed
+    ///   by `আ` (inserted with the revision of `v`). Accept All leaves `আ`, and Reject All leaves `অ`.
+    /// - An unchanged `A` with a deleted `v` becomes `আ` (deleted with the revision of `v`) followed
+    ///   by `অ` (inserted). Accept All leaves `অ`, and Reject All leaves `আ`.
+    fn replace_av(&mut self) {
+        let mut out = Vec::with_capacity(self.chars.len());
+        let mut at = 0;
+        while at < self.chars.len() {
+            if self.char_at(at) == Some('A') && self.char_at(at + 1) == Some('v') {
+                let tag_a = self.tag_at(at);
+                let tag_v = self.tag_at(at + 1);
+                if self.one_class(at..at + 2) {
+                    out.push(('আ', tag_a));
+                    at += 2;
+                    continue;
+                }
+                let rev_a = self.revision_at(at);
+                let rev_v = self.revision_at(at + 1);
+                match (rev_a, rev_v) {
+                    (Revision::Live, Revision::Inserted) => {
+                        let ins_rev = self.prop(tag_v).and_then(|p| p.ins);
+                        let mut del_props = self.prop(tag_a).cloned().unwrap_or_default();
+                        del_props.del = ins_rev;
+                        del_props.ins = None;
+                        let del_tag = self.add_prop(del_props);
+                        out.push(('অ', del_tag));
+                        out.push(('আ', tag_v));
+                        at += 2;
+                        continue;
+                    }
+                    (Revision::Live, Revision::Deleted) => {
+                        let del_rev = self.prop(tag_v).and_then(|p| p.del);
+                        let mut ins_props = self.prop(tag_a).cloned().unwrap_or_default();
+                        ins_props.ins = del_rev;
+                        ins_props.del = None;
+                        let ins_tag = self.add_prop(ins_props);
+                        out.push(('আ', tag_v));
+                        out.push(('অ', ins_tag));
+                        at += 2;
+                        continue;
+                    }
+                    (Revision::Deleted, Revision::Inserted) => {
+                        out.push(('অ', tag_a));
+                        out.push(('আ', tag_v));
+                        at += 2;
+                        continue;
+                    }
+                    _ => {
+                        if let Some(&(c, tag)) = self.chars.get(at) {
+                            out.push((c, tag));
+                        }
+                        at += 1;
+                        continue;
+                    }
+                }
+            }
+            if let Some(&(c, tag)) = self.chars.get(at) {
+                out.push((c, tag));
+            }
+            at += 1;
+        }
+        self.chars = out;
     }
 
     fn replace_with(&mut self, from: &str, to: &str, barrier: bool) {
@@ -1959,7 +2044,7 @@ pub(crate) fn ansi_to_unicode_tagged(mut s: Tagged) -> Tagged {
     }
 
     // 3. Map Independent Vowels and Consonants to Bengali Unicode
-    s.replace_fused("Av", "আ");
+    s.replace_av();
     let mut out = s.empty_like();
     for &(ch, tag) in s.chars() {
         let m = ansi_base_glyph(ch);
@@ -2367,7 +2452,10 @@ fn convert_blocks_recursive(blocks: &mut Vec<Arc<wordcraft_doc::Block>>, is_to_a
                         let source = Tagged::from_runs(&p.text, &run_lens).with_run_marks(p.runs.iter().map(|r| &r.props));
                         let converted_text = if is_to_ansi { unicode_to_ansi_tagged(source) } else { ansi_to_unicode_tagged(source) };
                         for (converted, run_index) in converted_text.segments() {
-                            let mut props = p.runs.get(tag_index(run_index)).map(|r| r.props.clone()).unwrap_or_default();
+                            let mut props = converted_text
+                                .prop(run_index)
+                                .cloned()
+                                .unwrap_or_else(|| p.runs.get(tag_index(run_index)).map(|r| r.props.clone()).unwrap_or_default());
                             props.font = Some(target_font.into());
                             props.font_cs = Some(target_font.into());
                             if props.size.is_some() {
@@ -3287,10 +3375,31 @@ mod run_conversion_tests {
 
     #[test]
     fn aa_kar_inserted_after_a_does_not_become_a_plus_vowel_sign() {
-        // Avjdv is আলফা; the v after A is a tracked insertion (অ changed to আ). অ + া is not valid
-        // Bengali, so আ is written as one letter even across the change.
-        let split = convert(&[("A", CharProps::default()), ("v", inserted(1)), ("jdv", CharProps::default())], false);
-        assert_eq!(split.text, ansi_to_unicode("Avjdv"));
+        // Avjdv is আলফা; the v after A is a tracked insertion (অ changed to আ).
+        // Accept All leaves আ (or আলফা); Reject All restores the original অ (or অলফা).
+        let split = convert(&[("A", CharProps::default()), ("v", inserted(1))], false);
+        assert_eq!(both_states(&split), (s("আ"), s("অ")), "{:?}", runs_with_marks(&split));
+
+        let split_word = convert(&[("A", CharProps::default()), ("v", inserted(1)), ("jdv", CharProps::default())], false);
+        assert_eq!(both_states(&split_word), (s("আলফা"), s("অলফা")), "{:?}", runs_with_marks(&split_word));
+    }
+
+    #[test]
+    fn import_preserves_tracked_revisions_when_fusing_av() {
+        // Automatic import path through normalize_bijoy_fonts also preserves both Accept and Reject states.
+        let p = wordcraft_doc::Paragraph {
+            text: "Av".to_string(),
+            runs: vec![
+                wordcraft_doc::Run { len: 1, props: wordcraft_doc::CharProps { font: Some("SutonnyMJ".into()), ..Default::default() } },
+                wordcraft_doc::Run { len: 1, props: wordcraft_doc::CharProps { font: Some("SutonnyMJ".into()), ins: Some(1), ..Default::default() } },
+            ],
+            ..Default::default()
+        };
+        let mut doc = wordcraft_doc::Document { body: vec![std::sync::Arc::new(wordcraft_doc::Block::Para(p))], ..Default::default() };
+        crate::io::normalize_bijoy_fonts(&mut doc);
+
+        let p = doc.body[0].as_para().unwrap();
+        assert_eq!(both_states(p), (s("আ"), s("অ")), "{:?}", runs_with_marks(p));
     }
 
     #[test]
