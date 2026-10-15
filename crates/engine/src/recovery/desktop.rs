@@ -902,6 +902,67 @@ mod tests {
     }
 
     #[test]
+    fn invalid_save_format_retains_recovery_and_password_state() {
+        let t = Temp::new();
+        let original = t.0.join("invalid-format.docx");
+        let root = t.0.join("profile");
+        crate::io::save_path(&original, &Document::from_text("Synthetic original")).unwrap();
+        let original_bytes = fs::read(&original).unwrap();
+        let mut s = session(&root);
+        s.run("file.open", &json!({"path": original})).unwrap();
+        s.run("text.insert", &json!({"text": "Unsaved edit. "})).unwrap();
+        save_now(&mut s);
+        let id = s.recovery_documents()[0].id.clone();
+        let snapshot = Store::files(&root.join(&id)).unwrap()[0].clone();
+        let recoverable = fs::read(&snapshot).unwrap();
+        let core = s.doc.core.clone();
+        let text = s.doc.plain_text(StoryRef::Body);
+        let error = s.run("file.save", &json!({"path": original, "password": "synthetic-password", "format": "wordml2003"})).unwrap_err();
+        assert!(error.to_string().contains("format"));
+        assert!(s.password.is_none() && s.dirty);
+        assert_eq!(s.doc.core, core);
+        assert_eq!(s.doc.plain_text(StoryRef::Body), text);
+        assert_eq!(fs::read(original).unwrap(), original_bytes);
+        assert_eq!(fs::read(snapshot).unwrap(), recoverable);
+        assert!(s.recovery_documents().iter().any(|record| record.id == id));
+    }
+
+    // Ordered #586 + #813 integration: a refused save must not erase recoverable edits.
+    #[test]
+    fn refused_password_save_retains_snapshot_and_external_version() {
+        let t = Temp::new();
+        let original = t.0.join("external-change.docx");
+        let root = t.0.join("profile");
+        crate::io::save_path(&original, &Document::from_text("Original synthetic note")).unwrap();
+        let mut s = session(&root);
+        s.run("file.open", &json!({"path": original})).unwrap();
+        s.run("text.insert", &json!({"text": "Unsaved local edit. "})).unwrap();
+        save_now(&mut s);
+        let id = s.recovery_documents()[0].id.clone();
+        let snapshot = Store::files(&root.join(&id)).unwrap()[0].clone();
+        let recoverable = fs::read(&snapshot).unwrap();
+        crate::io::save_path(&original, &Document::from_text("Independent external writer")).unwrap();
+        let external = fs::read(&original).unwrap();
+        let core = s.doc.core.clone();
+        let text = s.doc.plain_text(StoryRef::Body);
+        assert!(s.run("file.save", &json!({"path": original, "password": "synthetic-password"})).is_err());
+        assert!(s.password.is_none() && s.dirty);
+        assert_eq!(s.doc.core, core);
+        assert_eq!(s.doc.plain_text(StoryRef::Body), text);
+        assert_eq!(fs::read(&original).unwrap(), external);
+        assert_eq!(fs::read(&snapshot).unwrap(), recoverable);
+        assert!(s.recovery_documents().iter().any(|item| item.id == id));
+        let copy = t.0.join("protected-copy.docx");
+        s.run("file.saveAs", &json!({"path": copy, "password": "synthetic-password"})).unwrap();
+        settle(&mut s);
+        assert!(s.password.is_some());
+        assert!(s.recovery_documents().is_empty());
+        assert!(fs::read_dir(&root).unwrap().next().is_none());
+        assert_eq!(fs::read(original).unwrap(), external);
+        assert_eq!(crate::io::open_path_with(&copy, Some("synthetic-password")).unwrap().0.plain_text(StoryRef::Body), text);
+    }
+
+    #[test]
     fn protection_after_document_switch_does_not_discard_another_draft() {
         let t = Temp::new();
         let mut s = session(&t.0);

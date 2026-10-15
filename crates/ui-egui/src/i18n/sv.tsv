@@ -2647,3 +2647,10 @@ preview	Title	Titel
 	Bottom Right Cell	Nedre högra cellen
 	Inside Horizontal Border	Inre vågrät kantlinje
 	Inside Vertical Border	Inre lodrät kantlinje
+
+# Native save conflicts (#813)
+	The file changed or is unavailable	Filen har ändrats eller är inte tillgänglig
+	Your edits are still here. Save them to a different file to keep both versions.	Dina ändringar finns kvar här. Spara dem i en annan fil för att behålla båda versionerna.
+	Keep editing	Fortsätt redigera
+	Save copy…	Spara kopia…
+	Save conflict	Konflikt vid sparande

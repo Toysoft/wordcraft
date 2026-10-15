@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (Modify Table Style formats every table style part, #714); previously trivial: a click on the ribbon chrome hands the keyboard to the page in the same frame, #1093 follow-up; previously trivial: Page Setup vertical alignment, #1320; previously trivial: the app opens on the Home tab every launch, as in Word; previously trivial: no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** trivial (fixed-main save-conflict refresh, #813); previously trivial (Modify Table Style formats every table style part, #714); previously trivial: a click on the ribbon chrome hands the keyboard to the page in the same frame, #1093 follow-up; previously trivial: Page Setup vertical alignment, #1320; previously trivial: the app opens on the Home tab every launch, as in Word; previously trivial: no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -55,10 +55,21 @@ Document title opens Rename Document; the account badge opens Options › Genera
 | Screen readers (VoiceOver, Narrator, Orca) | AccessKit on; the document canvas describes paragraphs, headings (level), list items, tables, links, pictures (alt text) and the caret and selection, for the pages on screen (#488); Windows Magnifier follows the caret, also onto an empty line after Enter or Shift+Enter (#1119); not yet tried with real screen readers | full | 50% | 5–8 |
 | Right-to-left (mirrored) interface | ❌ | ✅ (Arabic, Hebrew Word) | 0% | in localization |
 
+## Native save conflicts
+
+A user-initiated native Save that detects an external change opens a short dialog: Keep editing
+retains the unsaved document; Save Copy opens the existing asynchronous picker with a distinct
+suggested name. A cancelled picker writes nothing; its answer is bound to the document that
+opened it. Picking an alias of the conflicting file is refused again. Save before Close/New/Open
+also retains edits on conflict. AutoSave pauses and reports the conflict once. Programmatic
+engine calls return the typed error without opening a dialog. The dialog uses theme tokens and
+translation lookups; new text may fall back to English pending native-language review.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Native Save conflict strings cover the Korean, Swedish and Croatian catalogs; Vietnamese additions from main retained |
 | 2026-10-13 | trivial | New/Modify Table Style: No Border on a part that inherits its lines hides them; emptying the font box makes the part's font inherited again (#1288) |
 | 2026-10-14 | trivial | Tab stops edited on the ruler: corner kind selector, click to set, drag to move or off to clear, per-kind markers mirrored for RTL; each gesture one `para.tabs` call and one undo step; Rulers 85% → 90% |
 | 2026-10-12 | trivial | Tables on the page: one selected cell (Select Cell, or a click along its left edge) is a cell selection when its border is dragged: the border moves in its row only (#962) |
@@ -126,6 +137,7 @@ Document title opens Rename Document; the account badge opens Options › Genera
 | 2026-10-11 | trivial | Built-in file browser when the system file dialog can't be shown on Linux/BSD; `ui.fileBrowser` (#576) |
 | 2026-10-11 | trivial | Every measurement now follows File › Options › Advanced › Measurement units: the Line Numbers "From text" distance and the Hyphenation zone were still fixed in inches (#755) |
 | 2026-10-11 | trivial | Track Changes Options › Show revisions in balloons works: tracked deletions in the body leave the text for "Deleted: …" balloons in the markup area, joined to where they were; inline again where no balloons show (Comments pane, Read Mode, side by side, Web Layout), and always inline in headers, footers, notes and text boxes |
+| 2026-10-11 | trivial | Native saves refuse pre-existing external changes without clearing edits; synthetic macOS checks, explicit race/platform limits; readiness unchanged |
 | 2026-10-11 | trivial | Mini toolbar in two rows like Word's (font, size, grow, shrink; B I U S, highlight, font colour, four alignments) with every button inside the bar; font and size lists drop from the box's left edge; dropdown arrows a readable size; font list entries take the theme's text colour in dark mode (#535) |
 | 2026-10-11 | trivial | Find and Replace: Special ▾ menu (^p, ^t, ^?, ^#, ^$, ^w, ^&, ^c … ; a shorter wildcard list), Use wildcards (`?` `*` `[a-z]` `[!x]` `{n,m}` `@` `<` `>` `( )`, `\1` in Replace with), Match prefix/suffix, Ignore punctuation and white space; `^p` matches and splits paragraphs, Replace All is one undo step (#543) |
 | 2026-10-11 | trivial | Update Style to Match Selection takes how the selection looks (its paragraph and character styles as well as direct formatting) and applies the style to it; Home › Styles gallery tiles get a right-click menu with Update to Match Selection and Modify… (#555) |
@@ -191,3 +203,8 @@ labels unambiguous. Those extra-number assignments have not been compared with W
 | 2026-10-11 | trivial | Draw: Lasso, Add Pen gallery, Ink to Shape and Ink Replay (#395) |
 | 2026-10-12 | trivial | Recipient List dialog: Filter and Sort section (conditions joined by And/Or, three sort keys, merge order column), .xls in the picker (#778) |
 | 2026-10-13 | trivial | Double-clicking the top or bottom margin of a page with no header or footer creates the one that page shows and edits it, as in Word; one left empty is taken away again on leaving; `insert.editHeader`/`insert.editFooter {"page"}` for agents (#960); making one is an undo step (`insert.createHeader`/`insert.createFooter`), refused read-only, linked from the first section |
+
+On an external-change refusal from Save Changes, the existing prompt retains its pending
+New/Open/Close action and displays the error. Nothing closes or discards edits. A separate
+Save or AutoSave refusal offers Keep editing / Save copy; web saves still wait for the browser
+picker result before a pending close can continue.

@@ -3,7 +3,18 @@
 use wordcraft_doc::Document;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod file_version;
+#[cfg(not(target_arch = "wasm32"))]
 mod safe_save;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use file_version::FileVersion;
+
+/// A refused native save. The caller retains edits and can choose a separate destination.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{}: file changed or is unavailable; save a copy to keep your edits", path.display())]
+pub struct FileConflict {
+    pub path: std::path::PathBuf,
+}
 
 /// Formats WordCraft opens.
 pub const OPEN_EXTS: &[&str] = &[
@@ -346,12 +357,23 @@ pub fn open_path_with(path: &std::path::Path, password: Option<&str>) -> Result<
 /// [`open_path_with`] in `region` (see [`open_bytes_in`]).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn open_path_in(path: &std::path::Path, password: Option<&str>, region: &wordcraft_geom::Region) -> Result<(Document, bool), String> {
+    open_path_versioned_in(path, password, region)
+        .map(|(doc, encrypted, _)| (doc.unwrap_or_else(|| crate::session::blank_document(region)), encrypted))
+}
+
+/// Parse and record the same native bytes, retaining the region and relative HTML images.
+/// An empty file has no parsed document: the session supplies its Normal template instead.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn open_path_versioned_in(
+    path: &std::path::Path,
+    password: Option<&str>,
+    region: &wordcraft_geom::Region,
+) -> Result<(Option<Document>, bool, FileVersion), String> {
     crate::file_access::check_read(&path.to_string_lossy())?;
-    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if meta.len() > 2 << 30 {
-        return Err(format!("{}: file is larger than 2 GB", path.display()));
+    let (bytes, version) = FileVersion::read(path)?;
+    if bytes.is_empty() {
+        return Ok((None, false, version));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let name = path.to_string_lossy();
     if matches!(ext_of(&name).as_str(), "html" | "htm" | "xhtml") {
         // Pictures referenced by a relative path load from beside the HTML file.
@@ -360,9 +382,10 @@ pub fn open_path_in(path: &std::path::Path, password: Option<&str>, region: &wor
         let mut doc = wordcraft_formats::html::import_on(&html, &|src| images.load(src), &region_page(region));
         fit_pictures(&mut doc);
         opened(&mut doc);
-        return Ok((doc, false));
+        return Ok((Some(doc), false, version));
     }
-    open_bytes_in(&name, &bytes, password, region)
+    let (doc, encrypted) = open_bytes_in(&name, &bytes, password, region)?;
+    Ok((Some(doc), encrypted, version))
 }
 
 /// The pictures an HTML file names by a path relative to its folder.
@@ -576,6 +599,51 @@ pub fn save_path_with(path: &std::path::Path, doc: &Document, password: Option<&
     crate::file_access::check_write(&path.to_string_lossy())?;
     let bytes = save_bytes_with(&path.to_string_lossy(), doc, password, opts)?;
     safe_save::write(path, &bytes).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Refuse an already conflicting password-save request before any recovery purge barrier.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn check_save_destination(path: &std::path::Path, expected: Option<&FileVersion>) -> Result<(), crate::CmdError> {
+    crate::file_access::check_write(&path.to_string_lossy()).map_err(crate::CmdError::Failed)?;
+    if let Some(expected) = expected
+        && expected.owns(path).map_err(crate::CmdError::FileConflict)?
+    {
+        expected.verify(path).map_err(crate::CmdError::FileConflict)?;
+    }
+    Ok(())
+}
+
+/// Session-owned native save: compare content after serialization, before replacement. This
+/// detects pre-existing changes; it is not an atomic conditional write against other writers.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn save_path_versioned(
+    path: &std::path::Path,
+    doc: &Document,
+    password: Option<&str>,
+    opts: &ExportOptions,
+    expected: Option<&FileVersion>,
+) -> Result<FileVersion, crate::CmdError> {
+    crate::file_access::check_write(&path.to_string_lossy()).map_err(crate::CmdError::Failed)?;
+    let bytes = save_bytes_with(&path.to_string_lossy(), doc, password, opts).map_err(crate::CmdError::Failed)?;
+    let expected = match expected {
+        Some(v) if v.owns(path).map_err(crate::CmdError::FileConflict)? => Some(v),
+        _ => None,
+    };
+    let prepared = match safe_save::prepare(path, &bytes) {
+        Ok(prepared) => prepared,
+        Err(e) => {
+            // A preparation error may come from an inaccessible destination, not its parent.
+            if let Some(expected) = expected {
+                expected.verify(path).map_err(crate::CmdError::FileConflict)?;
+            }
+            return Err(crate::CmdError::Failed(format!("{}: {e}", path.display())));
+        }
+    };
+    if let Some(expected) = expected {
+        expected.verify(path).map_err(crate::CmdError::FileConflict)?;
+    }
+    prepared.commit(path).map_err(|e| crate::CmdError::Failed(format!("{}: {e}", path.display())))?;
+    Ok(FileVersion::saved(path, &bytes))
 }
 
 #[cfg(target_arch = "wasm32")]

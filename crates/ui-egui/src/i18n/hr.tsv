@@ -2632,3 +2632,10 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+
+# Native save conflicts (#813)
+	The file changed or is unavailable	Datoteka je promijenjena ili nije dostupna
+	Your edits are still here. Save them to a different file to keep both versions.	Vaše su izmjene još uvijek ovdje. Spremite ih u drugu datoteku kako biste zadržali obje verzije.
+	Keep editing	Nastavi uređivati
+	Save copy…	Spremi kopiju…
+	Save conflict	Sukob pri spremanju

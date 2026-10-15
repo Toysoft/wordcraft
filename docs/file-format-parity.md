@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** trivial (every table style part round-trips, #714); previously trivial: VML freeforms read and kept on save; previously trivial: multi-paragraph field instructions no longer add blank lines; previously trivial: `flowChartOr` draws its circle and cross spokes, as in Word; previously trivial: RTF: Mac OS Roman and DOS text, #1653; previously trivial: VML text boxes keep their internal margins, fit to their text and vertical alignment; hidden drawings not shown; previously trivial: PDF export draws horizontal and vertical lines inside groups, #1474; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-15 · **Change:** trivial (fixed-main save-conflict refresh, #813); previously trivial (every table style part round-trips, #714); previously trivial: VML freeforms read and kept on save; previously trivial: multi-paragraph field instructions no longer add blank lines; previously trivial: `flowChartOr` draws its circle and cross spokes, as in Word; previously trivial: RTF: Mac OS Roman and DOS text, #1653; previously trivial: VML text boxes keep their internal margins, fit to their text and vertical alignment; hidden drawings not shown; previously trivial: PDF export draws horizontal and vertical lines inside groups, #1474; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -147,9 +147,39 @@ The bibliography names used by #532 are reserved; bibliography already loaded in
 model belongs to its writer. Word-derived files are not fixtures. No readiness estimate rises
 from these synthetic package checks, and native Word rendering/binding behavior remains untested.
 ## Native save-path guarantees
+
+Native `io::save_path_with` serializes (and, for password-protected DOCX, encrypts) before creating an exclusively owned sibling temporary file. It writes and synchronizes that file, closes it, then replaces the destination. Failed preparation or replacement keeps the original bytes; cleanup removes only the save's temporary file, on a best-effort basis. Existing `<name>.tmp` files, directories and links are untouched. A new document gets the default mode (`0666` less the umask). When replacing an existing regular file, the Unix temporary file starts with mode `0600` and then takes the existing file's basic permissions. Serialization and format support are unchanged.
+
+Synthetic CLI cases and `engine/tests/safe_save.rs` cover occupied names, links, blocked replacement, missing directories, Save As session state, password-protected saves and original-file protection on macOS. Unit tests inject preparation errors and interleave two prepared saves. Standalone IO saves use separate files; the last successful replacement wins. Session-owned Save also applies the content check described below.
+
+
 Native `io::save_path_with` serializes (and, for password-protected DOCX, encrypts) before creating an exclusively owned sibling temporary file. It writes and synchronizes that file, closes it, then replaces the destination. Failed preparation or replacement keeps the original bytes; cleanup removes only the save's temporary file, on a best-effort basis. Existing `<name>.tmp` files, directories and links are untouched. A new document gets the default mode (`0666` less the umask). When replacing an existing regular file, the Unix temporary file starts with mode `0600` and then takes the existing file's basic permissions. Serialization and format support are unchanged. Native `io::write_file` (Print to PDF, `file.printPdf`; Export Page as PNG, `file.exportPng`) writes through the same path (#1355).
 Synthetic CLI cases and `engine/tests/safe_save.rs` cover occupied names, links, blocked replacement, missing directories, Save As session state, password-protected saves and original-file protection on macOS. Unit tests inject preparation errors and interleave two prepared saves. Independent saves use separate files; the last successful replacement wins. This is not document locking or conflict detection.
 Windows/Linux runtime behavior, ACLs and extended metadata, real disk-full conditions, power loss and network filesystems are not verified by these tests. The containing directory is not explicitly synchronized. Cleanup can fail when storage or permissions change, and process termination can leave a temporary file. No Word observation was needed for this filesystem change; it makes no new format-fidelity claim.
+
+## Native save protection
+
+Native `file.open` records a SHA-256 content identity from the same bytes parsed. Save compares
+current bytes after preparing an owned sibling replacement. Changed, missing or unreadable
+owned destinations return a typed conflict, retaining local edits, dirty state, password, path
+and save metadata. Successful saves advance the expected identity. Identical-byte replacement
+is benign; Save As to another file remains available, while path spellings, symlinks and hard
+links to the open file retain its protection. Identity belongs to each Session, is reset on
+new/open/recovery and is not serialized in the document. Password-protected files are compared
+as ciphertext; hashing creates no plaintext file.
+
+Versioned opens and saves also enforce the automation read and write roots. A refused open
+keeps the current document; a refused save keeps the original bytes, local edits and metadata.
+Write-only access to a separate output folder still permits Save As there.
+
+These checks run on open/save, not typing or dirty-state polling. The UI's existing AutoSave
+runs after an idle interval and pauses on failure. Browser-hosted bytes and standalone
+`io::save_path_with` exports have no native Session baseline. Save As to an unrelated existing
+file retains its explicit replacement behavior. There is a check-to-rename race, so this does
+not establish atomic multi-writer safety, network-filesystem locking or power-loss durability.
+The directory is not explicitly synchronized. Runtime tests use synthetic documents on macOS;
+Windows/Linux runtime and large-document latency remain unqualified.
+
 ## What decides beta for formats
 
 1. A **real-world DOCX corpus** opened, rendered and round-tripped, compared page by page with
@@ -210,9 +240,12 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Fixed-main integration retains DATE/TIME refresh on native Open alongside file-version checks; synthetic field/file-version control, save-conflict limits unchanged |
 | 2026-10-13 | trivial | A cell's explicit top vertical alignment (`w:vAlign w:val="top"`) is kept on read and write and beats a table style that centres or bottom-aligns (#1288) |
 | 2026-10-14 | trivial | Row table border exceptions survive DOCX saves |
 | 2026-10-12 | trivial | Fields keep `w:dirty` through DOCX round trips — on buffered fields and range-field begin markers alike — and computing a result (Update Field, Update Table) clears it like Word's F9, so a generator's placeholder TOC still refreshes when Word opens the file until WordCraft replaces the placeholder (#877) |
+| 2026-10-12 | trivial | Versioned native I/O retains automation read/write roots; denied-access tests protect originals and local state, with an allowed Save As control |
+
 | 2026-10-14 | trivial | VML freeforms (`v:shape` with a `path`, such as rule lines in headers) read as freeforms and kept on save instead of being dropped |
 | 2026-10-14 | trivial | DOCX paragraphs inside complex-field instructions carry a hidden paragraph mark; cached result paragraphs remain visible. |
 | 2026-10-14 | trivial | DrawingML `flowChartOr` preserves its circle and crossing spokes, including when grouped or rotated |
@@ -259,6 +292,8 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 | 2026-10-12 | trivial | DOCX: `w:hideMark` on table cells read and written |
 | 2026-10-12 | trivial | DOCX text frames (`w:framePr` other than drop caps) are read and written back; they were dropped on save |
 | 2026-10-11 | trivial | `.doc`: inline and floating pictures (BLIP store, PNG/JPEG/DIB/TIFF/EMF/WMF), basic shapes, groups and text boxes read from OfficeArt drawings (#551); fidelity ~55% → ~60% |
+| 2026-10-11 | trivial | Native saves refuse pre-existing external changes without clearing edits; synthetic macOS checks, explicit race/platform limits; readiness unchanged |
+
 | 2026-10-12 | trivial | Word 2003 XML Document (WordprocessingML 2003) written (#1081): Export, `format: "wordml2003"`, CLI `--format`; not yet checked in Word |
 | 2026-10-11 | trivial | Word XML Document (Flat OPC) read and written, Word 2003 XML read (#548) |
 | 2026-10-11 | trivial | #534: DOCX indents in characters read and written; `.doc` first-line indents (`sprmPDxaLeft1`, its two-byte operand, and `sprmPDxaLeft1_80`), indents in characters (`sprmPDxc*`) and exact/at-least line spacing (LSPD) read correctly |

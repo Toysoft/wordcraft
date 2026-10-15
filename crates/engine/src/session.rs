@@ -337,6 +337,9 @@ pub struct Session {
     /// Formatting picked with a collapsed caret, applied to the next typed text.
     pub pending: Option<CharProps>,
     pub path: Option<std::path::PathBuf>,
+    /// Identity of this session's native file; never part of document JSON or undo history.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) file_version: Option<crate::io::FileVersion>,
     /// Name given to a document not saved yet (File › Info › Rename): what Save suggests. A file
     /// name, not document metadata, so it is not part of the document or its undo history.
     pub file_name: Option<String>,
@@ -596,6 +599,8 @@ impl Session {
             view: ViewState::default(),
             pending: None,
             path: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            file_version: None,
             file_name: None,
             user_dict_path: None,
             dirty: false,
@@ -1000,6 +1005,10 @@ impl Session {
         self.doc = doc;
         self.doc.ensure_nonempty();
         self.password = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.file_version = None;
+        }
         self.file_name = None;
         self.sel = Selection::caret(self.doc.start_of(StoryRef::Body));
         self.pending = None;
@@ -1040,6 +1049,8 @@ impl Session {
             view: _,
             pending: _,
             path: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                file_version: _,
             file_name: _,
             // The custom dictionary file, like the file path: host wiring, not an edit.
             user_dict_path: _,
