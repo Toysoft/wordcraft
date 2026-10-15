@@ -178,11 +178,13 @@ fn big_button(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str,
         label_line(ui, r.center().x, y, l, regular(11.5), if on { t.text } else { t.text_disabled }, menu && i + 1 == lines.len());
         y += LABEL_PITCH;
     }
-    let resp = tooltip(app, resp, &label.replace('\n', " "), id);
+    let name = label.replace('\n', " ");
+    let resp = tooltip(app, resp, &name, id);
     command_menu(&resp, app, id);
     if resp.clicked() && on && !menu {
         run_from_ribbon(app, id, params);
     }
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, &name));
     resp
 }
 

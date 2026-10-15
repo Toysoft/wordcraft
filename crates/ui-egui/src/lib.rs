@@ -513,6 +513,9 @@ pub struct WordApp {
     pub(crate) smart_art_typing: Option<usize>,
     /// The tab shown before Outline view brought up the Outlining tab (restored when it closes).
     pub(crate) outline_prev_tab: Option<String>,
+    /// The tab shown before header/footer editing brought up the Header & Footer tab (restored
+    /// when the caret leaves the header or footer).
+    pub(crate) hf_prev_tab: Option<String>,
     /// Zotero commands in flight (`ui.zotero.*`).
     pub zotero: zotero::ZoteroLink,
     /// The egui context, once the first frame has run (background work wakes the UI with it).
@@ -622,6 +625,7 @@ impl WordApp {
             smart_art_item: None,
             smart_art_typing: None,
             outline_prev_tab: None,
+            hf_prev_tab: None,
             zotero: zotero::ZoteroLink::default(),
             ctx: None,
             read_aloud_at: None,
@@ -2663,6 +2667,14 @@ mod tests {
         assert_eq!(a.run("ui.caretAnimation", json!({"value": true})).unwrap()["caretAnimation"], true);
     }
 
+    /// The lowest button called `label`: the status bar's, when a ribbon button has the same name.
+    fn status_bar_button<'a>(h: &'a egui_kittest::Harness<'_, WordApp>, label: &'a str) -> egui_kittest::Node<'a> {
+        use egui_kittest::kittest::Queryable;
+        h.query_all_by_role_and_label(egui::accesskit::Role::Button, label)
+            .max_by(|a, b| a.rect().min.y.total_cmp(&b.rect().min.y))
+            .unwrap_or_else(|| panic!("no button {label}"))
+    }
+
     fn harness(a: WordApp) -> egui_kittest::Harness<'static, WordApp> {
         egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
@@ -4702,10 +4714,10 @@ mod tests {
         type_after_click(&mut h, "empty ribbon space", " blank");
 
         // The status bar's view buttons.
-        h.get_by_role_and_label(Role::Button, "Web Layout").click();
+        status_bar_button(&h, "Web Layout").click();
         type_after_click(&mut h, "Web Layout", " web");
         assert_eq!(h.state().session.view.mode, wordcraft_layout::ViewMode::Web);
-        h.get_by_role_and_label(Role::Button, "Print Layout").click();
+        status_bar_button(&h, "Print Layout").click();
         type_after_click(&mut h, "Print Layout", " print");
         assert_eq!(h.state().session.view.mode, wordcraft_layout::ViewMode::Print);
 
@@ -6742,7 +6754,7 @@ mod tests {
         }
         let shown = |h: &egui_kittest::Harness<WordApp>, label| h.query_by_label(label).is_some();
         assert!(shown(&h, "Ruler"), "the View tab is showing");
-        h.get_by_role_and_label(egui::accesskit::Role::Button, "Focus").click();
+        status_bar_button(&h, "Focus").click();
         h.step();
         h.step();
         assert!(h.state().session.view.focus_mode);

@@ -1,6 +1,6 @@
 # WordCraft parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (Ink to Shape recognises arrows; previously trivial: Windows Magnifier follows the caret onto a new line, #1119; previously trivial: table border drags with Ctrl and Alt, from the left edge and of selected cells, #711; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: all 12 bibliography styles, #383; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; replaces the parity tables that lived in ROADMAP.md) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** trivial (catalog 501/516 with the Header & Footer tab rows, #2055; previously trivial: Ink to Shape recognises arrows; previously trivial: Windows Magnifier follows the caret onto a new line, #1119; previously trivial: table border drags with Ctrl and Alt, from the left edge and of selected cells, #711; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: all 12 bibliography styles, #383; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; replaces the parity tables that lived in ROADMAP.md) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 The authoritative assessment of how close WordCraft is to Microsoft Word. [`ROADMAP.md`](../ROADMAP.md)
 summarizes it; [`gaps.md`](gaps.md) itemizes every shortfall; the deep checklists are
@@ -13,7 +13,7 @@ The generated ribbon checklist is [`parity-checklist.md`](parity-checklist.md).
 
 | Number | Value | Kind |
 |---|---|---|
-| Ribbon/menu catalog coverage | **487 / 502 (97.0%)** | **measured**: `cargo xtask parity` (re-derived this pass from `crates/engine/src/catalog.rs` against every `CommandSpec::new` id in the source; identical to the checked-in `parity-checklist.md`) |
+| Ribbon/menu catalog coverage | **501 / 516 (97.1%)** | **measured**: `cargo xtask parity` (re-derived this pass from `crates/engine/src/catalog.rs` against every `CommandSpec::new` id in the source; identical to the checked-in `parity-checklist.md`) |
 | Feature breadth (weighted, beyond the ribbon: dialog options, citation styles, proofing languages, chart types, UI languages) | **~80%** | estimated |
 | Feature depth (weighted by use, table below) | **~68%** | estimated |
 | **Ready for real work** (full target) | **~60%** (range 55–63%) | estimated: weighted sum over the dimension table ([By dimension](#by-dimension)) |

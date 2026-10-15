@@ -48,9 +48,12 @@ pub fn specs() -> Vec<CommandSpec> {
         })),
         CommandSpec::new("insert.bookmark", "Bookmark", "Insert › Links", bookmark).params(r#"{"name": string}"#).key("Mod+Shift+F5"),
         CommandSpec::new("insert.deleteBookmark", "Delete Bookmark", "Insert › Links", delete_bookmark).params(r#"{"name": string}"#),
-        CommandSpec::new("insert.header", "Header", "Insert › Header & Footer", |s, v| header_footer(s, v, true)).params(r#"{"text"?: string, "preset"?: "blank|blankThree|title"}"#),
-        CommandSpec::new("insert.footer", "Footer", "Insert › Header & Footer", |s, v| header_footer(s, v, false)).params(r#"{"text"?: string, "preset"?: "blank|blankThree|pageNumber"}"#),
-        CommandSpec::new("insert.pageNumber", "Page Number", "Insert › Header & Footer", page_number).params(r#"{"position"?: "top|bottom|current", "align"?: "left|center|right", "format"?: "x of y"}"#),
+        CommandSpec::new("insert.header", "Header", "Insert › Header & Footer", |s, v| header_footer(s, v, true))
+            .params(r#"{"text"?: string, "preset"?: "blank|blankThree|title"} (the caret's section's header; from a header or footer, the one the caret's page shows)"#),
+        CommandSpec::new("insert.footer", "Footer", "Insert › Header & Footer", |s, v| header_footer(s, v, false))
+            .params(r#"{"text"?: string, "preset"?: "blank|blankThree|pageNumber"} (the caret's section's footer; from a header or footer, the one the caret's page shows)"#),
+        CommandSpec::new("insert.pageNumber", "Page Number", "Insert › Header & Footer", page_number)
+            .params(r#"{"position"?: "top|bottom|current", "align"?: "left|center|right", "format"?: "x of y"} (top/bottom: the caret's section's header/footer; from a header or footer, the one the caret's page shows)"#),
         // Pure: going into an existing header/footer changes nothing; one the page doesn't have yet
         // is made by the mutating `insert.createHeader`/`insert.createFooter` (undoable, refused in
         // a protected document).
@@ -537,8 +540,21 @@ fn bookmark(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
+/// The header (footer) the Header, Footer and Page Number menus write to: from the body the
+/// caret's section's default one (made if it has none); from a header or footer the one the
+/// caret's page shows, made in the page's slot if it shows none (#2055).
 fn hf_part(s: &mut Session, header: bool) -> u32 {
-    let block = s.sel.focus.path.0.first().copied().unwrap_or(0) as usize;
+    if super::page::hf_part(s).is_some() {
+        let _ = s.layout();
+        if let Some(page) = super::page::hf_page(s)
+            && let Ok(id) = page_hf_part(s, page, header)
+        {
+            // The caret stays on this page, which a shared header shows among others.
+            s.page_hint = page;
+            return id;
+        }
+    }
+    let block = super::page::block_of(s);
     let sect = s.doc.section_mut(block).clone();
     let existing = if header { sect.headers.default } else { sect.footers.default };
     if let Some(id) = existing.filter(|id| s.doc.parts.contains_key(id)) {
@@ -590,7 +606,11 @@ fn header_footer(s: &mut Session, v: &Value, header: bool) -> CmdResult {
 }
 
 fn edit_hf(s: &mut Session, v: &Value, header: bool) -> CmdResult {
-    let page = p::u64(v, "page").map(|page| usize::try_from(page).unwrap_or(usize::MAX));
+    // From a header or footer, Word goes to the same page's.
+    let page = p::u64(v, "page").map(|page| usize::try_from(page).unwrap_or(usize::MAX)).or_else(|| {
+        super::page::layout_for_hf(s);
+        super::page::hf_page(s)
+    });
     let shown = match page {
         Some(page) => shown_hf(s, page, header)?,
         None => {
@@ -980,6 +1000,81 @@ mod tests {
         s.run("insert.pageBreak", &json!({})).unwrap();
         s.run("text.insert", &json!({"text": "Two"})).unwrap();
         s
+    }
+
+    /// #2055: Go to Header / Go to Footer (no page given) from a header or footer stay on its
+    /// page, as in Word: the page's counterpart, made in the page's slot when it has none.
+    #[test]
+    fn go_to_header_or_footer_stays_on_the_page() {
+        use super::super::page::hf_page;
+        let mut s = two_pages();
+        s.run("layout.differentFirstPage", &json!({"value": true})).unwrap();
+        let first = s.run("insert.editHeader", &json!({"page": 0})).unwrap()["story"].as_u64().unwrap() as u32;
+        assert_eq!(s.doc.last_section.headers.first, Some(first));
+        // From the first-page header: the first-page footer, not the default one page 2 shows.
+        let foot = s.run("insert.editFooter", &json!({})).unwrap()["story"].as_u64().unwrap() as u32;
+        assert_eq!(s.doc.last_section.footers.first, Some(foot));
+        assert_eq!(s.doc.last_section.footers.default, None);
+        s.layout();
+        assert_eq!(hf_page(&s), Some(0));
+        assert_eq!(s.run("insert.editHeader", &json!({})).unwrap()["story"].as_u64(), Some(first as u64), "and back");
+        // Two sections, section 2 with its own header and footer: from its footer, Go to Header
+        // is its header, not section 1's.
+        let mut s = Session::new(wordcraft_doc::Document::from_text("one"));
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("text.insert", &json!({"text": "two"})).unwrap();
+        s.run("insert.header", &json!({"text": "Second head"})).unwrap();
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("insert.footer", &json!({"text": "Second foot"})).unwrap();
+        let (_, second) = s.doc.sections().get(1).copied().unwrap();
+        let (own_h, own_f) = (second.headers.default.unwrap(), second.footers.default.unwrap());
+        assert_eq!(s.sel.focus.story, StoryRef::Part(own_f));
+        assert_eq!(s.run("insert.editHeader", &json!({})).unwrap()["story"].as_u64(), Some(own_h as u64));
+        assert_eq!(s.run("insert.editFooter", &json!({})).unwrap()["story"].as_u64(), Some(own_f as u64));
+        assert_eq!(s.doc.sections().first().map(|(_, sp)| sp.headers.default), Some(None), "section 1 got no header");
+        s.layout();
+        assert_eq!(hf_page(&s), Some(1));
+    }
+
+    /// #2055: the Header, Footer and Page Number menus run from a header or footer write to the
+    /// one the caret's page shows, not the first section's.
+    #[test]
+    fn header_menus_from_a_header_target_its_page() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("one"));
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("text.insert", &json!({"text": "two"})).unwrap();
+        // From section 2's body: its own header, with the caret in it.
+        s.run("insert.header", &json!({"text": "Second head"})).unwrap();
+        let own = s.doc.sections().get(1).and_then(|(_, sp)| sp.headers.default).unwrap();
+        assert_eq!(s.sel.focus.story, StoryRef::Part(own));
+        // Header › Blank from that header rewrites it; section 1 gets none.
+        let r = s.run("insert.header", &json!({"preset": "blank"})).unwrap();
+        assert_eq!(r["story"].as_u64(), Some(own as u64));
+        assert_eq!(s.doc.plain_text(StoryRef::Part(own)), "[Type here]");
+        assert_eq!(s.doc.sections().first().map(|(_, sp)| sp.headers.default), Some(None), "section 1 got no header");
+        // Page Number › Bottom of Page from it: page 2 shows no footer, so the number goes in the
+        // slot the page inherits from section 1 (sections link to the previous one), as Word does.
+        let r = s.run("insert.pageNumber", &json!({"position": "bottom"})).unwrap();
+        let shared = r["story"].as_u64().unwrap() as u32;
+        assert_eq!(s.doc.sections().first().map(|(_, sp)| sp.footers.default), Some(Some(shared)));
+        assert_eq!(s.doc.sections().get(1).map(|(_, sp)| sp.footers.default), Some(None));
+        // Footer › Blank from section 2's header writes to the footer page 2 shows: that one.
+        assert_eq!(s.run("insert.footer", &json!({"text": "Shared"})).unwrap()["story"].as_u64(), Some(shared as u64));
+        assert_eq!(s.doc.plain_text(StoryRef::Part(shared)), "Shared");
+        // Once section 2 has its own footer, the menu writes to that and leaves section 1's alone.
+        s.run("insert.editFooter", &json!({})).unwrap();
+        s.run("layout.linkToPrevious", &json!({"value": false})).unwrap();
+        let copy = s.doc.sections().get(1).and_then(|(_, sp)| sp.footers.default).unwrap();
+        assert_ne!(copy, shared);
+        assert_eq!(s.run("insert.footer", &json!({"text": "Own"})).unwrap()["story"].as_u64(), Some(copy as u64));
+        assert_eq!(s.doc.plain_text(StoryRef::Part(copy)), "Own");
+        assert_eq!(s.doc.plain_text(StoryRef::Part(shared)), "Shared", "section 1's footer untouched");
+        // Back in section 1's body the caret's own section rules.
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        assert_eq!(s.run("insert.footer", &json!({"text": "First"})).unwrap()["story"].as_u64(), Some(shared as u64));
     }
 
     fn headers(s: &Session) -> usize {

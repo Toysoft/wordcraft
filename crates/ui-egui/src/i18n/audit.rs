@@ -290,11 +290,17 @@ fn untranslated_interface_text() {
     let _ = app.run("ui.tab", json!({"tab": "Equation"}));
     let drawn = frame(&ctx, &mut app);
     record(&app, "tab Equation", drawn);
+    frames(&ctx, &mut app, escape());
+    let _ = app.run("insert.editFooter", json!({}));
+    let _ = app.run("ui.tab", json!({"tab": "Header & Footer"}));
+    let drawn = frame(&ctx, &mut app);
+    record(&app, "tab Header & Footer", drawn);
+    let _ = app.run("insert.closeHeader", json!({}));
     // Every ribbon control on every tab, and whatever menu or dialog it opens. A fresh app per
     // tab keeps one tab's commands from changing the next.
     // A fresh app per control, set up the same way, so no click changes what the next one hits
     // (Escape, for one, leaves an equation and takes the Equation tab with it).
-    let contextual = ["Table Design", "Table Layout", "Equation", "Chart Design", "SmartArt Design"];
+    let contextual = ["Table Design", "Table Layout", "Equation", "Chart Design", "SmartArt Design", "Header & Footer"];
     let open = |tab: &str| {
         let ctx = egui::Context::default();
         let mut app = fresh_app(&ctx);
@@ -303,6 +309,7 @@ fn untranslated_interface_text() {
             "Equation" => drop(app.run("insert.equation", json!({}))),
             "SmartArt Design" => drop(app.run("insert.smartArt", json!({"layout": "process"}))),
             "Chart Design" => drop(app.run("insert.chart", json!({"type": "column"}))),
+            "Header & Footer" => drop(app.run("insert.editFooter", json!({}))),
             _ => {}
         }
         let _ = app.run("ui.tab", json!({"tab": tab}));

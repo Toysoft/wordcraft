@@ -16,7 +16,7 @@ agent control. This page is the summary; the assessment is
 
 | Number | Value | Kind |
 | 2026-10-12 | Table formulas: cell references and ranges (`=B2+B3`, `=SUM(B2:C3)`), arithmetic and comparisons, IF, AND, OR, NOT, TRUE, FALSE, DEFINED and the `\#` number format; ABOVE and LEFT sum the run of numbers next to the cell as Word does; an unknown function or a syntax error is an error instead of a sum; Update Field (F9) recalculates formula fields |
-| Ribbon/menu catalog coverage | **487 / 502 (97.0%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
+| Ribbon/menu catalog coverage | **501 / 516 (97.1%)** | measured (`cargo xtask parity` → [`docs/parity-checklist.md`](docs/parity-checklist.md)) |
 | **Feature breadth** (weighted, incl. dialog options, styles, languages beyond the ribbon) | **~80%** | estimated |
 | **Ready for real work** (full target) | **~60%** (55–63%) | estimated, additive weighted sum over the dimensions |
 | **Mainstream practitioner** | **~55%** | estimated: weekly-work depth × discounts for interaction (×0.93), stability (×0.90), file exchange (×0.90) |
@@ -135,6 +135,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 ## Progress log
 
 | Date | What landed |
+| 2026-10-15 | Header & Footer contextual tab: comes up and is selected while a header or footer is edited, goes away and restores the previous tab on leaving; Header, Footer, Page Number, Date & Time, Document Info, Quick Parts, Pictures, Go to Header/Footer, Previous/Next, Link to Previous, Different First Page, Different Odd & Even Pages, Header from Top, Footer from Bottom, Close Header and Footer; Alt, J, H keytip; section commands from a header act on the section of the page showing it (#2055) |
 | 2026-10-14 | DOCX row table border exceptions render and survive saving. Explicit cell borders win; a row exception does not change other rows. |
 | 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
 | 2026-10-12 | Fields keep `w:dirty` through DOCX saves (#877): a begin marker flagged by a generator that couldn't compute a result (pandoc-style TOC placeholders) keeps the flag on open/save — as a buffered field or a range field — so Word still refreshes it on open; computing a result (Update Field, Update Table) clears it, like Word's F9 |
@@ -402,6 +403,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Progress log: Header & Footer contextual tab (#2055) |
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |

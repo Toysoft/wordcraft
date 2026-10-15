@@ -2630,3 +2630,9 @@ preview	Title	Пример
 # Reading Mode column widths (#1040)
 	Narrow	Узкая
 	Medium	Средняя
+	Go to Header	Перейти к верхнему колонтитулу
+	Go to Footer	Перейти к нижнему колонтитулу
+	Document Info	Сведения о документе
+	Header from Top	Верхний колонтитул сверху
+	Footer from Bottom	Нижний колонтитул снизу
+	Close Header\nand Footer	Закрыть\nколонтитулы

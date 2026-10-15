@@ -2599,3 +2599,9 @@ preview	Title	Título
 # Reading Mode column widths (#1040)
 	Narrow	Estrecha
 	Medium	Media
+	Go to Header	Ir al encabezado
+	Go to Footer	Ir al pie de página
+	Document Info	Información del documento
+	Header from Top	Encabezado desde arriba
+	Footer from Bottom	Pie de página desde abajo
+	Close Header\nand Footer	Cerrar encabezado\ny pie de página

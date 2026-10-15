@@ -119,6 +119,10 @@ pub fn contextual_tabs(s: &wordcraft_engine::Session) -> Vec<&'static str> {
     if has_chart_selected(s) {
         tabs.push("Chart Design");
     }
+    // Editing a header or footer (#2055).
+    if in_header_footer(s) {
+        tabs.push("Header & Footer");
+    }
     // Editing an equation.
     if s.math.is_some() {
         tabs.push("Equation");
@@ -164,11 +168,34 @@ pub fn in_table_public(app: &WordApp) -> bool {
     app.session.sel.focus.path.cell().is_some()
 }
 
+/// Whether the caret is in a header or footer, or a text box anchored in one (so the Header &
+/// Footer tab and its badge are shown; pure, tested).
+pub fn in_header_footer(s: &wordcraft_engine::Session) -> bool {
+    wordcraft_engine::cmd::page::hf_section_end(s).is_some()
+}
+
+/// [`in_header_footer`] for the app (keytips).
+pub fn in_header_footer_public(app: &WordApp) -> bool {
+    in_header_footer(&app.session)
+}
+
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     if app.session.view.read_mode {
         reading_toolbar(app, ui, t);
         return;
+    }
+    // Editing a header or footer brings up the Header & Footer tab; leaving it goes back to the
+    // tab that was showing (#2055). A tab the user picked meanwhile stays.
+    if in_header_footer(&app.session) {
+        if app.hf_prev_tab.is_none() {
+            app.hf_prev_tab = Some(app.ui.tab.clone());
+            app.ui.tab = "Header & Footer".into();
+        }
+    } else if let Some(prev) = app.hf_prev_tab.take()
+        && app.ui.tab == "Header & Footer"
+    {
+        app.ui.tab = prev;
     }
     // Editing an equation brings up the Equation tab; leaving it goes back.
     if app.session.math.is_some() {
@@ -378,6 +405,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         "SmartArt Design" => smart_art_design(app, ui),
                         "Outlining" => outlining(app, ui),
                         "Chart Design" => chart_design(app, ui),
+                        "Header & Footer" => header_footer(app, ui),
                         _ => home(app, ui),
                     }
                     if let Some(e) = entry {
@@ -462,6 +490,8 @@ fn edge_cue(ui: &mut Ui, rect: Rect, glyph: &str, hint: &str, t: &Tokens) -> boo
 fn stack(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = vec2(1.0, 0.0);
+        // A check box at the window's edge keeps its label on one line; the strip scrolls instead.
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         add(ui);
     });
 }
@@ -1073,44 +1103,11 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
     group(ui, "Comments", None, app, |ui, app| {
         big(ui, app, "newComment", "Comment", "review.newComment", json!({}), false);
     });
-    group(ui, "Header & Footer", None, app, |ui, app| {
-        menu_button(ui, app, "header", Some("Header"), "Header", true, "insert.header", |ui, app| {
-            mi(ui, app, "Blank", "insert.header", json!({"preset": "blank"}));
-            mi(ui, app, "Blank (Three Columns)", "insert.header", json!({"preset": "blankThree"}));
-            mi(ui, app, "Document Title", "insert.header", json!({"preset": "title"}));
-            ui.separator();
-            mi(ui, app, "Edit Header", "insert.editHeader", json!({}));
-            mi(ui, app, "Remove Header", "insert.removeHeader", json!({}));
-        });
-        menu_button(ui, app, "footer", Some("Footer"), "Footer", true, "insert.footer", |ui, app| {
-            mi(ui, app, "Blank", "insert.footer", json!({"preset": "blank"}));
-            mi(ui, app, "Blank (Three Columns)", "insert.footer", json!({"preset": "blankThree"}));
-            mi(ui, app, "Page Number", "insert.footer", json!({"preset": "pageNumber"}));
-            ui.separator();
-            mi(ui, app, "Edit Footer", "insert.editFooter", json!({}));
-            mi(ui, app, "Remove Footer", "insert.removeFooter", json!({}));
-        });
-        menu_button(ui, app, "pageNumber", Some("Page\nNumber"), "Page Number", true, "insert.pageNumber", |ui, app| {
-            mi(ui, app, "Top of Page", "insert.pageNumber", json!({"position": "top", "align": "right"}));
-            mi(ui, app, "Bottom of Page", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
-            mi(ui, app, "Page X of Y", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
-            mi(ui, app, "Current Position", "insert.pageNumber", json!({"position": "current"}));
-            mi(ui, app, "Format Page Numbers…", "layout.pageNumberFormat", json!({}));
-        });
-    });
+    group(ui, "Header & Footer", None, app, header_footer_menus);
     group(ui, "Text", None, app, |ui, app| {
         big(ui, app, "textBox", "Text\nBox", "insert.textBox", json!({}), false);
         stack(ui, |ui| {
-            menu_button(ui, app, "quickParts", Some("Quick Parts"), "Quick Parts", false, "insert.quickParts", |ui, app| {
-                let parts: Vec<String> = app.session.building_blocks.keys().cloned().collect();
-                for name in parts {
-                    if ui.button(&name).clicked() {
-                        let _ = app.run("insert.quickParts", json!({"insert": name}));
-                        ui.close();
-                    }
-                }
-                mi(ui, app, "Field…", "ui.dialog", json!({"name": "field"}));
-            });
+            menu_button(ui, app, "quickParts", Some("Quick Parts"), "Quick Parts", false, "insert.quickParts", quick_parts_items);
             menu_button(ui, app, "wordArt", Some("WordArt"), "WordArt", false, "", |ui, app| {
                 crate::wordart_menus::style_gallery(ui, app, "insert.wordArt")
             });
@@ -1155,6 +1152,148 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
             ui.separator();
             mi(ui, app, "More Symbols…", "ui.dialog", json!({"name": "symbol"}));
         });
+    });
+}
+
+/// The Header, Footer and Page Number menus (Insert › Header & Footer, and the Header & Footer
+/// tab's first group).
+fn header_footer_menus(ui: &mut Ui, app: &mut WordApp) {
+    menu_button(ui, app, "header", Some("Header"), "Header", true, "insert.header", |ui, app| {
+        mi(ui, app, "Blank", "insert.header", json!({"preset": "blank"}));
+        mi(ui, app, "Blank (Three Columns)", "insert.header", json!({"preset": "blankThree"}));
+        mi(ui, app, "Document Title", "insert.header", json!({"preset": "title"}));
+        ui.separator();
+        mi(ui, app, "Edit Header", "insert.editHeader", json!({}));
+        mi(ui, app, "Remove Header", "insert.removeHeader", json!({}));
+    });
+    menu_button(ui, app, "footer", Some("Footer"), "Footer", true, "insert.footer", |ui, app| {
+        mi(ui, app, "Blank", "insert.footer", json!({"preset": "blank"}));
+        mi(ui, app, "Blank (Three Columns)", "insert.footer", json!({"preset": "blankThree"}));
+        mi(ui, app, "Page Number", "insert.footer", json!({"preset": "pageNumber"}));
+        ui.separator();
+        mi(ui, app, "Edit Footer", "insert.editFooter", json!({}));
+        mi(ui, app, "Remove Footer", "insert.removeFooter", json!({}));
+    });
+    menu_button(ui, app, "pageNumber", Some("Page\nNumber"), "Page Number", true, "insert.pageNumber", |ui, app| {
+        mi(ui, app, "Top of Page", "insert.pageNumber", json!({"position": "top", "align": "right"}));
+        mi(ui, app, "Bottom of Page", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
+        mi(ui, app, "Page X of Y", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
+        mi(ui, app, "Current Position", "insert.pageNumber", json!({"position": "current"}));
+        mi(ui, app, "Format Page Numbers…", "layout.pageNumberFormat", json!({}));
+    });
+}
+
+/// The Quick Parts menu: the saved building blocks, then Field….
+fn quick_parts_items(ui: &mut Ui, app: &mut WordApp) {
+    let parts: Vec<String> = app.session.building_blocks.keys().cloned().collect();
+    for name in parts {
+        if ui.button(&name).clicked() {
+            let _ = app.run("insert.quickParts", json!({"insert": name}));
+            ui.close();
+        }
+    }
+    mi(ui, app, "Field…", "ui.dialog", json!({"name": "field"}));
+}
+
+/// Whether the caret's page shows the previous section's header (footer): the section has none
+/// of its own in the slot the page uses.
+fn hf_linked(app: &mut WordApp, footer: bool) -> bool {
+    use wordcraft_layout::HfSlot;
+    let _ = app.session.layout();
+    let s = &app.session;
+    let Some(layout) = s.current_layout() else { return false };
+    let Some(pg) = wordcraft_engine::cmd::page::hf_page(s).and_then(|page| layout.pages.get(page)) else { return false };
+    if pg.section == 0 {
+        return false;
+    }
+    let Some((_, sp)) = s.doc.sections().get(pg.section).copied() else { return false };
+    let set = if footer { sp.footers } else { sp.headers };
+    match pg.hf_slot {
+        HfSlot::Default => set.default,
+        HfSlot::First => set.first,
+        HfSlot::Even => set.even,
+    }
+    .is_none()
+}
+
+/// The Header & Footer tab, shown while the caret is in a header or footer (#2055): Word's
+/// Header & Footer, Insert, Navigation, Options, Position and Close groups.
+fn header_footer(app: &mut WordApp, ui: &mut Ui) {
+    // The section values come from the page the caret's header is on.
+    let _ = app.session.layout();
+    let sect = wordcraft_engine::cmd::page::sect(&app.session);
+    let footer = wordcraft_engine::cmd::page::hf_part(&app.session).is_some_and(|(_, header)| !header);
+    let linked = hf_linked(app, footer);
+    group(ui, "Header & Footer", None, app, header_footer_menus);
+    group(ui, "Insert", None, app, |ui, app| {
+        big(ui, app, "dateTime", "Date & Time", "insert.dateTime", json!({}), false);
+        menu_button(ui, app, "file", Some("Document Info"), "Document Info", true, "insert.docProperty", |ui, app| {
+            for (label, name) in [
+                ("Author", "author"),
+                ("Title", "title"),
+                ("Subject", "subject"),
+                ("Keywords", "keywords"),
+                ("Comments", "comments"),
+                ("Category", "category"),
+            ] {
+                mi(ui, app, label, "insert.docProperty", json!({"name": name}));
+            }
+            ui.separator();
+            mi(ui, app, "Field…", "ui.dialog", json!({"name": "field"}));
+        });
+        menu_button(ui, app, "quickParts", Some("Quick Parts"), "Quick Parts", true, "insert.quickParts", quick_parts_items);
+        big(ui, app, "picture", "Pictures", "insert.picture", json!({}), false);
+    });
+    group(ui, "Navigation", None, app, |ui, app| {
+        big(ui, app, "header", "Go to Header", "insert.editHeader", json!({}), false);
+        big(ui, app, "footer", "Go to Footer", "insert.editFooter", json!({}), false);
+        stack(ui, |ui| {
+            small(ui, app, "chevronUp", Some("Previous"), "Previous Section", "hf.previous", json!({}), false);
+            small(ui, app, "chevronDown", Some("Next"), "Next Section", "hf.next", json!({}), false);
+            small(ui, app, "link", Some("Link to Previous"), "Link to Previous", "layout.linkToPrevious", json!({ "footer": footer }), linked);
+        });
+    });
+    group(ui, "Options", None, app, |ui, app| {
+        stack(ui, |ui| {
+            let mut first = sect.title_page;
+            if ui.checkbox(&mut first, tl!("Different First Page")).changed() {
+                let _ = app.run("layout.differentFirstPage", json!({"value": first}));
+            }
+            let mut odd_even = app.session.doc.settings.even_odd_headers;
+            if ui.checkbox(&mut odd_even, tl!("Different Odd & Even Pages")).changed() {
+                let _ = app.run("layout.differentOddEven", json!({"value": odd_even}));
+            }
+        });
+    });
+    group(ui, "Position", None, app, |ui, app| {
+        let unit = crate::options::unit();
+        let k = unit.pt_per_unit();
+        let t = Tokens::get(ui.ctx());
+        let labels = [tl!("Header from Top"), tl!("Footer from Bottom")];
+        // Both labels share the wider one's column, so the boxes line up.
+        let label_w =
+            labels.iter().map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap(l.to_string(), regular(11.0), t.text).size().x)).fold(0.0, f32::max) + 6.0;
+        stack(ui, |ui| {
+            for (label, key, pt) in [(labels[0], "header", sect.header), (labels[1], "footer", sect.footer)] {
+                crate::widgets::row(ui, |ui| {
+                    ui.add_sized(vec2(label_w, 18.0), egui::Label::new(egui::RichText::new(label).small()));
+                    let mut v = pt / k;
+                    let r =
+                        ui.add_sized(vec2(72.0, 18.0), egui::DragValue::new(&mut v).speed(0.01).range(0.0..=300.0 / k).measure(unit).max_decimals(2));
+                    if r.changed() {
+                        // A drag's steps join one undo step.
+                        if r.dragged() && !r.drag_started() {
+                            app.session.join_next_undo();
+                        }
+                        let _ = app.run("hf.position", json!({ key: v * k }));
+                    }
+                });
+                ui.add_space(2.0);
+            }
+        });
+    });
+    group(ui, "Close", None, app, |ui, app| {
+        big(ui, app, "close", "Close Header\nand Footer", "insert.closeHeader", json!({}), false);
     });
 }
 
@@ -2880,7 +3019,9 @@ mod tests {
     /// made for three, so "Hide White Space" was drawn under "Show". Every tab, every language.
     #[test]
     fn ribbon_groups_fit_above_their_labels() {
-        let app = WordApp::new(Session::new(wordcraft_engine::sample::sample_document()), crate::Services::default());
+        let mut app = WordApp::new(Session::new(wordcraft_engine::sample::sample_document()), crate::Services::default());
+        // The caret in a footer makes the Header & Footer tab available; the other tabs don't mind.
+        app.run("insert.editFooter", json!({})).unwrap();
         // Wide enough that no tab hides groups behind its scroll arrows.
         let mut h = egui_kittest::Harness::builder().with_size(vec2(2560.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
@@ -2890,10 +3031,12 @@ mod tests {
             },
             app,
         );
+        // The first frame selects the Header & Footer tab; after that a chosen tab holds.
+        h.run_steps(1);
         let mut tall = Vec::new();
         for lang in crate::i18n::Lang::all() {
             h.state_mut().run("ui.language", json!({"value": lang.code()})).unwrap();
-            for tab in TABS.iter().filter(|t| **t != "File") {
+            for tab in TABS.iter().filter(|t| **t != "File").chain(std::iter::once(&"Header & Footer")) {
                 h.state_mut().run("ui.tab", json!({"tab": tab})).unwrap();
                 h.run_steps(2);
                 crate::widgets::TALL_GROUPS.with(|g| g.borrow_mut().clear());
@@ -2904,6 +3047,27 @@ mod tests {
         }
         tall.sort();
         tall.dedup();
+        assert!(tall.is_empty(), "groups taller than the ribbon: {tall:#?}");
+    }
+
+    /// #2055: at the default window width the Header & Footer strip is longer than the window in
+    /// Russian, so the Options group sat at the edge and its check box labels wrapped into a
+    /// four-line column over the group label. The labels stay on one line in every language and
+    /// the strip scrolls.
+    #[test]
+    fn header_footer_options_keep_one_line_at_the_default_width() {
+        let mut app = WordApp::new(Session::new(wordcraft_engine::sample::sample_document()), crate::Services::default());
+        app.run("insert.editFooter", json!({})).unwrap();
+        let mut h = window(app);
+        let mut tall = Vec::new();
+        for lang in crate::i18n::Lang::all() {
+            h.state_mut().run("ui.language", json!({"value": lang.code()})).unwrap();
+            h.run_steps(2);
+            assert_eq!(h.state().ui.tab, "Header & Footer");
+            crate::widgets::TALL_GROUPS.with(|g| g.borrow_mut().clear());
+            h.run_steps(1);
+            tall.extend(crate::widgets::TALL_GROUPS.with(|g| g.take()).into_iter().map(|g| format!("{} {g}", lang.code())));
+        }
         assert!(tall.is_empty(), "groups taller than the ribbon: {tall:#?}");
     }
 
@@ -2977,6 +3141,105 @@ mod tests {
         assert!(h.state().ui.backstage, "File › Options opened");
         assert_eq!(h.state().ui.options_pane, "language");
         assert_eq!(language_name(Some("de-DE")), "German (Germany)");
+    }
+
+    fn window(app: WordApp) -> egui_kittest::Harness<'static, WordApp> {
+        egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        )
+    }
+
+    /// #2055: the Header & Footer tab is there with the caret in a header or footer (or a text
+    /// box anchored in one) and gone in the body.
+    #[test]
+    fn header_footer_tab_follows_the_caret() {
+        let mut s = Session::new(wordcraft_engine::sample::sample_document());
+        assert!(!in_header_footer(&s));
+        assert!(!contextual_tabs(&s).contains(&"Header & Footer"));
+        s.run("insert.editFooter", &json!({})).unwrap();
+        assert!(in_header_footer(&s));
+        assert_eq!(contextual_tabs(&s), ["Header & Footer"]);
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        assert!(!contextual_tabs(&s).contains(&"Header & Footer"));
+        s.run("insert.editHeader", &json!({})).unwrap();
+        s.run("insert.textBox", &json!({"text": "Box"})).unwrap();
+        assert!(
+            matches!(s.sel.focus.story, wordcraft_doc::StoryRef::Part(id) if s.doc.parts.get(&id).is_some_and(|p| p.kind == wordcraft_doc::PartKind::TextBox))
+        );
+        assert!(contextual_tabs(&s).contains(&"Header & Footer"), "a text box in the header");
+        assert!(wordcraft_engine::ribbon::CONTEXTUAL_TABS.contains(&"Header & Footer"));
+    }
+
+    /// #2055: entering a footer selects the Header & Footer tab; leaving it brings the previous
+    /// tab back. A tab the user switched to while editing stays.
+    #[test]
+    fn header_footer_tab_is_selected_on_entering_and_restored_on_leaving() {
+        let mut app = WordApp::new(Session::new(wordcraft_engine::sample::sample_document()), crate::Services::default());
+        app.run("ui.tab", json!({"tab": "Insert"})).unwrap();
+        let mut h = window(app);
+        h.run_steps(2);
+        h.state_mut().run("insert.editFooter", json!({})).unwrap();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tab, "Header & Footer");
+        assert_eq!(h.state().hf_prev_tab.as_deref(), Some("Insert"));
+        h.state_mut().run("insert.closeHeader", json!({})).unwrap();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tab, "Insert");
+        assert!(h.state().hf_prev_tab.is_none());
+        h.state_mut().run("insert.editHeader", json!({})).unwrap();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tab, "Header & Footer");
+        h.state_mut().run("ui.tab", json!({"tab": "Home"})).unwrap();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tab, "Home", "the user's choice holds while editing");
+        h.state_mut().run("insert.closeHeader", json!({})).unwrap();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tab, "Home");
+        assert!(h.state().hf_prev_tab.is_none());
+    }
+
+    /// #2055: the tab's buttons drive the caret and the section: Close Header and Footer goes
+    /// back to the body, Go to Header / Go to Footer switch, the Options boxes and Position
+    /// fields show the section's values.
+    #[test]
+    fn header_footer_tab_buttons_work() {
+        use egui_kittest::kittest::{By, NodeT, Queryable};
+        let mut app = WordApp::new(Session::new(wordcraft_engine::sample::sample_document()), crate::Services::default());
+        app.run("insert.editFooter", json!({})).unwrap();
+        let mut h = window(app);
+        h.run_steps(3);
+        assert_eq!(h.state().ui.tab, "Header & Footer");
+        for label in ["Header", "Footer", "Page Number", "Date & Time", "Document Info", "Quick Parts", "Pictures", "Go to Header", "Go to Footer"] {
+            assert!(h.query_by_label(tl!(label)).is_some(), "{label} is on the tab");
+        }
+        // The first section has no previous section: Link to Previous is greyed out.
+        assert!(h.get_by_label(tl!("Link to Previous")).accesskit_node().is_disabled());
+        let boxes: Vec<String> = h
+            .query_all(By::new().predicate(|n| n.toggled().is_some() && n.role() == egui::accesskit::Role::CheckBox))
+            .filter_map(|n| n.accesskit_node().label())
+            .collect();
+        assert_eq!(boxes, [tl!("Different First Page"), tl!("Different Odd & Even Pages")]);
+        h.get_by_label(tl!("Go to Header")).click();
+        h.run_steps(3);
+        let a = h.state();
+        assert!(
+            matches!(a.session.sel.focus.story, wordcraft_doc::StoryRef::Part(id) if a.session.doc.parts.get(&id).is_some_and(|p| p.kind == wordcraft_doc::PartKind::Header))
+        );
+        assert_eq!(a.ui.tab, "Header & Footer");
+        h.get_by_label(tl!("Different First Page")).click();
+        h.run_steps(3);
+        assert!(wordcraft_engine::cmd::page::sect(&h.state().session).title_page);
+        h.get_by_label(tl!("Close Header and Footer")).click();
+        h.run_steps(3);
+        let a = h.state();
+        assert!(matches!(a.session.sel.focus.story, wordcraft_doc::StoryRef::Body));
+        assert_eq!(a.ui.tab, "Home");
+        assert!(h.query_by_label(tl!("Go to Header")).is_none());
     }
 
     #[test]

@@ -2232,3 +2232,12 @@
 # Reading Mode column widths (#1040)
 	Narrow	Schmal
 	Medium	Mittel
+	Go to Header	Zur Kopfzeile wechseln
+	Go to Footer	Zur Fußzeile wechseln
+	Document Info	Dokumentinfo
+	Header from Top	Kopfzeile von oben
+	Footer from Bottom	Fußzeile von unten
+	Subject	Thema
+	Keywords	Schlüsselwörter
+	Category	Kategorie
+	Close Header\nand Footer	Kopf- und Fußzeile\nschließen

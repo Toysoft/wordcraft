@@ -2672,3 +2672,9 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+	Go to Header	Đi tới đầu trang
+	Go to Footer	Đi tới chân trang
+	Document Info	Thông tin tài liệu
+	Header from Top	Đầu trang cách mép trên
+	Footer from Bottom	Chân trang cách mép dưới
+	Close Header\nand Footer	Đóng đầu trang\nvà chân trang

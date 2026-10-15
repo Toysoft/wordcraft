@@ -2240,3 +2240,12 @@
 # Reading Mode column widths (#1040)
 	Narrow	Étroite
 	Medium	Moyenne
+	Go to Header	Atteindre l’en-tête
+	Go to Footer	Atteindre le pied de page
+	Document Info	Informations sur le document
+	Header from Top	En-tête à partir du haut
+	Footer from Bottom	Pied de page à partir du bas
+	Subject	Objet
+	Keywords	Mots-clés
+	Category	Catégorie
+	Close Header\nand Footer	Fermer l’en-tête\net le pied de page

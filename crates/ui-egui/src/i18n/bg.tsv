@@ -2621,3 +2621,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+	Go to Header	Към горния колонтитул
+	Go to Footer	Към долния колонтитул
+	Document Info	Информация за документа
+	Header from Top	Горен колонтитул отгоре
+	Footer from Bottom	Долен колонтитул отдолу
+	Close Header\nand Footer	Затваряне на\nколонтитулите

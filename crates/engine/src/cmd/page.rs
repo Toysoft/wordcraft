@@ -63,13 +63,23 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"value"?: "horizontal|down|up"} (also lrTb|tbRl|btLr; down: rotate all text 90°, lines top to bottom stacking right to left; up: 270°; default: the next after the current). In a table cell it turns the selected cells, in a text box the box; anywhere else the section(s) of the selection"#,
         ),
         CommandSpec::new("layout.differentFirstPage", "Different First Page", "Header & Footer › Options", |s, v| {
+            layout_for_hf(s);
             let on = p::bool(v, "value").unwrap_or(!sect(s).title_page);
-            with_sect(s, |x| x.title_page = on)
-        }),
+            let page = hf_page(s);
+            let r = with_sect(s, |x| x.title_page = on)?;
+            follow_hf(s, page);
+            Ok(r)
+        })
+        .params(r#"{"value"?: bool} (without a value it toggles; a caret in a header or footer goes to the one its page shows now)"#),
         CommandSpec::new("layout.differentOddEven", "Different Odd & Even Pages", "Header & Footer › Options", |s, v| {
+            layout_for_hf(s);
+            let page = hf_page(s);
             s.doc.settings.even_odd_headers = p::bool(v, "value").unwrap_or(!s.doc.settings.even_odd_headers);
+            s.touch();
+            follow_hf(s, page);
             sel_result(s)
-        }),
+        })
+        .params(r#"{"value"?: bool} (without a value it toggles; a caret in a header or footer goes to the one its page shows now)"#),
         CommandSpec::new("layout.pageNumberFormat", "Format Page Numbers", "Insert › Header & Footer › Page Number", |s, v| {
             let fmt = p::str(v, "format").map(wordcraft_doc::section::NumFormat::from_ooxml);
             let start = p::u64(v, "start").map(|x| x.min(100_000) as u32);
@@ -215,17 +225,95 @@ fn manual_hyphenation(s: &mut Session, v: &Value) -> CmdResult {
     Ok(best.map(|(_, v)| v).unwrap_or_else(|| json!({"done": true})))
 }
 
-fn block_of(s: &Session) -> usize {
-    s.sel.focus.path.0.first().copied().unwrap_or(0) as usize
+/// After an option changed which header or footer `page` shows, a caret in one goes to the one
+/// the page shows now (made if it has none yet), as Word does. Making one is part of the
+/// option's undo step, and Repeat still repeats the option.
+pub(crate) fn follow_hf(s: &mut Session, page: Option<usize>) {
+    let (Some(page), Some((_, header))) = (page, hf_part(s)) else { return };
+    let last = s.last_command.clone();
+    s.join_next_undo();
+    let _ = s.run(if header { "insert.createHeader" } else { "insert.createFooter" }, &json!({ "page": page }));
+    s.last_command = last;
+}
+
+/// Lays out when the caret is in a header or footer: which page shows it is known from the
+/// layout only. A caret in the body needs no layout for the section commands.
+pub(crate) fn layout_for_hf(s: &mut Session) {
+    if hf_part(s).is_some() {
+        let _ = s.layout();
+    }
+}
+
+/// The header or footer part the caret is in (a text box anchored in one counts), and whether
+/// it is a header.
+pub fn hf_part(s: &Session) -> Option<(u32, bool)> {
+    use wordcraft_doc::PartKind;
+    let StoryRef::Part(mut id) = s.sel.focus.story else { return None };
+    if s.doc.parts.get(&id).is_some_and(|p| p.kind == PartKind::TextBox) {
+        match s.doc.text_box_anchor(id).map(|a| a.story) {
+            Some(StoryRef::Part(host)) => id = host,
+            _ => return None,
+        }
+    }
+    match s.doc.parts.get(&id).map(|p| p.kind) {
+        Some(PartKind::Header) => Some((id, true)),
+        Some(PartKind::Footer) => Some((id, false)),
+        _ => None,
+    }
+}
+
+/// The page showing the header or footer the caret is in, from the layout last computed: the
+/// caret's last page when it does, else the first page that does.
+pub fn hf_page(s: &Session) -> Option<usize> {
+    let (id, header) = hf_part(s)?;
+    let layout = s.current_layout()?;
+    let shows = |pg: &wordcraft_layout::Page| (if header { pg.header_story } else { pg.footer_story }) == Some(id);
+    if layout.pages.get(s.page_hint).is_some_and(shows) {
+        return Some(s.page_hint);
+    }
+    layout.pages.iter().position(shows)
+}
+
+/// The last body block of the section the caret's header or footer belongs to, if it is in one:
+/// the section of the page showing it (a linked header shows on later sections' pages too),
+/// else the section that owns it, else the first.
+pub fn hf_section_end(s: &Session) -> Option<usize> {
+    let (id, _) = hf_part(s)?;
+    let sections = s.doc.sections();
+    let by_page =
+        hf_page(s).and_then(|page| s.current_layout()?.pages.get(page).map(|pg| pg.section)).and_then(|i| sections.get(i).map(|(end, _)| *end));
+    let owner = || {
+        sections
+            .iter()
+            .find(|(_, sp)| {
+                [sp.headers.default, sp.headers.first, sp.headers.even, sp.footers.default, sp.footers.first, sp.footers.even].contains(&Some(id))
+            })
+            .map(|(end, _)| *end)
+    };
+    by_page.or_else(owner).or_else(|| sections.first().map(|(end, _)| *end))
+}
+
+/// The body block the section commands work from: the caret's, or for a caret in a header or
+/// footer the end of the section it belongs to.
+pub(crate) fn block_of(s: &Session) -> usize {
+    hf_section_end(s).unwrap_or_else(|| s.sel.focus.path.0.first().copied().unwrap_or(0) as usize)
 }
 
 pub fn sect(s: &Session) -> SectionProps {
-    let i = s.doc.section_index_of(block_of(s));
+    section_at(s, block_of(s))
+}
+
+/// The section body block `block` is in.
+fn section_at(s: &Session, block: usize) -> SectionProps {
+    let i = s.doc.section_index_of(block);
     s.doc.sections().get(i).map(|(_, x)| (*x).clone()).unwrap_or_default()
 }
 
 /// The last block of each section of the selection.
 fn selected_section_ends(s: &Session) -> Vec<usize> {
+    if let Some(end) = hf_section_end(s) {
+        return vec![end];
+    }
     let (a, b) = s.sel.ordered();
     let (i0, i1) = (a.path.0.first().copied().unwrap_or(0) as usize, b.path.0.first().copied().unwrap_or(0) as usize);
     let ends: Vec<usize> = s.doc.sections().iter().map(|(e, _)| *e).collect();
@@ -234,12 +322,16 @@ fn selected_section_ends(s: &Session) -> Vec<usize> {
     (first..=last).map(|k| ends.get(k).copied().unwrap_or(0)).collect()
 }
 
-/// Apply to the section(s) of the selection.
+/// Apply to the section(s) of the selection; returns the caret's section as changed.
 pub(crate) fn with_sect(s: &mut Session, f: impl Fn(&mut SectionProps)) -> CmdResult {
-    for block in selected_section_ends(s) {
-        f(s.doc.section_mut(block));
+    layout_for_hf(s);
+    let block = block_of(s);
+    for end in selected_section_ends(s) {
+        f(s.doc.section_mut(end));
     }
-    Ok(serde_json::to_value(sect(s)).unwrap_or(Value::Null))
+    // A nested command's layout sees the change.
+    s.touch();
+    Ok(serde_json::to_value(section_at(s, block)).unwrap_or(Value::Null))
 }
 
 /// The text direction Layout › Text Direction would change: the caret cell's, the text box's,
@@ -1011,5 +1103,76 @@ mod tests {
         assert!(found > 0, "no candidates");
         assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body).matches('\u{ad}').count(), found);
         assert!(s.run("layout.manualHyphenation", &json!({"from": {"block": 999, "off": 0}})).unwrap()["done"] == true);
+    }
+
+    /// #2055: with the caret in a header, the section commands (Header from Top, Different First
+    /// Page, Link to Previous) work on the section of the page showing it, not the first one.
+    #[test]
+    fn header_caret_targets_the_section_of_its_page() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("one"));
+        assert!(s.run("layout.linkToPrevious", &json!({})).is_err(), "the first section has nothing to link to");
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("text.insert", &json!({"text": "two"})).unwrap();
+        assert_eq!(s.doc.sections().len(), 2);
+        // The caret is in section 2: its own header.
+        s.run("insert.header", &json!({"text": "Second"})).unwrap();
+        let (end, _) = s.doc.sections().get(1).copied().unwrap();
+        let own = s.doc.sections().get(1).and_then(|(_, sp)| sp.headers.default).unwrap();
+        assert_eq!(hf_part(&s), Some((own, true)));
+        s.layout();
+        assert_eq!(hf_page(&s), Some(1), "shown on section 2's page, whatever the caret's last page was");
+        assert_eq!(hf_section_end(&s), Some(end));
+        let first_before = s.doc.sections().first().map(|(_, sp)| sp.header).unwrap();
+        s.run("hf.position", &json!({"header": 50.0})).unwrap();
+        assert_eq!(sect(&s).header, 50.0);
+        assert_eq!(s.doc.sections().get(1).map(|(_, sp)| sp.header), Some(50.0));
+        assert_eq!(s.doc.sections().first().map(|(_, sp)| sp.header), Some(first_before), "section 1 untouched");
+        // Different First Page: section 2's, and the caret goes to the first-page header page 2
+        // shows now (a new empty one, linked from section 1 as Word does). The option and the
+        // header it made are one undo step, and Repeat repeats the option.
+        let depth = s.undo_depth();
+        let r = s.run("layout.differentFirstPage", &json!({})).unwrap();
+        assert_eq!(r["titlePage"], true);
+        assert_eq!(s.undo_depth(), depth + 1, "one undo step");
+        assert_eq!(s.last_command.as_ref().map(|(id, _)| id.as_str()), Some("layout.differentFirstPage"));
+        s.run("edit.undo", &json!({})).unwrap();
+        assert!(s.doc.sections().get(1).is_some_and(|(_, sp)| !sp.title_page));
+        assert_eq!(hf_part(&s), Some((own, true)), "Undo puts the caret back");
+        assert_eq!(s.doc.sections().first().and_then(|(_, sp)| sp.headers.first), None, "and takes the made header away");
+        s.run("edit.redo", &json!({})).unwrap();
+        s.layout();
+        assert!(s.doc.sections().get(1).is_some_and(|(_, sp)| sp.title_page));
+        assert!(s.doc.sections().first().is_some_and(|(_, sp)| !sp.title_page));
+        let (first_hdr, _) = hf_part(&s).unwrap();
+        assert_ne!(first_hdr, own);
+        assert_eq!(s.doc.sections().first().and_then(|(_, sp)| sp.headers.first), Some(first_hdr));
+        assert_eq!(hf_page(&s), Some(1));
+        assert_eq!(hf_section_end(&s), Some(end), "the page's section, not the owner's");
+        // Link to Previous is on (section 2 shows section 1's); off gives section 2 its own copy
+        // and keeps the caret in it; on again takes the copy away.
+        s.run("text.insert", &json!({"text": "First"})).unwrap();
+        let r = s.run("layout.linkToPrevious", &json!({"value": false})).unwrap();
+        assert_eq!(r["linked"], false);
+        let copy = s.doc.sections().get(1).and_then(|(_, sp)| sp.headers.first).unwrap();
+        assert_ne!(copy, first_hdr);
+        assert_eq!(s.doc.plain_text(StoryRef::Part(copy)), "First");
+        assert_eq!(hf_part(&s), Some((copy, true)));
+        let depth = s.undo_depth();
+        let r = s.run("layout.linkToPrevious", &json!({})).unwrap();
+        assert_eq!(r["linked"], true);
+        assert_eq!(s.undo_depth(), depth + 1, "linking is one undo step");
+        assert_eq!(s.doc.sections().get(1).and_then(|(_, sp)| sp.headers.first), None);
+        assert_eq!(hf_part(&s), Some((first_hdr, true)), "back in the header the page shows");
+        // A section command from the linked header changes the page's section and reports it,
+        // although the change itself makes the layout stale.
+        let r = s.run("layout.orientation", &json!({"value": "landscape"})).unwrap();
+        assert_eq!(r["landscape"], true);
+        assert!(s.doc.sections().get(1).is_some_and(|(_, sp)| sp.landscape));
+        assert!(s.doc.sections().first().is_some_and(|(_, sp)| !sp.landscape));
+        // Back in the body the caret's own section rules again.
+        s.run("insert.closeHeader", &json!({})).unwrap();
+        assert_eq!(hf_section_end(&s), None);
+        assert_eq!(sect(&s).header, s.doc.sections().first().map(|(_, sp)| sp.header).unwrap());
     }
 }

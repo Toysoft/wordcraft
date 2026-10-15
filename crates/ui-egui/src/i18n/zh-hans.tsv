@@ -2245,3 +2245,12 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+	Go to Header	转到页眉
+	Go to Footer	转到页脚
+	Document Info	文档信息
+	Header from Top	页眉顶端距离
+	Footer from Bottom	页脚底端距离
+	Subject	主题
+	Keywords	关键词
+	Category	类别
+	Close Header\nand Footer	关闭页眉\n和页脚

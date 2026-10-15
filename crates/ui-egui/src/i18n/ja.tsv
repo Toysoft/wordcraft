@@ -2233,3 +2233,12 @@
 # Reading Mode column widths (#1040)
 	Narrow	狭い
 	Medium	中
+	Go to Header	ヘッダーに移動
+	Go to Footer	フッターに移動
+	Document Info	文書情報
+	Header from Top	上からのヘッダー位置
+	Footer from Bottom	下からのフッター位置
+	Subject	件名
+	Keywords	キーワード
+	Category	分類
+	Close Header\nand Footer	ヘッダーとフッター\nを閉じる

@@ -762,6 +762,13 @@ impl Session {
         if set.is_empty() { self.author.split_whitespace().filter_map(|w| w.chars().next()).collect() } else { set.to_string() }
     }
 
+    /// The layout as last computed, when the document hasn't changed since (`layout()` computes
+    /// it when needed; the front end does every frame). Pure readers use it for page facts such
+    /// as which section a page is in.
+    pub fn current_layout(&self) -> Option<Arc<DocLayout>> {
+        self.layout.as_ref().filter(|(r, ..)| *r == self.rev).map(|(_, _, _, _, _, l, ..)| l.clone())
+    }
+
     /// The current layout (recomputed when the document or view changed).
     pub fn layout(&mut self) -> Arc<DocLayout> {
         let mode = if self.view.read_mode { ViewMode::Read } else { self.view.mode };

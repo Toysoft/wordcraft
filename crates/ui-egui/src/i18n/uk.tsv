@@ -2245,3 +2245,12 @@
 # Reading Mode column widths (#1040)
 	Narrow	Вузька
 	Medium	Середня
+	Go to Header	Перейти до верхнього колонтитула
+	Go to Footer	Перейти до нижнього колонтитула
+	Document Info	Відомості про документ
+	Header from Top	Верхній колонтитул згори
+	Footer from Bottom	Нижній колонтитул знизу
+	Subject	Тема
+	Keywords	Ключові слова
+	Category	Категорія
+	Close Header\nand Footer	Закрити\nколонтитули

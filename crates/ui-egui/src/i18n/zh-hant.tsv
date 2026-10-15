@@ -2234,3 +2234,12 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+	Go to Header	移至頁首
+	Go to Footer	移至頁尾
+	Document Info	文件資訊
+	Header from Top	頁首頂端距離
+	Footer from Bottom	頁尾底端距離
+	Subject	主旨
+	Keywords	關鍵字
+	Category	類別
+	Close Header\nand Footer	關閉頁首\n及頁尾

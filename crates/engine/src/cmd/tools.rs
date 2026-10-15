@@ -526,24 +526,24 @@ pub fn specs() -> Vec<CommandSpec> {
             sel_result(s)
         })
         .params(r#"{"csv"?: string}"#),
-        CommandSpec::new("layout.linkToPrevious", "Link to Previous", "Header & Footer › Navigation", |s, v| {
-            let header = p::bool(v, "footer").map(|f| !f).unwrap_or(true);
-            let block = s.sel.focus.path.0.first().copied().unwrap_or(0) as usize;
-            let sect = s.doc.section_mut(block);
-            if header {
-                sect.headers = Default::default();
-            } else {
-                sect.footers = Default::default();
-            }
-            Ok(json!({"linked": true}))
-        })
-        .key(super::non_mac("Alt+Shift+R"))
-        .params(r#"{"footer"?: bool}"#),
+        CommandSpec::new("layout.linkToPrevious", "Link to Previous", "Header & Footer › Navigation", link_to_previous)
+            .key(super::non_mac("Alt+Shift+R"))
+            .params(
+                r#"{"footer"?: bool (default: what the caret is in), "value"?: bool} (true: the section's header (footer) in the slot the caret's page uses is the previous section's; false: its own copy of what the page shows; without a value it toggles)"#,
+            )
+            .when(|s| {
+                // A header's page is known from a fresh layout only; the command checks again after laying out.
+                if super::page::hf_part(s).is_some() && s.current_layout().is_none() {
+                    return None;
+                }
+                (s.doc.section_index_of(super::page::block_of(s)) == 0).then_some(FIRST_SECTION)
+            }),
         CommandSpec::new("hf.next", "Next Section", "Header & Footer › Navigation", |s, _| hf_nav(s, 1)).pure(),
         CommandSpec::new("hf.previous", "Previous Section", "Header & Footer › Navigation", |s, _| hf_nav(s, -1)).pure(),
         CommandSpec::new("hf.position", "Header/Footer Position", "Header & Footer › Position", |s, v| {
             let (h, f) = (p::f32(v, "header"), p::f32(v, "footer"));
-            let block = s.sel.focus.path.0.first().copied().unwrap_or(0) as usize;
+            super::page::layout_for_hf(s);
+            let block = super::page::block_of(s);
             let sect = s.doc.section_mut(block);
             if let Some(h) = h {
                 sect.header = h.clamp(0.0, 300.0);
@@ -1571,6 +1571,61 @@ fn quick_parts(s: &mut Session, v: &Value) -> CmdResult {
         s.sel = Selection::caret(end);
     }
     Ok(json!({"parts": s.building_blocks.keys().collect::<Vec<_>>()}))
+}
+
+/// Why Link to Previous is off in the first section.
+const FIRST_SECTION: &str = "the first section has no previous section";
+
+/// Link to Previous for the slot (default, first page, even page) the caret's page uses: linking
+/// takes the section's own part away and the caret goes to the one the page shows now; unlinking
+/// gives the section a copy of what the page shows (empty when it shows none) with the caret in it.
+fn link_to_previous(s: &mut Session, v: &Value) -> CmdResult {
+    use wordcraft_doc::PartKind;
+    use wordcraft_layout::HfSlot;
+    super::page::layout_for_hf(s);
+    let footer = p::bool(v, "footer").unwrap_or_else(|| super::page::hf_part(s).is_some_and(|(_, header)| !header));
+    let page = super::page::hf_page(s);
+    let (slot, shown) = page
+        .and_then(|pg| s.current_layout()?.pages.get(pg).map(|x| (x.hf_slot, if footer { x.footer_story } else { x.header_story })))
+        .unwrap_or_default();
+    let block = super::page::block_of(s);
+    if s.doc.section_index_of(block) == 0 {
+        return Err(CmdError::Disabled(FIRST_SECTION.into()));
+    }
+    // The section's part in the page's slot.
+    fn own_slot(sect: &mut wordcraft_doc::section::SectionProps, footer: bool, slot: HfSlot) -> &mut Option<u32> {
+        let set = if footer { &mut sect.footers } else { &mut sect.headers };
+        match slot {
+            HfSlot::First => &mut set.first,
+            HfSlot::Even => &mut set.even,
+            HfSlot::Default => &mut set.default,
+        }
+    }
+    let own = *own_slot(s.doc.section_mut(block), footer, slot);
+    let link = p::bool(v, "value").unwrap_or(own.is_some());
+    if link && own.is_some() {
+        *own_slot(s.doc.section_mut(block), footer, slot) = None;
+        s.touch();
+        super::page::follow_hf(s, page);
+    } else if !link && own.is_none() {
+        let kind = if footer { PartKind::Footer } else { PartKind::Header };
+        let blocks = shown
+            .and_then(|id| s.doc.parts.get(&id).map(|part| part.blocks.clone()))
+            .unwrap_or_else(|| vec![para_block(Paragraph::new().styled(if footer { "Footer" } else { "Header" }))]);
+        let id = s.doc.add_part(kind, blocks);
+        *own_slot(s.doc.section_mut(block), footer, slot) = Some(id);
+        // The caret was in the shared one: it stays at the same place in the copy.
+        if let Some(old) = shown {
+            for pos in [&mut s.sel.anchor, &mut s.sel.focus] {
+                if pos.story == StoryRef::Part(old) {
+                    pos.story = StoryRef::Part(id);
+                }
+            }
+        } else if super::page::hf_part(s).is_some() {
+            s.sel = Selection::caret(s.doc.start_of(StoryRef::Part(id)));
+        }
+    }
+    Ok(json!({"linked": link}))
 }
 
 fn hf_nav(s: &mut Session, dir: i32) -> CmdResult {

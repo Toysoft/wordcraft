@@ -467,7 +467,19 @@ Header & Footer|Navigation|Go to Header|insert.editHeader
 Header & Footer|Navigation|Go to Footer|insert.editFooter
 Header & Footer|Navigation|Previous Section|hf.previous
 Header & Footer|Navigation|Next Section|hf.next
+Header & Footer|Navigation|Link to Previous|layout.linkToPrevious
+Header & Footer|Header & Footer|Header|insert.header
+Header & Footer|Header & Footer|Footer|insert.footer
+Header & Footer|Header & Footer|Page Number|insert.pageNumber
+Header & Footer|Insert|Date & Time|insert.dateTime
+Header & Footer|Insert|Document Info|insert.docProperty
+Header & Footer|Insert|Quick Parts|insert.quickParts
+Header & Footer|Insert|Pictures|insert.picture
+Header & Footer|Options|Different First Page|layout.differentFirstPage
+Header & Footer|Options|Different Odd & Even Pages|layout.differentOddEven
 Header & Footer|Position|Header from Top|hf.position
+Header & Footer|Position|Footer from Bottom|hf.position
+Header & Footer|Close|Close Header and Footer|insert.closeHeader
 Editing|Keyboard|Type Text|text.insert
 Editing|Keyboard|New Paragraph|text.newParagraph
 Editing|Keyboard|Line Break|text.lineBreak

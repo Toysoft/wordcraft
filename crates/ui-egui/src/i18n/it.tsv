@@ -2641,3 +2641,9 @@ preview	Title	Esempio
 # Reading Mode column widths (#1040)
 	Narrow	Stretta
 	Medium	Media
+	Go to Header	Vai all'intestazione
+	Go to Footer	Vai al piè di pagina
+	Document Info	Informazioni documento
+	Header from Top	Intestazione dall'alto
+	Footer from Bottom	Piè di pagina dal basso
+	Close Header\nand Footer	Chiudi intestazione\ne piè di pagina

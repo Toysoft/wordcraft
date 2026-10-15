@@ -2243,3 +2243,12 @@
 # Reading Mode column widths (#1040)
 	Narrow	Uska
 	Medium	Srednja
+	Go to Header	Idi na zaglavlje
+	Go to Footer	Idi na podnožje
+	Document Info	Podaci o dokumentu
+	Header from Top	Zaglavlje od vrha
+	Footer from Bottom	Podnožje od dna
+	Subject	Tema
+	Keywords	Ključne reči
+	Category	Kategorija
+	Close Header\nand Footer	Zatvori zaglavlje\ni podnožje

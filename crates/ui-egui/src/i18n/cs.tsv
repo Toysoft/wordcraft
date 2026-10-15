@@ -2624,3 +2624,9 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+	Go to Header	Přejít na záhlaví
+	Go to Footer	Přejít na zápatí
+	Document Info	Informace o dokumentu
+	Header from Top	Záhlaví od horního okraje
+	Footer from Bottom	Zápatí od dolního okraje
+	Close Header\nand Footer	Zavřít záhlaví\na zápatí

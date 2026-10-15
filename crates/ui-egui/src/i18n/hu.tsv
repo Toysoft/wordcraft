@@ -2628,3 +2628,9 @@
 # Reading Mode column widths (#1040)
 	Narrow	Keskeny
 	Medium	Közepes
+	Go to Header	Ugrás az élőfejre
+	Go to Footer	Ugrás az élőlábra
+	Document Info	Dokumentumadatok
+	Header from Top	Élőfej felülről
+	Footer from Bottom	Élőláb alulról
+	Close Header\nand Footer	Élőfej és élőláb\nbezárása

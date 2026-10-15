@@ -2245,3 +2245,12 @@
 # Reading Mode column widths (#1040)
 	Narrow	Estreita
 	Medium	Média
+	Go to Header	Ir para o cabeçalho
+	Go to Footer	Ir para o rodapé
+	Document Info	Informações do documento
+	Header from Top	Cabeçalho a partir do topo
+	Footer from Bottom	Rodapé a partir da base
+	Subject	Assunto
+	Keywords	Palavras-chave
+	Category	Categoria
+	Close Header\nand Footer	Fechar cabeçalho\ne rodapé

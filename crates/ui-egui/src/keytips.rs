@@ -81,15 +81,16 @@ const TAB_LETTERS: [(&str, &str); 11] = [
     ("Help", "Y"),
 ];
 
-/// Word's contextual table tabs take two letters (Alt, J, T and Alt, J, L), shown in a table.
-const TABLE_TAB_LETTERS: [(&str, &str); 2] = [("Table Design", "JT"), ("Table Layout", "JL")];
+/// Word's contextual tabs take two letters: Alt, J, T and Alt, J, L in a table, Alt, J, H in a
+/// header or footer.
+const CONTEXTUAL_TAB_LETTERS: [(&str, &str); 3] = [("Table Design", "JT"), ("Table Layout", "JL"), ("Header & Footer", "JH")];
 
 /// The Search box's badge beside the tab badges (Word's Alt, Q).
 pub const SEARCH_LETTER: &str = "Q";
 
 /// The letter badge for a tab (empty when it has none).
 pub fn tab_letter(tab: &str) -> &'static str {
-    TAB_LETTERS.iter().chain(&TABLE_TAB_LETTERS).find(|(t, _)| *t == tab).map(|(_, l)| *l).unwrap_or("")
+    TAB_LETTERS.iter().chain(&CONTEXTUAL_TAB_LETTERS).find(|(t, _)| *t == tab).map(|(_, l)| *l).unwrap_or("")
 }
 
 /// The tabs that carry a badge, in display order.
@@ -97,6 +98,9 @@ pub fn badge_tabs(app: &WordApp) -> Vec<&'static str> {
     let mut v: Vec<&'static str> = TAB_LETTERS.iter().filter(|(_, l)| !l.is_empty()).map(|(t, _)| *t).collect();
     if crate::ribbon::in_table_public(app) {
         v.extend_from_slice(&["Table Design", "Table Layout"]);
+    }
+    if crate::ribbon::in_header_footer_public(app) {
+        v.push("Header & Footer");
     }
     v
 }
@@ -343,6 +347,21 @@ fn controls(tab: &str) -> Vec<Control> {
         "Table Design" => {
             vec![m("Shading", "table.shading"), m("Borders", "table.borders"), c("Border Painter", "table.borderPainter")]
         }
+        "Header & Footer" => vec![
+            m("Header", "insert.header"),
+            m("Footer", "insert.footer"),
+            m("Page Number", "insert.pageNumber"),
+            c("Date & Time", "insert.dateTime"),
+            m("Document Info", "insert.docProperty"),
+            m("Quick Parts", "insert.quickParts"),
+            c("Pictures", "insert.picture"),
+            c("Go to Header", "insert.editHeader"),
+            c("Go to Footer", "insert.editFooter"),
+            c("Previous Section", "hf.previous"),
+            c("Next Section", "hf.next"),
+            c("Link to Previous", "layout.linkToPrevious"),
+            c("Close Header and Footer", "insert.closeHeader"),
+        ],
         "Table Layout" => vec![
             m("Select", "table.selectCell"),
             c("View Gridlines", "table.viewGridlines"),
@@ -889,7 +908,7 @@ mod tests {
         let a = app();
         let catalog: Vec<&str> = wordcraft_engine::catalog::entries().into_iter().map(|e| e.3).collect();
         let mut missing = Vec::new();
-        for (tab, _) in TAB_LETTERS.iter().chain(&TABLE_TAB_LETTERS) {
+        for (tab, _) in TAB_LETTERS.iter().chain(&CONTEXTUAL_TAB_LETTERS) {
             for ctrl in controls(tab) {
                 if let Target::Cmd { id, .. } = ctrl.target
                     && a.session.registry.get(id).is_none()
@@ -1044,6 +1063,29 @@ mod tests {
         activate(&mut b);
         handle_key(&mut b, egui::Key::J);
         assert_eq!(b.ui.keytips, Phase::Off);
+    }
+
+    /// #2055: Alt, J, H opens the Header & Footer tab while a header or footer is edited, and
+    /// there is no J, H outside one.
+    #[test]
+    fn alt_j_h_opens_the_header_footer_tab() {
+        let mut a = app();
+        assert_eq!(tab_letter("Header & Footer"), "JH");
+        activate(&mut a);
+        handle_key(&mut a, egui::Key::J);
+        assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("Home", Phase::Off), "no J tab outside a table or header");
+        a.run("insert.editFooter", serde_json::json!({})).unwrap();
+        assert!(crate::ribbon::in_header_footer_public(&a));
+        assert!(badge_tabs(&a).contains(&"Header & Footer"));
+        a.run("ui.tab", serde_json::json!({"tab": "Home"})).unwrap();
+        activate(&mut a);
+        assert!(handle_key(&mut a, egui::Key::J));
+        assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("Home", Phase::Tabs), "J waits for the second letter");
+        assert!(handle_key(&mut a, egui::Key::H));
+        assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("Header & Footer", Phase::Commands));
+        let ls = letters_for(&a, "Header & Footer");
+        assert_eq!(ls.len(), controls("Header & Footer").len());
+        assert!(ls.iter().all(|l| !l.is_empty()), "{ls:?}");
     }
 
     #[test]
