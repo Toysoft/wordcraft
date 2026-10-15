@@ -465,7 +465,8 @@ fn tblpr_inner(w: &mut W, t: &TableProps) {
 /// `w:trPr` (when the row has any), with a tracked change last as for [`tblpr`].
 pub fn trpr(w: &mut W, r: &RowProps, change: Option<&ChangeAttrs>) {
     let change = change.zip(r.fmt_change.as_ref());
-    if r.height.is_none() && !r.header && !r.cant_split && change.is_none() {
+    let gaps = r.grid_before > 0 || r.grid_after > 0 || r.w_before.is_some() || r.w_after.is_some();
+    if r.height.is_none() && !r.header && !r.cant_split && !gaps && change.is_none() {
         return;
     }
     w.open("w:trPr", &[]);
@@ -477,6 +478,18 @@ pub fn trpr(w: &mut W, r: &RowProps, change: Option<&ChangeAttrs>) {
 }
 
 fn trpr_inner(w: &mut W, r: &RowProps) {
+    // The grid gaps go first, in the schema's order (as Word writes them).
+    if r.grid_before > 0 {
+        w.val("w:gridBefore", &n(r.grid_before.into()));
+    }
+    if r.grid_after > 0 {
+        w.val("w:gridAfter", &n(r.grid_after.into()));
+    }
+    for (name, width) in [("w:wBefore", r.w_before), ("w:wAfter", r.w_after)] {
+        if let Some(v) = width {
+            w.empty(name, &[("w:w", &twips(v)), ("w:type", "dxa")]);
+        }
+    }
     if r.cant_split {
         w.empty("w:cantSplit", &[]);
     }
@@ -529,7 +542,7 @@ fn tcpr_inner(w: &mut W, c: &CellProps) {
     if let Some(m) = &c.margins {
         margins(w, "w:tcMar", m);
     }
-    if c.text_direction.is_turned() {
+    if c.text_direction.is_turned() || c.text_direction_set {
         w.val("w:textDirection", c.text_direction.ooxml());
     }
     match c.valign {
