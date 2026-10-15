@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (Page Setup vertical alignment, #1320; previously trivial: the app opens on the Home tab every launch, as in Word; previously trivial: no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** trivial (Track Changes Options › Moves: Moved from / Moved to marks and colours; previously trivial: Page Setup vertical alignment, #1320; previously trivial: the app opens on the Home tab every launch, as in Word; previously trivial: no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -51,6 +51,7 @@ Document title opens Rename Document; the account badge opens Options › Genera
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Track Changes Options › Moves: Moved from and Moved to rows (mark and colour; green double strikethrough and double underline by default, as in Word for Mac, which has no Track moves checkbox). `review.trackingOptions {"moveFromMark", "moveFromColor", "moveToMark", "moveToColor"}`, saved per user; `"trackMoves"` sets the document's setting |
 | 2026-10-13 | trivial | Page Setup: a Vertical alignment box (Top, Center, Justified, Bottom), applied on OK only if changed (#1320) |
 | 2026-10-13 | trivial | macOS shortcuts as in Word for Mac: ⌘⇧S Save As (Apply Styles keeps Ctrl+Shift+S elsewhere), ⌘⌥E Insert Endnote (macOS takes ⌘⌥D for the Dock), ⌘⌥A New Comment, ⌃H Replace, ⌘⌥R collapse the ribbon |
 | 2026-10-13 | trivial | On-canvas objects: regression-tested dragging Behind Text pictures and shapes across overlapping text (body and header/footer), selected or not, without stealing ordinary text clicks; In Front of Text covered too |

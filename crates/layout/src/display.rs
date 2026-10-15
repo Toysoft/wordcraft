@@ -292,6 +292,14 @@ pub struct MarkupOptions {
     pub changed_lines_color: Option<Rgb>,
     /// Record formatting changes while tracking.
     pub track_formatting: bool,
+    /// How the place moved text was taken from is marked (Moves › Moved from).
+    pub move_from_mark: DeleteMark,
+    /// `None` = by author.
+    pub move_from_color: Option<Rgb>,
+    /// How moved text is marked where it went (Moves › Moved to).
+    pub move_to_mark: InsertMark,
+    /// `None` = by author.
+    pub move_to_color: Option<Rgb>,
 }
 
 impl Default for MarkupOptions {
@@ -310,6 +318,10 @@ impl Default for MarkupOptions {
             changed_lines: ChangeBar::default(),
             changed_lines_color: None,
             track_formatting: true,
+            move_from_mark: DeleteMark::DoubleStrikethrough,
+            move_from_color: Some(MOVE_COLOR),
+            move_to_mark: InsertMark::DoubleUnderline,
+            move_to_color: Some(MOVE_COLOR),
         }
     }
 }
@@ -840,20 +852,24 @@ fn lines(
             let del = rc.del.filter(|_| shown);
             let ins = rc.ins.filter(|_| shown && del.is_none());
             let author = |r: u32| revision_color(doc.revisions.get(r as usize).map(|v| author_index(doc, &v.author)).unwrap_or(0));
-            // Moved text: green, double strikethrough where it was, double underline where it went.
+            // Moved text: the Moves marks and colours (by default green, double strikethrough
+            // where it was, double underline where it went).
             let moved_to = doc.move_name(ins).is_some();
             let moved_from = del.is_some() && doc.move_name(del).is_some();
+            if moved_from && m.move_from_mark == DeleteMark::Hidden {
+                continue;
+            }
             let color = match (ins, del) {
-                (_, Some(_)) if moved_from => MOVE_COLOR,
-                (Some(_), _) if moved_to => MOVE_COLOR,
+                (_, Some(r)) if moved_from => m.move_from_color.unwrap_or_else(|| author(r)),
+                (Some(r), _) if moved_to => m.move_to_color.unwrap_or_else(|| author(r)),
                 (Some(r), _) => m.insert_color.unwrap_or_else(|| author(r)),
                 (None, Some(r)) => m.delete_color.unwrap_or_else(|| author(r)),
                 _ => text_color(&rc.color, rc.shading.or(rc.highlight)),
             };
             // The highlight or shading drawn under this run (as filled in the backgrounds pass).
             let text_bg = rc.highlight.or(rc.shading);
-            let ins_mark = ins.map(|_| if moved_to { InsertMark::DoubleUnderline } else { m.insert_mark });
-            let del_mark = del.map(|_| if moved_from { DeleteMark::DoubleStrikethrough } else { m.delete_mark });
+            let ins_mark = ins.map(|_| if moved_to { m.move_to_mark } else { m.insert_mark });
+            let del_mark = del.map(|_| if moved_from { m.move_from_mark } else { m.delete_mark });
             if del_mark == Some(DeleteMark::Caret) {
                 // A caret where the text was, instead of the text.
                 if let Some(cx) = line.cl_left(run_start).map(|c| x + c) {
@@ -1134,8 +1150,10 @@ fn lines(
                 let mx = if line.rtl { ex - 1.0 - size * 0.6 } else { ex + 1.0 };
                 // A tracked (inserted or deleted) paragraph mark is drawn in its author's colour.
                 let m = &opts.revisions;
+                let by_author = |r: u32| revision_color(doc.revisions.get(r as usize).map(|v| author_index(doc, &v.author)).unwrap_or(0));
                 let color = para.filter(|_| opts.markup && m.insertions_deletions).and_then(|p| match (p.mark.ins, p.mark.del) {
-                    (ins, del) if doc.move_name(del).is_some() || (del.is_none() && doc.move_name(ins).is_some()) => Some(MOVE_COLOR),
+                    (_, Some(r)) if doc.move_name(Some(r)).is_some() => Some(m.move_from_color.unwrap_or_else(|| by_author(r))),
+                    (Some(r), None) if doc.move_name(Some(r)).is_some() => Some(m.move_to_color.unwrap_or_else(|| by_author(r))),
                     (_, Some(r)) => Some(
                         m.delete_color
                             .unwrap_or_else(|| revision_color(doc.revisions.get(r as usize).map(|v| author_index(doc, &v.author)).unwrap_or(0))),

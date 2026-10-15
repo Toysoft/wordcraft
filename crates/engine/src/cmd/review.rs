@@ -45,7 +45,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("review.trackingOptions", "Track Changes Options", "Review › Tracking", tracking_options)
             .params(
-                r#"{"comments"?: bool, "ink"?: bool, "insertionsDeletions"?: bool, "formatting"?: bool, "balloons"?: "revisions|inline|commentsAndFormatting", "commentDisplay"?: "margin|selected", "insertMark"?: "underline|doubleUnderline|bold|italic|strikethrough|colorOnly|none", "insertColor"?: "byAuthor" | "RRGGBB", "deleteMark"?: "strikethrough|doubleStrikethrough|hidden|caret|hash|underline|colorOnly", "deleteColor"?: "byAuthor" | "RRGGBB", "changedLines"?: "outside|left|right|none", "changedLinesColor"?: "auto" | "RRGGBB", "trackFormatting"?: bool} → the options (omit all to read them)"#,
+                r#"{"comments"?: bool, "ink"?: bool, "insertionsDeletions"?: bool, "formatting"?: bool, "balloons"?: "revisions|inline|commentsAndFormatting", "commentDisplay"?: "margin|selected", "insertMark"?: "underline|doubleUnderline|bold|italic|strikethrough|colorOnly|none", "insertColor"?: "byAuthor" | "RRGGBB", "deleteMark"?: "strikethrough|doubleStrikethrough|hidden|caret|hash|underline|colorOnly", "deleteColor"?: "byAuthor" | "RRGGBB", "changedLines"?: "outside|left|right|none", "changedLinesColor"?: "auto" | "RRGGBB", "trackFormatting"?: bool, "moveFromMark"?: (as deleteMark), "moveFromColor"?: "byAuthor" | "RRGGBB", "moveToMark"?: (as insertMark), "moveToColor"?: "byAuthor" | "RRGGBB", "trackMoves"?: bool (the document's setting; off = a cut and paste is a deletion and an insertion, not a move)} → the options (omit all to read them)"#,
             )
             .pure(),
         CommandSpec::new("review.wordCount", "Word Count", "Review › Proofing", word_count)
@@ -980,18 +980,37 @@ fn tracking_options(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(x) = pick("deleteMark") {
         m.delete_mark = DeleteMark::parse(x).ok_or_else(|| CmdError::Params("unknown `deleteMark`".into()))?;
     }
+    if let Some(x) = pick("moveFromMark") {
+        m.move_from_mark = DeleteMark::parse(x).ok_or_else(|| CmdError::Params("unknown `moveFromMark`".into()))?;
+    }
+    if let Some(x) = pick("moveToMark") {
+        m.move_to_mark = InsertMark::parse(x).ok_or_else(|| CmdError::Params("unknown `moveToMark`".into()))?;
+    }
     if let Some(x) = pick("changedLines") {
         m.changed_lines = ChangeBar::parse(x).ok_or_else(|| CmdError::Params("unknown `changedLines`".into()))?;
     }
     m.insert_color = color("insertColor", "byAuthor", m.insert_color)?;
     m.delete_color = color("deleteColor", "byAuthor", m.delete_color)?;
     m.changed_lines_color = color("changedLinesColor", "auto", m.changed_lines_color)?;
+    m.move_from_color = color("moveFromColor", "byAuthor", m.move_from_color)?;
+    m.move_to_color = color("moveToColor", "byAuthor", m.move_to_color)?;
+    // Track moves is the document's (`w:doNotTrackMoves`), so changing it is an undo step; the
+    // command is pure, so it records the step itself, once every parameter has been accepted.
+    if let Some(b) = p::bool(v, "trackMoves")
+        && b != s.doc.settings.track_moves
+    {
+        s.checkpoint("Track Changes Options");
+        s.doc.settings.track_moves = b;
+        s.touch();
+    }
     if m != s.prefs.markup {
         s.prefs.markup = m;
         // Hidden deletions leave the layout.
         s.relayout();
     }
-    Ok(tracking_json(&s.prefs.markup))
+    let mut out = tracking_json(&s.prefs.markup);
+    out["trackMoves"] = json!(s.doc.settings.track_moves);
+    Ok(out)
 }
 
 /// The Track Changes Options as `review.trackingOptions` takes them.
@@ -1011,6 +1030,10 @@ pub fn tracking_json(m: &wordcraft_layout::display::MarkupOptions) -> Value {
         "changedLines": m.changed_lines.name(),
         "changedLinesColor": hex(m.changed_lines_color, "auto"),
         "trackFormatting": m.track_formatting,
+        "moveFromMark": m.move_from_mark.name(),
+        "moveFromColor": hex(m.move_from_color, "byAuthor"),
+        "moveToMark": m.move_to_mark.name(),
+        "moveToColor": hex(m.move_to_color, "byAuthor"),
     })
 }
 
@@ -1090,6 +1113,91 @@ mod tests {
         assert_eq!(s.run("review.trackingOptions", &json!({})).unwrap()["commentDisplay"], "selected");
         assert!(s.run("review.trackingOptions", &json!({"commentDisplay": "never"})).is_err());
         assert_eq!(s.run("review.trackingOptions", &json!({"commentDisplay": "margin"})).unwrap()["commentDisplay"], "margin");
+    }
+
+    /// Gap #5 (Track Changes Options › Moves): moved text is drawn with the Moved from / Moved
+    /// to marks and colours, by default green with a double strikethrough where it was and a
+    /// double underline where it went.
+    #[test]
+    fn move_marks_and_colours_change_how_moved_text_is_drawn() {
+        use wordcraft_doc::Rgb;
+        use wordcraft_layout::display::{MOVE_COLOR, Stroke};
+        let mut s = Session::new(Document::new());
+        s.view.proofing = false;
+        s.run("document.setText", &json!({"text": "First one.\nSecond one.\nThird one."})).unwrap();
+        s.run("review.trackChanges", &json!({"value": true})).unwrap();
+        s.run("select.range", &json!({"anchor": {"block": 1, "off": 0}, "focus": {"block": 2, "off": 0}})).unwrap();
+        s.run("edit.cut", &json!({})).unwrap();
+        s.run("caret.set", &json!({"pos": {"block": 0, "off": 0}})).unwrap();
+        s.run("edit.paste", &json!({})).unwrap();
+        // Horizontal lines (underlines, strikethroughs) with their colour and stroke.
+        let strokes = |d: &[Draw]| -> Vec<(Rgb, Stroke)> {
+            d.iter()
+                .filter_map(|x| if let Draw::Line { y0, y1, color, stroke, .. } = x { (y0 == y1).then_some((*color, *stroke)) } else { None })
+                .collect()
+        };
+
+        let r = s.run("review.trackingOptions", &json!({})).unwrap();
+        assert_eq!(
+            (r["moveFromMark"].as_str(), r["moveFromColor"].as_str(), r["moveToMark"].as_str(), r["moveToColor"].as_str()),
+            (Some("doubleStrikethrough"), Some(MOVE_COLOR.hex().as_str()), Some("doubleUnderline"), Some(MOVE_COLOR.hex().as_str())),
+        );
+        let (d, _) = draws(&mut s);
+        let st = strokes(&d);
+        assert_eq!(
+            st.iter().filter(|(c, k)| *c == MOVE_COLOR && *k == Stroke::Double).count(),
+            2,
+            "green double underline and strikethrough: {st:?}"
+        );
+        assert!(glyph_colors(&d).contains(&(MOVE_COLOR, false)));
+
+        // Red single strikethrough where it was; bold blue where it went.
+        let r = s
+            .run(
+                "review.trackingOptions",
+                &json!({"moveFromMark": "strikethrough", "moveFromColor": "FF0000", "moveToMark": "bold", "moveToColor": "0000FF"}),
+            )
+            .unwrap();
+        assert_eq!((r["moveFromMark"].as_str(), r["moveToColor"].as_str()), (Some("strikethrough"), Some("0000FF")));
+        let (d, _) = draws(&mut s);
+        let st = strokes(&d);
+        assert_eq!(st, vec![(Rgb(0xFF, 0, 0), Stroke::Solid)], "only a red strikethrough is left");
+        let g = glyph_colors(&d);
+        assert!(g.contains(&(Rgb(0, 0, 0xFF), true)) && g.contains(&(Rgb(0xFF, 0, 0), false)), "{g:?}");
+        assert!(!g.iter().any(|(c, _)| *c == MOVE_COLOR), "{g:?}");
+
+        // By author: the insertion and deletion colour of the author.
+        s.run("review.trackingOptions", &json!({"moveToColor": "byAuthor"})).unwrap();
+        let (d, _) = draws(&mut s);
+        let author = wordcraft_layout::display::revision_color(0);
+        assert!(glyph_colors(&d).contains(&(author, true)), "{:?}", glyph_colors(&d));
+
+        // Unknown choices are refused.
+        assert!(s.run("review.trackingOptions", &json!({"moveToMark": "sparkles"})).is_err());
+        assert!(s.run("review.trackingOptions", &json!({"moveFromColor": "green"})).is_err());
+    }
+
+    /// Gap #5: Track moves is a document setting (`w:doNotTrackMoves`): turning it off is one
+    /// undo step, and setting it to what it is adds none.
+    #[test]
+    fn track_moves_is_a_document_setting_with_one_undo_step() {
+        let mut s = Session::new(Document::new());
+        assert_eq!(s.run("review.trackingOptions", &json!({})).unwrap()["trackMoves"], true);
+        assert!(s.doc.settings.track_moves);
+        assert!(!s.can_undo());
+        assert_eq!(s.run("review.trackingOptions", &json!({"trackMoves": true})).unwrap()["trackMoves"], true);
+        assert!(!s.can_undo(), "no change, no undo step");
+        assert_eq!(s.run("review.trackingOptions", &json!({"trackMoves": false})).unwrap()["trackMoves"], false);
+        assert!(!s.doc.settings.track_moves && s.dirty);
+        s.run("edit.undo", &json!({})).unwrap();
+        assert!(s.doc.settings.track_moves);
+        assert!(!s.can_undo());
+        // A refused parameter changes nothing.
+        assert!(s.run("review.trackingOptions", &json!({"trackMoves": false, "moveToMark": "sparkles"})).is_err());
+        assert!(s.doc.settings.track_moves);
+        // Documents saved before the setting existed keep tracking moves.
+        let old: wordcraft_doc::Settings = serde_json::from_value(json!({"trackChanges": true})).unwrap();
+        assert!(old.track_moves);
     }
 
     /// #1055: the caret's own comment is the one whose range holds it, not any in its paragraph.
