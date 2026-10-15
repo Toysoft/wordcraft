@@ -527,7 +527,7 @@
 	Multiple Pages	Plusieurs pages
 	Name (A–Z)	Nom (A–Z)
 	Name:	Nom :
-	Narrow  0.5" all	Étroites — 0,5" partout
+	Narrow  {size} all	Étroites — {size} partout
 	Navigation	Navigation
 	Navigation Pane	Volet de navigation
 	New	Nouveau
@@ -554,7 +554,7 @@
 	Nonbreaking Hyphen	Tiret insécable
 	Nonbreaking Space	Espace insécable
 	None	Aucun
-	Normal  1" all	Normales — 1" partout
+	Normal  {size} all	Normales — {size} partout
 	Normal Style	Style Normal
 	Not available right now	Indisponible pour le moment
 	Not saved	Non enregistré
@@ -2080,6 +2080,16 @@
 	Reading Column Width	Largeur de colonne de lecture
 	Reading Line Spacing	Interligne de lecture
 	Reading Text Size	Taille du texte de lecture
+	Odd Banded Rows	Lignes à bandes impaires
+	Even Banded Rows	Lignes à bandes paires
+	Odd Banded Columns	Colonnes à bandes impaires
+	Even Banded Columns	Colonnes à bandes paires
+	Top Left Cell	Cellule en haut à gauche
+	Top Right Cell	Cellule en haut à droite
+	Bottom Left Cell	Cellule en bas à gauche
+	Bottom Right Cell	Cellule en bas à droite
+	Inside Horizontal Border	Bordure intérieure horizontale
+	Inside Vertical Border	Bordure intérieure verticale
 	Filter Recipients	Filtrer les destinataires
 	Sort Recipients	Trier les destinataires
 	Filter and Sort	Filtrer et trier
@@ -2227,3 +2237,6 @@
 # Table Layout › Formula dialog (#1210)
 	Formula:	Formule :
 	Paste function:	Coller une fonction :
+# Reading Mode column widths (#1040)
+	Narrow	Étroite
+	Medium	Moyenne
