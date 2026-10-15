@@ -47,9 +47,9 @@ pub fn int(s: &str) -> Option<i64> {
     v.is_finite().then(|| v.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64)
 }
 
-/// A VML fraction (`gain`, `blacklevel`, `opacity`): 16.16 fixed point with an `f` suffix
+/// A VML number (`gain`, `blacklevel`), unclamped: 16.16 fixed point with an `f` suffix
 /// (`19661f` is 0.3) or a plain decimal (`0.3`). None for anything else or non-finite.
-pub fn vml_fraction(s: &str) -> Option<f64> {
+pub fn vml_number(s: &str) -> Option<f64> {
     let t = s.trim();
     if t.is_empty() || t.len() > 40 {
         return None;

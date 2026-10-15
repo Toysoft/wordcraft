@@ -16,7 +16,7 @@ use super::Reader;
 use super::props::{sectpr, tcpr, trpr};
 use super::shape_style::{preset_kind, shape_paint, vml_color, vml_preset_kind};
 use crate::package::{ContentTypes, Rels, rt};
-use crate::units::{blip_fx, int, measure, u32_of, vml_fraction};
+use crate::units::{blip_fx, int, measure, u32_of, vml_number};
 use crate::xml::{El, Node};
 use wordcraft_doc::wordart::TextWarp;
 
@@ -1397,7 +1397,7 @@ impl Reader<'_> {
             let media = self.media_for(rels, id)?;
             let alt = shape.attr("alt").or_else(|| img.attr("o:title")).unwrap_or("").to_string();
             // Brightness and contrast (Word's picture watermark "Washout" sets them, #1711).
-            let frac = |k: &str| img.attr(k).and_then(vml_fraction);
+            let frac = |k: &str| img.attr(k).and_then(vml_number);
             let fx = PicFx::from_vml(frac("gain").unwrap_or(1.0), frac("blacklevel").unwrap_or(0.0));
             return Some(InlineObject::Image { media, w, h, alt, float, crop: [0.0; 4], fx, ole: None });
         }
