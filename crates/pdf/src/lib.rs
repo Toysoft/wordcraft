@@ -1206,7 +1206,7 @@ impl Exporter<'_> {
     fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32) {
         let Some(clip) = rect_path(rect) else { return };
         if let Some(v) = self.vector(media) {
-            vector_picture(s, &v, rect, crop, &clip, alpha);
+            vector_picture(self, s, &v, rect, crop, &clip, alpha);
             return;
         }
         let Some(img) = self.image(media) else {
@@ -1527,6 +1527,83 @@ impl Exporter<'_> {
         Some(o)
     }
 
+    /// Draws a metafile text run as PDF text (outlines when the font cannot be embedded). `tf` maps
+    /// the run's own space (see [`PlacedItem::Text`]) to the page.
+    fn vector_text(&mut self, s: &mut Surface, t: &wordcraft_metafile::Text, tf: kurbo::Affine) {
+        let resolved = wordcraft_fonts::word::resolve(&t.font, t.bold, t.italic);
+        let face = resolved.face;
+        // A symbol font that isn't installed: its codes drawn as their Unicode equivalents.
+        let mapped;
+        let t = if resolved.substituted && wordcraft_doc::symbol_fonts::is_symbol_font(&t.font) {
+            mapped = wordcraft_metafile::Text { text: wordcraft_doc::symbol_fonts::map_text(&t.font, &t.text), ..t.clone() };
+            &mapped
+        } else {
+            t
+        };
+        let shaped = wordcraft_fonts::shape_with_fallback(face, &t.text, t.bold, t.italic);
+        // Fallback glyphs' metrics in the run face's units.
+        let upem = face.upem.max(1.0);
+        let glyphs: Vec<_> = shaped
+            .iter()
+            .map(|(f, g)| {
+                let k = upem / f.upem.max(1.0);
+                (g.cluster, f64::from(g.x_advance) * k, f64::from(g.x_offset) * k, f64::from(g.y_offset) * k)
+            })
+            .collect();
+        let Some(lay) = t.layout(face.upem, face.ascent, face.descent, &glyphs) else { return };
+        let em = lay.em as f32;
+        let c = tf.as_coeffs().map(|v| v as f32);
+        if !c.iter().all(|v| v.is_finite()) || !em.is_finite() {
+            return;
+        }
+        let (paint, opacity) = paint_of(t.color);
+        s.push_transform(&Transform::from_row(c[0], c[1], c[2], c[3], c[4], c[5]));
+        s.set_stroke(None);
+        s.set_fill(Some(Fill { paint: paint.into(), opacity, rule: FillRule::NonZero }));
+        // One drawing call per face, in order.
+        let mut i = 0;
+        while let Some((f, _)) = shaped.get(i) {
+            let f = *f;
+            let n = shaped.iter().skip(i).take_while(|(g, _)| *g == f).count();
+            let run = i..i + n;
+            i += n;
+            let font = self.font(&f);
+            if font.is_none() && !self.outlined.contains(&f.id()) {
+                continue;
+            }
+            match font {
+                Some(font) => {
+                    let kg: Vec<KrillaGlyph> = run
+                        .clone()
+                        .filter_map(|j| {
+                            let (_, g) = shaped.get(j)?;
+                            let end = shaped.iter().skip(j + 1).map(|(_, n)| n.cluster).find(|cl| *cl > g.cluster).unwrap_or(t.text.len());
+                            let start = g.cluster.min(end);
+                            let x = lay.glyphs.get(j).map_or(0.0, |p| p.0);
+                            let adv = match lay.glyphs.get(j + 1).filter(|_| j + 1 < run.end) {
+                                Some(n) => ((n.0 - x) / lay.em) as f32,
+                                None => g.x_advance as f32 / f.upem.max(1.0) as f32,
+                            };
+                            let dy = lay.glyphs.get(j).map_or(0.0, |p| ((lay.baseline - p.1) / lay.em) as f32);
+                            Some(KrillaGlyph::new(GlyphId::new(g.gid), adv, 0.0, dy, 0.0, start..end, None))
+                        })
+                        .collect();
+                    let x0 = lay.glyphs.get(run.start).map_or(0.0, |p| p.0) as f32;
+                    s.draw_glyphs(Point::from_xy(x0, lay.baseline as f32), &kg, font, &t.text, em, false);
+                }
+                None => {
+                    let pen: Vec<(u32, f32, f32)> =
+                        run.filter_map(|j| Some((shaped.get(j)?.1.gid, lay.glyphs.get(j)?.0 as f32, lay.glyphs.get(j)?.1 as f32))).collect();
+                    if let Some(path) = glyph_outlines(&f, em, &pen) {
+                        s.draw_path(&path);
+                    }
+                }
+            }
+        }
+        s.set_fill(None);
+        s.pop();
+    }
+
     fn watermark(&mut self, s: &mut Surface, wm: &wordcraft_doc::Watermark, w: f32, h: f32) {
         let r = wordcraft_fonts::word::resolve(&wm.font, false, false);
         let face = r.face;
@@ -1619,8 +1696,9 @@ const HAIRLINE: f64 = 0.25;
 
 /// Draws a metafile picture into the clip (the picture frame): paths are filled and stroked in page
 /// space (strokes keep their width under non-uniform scaling), bitmaps stretched, all faded by `alpha`.
-/// Every path sets its fill and stroke, so none carries over; strokes have round caps and joins.
-fn vector_picture(s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: &Path, alpha: f32) {
+/// Every path sets its fill and stroke, so none carries over; strokes have round caps and joins. Text
+/// runs are drawn as text.
+fn vector_picture(ex: &mut Exporter, s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: &Path, alpha: f32) {
     let target = kurbo::Rect::new(f64::from(r.x), f64::from(r.y), f64::from(r.x + r.w), f64::from(r.y + r.h));
     let fade = alpha < 0.999;
     if fade {
@@ -1657,6 +1735,11 @@ fn vector_picture(s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: 
                 s.push_transform(&Transform::from_translate(rect.x0 as f32, rect.y0 as f32));
                 s.draw_image(img.clone(), size);
                 s.pop();
+            }
+            PlacedItem::Text { index, tf } => {
+                if let Some(wordcraft_metafile::Item::Text(t)) = v.pic.items.get(index) {
+                    ex.vector_text(s, t, tf);
+                }
             }
         }
     }

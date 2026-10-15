@@ -993,6 +993,97 @@ fn cosmetic_metafile_pens_are_thin_but_visible() {
     assert!(raw.contains("0.25 w"), "the hairline is a quarter point wide");
 }
 
+/// EMF text records: EXTCREATEFONTINDIRECTW (Arial, 20 units high) in slot 1, SELECTOBJECT,
+/// SETTEXTCOLOR (black), then EXTTEXTOUTW `text` at (5, 40) with no dx array.
+fn emf_text_records(text: &str) -> Vec<Vec<u8>> {
+    let mut font = [82i32.to_le_bytes(), 104u32.to_le_bytes(), 1i32.to_le_bytes(), (-20i32).to_le_bytes()].concat();
+    font.extend([0i32, 0, 0, 400, 0, 0].iter().flat_map(|v| v.to_le_bytes()));
+    let mut name: Vec<u8> = "Arial".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    name.resize(64, 0);
+    font.extend(name);
+    let units: Vec<u8> = text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    let padded = units.len().div_ceil(4) * 4;
+    let mut out = [84u32.to_le_bytes(), ((76 + padded) as u32).to_le_bytes()].concat();
+    out.extend([0i32, 0, 100, 100, 1, 0, 0, 5, 40, text.encode_utf16().count() as i32, 76, 0, 0, 0, 0, 0, 0].iter().flat_map(|v| v.to_le_bytes()));
+    out.extend(units);
+    out.resize(76 + padded, 0);
+    vec![font, emf_rec(37, &[1]), emf_rec(24, &[0]), out]
+}
+
+/// A WMF record: size in words, function, parameters (padded to a word).
+fn wmf_rec(func: u16, params: &[u8]) -> Vec<u8> {
+    let mut p = params.to_vec();
+    if p.len() % 2 == 1 {
+        p.push(0);
+    }
+    [(((6 + p.len()) / 2) as u32).to_le_bytes().to_vec(), func.to_le_bytes().to_vec(), p].concat()
+}
+
+/// A WMF file with a 200 x 100 window and an EXTTEXTOUT of `bytes` in a font named `face` (bytes in
+/// `charset`) for each run, each font in the next handle slot.
+fn wmf_text_file(runs: &[(&[u8], u8, &[u8])]) -> Vec<u8> {
+    let w = |v: i16| v.to_le_bytes().to_vec();
+    let mut recs = vec![wmf_rec(0x020B, &[w(0), w(0)].concat()), wmf_rec(0x020C, &[w(100), w(200)].concat())];
+    for (i, (face, charset, bytes)) in runs.iter().enumerate() {
+        let mut font = [w(-20), w(0), w(0), w(0), w(400)].concat();
+        font.extend([0, 0, 0, *charset, 0, 0, 0, 0]);
+        let mut name = face.to_vec();
+        name.resize(32, 0);
+        font.extend(name);
+        recs.push(wmf_rec(0x02FB, &font));
+        recs.push(wmf_rec(0x012D, &w(i as i16)));
+        recs.push(wmf_rec(0x0A32, &[w(30 + 30 * i as i16), w(10), w(bytes.len() as i16), w(0), bytes.to_vec()].concat()));
+    }
+    recs.push(wmf_rec(0, &[]));
+    let body = recs.concat();
+    let mut f = [w(1), w(9), w(0x300)].concat();
+    f.extend((((18 + body.len()) / 2) as u32).to_le_bytes());
+    f.extend([w(runs.len() as i16), 0u32.to_le_bytes().to_vec(), w(0)].concat());
+    f.extend(body);
+    f
+}
+
+/// #1944: a WMF picture's text (Equation Editor and MathType previews) is drawn, so it is in the
+/// PDF's text layer: Symbol font codes as their Unicode characters, GB2312 bytes decoded.
+#[test]
+fn wmf_text_records_are_drawn_as_text() {
+    let wmf = wmf_text_file(&[(b"Symbol", 1, b"p\xA5"), (b"\xCB\xCE\xCC\xE5", 134, b"\xCA\xFD")]);
+    let mut d = Document::new();
+    let media = d.add_media(wmf, "wmf");
+    let mut p = Paragraph::new();
+    p.insert_object(
+        0,
+        InlineObject::Image { media, w: 70.0, h: 35.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        &CharProps::default(),
+    )
+    .unwrap();
+    d.body = vec![para_block(p)];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap();
+    let text = extract_text(&bytes).concat();
+    assert!(text.contains("π∞") && text.contains('数'), "the metafile's text is drawn: {text:?}");
+}
+
+/// #1764: the text of an EMF picture (EXTTEXTOUTW) is drawn, so it is in the PDF's text layer.
+#[test]
+fn metafile_text_records_are_drawn_as_text() {
+    let mut recs = emf_text_records("Cell42");
+    recs.push(emf_rec(14, &[0; 3]));
+    let mut d = Document::new();
+    let media = d.add_media(emf_file(&recs), "emf");
+    let mut p = Paragraph::with_text("Figure: ", CharProps::default());
+    let n = p.len();
+    p.insert_object(
+        n,
+        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        &CharProps::default(),
+    )
+    .unwrap();
+    d.body = vec![para_block(p)];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: false, ..Default::default() }).unwrap();
+    let text = extract_text(&bytes).concat();
+    assert!(text.contains("Cell42"), "the metafile's text is drawn: {text:?}");
+}
+
 /// #455: a link to a bookmark after a page break inside its paragraph goes to the page the
 /// bookmark is on, not the paragraph's first page.
 #[test]
