@@ -1145,6 +1145,7 @@ impl Session {
             self.history.splice(0..0, head.into_iter().take(back));
         }
         self.undo_evicted = evicted;
+        self.autocap = None;
         self.doc = doc;
         self.sel = sel;
         self.also_selected.clear();
@@ -1302,6 +1303,7 @@ impl Session {
                 }
             }
             Err(e) => {
+                self.autocap = None;
                 if let Some((d, s, h, r, t, ev, c)) = before_doc {
                     self.doc = d;
                     self.sel = s;

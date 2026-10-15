@@ -104,10 +104,10 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
     // A list label ("a. ") becomes a list before AutoCorrect could capitalise it.
     let listed = text == " " && s.prefs.autocorrect.enabled && list_autoformat(s)?;
     if !listed {
-        super::tools::autocorrect(s)?;
+        super::tools::autocorrect(s).inspect_err(|_| s.autocap = None)?;
     }
     if text == " " && !listed && s.prefs.autocorrect.enabled && s.prefs.autocorrect.dashes {
-        dash_autoformat(s)?;
+        dash_autoformat(s).inspect_err(|_| s.autocap = None)?;
     }
     if let Some((para, sel)) = typed
         && s.doc.para_at(&f) != Some(&para)

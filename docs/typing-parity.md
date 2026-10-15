@@ -103,10 +103,11 @@ Applied when a word is finished by a space, punctuation **or Enter** (`enter_fin
   (`tools.autocorrect {"autoAddFirstLetter", "autoAddInitialCaps"}`, on by default); words over
   255 characters or with spaces are never added. Undoing a replacement (`teh`→`the`) adds
   nothing: Word doesn't either. Undoing a TWo INitial CApitals fix adds the word to the INitial
-  CAps list (not observed in Word; same switch rule as First Letter). The first word of a
+  CAps list (as in Word, checked on the Mac: `TWo ` typed again isn't corrected; same switch rule as First Letter). The first word of a
   paragraph has no word before it, so nothing is added there; Word also left the retyped first
-  word ("hello") lowercase, which WordCraft doesn't (paragraph-level suppression: a separate
-  follow-up). Word adds nothing in bulleted-list paragraphs; not covered
+  word ("hello") lowercase in that paragraph, which WordCraft doesn't (paragraph-level
+  suppression, only for the paragraph where the Undo happened: Word capitalises the first word
+  of a new paragraph again; a separate follow-up). Word adds nothing in bulleted-list paragraphs; not covered
   (`undoing_a_sentence_capital_adds_a_first_letter_exception`,
   `backspacing_a_sentence_capital_and_retyping_adds_a_first_letter_exception`,
   `automatic_exceptions_can_be_turned_off`, `undoing_a_replacement_adds_no_exception`,

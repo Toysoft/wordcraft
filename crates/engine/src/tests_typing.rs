@@ -1193,7 +1193,7 @@ fn undoing_a_replacement_adds_no_exception() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "So teh and the ");
 }
 
-/// Not observed in Word; it falls out of the same rule.
+/// Checked in Word for Mac: the same rule as First Letter.
 #[test]
 fn undoing_an_initial_caps_fix_adds_an_initial_caps_exception() {
     let mut s = typed("so TWo ");
