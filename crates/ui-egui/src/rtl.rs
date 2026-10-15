@@ -88,11 +88,23 @@ pub(crate) fn grid<R>(ui: &mut Ui, grid: egui::Grid, add: impl FnOnce(&mut Ui) -
     let width = if width.is_finite() { width.max(0.0) } else { 0.0 };
     let response = ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| grid.show(ui, add));
     let actual = response.inner.response.rect.width();
-    if actual.is_finite() && known.is_none_or(|old| (old - actual).abs() > 0.5) {
+    // Window sizing passes deliberately compress fields. Caching that provisional
+    // width makes later fields overflow to the right and inflate the window.
+    if !ui.is_sizing_pass() && actual.is_finite() && known.is_none_or(|old| (old - actual).abs() > 0.5) {
         ui.data_mut(|d| d.insert_temp(key, actual));
         ui.ctx().request_repaint();
     }
     response.inner
+}
+
+/// Choice controls use their content width, just like the native LTR controls.
+/// Reserving the entire available row makes auto-sized dialogs grow on every frame.
+fn choice_size(ui: &Ui, text: &egui::WidgetText) -> egui::Vec2 {
+    let marker = ui.spacing().interact_size.y.max(ui.spacing().icon_width);
+    let gap = ui.spacing().icon_spacing;
+    let wrap_width = (ui.available_size_before_wrap().x - marker - gap).max(0.0);
+    let galley = text.clone().into_galley(ui, None, wrap_width, egui::TextStyle::Body);
+    vec2(marker + gap + galley.size().x, ui.spacing().interact_size.y.max(galley.size().y))
 }
 
 pub(crate) fn checkbox(ui: &mut Ui, checked: &mut bool, text: impl Into<egui::WidgetText>) -> egui::Response {
@@ -102,7 +114,7 @@ pub(crate) fn checkbox(ui: &mut Ui, checked: &mut bool, text: impl Into<egui::Wi
     let text = text.into();
     let accessible = text.text().to_owned();
     let response = ui
-        .allocate_ui_with_layout(vec2(ui.available_size_before_wrap().x, ui.spacing().interact_size.y), Layout::right_to_left(Align::Center), |ui| {
+        .allocate_ui_with_layout(choice_size(ui, &text), Layout::right_to_left(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = ui.spacing().icon_spacing;
             let mut mark = ui.checkbox(checked, "");
             let label = ui.add(egui::Label::new(text).selectable(false).sense(egui::Sense::click()));
@@ -125,7 +137,7 @@ pub(crate) fn radio_value<T: PartialEq>(ui: &mut Ui, value: &mut T, alternative:
     let accessible = text.text().to_owned();
     let mut selected = *value == alternative;
     let response = ui
-        .allocate_ui_with_layout(vec2(ui.available_size_before_wrap().x, ui.spacing().interact_size.y), Layout::right_to_left(Align::Center), |ui| {
+        .allocate_ui_with_layout(choice_size(ui, &text), Layout::right_to_left(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = ui.spacing().icon_spacing;
             let mut mark = ui.radio(*value == alternative, "");
             let label = ui.add(egui::Label::new(text).selectable(false).sense(egui::Sense::click()));

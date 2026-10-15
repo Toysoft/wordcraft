@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (shared RTL UI integrated with current main); previously trivial (no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (RTL visual geometry audit: inline menu arrows, intrinsic choice/template sizing and reading-edge icons); previously minor (shared RTL UI integrated with current main); previously trivial (no document behind the Start screen, #1129; previously trivial: equation pictures share a few textures, #1002; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -46,6 +46,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Visual RTL audit: large-menu arrows stay beside the final caption line; choice controls and template tiles retain intrinsic size; custom chrome and recent-file icons follow the reading edge. Geometry and interaction regressions cover identical English labels in both directions |
 | 2026-10-14 | trivial | Immediate typing after ribbon/status clicks reaches the document while pending canvas focus is applied (#1093); existing UI interaction regression failed before this fix |
 | 2026-10-14 | trivial | Integrate current main while retaining RTL: empty Start screen, Close save prompt, accessible ribbon/status controls, Auto interface size and Italian editing defaults; interaction regressions cover both interface directions |
 | 2026-10-13 | minor | Shared RTL UI infrastructure and regression coverage: logical chart/preview text, reachable chart data, grid choice controls and preserved native LTR paths; catalogs, native frame and full bidi editing remain separate |

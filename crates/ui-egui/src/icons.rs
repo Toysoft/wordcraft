@@ -4,6 +4,12 @@
 
 use egui::{Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
 
+#[cfg(test)]
+thread_local! {
+    /// Opt-in geometry evidence from the actual drawing calls, without changing production rendering.
+    pub(crate) static PAINT_TRACE: std::cell::RefCell<Option<Vec<(String, Rect)>>> = const { std::cell::RefCell::new(None) };
+}
+
 struct Pen<'a> {
     p: &'a Painter,
     r: Rect,
@@ -73,6 +79,12 @@ impl Pen<'_> {
 
 /// Paint icon `name` into `r`. `c` is the line colour; the accent comes from the theme.
 pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
+    #[cfg(test)]
+    PAINT_TRACE.with(|trace| {
+        if let Some(trace) = trace.borrow_mut().as_mut() {
+            trace.push((name.to_owned(), r));
+        }
+    });
     let pen = Pen { p, r, c, a: accent, w: 1.25 };
     let a = accent;
     let red = Color32::from_rgb(0xD1, 0x3B, 0x3B);

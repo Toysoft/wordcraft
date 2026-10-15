@@ -214,7 +214,8 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
         }
     };
     if crate::i18n::current().is_rtl() {
-        ui.allocate_ui_with_layout(vec2(150.0, 215.0), egui::Layout::top_down(egui::Align::Max), add);
+        let caption_width = ui.ctx().fonts_mut(|f| f.layout_no_wrap(tl!(label).to_owned(), regular(12.5), t.text).size().x);
+        ui.allocate_ui_with_layout(vec2(caption_width.max(150.0), 0.0), egui::Layout::top_down(egui::Align::Max), add);
     } else {
         ui.vertical(add);
     }
@@ -256,23 +257,21 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
             "Good evening"
         },
     );
+    let gallery = |ui: &mut Ui| {
+        ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
+        for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
+            template_tile(ui, app, label, template);
+        }
+    };
     if crate::i18n::current().is_rtl() {
-        ui.allocate_ui_with_layout(vec2(ui.available_width(), 215.0), egui::Layout::right_to_left(egui::Align::Min), |ui| {
-            ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
-            for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
-                template_tile(ui, app, label, template);
-            }
-        });
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), 0.0), egui::Layout::right_to_left(egui::Align::Min), gallery);
     } else {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
-            for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
-                template_tile(ui, app, label, template);
-            }
-        });
+        ui.horizontal(gallery);
     }
     ui.add_space(8.0);
-    let more = ui.add(egui::Label::new(egui::RichText::new(tl!("More templates →")).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
+    let more_label = tl!("More templates →");
+    let more_label = if crate::i18n::current().is_rtl() { more_label.replace('→', "←") } else { more_label.to_owned() };
+    let more = ui.add(egui::Label::new(egui::RichText::new(more_label).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
     if more.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         app.ui.backstage_page = "new".into();
     }
@@ -313,6 +312,7 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
 
 fn open_list(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    let rtl = crate::i18n::current().is_rtl();
     ui.label(egui::RichText::new(tl!("Recent")).font(semibold(16.0)));
     ui.add_space(6.0);
     if app.ui.recent.is_empty() {
@@ -324,9 +324,17 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
         if resp.hovered() {
             ui.painter().rect_filled(r, 4.0, t.hover);
         }
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, &name, medium(13.0), t.text);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &p, regular(11.0), t.text_dim);
+        icons::paint(
+            ui.painter(),
+            Rect::from_center_size(pos2(if rtl { r.max.x - 18.0 } else { r.min.x + 18.0 }, r.center().y), vec2(22.0, 22.0)),
+            "printLayout",
+            t.icon,
+            t.accent,
+        );
+        let x = if rtl { r.max.x - 40.0 } else { r.min.x + 40.0 };
+        let align = if rtl { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER };
+        ui.painter().text(pos2(x, r.min.y + 13.0), align, &name, medium(13.0), t.text);
+        ui.painter().text(pos2(x, r.min.y + 29.0), align, &p, regular(11.0), t.text_dim);
         if resp.clicked() {
             let _ = app.run("file.open", json!({"path": p}));
             app.ui.backstage = false;

@@ -1,6 +1,6 @@
 # WordCraft architecture
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (shared RTL UI support and regression coverage; previously minor: `proof` is per language: English and Polish; previously major: first committed version; `plan/architecture.md` is local-only) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (RTL visual geometry audit; previously minor: shared RTL UI support and regression coverage; previously minor: `proof` is per language: English and Polish; previously major: first committed version; `plan/architecture.md` is local-only) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft is built today (origin/main `40c5d51`). The longer design notes in
 `plan/architecture.md` are gitignored and local to the original author's machine; this file is the
@@ -73,9 +73,18 @@ LTR delegates to the original egui operation. Custom-painted controls place thei
 reading start and their arrow at the opposite edge. New catalogs declare their reading direction in `LangInfo::rtl`; changing a display name
 does not change layout.
 
+Mirroring changes horizontal anchors, not caption line count or vertical geometry. Large ribbon
+menu arrows stay beside the final caption line. RTL checkbox/radio wrappers measure their text
+plus marker instead of reserving the full available row, preserving auto-sized dialog widths.
+Template tiles reserve the larger of thumbnail and caption width and use natural row height.
+The `visual_audit_*` tests compare actual text/icon geometry with identical English labels in
+both directions; icon recording is opt-in and compiled only for tests.
+
 Grids keep semantic columns in an LTR island aligned at the reading edge (egui cannot lay out a
 Grid under an RTL parent). Data grids, equations and document geometry must not be blindly
 reversed. Document paragraph direction controls its ruler and layout independently of UI direction.
+Grid width caches exclude compressed window sizing passes; those provisional measurements
+otherwise make subsequent fields overflow and inflate the auto-sized window.
 
 `ui_bidi` arranges display labels with UAX #9 while egui shapes logical script stretches.
 Catalogs retain logical translations (`tr`/preview contexts); formatting resolves templates before
@@ -98,6 +107,7 @@ Local screenshots can be generated with `WORDCRAFT_RTL_AUDIT_DIR` and the
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Visual RTL audit: large-menu arrows stay beside the final caption line; choice controls and template tiles retain intrinsic size; custom chrome and recent-file icons follow the reading edge. Geometry and interaction regressions cover identical English labels in both directions |
 | 2026-10-13 | minor | Shared RTL UI infrastructure and regression coverage: logical chart/preview text, reachable chart data, grid choice controls and preserved native LTR paths; catalogs, native frame and full bidi editing remain separate |
 | 2026-10-10 | minor | `proof`: proofing languages (English, Polish), affix engine, Polish patterns; layout and engine route each run by its language |
 | 2026-10-10 | major | First committed architecture doc, from the crates' sources and `AGENTS.md` |

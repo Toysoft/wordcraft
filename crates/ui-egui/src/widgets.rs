@@ -158,25 +158,12 @@ pub fn label_line(ui: &Ui, cx: f32, y: f32, text: &str, font: egui::FontId, colo
     }
 }
 
-/// Shared large-button caption geometry. A one-line RTL menu puts its arrow beneath
-/// the caption; two-line captions keep the arrow beside the final line to fit the ribbon.
+/// Shared large-button caption geometry. The arrow stays beside the final line
+/// in either reading direction, without changing the caption's vertical position.
 fn big_label_lines(ui: &Ui, r: Rect, label: &str, color: Color32, menu: bool) {
     let lines: Vec<&str> = label.split('\n').collect();
-    let arrow_below = menu && crate::i18n::current().is_rtl() && lines.len() == 1;
     for (i, line) in lines.iter().enumerate() {
-        label_line(
-            ui,
-            r.center().x,
-            r.min.y + BIG_LABEL_Y + i as f32 * LABEL_PITCH,
-            line,
-            regular(11.5),
-            color,
-            menu && i + 1 == lines.len() && !arrow_below,
-        );
-    }
-    if arrow_below {
-        let c = pos2(r.center().x, r.min.y + BIG_LABEL_Y + LABEL_PITCH + 7.0);
-        icons::paint(ui.painter(), Rect::from_center_size(c, vec2(DROPDOWN, DROPDOWN)), "dropdown", color, color);
+        label_line(ui, r.center().x, r.min.y + BIG_LABEL_Y + i as f32 * LABEL_PITCH, line, regular(11.5), color, menu && i + 1 == lines.len());
     }
 }
 

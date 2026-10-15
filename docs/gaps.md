@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (shared RTL UI integrated with current main); previously trivial (sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (RTL visual geometry audit: inline menu arrows, intrinsic choice/template sizing and reading-edge icons); previously minor (shared RTL UI integrated with current main); previously trivial (sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -10,6 +10,8 @@ wall-clock estimate, and which parity document tracks it. Agents: pick from the 
 first (`gh pr list`), and update this file and the parity doc when a gap closes.
 
 RTL interface audit: Info columns/forms and plain search fields inherit direction; same-label ribbon spacing is mirrored. Ribbon scrolling now uses native egui ScrollArea with finite RTL content width; template search uses logical text and breadcrumbs follow reading order. Shared direction-aware containers and controls now cover nested columns, popups, choice markers and combo captions/arrows. English and a synthetic RTL catalog exercise interface surfaces without changing the document. Language catalogs remain separate; native window decorations and egui's full bidi text-field editing/line wrapping are still open.
+
+The visual follow-up keeps large-menu arrows beside the final caption line in both directions, measures choice controls instead of reserving full rows, and removes RTL-only template wrapping/row-height changes. Share, Search, Discord, Focus and recent-file icons use the reading edge; recent paths retain their logical text. Same-label geometry and navigation regressions guard these cases; this does not establish exhaustive pixel parity.
 
 Native save reliability: synthetic cases on macOS reproduced loss through the predictable temporary-file name. Saves now use owned, exclusively created siblings, synchronize before replacement and clean up on failure; originals survive pre-replacement errors. This narrows save-path reliability under gap #3; the listed field failures and broader stability work remain open. See [save-path guarantees](file-format-parity.md#native-save-path-guarantees).
 
@@ -82,6 +84,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Visual RTL audit: large-menu arrows stay beside the final caption line; choice controls and template tiles retain intrinsic size; custom chrome and recent-file icons follow the reading edge. Geometry and interaction regressions cover identical English labels in both directions |
 | 2026-10-14 | trivial | Integrate current main while retaining RTL: empty Start screen, Close save prompt, accessible ribbon/status controls, Auto interface size and Italian editing defaults; interaction regressions cover both interface directions |
 | 2026-10-13 | minor | Shared RTL UI infrastructure and regression coverage: logical chart/preview text, reachable chart data, grid choice controls and preserved native LTR paths; catalogs, native frame and full bidi editing remain separate |
 | 2026-10-12 | trivial | Sample-text formulas on Enter (#1067) implemented; numerical limits not compared in Word |

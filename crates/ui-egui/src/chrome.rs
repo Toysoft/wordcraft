@@ -281,12 +281,18 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                                 ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
                                 icons::paint(
                                     ui.painter(),
-                                    Rect::from_center_size(pos2(r.min.x + 13.0, r.center().y), vec2(14.0, 14.0)),
+                                    Rect::from_center_size(pos2(if rtl { r.max.x - 13.0 } else { r.min.x + 13.0 }, r.center().y), vec2(14.0, 14.0)),
                                     "discord",
                                     t.on_accent,
                                     t.on_accent,
                                 );
-                                ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, tl!("Discord"), medium(11.5), t.on_accent);
+                                ui.painter().text(
+                                    pos2(if rtl { r.max.x - 24.0 } else { r.min.x + 24.0 }, r.center().y),
+                                    if rtl { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER },
+                                    tl!("Discord"),
+                                    medium(11.5),
+                                    t.on_accent,
+                                );
                                 if resp.on_hover_text(tl!("Join the ArtCraft community on Discord")).clicked() {
                                     let _ = app.run("ui.discord", json!({}));
                                 }
@@ -303,7 +309,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                             );
                             icons::paint(
                                 ui.painter(),
-                                Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)),
+                                Rect::from_center_size(pos2(if rtl { r.max.x - 16.0 } else { r.min.x + 16.0 }, r.center().y), vec2(16.0, 16.0)),
                                 "search",
                                 t.text_dim,
                                 t.accent,
@@ -313,8 +319,8 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                             let ptrack = TypeRung::Control.tracking();
                             paint_text(
                                 ui.painter(),
-                                pos2(r.min.x + 30.0, r.center().y - TypeRung::Control.line_height() / 2.0),
-                                Align2::LEFT_TOP,
+                                pos2(if rtl { r.max.x - 30.0 } else { r.min.x + 30.0 }, r.center().y - TypeRung::Control.line_height() / 2.0),
+                                if rtl { Align2::RIGHT_TOP } else { Align2::LEFT_TOP },
                                 ph,
                                 &pfont,
                                 ptrack,
@@ -380,6 +386,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
 }
 
 pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
+    let rtl = crate::i18n::current().is_rtl();
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("status")
         .exact_size(26.0)
@@ -523,13 +530,19 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                             if resp.hovered() {
                                 ui.painter().rect_filled(r, 3.0, t.hover);
                             }
-                            icons::paint(ui.painter(), Rect::from_min_size(r.min + vec2(2.0, 2.0), vec2(16.0, 16.0)), "focus", t.icon, t.accent);
+                            icons::paint(
+                                ui.painter(),
+                                Rect::from_min_size(pos2(if rtl { r.max.x - 18.0 } else { r.min.x + 2.0 }, r.min.y + 2.0), vec2(16.0, 16.0)),
+                                "focus",
+                                t.icon,
+                                t.accent,
+                            );
                             let ffont = TypeRung::Caption.regular();
                             let ftrack = TypeRung::Caption.tracking();
                             paint_text(
                                 ui.painter(),
-                                pos2(r.min.x + 22.0, r.center().y - TypeRung::Caption.line_height() / 2.0),
-                                Align2::LEFT_TOP,
+                                pos2(if rtl { r.max.x - 22.0 } else { r.min.x + 22.0 }, r.center().y - TypeRung::Caption.line_height() / 2.0),
+                                if rtl { Align2::RIGHT_TOP } else { Align2::LEFT_TOP },
                                 focus,
                                 &ffont,
                                 ftrack,

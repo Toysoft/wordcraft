@@ -22,6 +22,181 @@ fn app(language: &str) -> WordApp {
     app
 }
 
+fn painted_label(output: &egui::FullOutput, label: &str) -> egui::Rect {
+    output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == label => Some(text.galley.rect.translate(text.pos.to_vec2())),
+            _ => None,
+        })
+        .expect("painted label")
+}
+
+/// All large menu captions retain their vertical geometry; only the marker's side changes.
+#[test]
+fn visual_audit_large_menu_arrows_stay_on_the_last_caption_line() {
+    let _language = LanguageGuard::new();
+    for label in ["Paste", "Page\nNumber", "Long Caption"] {
+        for menu_button in [false, true] {
+            let mut positions = Vec::new();
+            for language in ["en", "qaa-rtl-latin"] {
+                crate::i18n::set_current(crate::i18n::Lang::from_code(language).unwrap());
+                let mut state = app(language);
+                let ctx = egui::Context::default();
+                crate::icons::PAINT_TRACE.with(|trace| *trace.borrow_mut() = Some(Vec::new()));
+                let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    crate::rtl::root(ui, |ui| {
+                        if menu_button {
+                            crate::widgets::menu_button(ui, &mut state, "search", Some(label), label, true, "", |_, _| {});
+                        } else {
+                            crate::widgets::big(ui, &mut state, "search", label, "file.new", json!({}), true);
+                        }
+                    });
+                });
+                let icons = crate::icons::PAINT_TRACE.with(|trace| trace.borrow_mut().take().unwrap());
+                let arrow = icons.iter().find(|(name, _)| name == "dropdown").unwrap().1;
+                let caption = painted_label(&output, label.rsplit('\n').next().unwrap());
+                output.drop_without_applying_deltas();
+                assert!((arrow.center().y - caption.center().y).abs() < 1.0, "{language} {label}: {arrow:?}, {caption:?}");
+                if language == "en" {
+                    assert!(arrow.left() > caption.right());
+                } else {
+                    assert!(arrow.right() < caption.left());
+                }
+                positions.push((arrow.center().y, caption.top()));
+            }
+            assert_eq!(positions[0], positions[1], "{label}: RTL moved the caption vertically");
+        }
+    }
+}
+
+#[test]
+fn visual_audit_font_dialog_keeps_its_intrinsic_width() {
+    let _language = LanguageGuard::new();
+    let mut widths = Vec::new();
+    for language in ["en", "qaa-rtl-latin"] {
+        let mut state = app(language);
+        state.dialog = Dialog::open("font", &mut state);
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 750.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            state,
+        );
+        h.run_steps(30);
+        let clip = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == "Effects" => Some(shape.clip_rect),
+                _ => None,
+            })
+            .unwrap();
+        widths.push(clip.width());
+    }
+    assert!((widths[0] - widths[1]).abs() < 8.0, "Font dialog content widths: {widths:?}");
+}
+
+#[test]
+fn visual_audit_template_captions_keep_their_line_count_and_row_height() {
+    let _language = LanguageGuard::new();
+    let mut positions = Vec::new();
+    for language in ["en", "qaa-rtl-latin"] {
+        let mut state = app(language);
+        state.start_screen();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 750.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            state,
+        );
+        h.run_steps(20);
+        let caption = painted_label(h.output(), "Studio handbook (sample)");
+        let recent = painted_label(h.output(), "Recent");
+        positions.push((caption.height(), recent.top()));
+    }
+    for (ltr, rtl) in [positions[0].0, positions[0].1].into_iter().zip([positions[1].0, positions[1].1]) {
+        assert!((ltr - rtl).abs() < 1.0, "Template caption/Recent geometry: {positions:?}");
+    }
+}
+
+#[test]
+fn visual_audit_custom_chrome_icons_follow_the_reading_edge() {
+    let _language = LanguageGuard::new();
+    for language in ["en", "qaa-rtl-latin"] {
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(language),
+        );
+        h.run_steps(12);
+        crate::icons::PAINT_TRACE.with(|trace| *trace.borrow_mut() = Some(Vec::new()));
+        h.run_steps(1);
+        let icons = crate::icons::PAINT_TRACE.with(|trace| trace.borrow_mut().take().unwrap());
+        for (name, label) in [("share", "Share"), ("search", "Search commands and help"), ("focus", "Focus"), ("discord", "Discord")] {
+            let caption = painted_label(h.output(), label);
+            let icon = icons
+                .iter()
+                .filter(|(id, rect)| id == name && (rect.center().y - caption.center().y).abs() < 3.0)
+                .min_by(|(_, a), (_, b)| (a.center().x - caption.center().x).abs().total_cmp(&(b.center().x - caption.center().x).abs()))
+                .expect("icon beside caption")
+                .1;
+            assert!((icon.center().y - caption.center().y).abs() < 3.0, "{language} {label}");
+            if language == "en" {
+                assert!(icon.right() <= caption.left(), "{label}: {icon:?}, {caption:?}");
+            } else {
+                assert!(icon.left() >= caption.right(), "RTL {label}: {icon:?}, {caption:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn visual_audit_recent_rows_mirror_without_reversing_paths() {
+    let _language = LanguageGuard::new();
+    let path = "C:/documents/Audit sample.docx";
+    for language in ["en", "qaa-rtl-latin"] {
+        let mut state = app(language);
+        state.start_screen();
+        state.ui.recent = vec![path.to_owned()];
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 750.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            state,
+        );
+        h.run_steps(20);
+        crate::icons::PAINT_TRACE.with(|trace| *trace.borrow_mut() = Some(Vec::new()));
+        h.run_steps(1);
+        let icons = crate::icons::PAINT_TRACE.with(|trace| trace.borrow_mut().take().unwrap());
+        let name = painted_label(h.output(), "Audit sample.docx");
+        let stored_path = painted_label(h.output(), path);
+        let icon = icons.iter().find(|(id, _)| id == "printLayout").unwrap().1;
+        if language == "en" {
+            assert!(icon.right() < name.left());
+            assert_eq!(name.left(), stored_path.left());
+        } else {
+            assert!(icon.left() > name.right());
+            assert_eq!(name.right(), stored_path.right());
+        }
+        assert_eq!(h.state().ui.recent, [path]);
+        h.get_by_label(if language == "en" { "More templates →" } else { "More templates ←" }).click();
+        h.run_steps(4);
+        assert_eq!(h.state().ui.backstage_page, "new");
+    }
+}
+
 /// Keep the new empty Start screen and Close routing when adopting RTL containers.
 #[test]
 fn start_screen_and_close_work_in_both_directions() {
