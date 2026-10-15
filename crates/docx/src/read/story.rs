@@ -397,6 +397,11 @@ impl Reader<'_> {
         para.text = pb.text;
         para.runs = pb.runs;
         para.objects = pb.objects;
+        // Paragraph boundaries inside an instruction are hidden with the field code.
+        // The result paragraph still takes a line, even when its cached text is empty.
+        if sc.fields.iter().any(|f| f.phase == Phase::Instr) && para.plain_text().is_empty() {
+            para.mark.hidden = Some(true);
+        }
         para.normalize();
         para
     }
@@ -613,6 +618,9 @@ impl Reader<'_> {
             }
             "w:tab" | "w:ptab" => self.emit_text(sc, pb, "\t", props),
             "w:br" => {
+                if sc.fields.iter().any(|f| f.phase == Phase::Instr) {
+                    return;
+                }
                 let c = match k.attr("w:type") {
                     Some("page") => "\u{000C}",
                     Some("column") => "\u{000E}",
@@ -620,7 +628,11 @@ impl Reader<'_> {
                 };
                 self.emit_text(sc, pb, c, props);
             }
-            "w:cr" => self.emit_text(sc, pb, "\n", props),
+            "w:cr" => {
+                if !sc.fields.iter().any(|f| f.phase == Phase::Instr) {
+                    self.emit_text(sc, pb, "\n", props);
+                }
+            }
             "w:noBreakHyphen" => self.emit_text(sc, pb, "\u{2011}", props),
             "w:softHyphen" => self.emit_text(sc, pb, "\u{00AD}", props),
             "w:sym" => {
@@ -1450,6 +1462,35 @@ impl Reader<'_> {
                 extra: Default::default(),
             });
         }
+        // A freeform: its `path`, in its `coordsize` space; a `v:fill` with no opacity
+        // or `nf` in the path leaves it unfilled. Not WordArt (`v:textpath`).
+        if shape.local() == "shape"
+            && shape.child("v:textpath").is_none()
+            && let Some(path) = shape.attr("path")
+            && let Some(vp) = super::freeform::vml_path(path, shape.attr("coordsize"), shape.attr("coordorigin"), w, h)
+        {
+            let opacity = |el: &str| shape.child(el).and_then(|e| e.attr("opacity")).and_then(vml_fraction).unwrap_or(1.0);
+            let fill = fill.filter(|_| !vp.no_fill && opacity("v:fill") > 0.0);
+            let stroke = stroke.filter(|_| !vp.no_stroke);
+            if stroke.is_none() && fill.is_none() {
+                return None;
+            }
+            let mut f = vp.freeform;
+            f.alpha = opacity("v:stroke");
+            return Some(InlineObject::Shape {
+                kind: ShapeKind::Freeform,
+                w,
+                h,
+                fill,
+                stroke,
+                stroke_width,
+                float,
+                story: None,
+                freeform: Some(Arc::new(f)),
+                effects: Default::default(),
+                extra: Default::default(),
+            });
+        }
         let kind = kind?;
         let mut extra = ShapeExtra::default();
         if kind == ShapeKind::Line {
@@ -1532,6 +1573,7 @@ impl Reader<'_> {
         collect(t, "w:tr", &mut rows, &mut Vec::new(), 0);
         for (tr, row_controls) in rows.into_iter().take(MAX_ROWS) {
             let mut row = Row { props: tr.child("w:trPr").map(trpr).unwrap_or_default(), cells: Vec::new(), controls: row_controls };
+            row.props.exceptions = tr.child("w:tblPrEx").map(|e| Box::new(self.pc.tblpr(e)));
             if let Some(ch) = tr.child("w:trPr").and_then(|p| p.child("w:trPrChange")) {
                 let old = ch.child("w:trPr").map(trpr).unwrap_or_default();
                 row.props.fmt_change = PropChange::boxed(self.revision(RevisionKind::Format, ch), old);
