@@ -444,15 +444,8 @@ impl LocalImages {
 #[cfg(not(target_arch = "wasm32"))]
 fn read_regular_file(path: &std::path::Path, limit: u64) -> Option<Vec<u8>> {
     use std::io::Read;
-    if !std::fs::metadata(path).ok()?.is_file() {
-        return None;
-    }
-    let file = std::fs::File::open(path).ok()?;
-    let meta = file.metadata().ok()?;
-    if !meta.is_file() {
-        return None;
-    }
-    let mut out = Vec::with_capacity(usize::try_from(meta.len().min(limit)).unwrap_or(0));
+    let (file, len) = open_regular(path).ok()?;
+    let mut out = Vec::with_capacity(usize::try_from(len.min(limit)).unwrap_or(0));
     file.take(limit.saturating_add(1)).read_to_end(&mut out).ok()?;
     Some(out)
 }
@@ -461,9 +454,15 @@ fn read_regular_file(path: &std::path::Path, limit: u64) -> Option<Vec<u8>> {
 pub const MAX_OPEN_BYTES: u64 = 2 << 30;
 
 #[cfg(not(target_arch = "wasm32"))]
-/// `max` for an error message: whole megabytes when it is that large, else bytes.
-fn limit_text(max: u64) -> String {
-    if max >= 1 << 20 { format!("{} MB", max >> 20) } else { format!("{max} bytes") }
+/// `max` for an error message: whole gigabytes (when exact), else megabytes, else bytes.
+pub fn limit_text(max: u64) -> String {
+    if max >= 1 << 30 && max.is_multiple_of(1 << 30) {
+        format!("{} GB", max >> 30)
+    } else if max >= 1 << 20 {
+        format!("{} MB", max >> 20)
+    } else {
+        format!("{max} bytes")
+    }
 }
 
 /// Opens the regular file at `path` (a named pipe blocks when opened and a device may never end,
@@ -639,11 +638,27 @@ mod ingress_tests {
         rx.recv_timeout(Duration::from_secs(5)).expect("read blocked on a non-regular file")
     }
 
-    fn scratch(name: &str) -> std::path::PathBuf {
+    /// A scratch folder that is removed when the test ends, pass or fail.
+    struct Scratch(std::path::PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = std::path::Path;
+        fn deref(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
         let dir = std::env::temp_dir().join(format!("wc1333-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        Scratch(dir)
     }
 
     fn fifo(dir: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -654,7 +669,7 @@ mod ingress_tests {
     #[test]
     fn open_path_in_rejects_a_directory() {
         let dir = scratch("dir");
-        let d = dir.clone();
+        let d = dir.to_path_buf();
         let r = within(move || open_path_in(&d, None, &wordcraft_geom::Region::default()));
         assert!(r.is_err());
     }
@@ -691,6 +706,13 @@ mod ingress_tests {
         let err = read_bounded(&p, 10, "document").unwrap_err();
         assert!(err.contains("big.bin") && err.contains("limit"), "{err}");
         assert_eq!(read_bounded(&p, 100, "document").unwrap().len(), 100);
+    }
+
+    #[test]
+    fn limits_read_in_the_largest_whole_unit() {
+        assert_eq!(limit_text(2 << 30), "2 GB");
+        assert_eq!(limit_text(200 << 20), "200 MB");
+        assert_eq!(limit_text(10), "10 bytes");
     }
 
     #[test]

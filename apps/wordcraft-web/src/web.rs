@@ -107,7 +107,7 @@ impl eframe::App for WebShell {
                 for f in dropped {
                     let name = f.path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dropped".into());
                     if let Some(file) = f.web_file()
-                        && let Err(e) = size_gate::check_size(&name, file.size(), wordcraft_engine::io::MAX_OPEN_BYTES)
+                        && let Err(e) = size_gate::check_size(&name, file.size(), size_gate::budget_for(&name, IMAGE_EXTS))
                     {
                         log::error!("{e}");
                         continue;
@@ -138,8 +138,6 @@ impl eframe::App for WebShell {
     }
 }
 
-/// Largest picture pasted from the browser's clipboard (as `insert.picture` allows).
-const MAX_PICTURE_BYTES: u64 = 200 << 20;
 /// Most pictures one paste inserts.
 const MAX_PASTED_PICTURES: u32 = 20;
 
@@ -160,7 +158,7 @@ fn listen_for_pasted_pictures(inbox: Inbox, ctx: egui::Context) -> Result<(), St
             if !file.type_().starts_with("image/") {
                 continue;
             }
-            if let Err(e) = size_gate::check_size("pasted picture", file.size(), MAX_PICTURE_BYTES) {
+            if let Err(e) = size_gate::check_size("pasted picture", file.size(), wordcraft_ui_egui::paste_picture::MAX_FILE_BYTES) {
                 log::warn!("{e}; not inserted");
                 continue;
             }
@@ -196,7 +194,7 @@ fn services(inbox: Inbox, ctx: egui::Context, dirty: Rc<Cell<bool>>, saves: Asyn
             let inbox = open_inbox.clone();
             let ctx = ctx.clone();
             let budget = match purpose {
-                "picture" => MAX_PICTURE_BYTES,
+                "picture" => wordcraft_ui_egui::paste_picture::MAX_FILE_BYTES,
                 "font" => wordcraft_fonts::MAX_FONT_FILE_BYTES as u64,
                 _ => wordcraft_engine::io::MAX_OPEN_BYTES,
             };
