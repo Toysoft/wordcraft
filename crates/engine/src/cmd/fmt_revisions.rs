@@ -29,7 +29,7 @@ fn records(id: &str) -> bool {
 }
 
 /// Tables nested deeper than this aren't compared (hostile documents).
-const MAX_DEPTH: usize = 16;
+pub(crate) const MAX_DEPTH: usize = 16;
 
 struct Recorder<'a> {
     author: String,

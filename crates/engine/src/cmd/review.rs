@@ -479,13 +479,38 @@ fn resolve_all(s: &mut Session, accept: bool) -> CmdResult {
     }
     // Tables, rows, cells and sections.
     fmt_revisions::resolve_containers(&mut s.doc.body, accept, 0);
+    resolve_rows(&mut s.doc.body, accept, 0);
     for part in s.doc.parts.values_mut() {
         fmt_revisions::resolve_containers(&mut part.blocks, accept, 0);
+        resolve_rows(&mut part.blocks, accept, 0);
     }
+    s.doc.ensure_nonempty();
     fmt_revisions::resolve_section(&mut s.doc.last_section, accept);
     s.doc.revisions.clear();
     s.clamp_selection();
     sel_result(s)
+}
+
+/// Accept or reject the inserted and deleted table rows in `blocks`: an accepted deletion or a
+/// rejected insertion removes the row, and a table left without rows goes too.
+fn resolve_rows(blocks: &mut wordcraft_doc::Blocks, accept: bool, depth: usize) {
+    if depth > fmt_revisions::MAX_DEPTH {
+        return;
+    }
+    let has = |b: &wordcraft_doc::Block| matches!(b, wordcraft_doc::Block::Table(_));
+    for b in blocks.iter_mut().filter(|b| has(b)) {
+        if let wordcraft_doc::Block::Table(t) = std::sync::Arc::make_mut(b) {
+            t.rows.retain(|r| !((accept && r.props.del.is_some()) || (!accept && r.props.ins.is_some())));
+            for r in &mut t.rows {
+                r.props.ins = None;
+                r.props.del = None;
+                for c in &mut r.cells {
+                    resolve_rows(&mut c.blocks, accept, depth + 1);
+                }
+            }
+        }
+    }
+    blocks.retain(|b| !matches!(&**b, wordcraft_doc::Block::Table(t) if t.rows.is_empty()));
 }
 
 fn resolve_sel(s: &mut Session, accept: bool) -> CmdResult {
