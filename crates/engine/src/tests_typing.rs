@@ -1202,3 +1202,42 @@ fn undoing_an_initial_caps_fix_adds_an_initial_caps_exception() {
     typ(&mut s, "and TWo ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "So TWo and TWo ");
 }
+
+#[test]
+fn undoing_other_edits_after_a_capital_adds_no_exception() {
+    // Typing more, then one Undo, and a second Undo that reverses the capital's step later.
+    let mut s = typed("hello there. world more text");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty(), "only the Undo that reverses the capital itself counts");
+}
+
+#[test]
+fn a_full_undo_history_does_not_match_later_undos() {
+    let mut s = typed("");
+    for _ in 0..300 {
+        typ(&mut s, "x\n");
+    }
+    typ(&mut s, "hello there. world more text\nand more");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn a_new_document_forgets_the_capital() {
+    let mut s = typed("hello there. world ");
+    run(&mut s, "file.new", json!({}));
+    typ(&mut s, "abc\ndef\nghi\njkl");
+    for _ in 0..8 {
+        let _ = s.run("edit.undo", &json!({}));
+    }
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn an_overlong_word_is_not_added_as_an_exception() {
+    let mut s = typed(&format!("hi {}. world ", "a".repeat(5000)));
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+}

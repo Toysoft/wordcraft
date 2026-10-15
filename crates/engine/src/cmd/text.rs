@@ -118,13 +118,13 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
             p.touch();
             s.push_undo("AutoFormat", doc, sel);
             // Undo right after it makes the capitalised word an exception.
-            let depth = s.undo_depth();
-            if let Some(c) = s.autocap.as_mut().filter(|c| c.depth == usize::MAX) {
+            let depth = s.undo_steps_so_far();
+            if let Some(c) = s.autocap.as_mut().filter(|c| c.depth == u64::MAX) {
                 c.depth = depth;
             }
         }
     }
-    s.autocap.take_if(|c| c.depth == usize::MAX);
+    s.autocap.take_if(|c| c.depth == u64::MAX);
     sel_result(s)
 }
 
@@ -588,7 +588,7 @@ fn new_paragraph(s: &mut Session, _: &Value) -> CmdResult {
     // Enter finishes a word like a space does ("teh" → "the", sentence capitals, links).
     if s.sel.is_collapsed() && at.off > 0 {
         super::tools::autocorrect_word(s, true)?;
-        s.autocap.take_if(|c| c.depth == usize::MAX);
+        s.autocap.take_if(|c| c.depth == u64::MAX);
         at = s.sel.focus.clone();
     }
     let new = split_para(s, &at)?;
@@ -681,7 +681,7 @@ fn backspace_inner(s: &mut Session, _: &Value) -> CmdResult {
     if f.off > 0 {
         let a = Pos { off: para.backspace_from(f.off), ..f.clone() };
         if let Some(c) = s.autocap.as_mut() {
-            c.note_backspace(&f);
+            c.note_backspace(&a, &f);
         }
         s.sel = Selection { anchor: a, focus: f };
         delete_selection(s)?;

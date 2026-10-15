@@ -909,6 +909,10 @@ impl Session {
     pub fn redo_label(&self) -> Option<&str> {
         self.redo.last().map(|u| u.label.as_str())
     }
+    /// Undo steps pushed so far, evicted ones included: only grows while steps are added.
+    pub(crate) fn undo_steps_so_far(&self) -> u64 {
+        self.history.len() as u64 + self.undo_evicted
+    }
     /// The number of undo steps.
     pub fn undo_depth(&self) -> usize {
         self.history.len()
@@ -933,8 +937,10 @@ impl Session {
     }
     pub fn undo(&mut self) -> bool {
         self.typing_open = false;
-        // Undoing an automatic capitalisation right after it makes its word an exception.
-        if let Some(c) = self.autocap.take_if(|c| c.depth == self.history.len()) {
+        // Undoing the automatic capitalisation's own step makes its word an exception; any
+        // other Undo forgets the capital.
+        let steps = self.history.len() as u64 + self.undo_evicted;
+        if let Some(c) = self.autocap.take().filter(|c| c.depth == steps) {
             c.add_exceptions(&mut self.prefs.autocorrect);
         }
         let Some(u) = self.history.pop().map(Arc::unwrap_or_clone) else { return false };
@@ -970,6 +976,7 @@ impl Session {
     }
     /// Drop history (after open / new).
     pub fn reset_history(&mut self) {
+        self.autocap = None;
         self.history.clear();
         self.redo.clear();
         self.typing_open = false;
@@ -1002,6 +1009,7 @@ impl Session {
 
     /// Replace the document (open/new).
     pub fn set_document(&mut self, doc: Document) {
+        self.autocap = None;
         self.document_id = self.document_id.wrapping_add(1);
         self.bib_style = doc_bib_style(&doc);
         self.doc = doc;

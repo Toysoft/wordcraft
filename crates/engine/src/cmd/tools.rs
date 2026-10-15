@@ -221,6 +221,9 @@ impl AutoCorrectPrefs {
 
     /// Add a First Letter exception (lowercase; one the built-in list has just stops being deleted).
     fn add_exception(&mut self, e: String) {
+        if !plain_word(&e) {
+            return;
+        }
         self.exceptions_removed.retain(|r| *r != e);
         if !NOT_SENTENCE_END.contains(&e.as_str()) && !self.exceptions.contains(&e) && self.exceptions.len() < MAX_ENTRIES {
             self.exceptions.push(e);
@@ -229,6 +232,9 @@ impl AutoCorrectPrefs {
 
     /// Add a word that keeps its two initial capitals.
     fn add_initial_caps_exception(&mut self, w: &str) {
+        if !plain_word(w) {
+            return;
+        }
         if !INITIAL_CAPS_EXCEPTIONS.contains(&w)
             && !self.initial_caps_exceptions.iter().any(|e| e == w)
             && self.initial_caps_exceptions.len() < MAX_ENTRIES
@@ -251,12 +257,17 @@ impl AutoCorrectPrefs {
     }
 }
 
+/// Is `w` a word an exception list may hold: one short line, no spaces or object characters?
+fn plain_word(w: &str) -> bool {
+    !w.trim().is_empty() && w.chars().count() <= MAX_FROM && !w.contains(|c: char| c.is_whitespace() || c == '\u{FFFC}')
+}
+
 /// The newest automatic capitalisation (a sentence capital, a TWo INitial CApitals fix), kept so
 /// that undoing it, or backspacing it and typing the word again, makes an exception (#1857).
 #[derive(Clone, Debug)]
 pub struct AutoCap {
-    /// The undo depth right after the change (`usize::MAX` until the caller has pushed its step).
-    pub(crate) depth: usize,
+    /// Undo steps pushed (ever) right after the change (`u64::MAX` until the caller has pushed its step).
+    pub(crate) depth: u64,
     story: wordcraft_doc::StoryRef,
     path: wordcraft_doc::Path,
     /// Byte offset of the word in its paragraph.
@@ -282,9 +293,9 @@ impl AutoCap {
         }
     }
 
-    /// Backspace at `f` deleted text at or after the word.
-    pub(crate) fn note_backspace(&mut self, f: &Pos) {
-        if f.story == self.story && f.path == self.path && f.off > self.start {
+    /// A Backspace deleted `a..f`; it reached back over the capitalised word's first letter.
+    pub(crate) fn note_backspace(&mut self, a: &Pos, f: &Pos) {
+        if f.story == self.story && f.path == self.path && a.off <= self.start && f.off > self.start {
             self.backspaced = true;
         }
     }
@@ -853,7 +864,7 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
             end = from;
         }
         s.autocap = Some(AutoCap {
-            depth: usize::MAX,
+            depth: u64::MAX,
             story: f.story,
             path: f.path.clone(),
             start,
@@ -961,10 +972,10 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
             let off = (caret + up.len()).saturating_sub(c.len_utf8());
             s.sel = Selection::caret(Pos { off, ..f.clone() });
             if sentence && !prev.is_empty() && !replaced {
-                match s.autocap.as_mut().filter(|c| c.depth == usize::MAX) {
+                match s.autocap.as_mut().filter(|c| c.depth == u64::MAX) {
                     Some(c) => c.prev = prev,
                     None => {
-                        s.autocap = Some(AutoCap { depth: usize::MAX, story: f.story, path: f.path, start, prev, two_caps: None, backspaced: false })
+                        s.autocap = Some(AutoCap { depth: u64::MAX, story: f.story, path: f.path, start, prev, two_caps: None, backspaced: false })
                     }
                 }
             }
@@ -977,6 +988,10 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
 /// [`starts_sentence`] reads it; empty at the start of a paragraph.
 fn prev_token(before: &str) -> String {
     let t = before.trim_end().trim_end_matches(|c: char| "\"'”’)]".contains(c));
+    // Only full stops: Word's exception was observed with "there." (`there?` isn't added).
+    if !t.ends_with('.') {
+        return String::new();
+    }
     t.rsplit(char::is_whitespace).next().unwrap_or("").trim_start_matches(|c: char| "\"'“‘([".contains(c)).to_lowercase()
 }
 
