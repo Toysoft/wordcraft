@@ -326,6 +326,15 @@ fn missouri_appendix_pages_are_numbered_from_a1() {
     assert_eq!(rendered_footer(&mut reopened, 1), "A2", "rendered footer page 2 after .docx round-trip");
 }
 
+/// Creating an appendix opens it in place of the brief, so an interface asks to save the brief
+/// first, as it does for File › New.
+#[test]
+fn law_appendix_create_asks_to_save_the_brief_first() {
+    let spec = crate::specs().into_iter().find(|c| c.id == "law.appendix.create").expect("the command");
+    assert!(spec.replaces_document);
+    assert!(!crate::specs().into_iter().find(|c| c.id == "law.appendix.apply").expect("the command").replaces_document);
+}
+
 #[test]
 fn law_appendix_create_opens_a_numbered_appendix_with_toc() {
     let mut s = apply_session(MISSOURI, "brief");
