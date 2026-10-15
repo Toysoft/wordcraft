@@ -535,6 +535,28 @@ fn arabic_block(c: char) -> bool {
     matches!(u32::from(c), 0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF)
 }
 
+/// Colour emoji families, preferred for a character that shows as an emoji by default.
+const COLOUR_EMOJI: &[&str] = &["Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji"];
+
+/// Whether `c` shows as an emoji by default (Unicode's `Emoji_Presentation`: ✅ and 🧠, not © or
+/// ☺), so a colour emoji font suits it better than a black-and-white symbol font that also has
+/// it, as Segoe UI Symbol has ✅ (#1754).
+fn emoji_by_default(c: char) -> bool {
+    use unicode_properties::{EmojiStatus, UnicodeEmoji};
+    matches!(
+        c.emoji_status(),
+        EmojiStatus::EmojiPresentation
+            | EmojiStatus::EmojiPresentationAndModifierBase
+            | EmojiStatus::EmojiPresentationAndEmojiComponent
+            | EmojiStatus::EmojiPresentationAndModifierAndEmojiComponent
+    )
+}
+
+/// Whether `f` is a colour emoji font.
+fn colour_emoji(f: &FontFace) -> bool {
+    COLOUR_EMOJI.iter().any(|n| f.family.eq_ignore_ascii_case(n))
+}
+
 #[derive(Default)]
 struct FallbackCache {
     faces: usize,
@@ -1444,21 +1466,30 @@ impl FontDb {
     /// The fallback face for `c`, and the number of loaded faces it was chosen from.
     fn search_fallback(&self, c: char, exclude: u32) -> (Option<Arc<FontFace>>, usize) {
         let (found, n) = self.loaded_fallback(c, exclude);
-        if found.is_some() {
-            return (found, n);
+        match found {
+            // Only a black-and-white face has this emoji: a colour emoji font may be installed.
+            Some(f) if emoji_by_default(c) && !colour_emoji(&f) => match self.system_search(c, exclude) {
+                (Some(better), m) => (Some(better), m),
+                (None, m) => (Some(f), m),
+            },
+            Some(f) => (Some(f), n),
+            None => self.system_search(c, exclude),
         }
-        self.system_search(c, exclude)
     }
 
-    /// [`Self::search_fallback`] when no loaded face covers `c`: load a system font that does,
-    /// one search at a time.
+    /// [`Self::search_fallback`] when no loaded face covers `c` (or only a black-and-white one
+    /// covers an emoji): load a system font that does, one search at a time.
     #[cfg(not(target_arch = "wasm32"))]
     fn system_search(&self, c: char, exclude: u32) -> (Option<Arc<FontFace>>, usize) {
         let _searching = self.searching.lock().unwrap_or_else(|e| e.into_inner());
         // A search that held the lock first may have loaded a font covering `c`: choose among the
         // loaded faces again before loading more.
         let (found, n) = self.loaded_fallback(c, exclude);
-        if found.is_none() && self.system_fallback(c) {
+        let loaded = match &found {
+            None => self.system_fallback(c),
+            Some(f) => emoji_by_default(c) && !colour_emoji(f) && self.load_colour_emoji(c),
+        };
+        if loaded {
             return self.loaded_fallback(c, exclude);
         }
         (found, n)
@@ -1486,7 +1517,12 @@ impl FontDb {
         // the script's own families, so syllables reorder and stack (#604).
         let complex = crate::needs_layout_tables(c);
         let shaping = |f: &FontFace| if complex { (!f.has_layout_tables(), crate::fallback_rank(c, &f.family)) } else { (false, 0) };
-        order.sort_by_key(|f| (rank(f), shaping(f), !f.family.eq_ignore_ascii_case(FALLBACK_FAMILY), f.italic, (f.weight - 400.0).abs() as i32));
+        // An emoji by default (✅) takes a colour emoji font before a symbol font that has it too.
+        let emoji = emoji_by_default(c);
+        let mono = |f: &FontFace| emoji && !colour_emoji(f);
+        order.sort_by_key(|f| {
+            (mono(f), rank(f), shaping(f), !f.family.eq_ignore_ascii_case(FALLBACK_FAMILY), f.italic, (f.weight - 400.0).abs() as i32)
+        });
         (order.into_iter().find(|f| f.covers(c)).cloned(), faces.len())
     }
 
@@ -1590,7 +1626,8 @@ impl FontDb {
         let covered = |db: &FontDb| db.read_faces().iter().any(|f| f.covers(c));
         let cataloged: Vec<String> = self.read_catalog().iter().map(|e| e.family.clone()).collect();
         let rtl = crate::is_rtl(c) || arabic_block(c);
-        let preferred = RTL_FALLBACKS.iter().filter(|_| rtl);
+        let emoji = COLOUR_EMOJI.iter().filter(|_| emoji_by_default(c));
+        let preferred = emoji.chain(RTL_FALLBACKS.iter().filter(|_| rtl));
         for fam in crate::script_fallbacks(c).iter().chain(preferred).chain(SYSTEM_FALLBACKS.iter()) {
             // Each family is tried once: one that fails to load isn't read again per character.
             if self.is_loaded(fam) || !cataloged.iter().any(|f| f.eq_ignore_ascii_case(fam)) {
@@ -1612,6 +1649,29 @@ impl FontDb {
             sys.misses.clear();
         }
         sys.misses.insert(c);
+        false
+    }
+
+    /// Load an installed colour emoji font covering `c`, an emoji by default that only a
+    /// black-and-white face has so far. Returns true if one was loaded.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_colour_emoji(&self, c: char) -> bool {
+        if !self.sys.lock().unwrap_or_else(|e| e.into_inner()).enabled {
+            return false;
+        }
+        let cataloged: Vec<String> = self.read_catalog().iter().map(|e| e.family.clone()).collect();
+        for fam in COLOUR_EMOJI {
+            if self.is_loaded(fam) || !cataloged.iter().any(|f| f.eq_ignore_ascii_case(fam)) {
+                continue;
+            }
+            if !self.sys.lock().unwrap_or_else(|e| e.into_inner()).tried.insert(fam) {
+                continue;
+            }
+            self.load_cataloged(fam);
+            if self.read_faces().iter().any(|f| colour_emoji(f) && f.covers(c)) {
+                return true;
+            }
+        }
         false
     }
 
@@ -1709,6 +1769,16 @@ mod tests_sysfonts;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emoji_by_default_follows_unicode_emoji_presentation() {
+        for c in ['✅', '☕', '🧠', '⭐', '🇵'] {
+            assert!(emoji_by_default(c), "{c}");
+        }
+        for c in ['A', '#', '©', '☺', '✓', '→'] {
+            assert!(!emoji_by_default(c), "{c}");
+        }
+    }
 
     #[test]
     fn east_asian_run_fallback_is_cached_per_char_set() {

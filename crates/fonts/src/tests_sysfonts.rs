@@ -257,6 +257,28 @@ fn fallback_cache_is_dropped_when_a_face_loads_by_its_legacy_family_name() {
 }
 
 #[test]
+fn an_emoji_by_default_falls_back_to_a_colour_emoji_font_before_a_symbol_font() {
+    // #1754: ✅ fell back to Segoe UI Symbol, in black and white, though Segoe UI Emoji was
+    // installed. Here both are Source Sans 3 under those names: it has ☕, an emoji by default.
+    let dir = font_dir("emoji");
+    let as_family = |family: &str| with_family_names("SourceSans3-Regular.ttf", &[(0x0409, family)]);
+    std::fs::write(dir.join("symbol.ttf"), as_family("Segoe UI Symbol")).unwrap();
+    std::fs::write(dir.join("emoji.ttf"), as_family("Noto Color Emoji")).unwrap();
+    let family = |db: &FontDb, c: char, exclude: u32| db.fallback_for(c, exclude).map(|f| f.family.clone());
+    // Only black-and-white faces have ☕ (the bundled ones): the colour emoji font is loaded.
+    let db = FontDb::with_font_dirs(vec![dir.clone()]);
+    let latin = db.face(FALLBACK_FAMILY, "Regular");
+    assert_eq!(family(&db, '☕', latin.id()).as_deref(), Some("Noto Color Emoji"));
+    assert!(family(&db, 'A', latin.id()).is_some_and(|f| f != "Noto Color Emoji"), "other characters keep a text font");
+    // Both loaded, the symbol font first: the colour emoji font still comes first for ☕.
+    let db = FontDb::with_font_dirs(vec![dir]);
+    let latin = db.face(FALLBACK_FAMILY, "Regular");
+    assert_eq!(db.face("Segoe UI Symbol", "Regular").family, "Segoe UI Symbol");
+    assert_eq!(db.face("Noto Color Emoji", "Regular").family, "Noto Color Emoji");
+    assert_eq!(family(&db, '☕', latin.id()).as_deref(), Some("Noto Color Emoji"));
+}
+
+#[test]
 fn fallback_reads_each_installed_font_file_once_however_many_characters_miss() {
     // #605: every distinct character no font covers read every installed font file again.
     let dir = font_dir("coverage");
