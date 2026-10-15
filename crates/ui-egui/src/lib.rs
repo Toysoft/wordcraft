@@ -323,6 +323,9 @@ pub struct UiState {
     pub update_fields_before_print: bool,
     /// The custom dictionary (File › Options › Proofing, Add to Dictionary), kept between runs.
     pub dictionary: Vec<String>,
+    /// File › Options › Proofing: check spelling as you type (squiggles), kept between runs
+    /// like the other proofing choices. The session's `view.proofing` owns it while running.
+    pub check_spelling: bool,
 }
 
 /// The ribbon tab the app opens on, and the one it falls back to when the tab that was showing
@@ -378,6 +381,7 @@ impl Default for UiState {
             print_backgrounds: false,
             update_fields_before_print: false,
             dictionary: Vec::new(),
+            check_spelling: true,
         }
     }
 }
@@ -683,6 +687,7 @@ impl WordApp {
         ui.keyboard = self.session.keymap.clone();
         ui.ribbon = self.session.ribbon.clone();
         ui.ink_pens = self.session.view.draw.pens.clone();
+        ui.check_spelling = self.session.view.proofing;
         ui
     }
 
@@ -730,6 +735,7 @@ impl WordApp {
         self.session.ribbon = std::mem::take(&mut self.ui.ribbon);
         self.session.ribbon.retain_known(&reg);
         self.session.view.draw.pens = std::mem::take(&mut self.ui.ink_pens);
+        self.session.view.proofing = self.ui.check_spelling;
     }
 
     /// Select the picture or icon the person just inserted or pasted, so it shows its handles.
@@ -5680,6 +5686,27 @@ mod tests {
         let mut second = app();
         second.apply_prefs(serde_json::from_slice(&saved).unwrap());
         assert!(second.session.view.dark_mode);
+    }
+
+    /// #1792: File › Options › Proofing's "Check spelling as you type" is a preference, not a
+    /// session flag — off stays off after a restart, and an old `ui.json` without the key keeps
+    /// the feature on.
+    #[test]
+    fn check_spelling_survives_restart() {
+        let mut first = app();
+        assert!(first.session.view.proofing);
+        first.run("file.options", json!({"checkSpelling": false})).unwrap();
+        assert!(!first.session.view.proofing);
+        let saved = serde_json::to_vec(&first.prefs()).unwrap();
+
+        let mut second = app();
+        second.apply_prefs(serde_json::from_slice(&saved).unwrap());
+        assert!(!second.session.view.proofing);
+
+        // A `ui.json` written before this key existed reads as on.
+        let mut third = app();
+        third.apply_prefs(serde_json::from_str("{}").unwrap());
+        assert!(third.session.view.proofing);
     }
 
     #[test]
