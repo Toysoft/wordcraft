@@ -391,6 +391,25 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"color": "RRGGBB" | null, "width"?: pt}  (a selected drawing canvas: its border)"#)
         .when(has_shape_or_canvas),
+        CommandSpec::new("shape.style", "Shape Styles", "Shape Format › Shape Styles", |s, v| {
+            let style = p::str(v, "style").unwrap_or("fill");
+            let color = p::str(v, "color").unwrap_or("accent1");
+            let st = shape_style(style, color, &s.doc.settings.theme_colors).ok_or_else(|| {
+                CmdError::Params(format!("unknown shape style `{style}` or colour `{color}` (styles: {}; colours: {})", style_ids(), color_ids()))
+            })?;
+            with_obj(s, |o| {
+                if let InlineObject::Shape { fill, stroke, stroke_width, effects, .. } = o {
+                    (*fill, *stroke, *stroke_width) = (st.fill, st.stroke, st.width);
+                    effects.shadow = if st.shadow { wordcraft_doc::effects::Shadow::preset("offsetBottomRight") } else { None };
+                } else if let Some(c) = super::canvas::style_mut(o) {
+                    (c.fill, c.stroke, c.stroke_width) = (st.fill, st.stroke, st.width);
+                }
+            })
+        })
+        .params(
+            r#"{"style": "outline|fill|fillLight|subtle|moderate|intense", "color"?: "dark1|accent1|…|accent6"}  (fill, outline and shadow in one step, from the document's theme colours; default accent1)"#,
+        )
+        .when(has_shape_or_canvas),
         CommandSpec::new("shape.effects", "Shape Effects", "Shape Format › Shape Styles", shape_effects)
             .params(
                 r#"{"shadow"?: preset|{"preset"?, "color"?: "RRGGBB", "transparency"?: %, "blur"?: pt, "distance"?: pt, "angle"?: deg}|null, "glow"?: pt|{"color"?: "RRGGBB", "size"?: pt, "transparency"?: %}|null, "softEdge"?: pt|null}  (shadow presets: offsetBottomRight, offsetBottom, offsetBottomLeft, offsetRight, offsetCenter, offsetLeft, offsetTopRight, offsetTop, offsetTopLeft; an omitted key is left as it is; applies to every shape in the selection)"#,
@@ -448,6 +467,65 @@ pub fn specs() -> Vec<CommandSpec> {
             _ => Some("select a text box linked to another first"),
         }),
     ]
+}
+
+/// Shape styles (the shape's right-click Style button, `shape.style`): our own presets, built from
+/// the document's theme colours so they follow Design › Colors. Id and English name; one row of
+/// the gallery each.
+pub const SHAPE_STYLES: [(&str, &str); 6] = [
+    ("outline", "Outline Only"),
+    ("fill", "Solid Fill"),
+    ("fillLight", "Solid Fill, Light Outline"),
+    ("subtle", "Light Fill"),
+    ("moderate", "Fill, No Outline"),
+    ("intense", "Dark Fill with Shadow"),
+];
+
+/// The theme colours the gallery's columns are built from: id and `Settings::theme_colors` index
+/// (dk1 lt1 dk2 lt2 accent1..6).
+pub const SHAPE_STYLE_COLORS: [(&str, usize); 7] =
+    [("dark1", 0), ("accent1", 4), ("accent2", 5), ("accent3", 6), ("accent4", 7), ("accent5", 8), ("accent6", 9)];
+
+/// What a shape style sets: fill, outline colour and weight, and whether it casts a shadow.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShapeStyle {
+    pub fill: Option<Rgb>,
+    pub stroke: Option<Rgb>,
+    pub width: f32,
+    pub shadow: bool,
+}
+
+/// Shape style `style` in theme colour `color` (ids from [`SHAPE_STYLES`] and
+/// [`SHAPE_STYLE_COLORS`]); `None` for an unknown id. A theme short of colours falls back to
+/// black, white and a mid blue.
+pub fn shape_style(style: &str, color: &str, theme: &[Rgb]) -> Option<ShapeStyle> {
+    let &(_, slot) = SHAPE_STYLE_COLORS.iter().find(|(id, _)| *id == color)?;
+    let fallback = if slot == 0 { Rgb::BLACK } else { Rgb(0x3A, 0x6E, 0xB5) };
+    let base = theme.get(slot).copied().unwrap_or(fallback);
+    let light = theme.get(1).copied().unwrap_or(Rgb(0xFF, 0xFF, 0xFF));
+    // Towards white for k > 0, towards black for k < 0 (as the colour grid's tints and shades).
+    let tint = |c: Rgb, k: f32| {
+        let f = |v: u8| if k >= 0.0 { v as f32 + (255.0 - v as f32) * k } else { v as f32 * (1.0 + k) };
+        Rgb(f(c.0).round().clamp(0.0, 255.0) as u8, f(c.1).round().clamp(0.0, 255.0) as u8, f(c.2).round().clamp(0.0, 255.0) as u8)
+    };
+    let st = |fill: Option<Rgb>, stroke: Option<Rgb>, width: f32, shadow: bool| ShapeStyle { fill, stroke, width, shadow };
+    Some(match style {
+        "outline" => st(Some(light), Some(base), 1.0, false),
+        "fill" => st(Some(base), Some(tint(base, -0.5)), 1.0, false),
+        "fillLight" => st(Some(base), Some(light), 1.0, false),
+        "subtle" => st(Some(tint(base, 0.8)), Some(base), 1.0, false),
+        "moderate" => st(Some(base), None, 0.0, false),
+        "intense" => st(Some(tint(base, -0.25)), None, 0.0, true),
+        _ => return None,
+    })
+}
+
+fn style_ids() -> String {
+    SHAPE_STYLES.iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", ")
+}
+
+fn color_ids() -> String {
+    SHAPE_STYLE_COLORS.iter().map(|(id, _)| *id).collect::<Vec<_>>().join(", ")
 }
 
 const NO_TEXT_BOX: &str = "select a text box first";
@@ -1538,6 +1616,38 @@ mod tests {
         assert!(s.run("arrange.copyTo", &json!({"page": 0})).is_err());
         s.run("edit.undo", &json!({})).unwrap();
         assert_eq!(count(&s), 1);
+    }
+
+    /// Style (the shape's right-click bar): fill, outline and shadow from the theme, in one undo
+    /// step; unknown ids are refused and leave the shape as it was.
+    #[test]
+    fn shape_style_sets_fill_outline_and_shadow_from_the_theme() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "rectangle"})).unwrap();
+        let before = selected(&s).unwrap().1;
+        let theme = s.doc.settings.theme_colors.clone();
+        let look = |s: &Session| match selected(s) {
+            Some((_, InlineObject::Shape { fill, stroke, stroke_width, effects, .. })) => (fill, stroke, stroke_width, effects.shadow.is_some()),
+            other => panic!("not a shape: {other:?}"),
+        };
+        for (style, _) in SHAPE_STYLES {
+            for (color, _) in SHAPE_STYLE_COLORS {
+                s.run("shape.style", &json!({"style": style, "color": color})).unwrap();
+                let want = shape_style(style, color, &theme).unwrap();
+                assert_eq!(look(&s), (want.fill, want.stroke, want.width, want.shadow), "{style} {color}");
+            }
+        }
+        s.run("shape.style", &json!({"style": "outline", "color": "accent2"})).unwrap();
+        assert_eq!(look(&s).1, theme.get(5).copied(), "the outline is the theme's accent 2");
+        s.run("shape.style", &json!({"style": "intense"})).unwrap();
+        assert!(look(&s).3, "intense casts a shadow");
+        let after = look(&s);
+        assert!(s.run("shape.style", &json!({"style": "sparkly"})).is_err());
+        assert!(s.run("shape.style", &json!({"style": "fill", "color": "accent9"})).is_err());
+        assert_eq!(look(&s), after, "a refused style changes nothing");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(look(&s).0, shape_style("outline", "accent2", &theme).unwrap().fill, "one undo step per style");
+        assert_ne!(selected(&s).unwrap().1, before);
     }
 
     #[test]

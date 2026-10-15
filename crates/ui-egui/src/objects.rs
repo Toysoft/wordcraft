@@ -123,7 +123,7 @@ fn fixed(app: &WordApp, hit: &ObjectHit) -> bool {
 }
 
 /// The story of the selected text box.
-fn selected_text_box(app: &WordApp) -> Option<u32> {
+pub(crate) fn selected_text_box(app: &WordApp) -> Option<u32> {
     match selected(app)? {
         (_, InlineObject::Shape { story: Some(id), .. }) if app.session.doc.parts.get(id).is_some_and(|p| p.kind == PartKind::TextBox) => Some(*id),
         _ => None,

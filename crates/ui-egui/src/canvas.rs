@@ -96,6 +96,10 @@ pub struct CanvasState {
     pub context_menu_from_keys: bool,
     /// Where the context menu stands: the right-click point, or below the caret.
     pub context_menu_at: Option<Pos2>,
+    /// Where the shape's Style/Fill/Outline bar stands (`shape_bar`), while it is up.
+    pub shape_bar: Option<Rect>,
+    /// One of the shape bar's drop-downs was open last frame (the bar stays while it is).
+    pub(crate) shape_bar_popup: bool,
     /// Screen rect of the selection's first line, for the floating mini toolbar.
     pub mini_anchor: Option<Rect>,
     /// The selection the mini toolbar was put away for by a click outside the document (the
@@ -225,6 +229,8 @@ impl Default for CanvasState {
             context_menu_open: false,
             context_menu_from_keys: false,
             context_menu_at: None,
+            shape_bar: None,
+            shape_bar_popup: false,
             mini_anchor: None,
             mini_dismissed: None,
             pasted: false,
@@ -1551,10 +1557,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         Some(p) => menu.at_position(p),
         None => menu.at_pointer_fixed(),
     };
-    menu.show(|ui| context_menu(app, ui));
+    let shown = menu.show(|ui| context_menu(app, ui));
     // Stand down while the context menu owns the pointer so the two never double up; the open
     // state also covers the click that dismisses the menu.
     app.canvas.context_menu_open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
+    // A shape's menu comes with Word's Style / Fill / Outline bar just above it.
+    let menu_rect = shown.filter(|_| app.canvas.context_menu_open).map(|r| r.response.rect);
+    crate::shape_bar::update(app, ui.ctx(), menu_rect, area);
     if let Some(c) = crate::ink::cursor(app).filter(|_| resp.hovered() || app.canvas.ink.is_some()) {
         ui.ctx().set_cursor_icon(c);
     } else if resp.hovered() || app.canvas.obj_drag.is_some() {
@@ -2806,19 +2815,91 @@ fn equation_menu(app: &mut WordApp, ui: &mut Ui) {
     }
 }
 
+fn menu_item(ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: serde_json::Value) {
+    let sc = crate::widgets::shortcut_text(app, id);
+    let on = crate::widgets::enabled(app, id);
+    if ui.add_enabled(on, egui::Button::new(tl!(label)).shortcut_text(sc)).clicked() {
+        let _ = app.run(id, params);
+        ui.close();
+    }
+}
+
+fn shape_menu(app: &mut WordApp, ui: &mut Ui) {
+    menu_item(ui, app, "Cut", "edit.cut", json!({}));
+    menu_item(ui, app, "Copy", "edit.copy", json!({}));
+    menu_item(ui, app, "Paste", "edit.paste", json!({}));
+    ui.separator();
+
+    if crate::objects::selected_text_box(app).is_some() {
+        if ui.button(tl!("Edit Text")).clicked() {
+            crate::objects::enter_text_box(app);
+            ui.close();
+        }
+    } else if ui.button(tl!("Add Text")).clicked() {
+        add_shape_text(app);
+        ui.close();
+    }
+
+    let can_group = wordcraft_engine::cmd::objects::picked_objects(&app.session).len() >= 2;
+    let has_group = matches!(wordcraft_engine::cmd::objects::selected(&app.session), Some((_, wordcraft_doc::para::InlineObject::Group { .. })));
+    if can_group || has_group {
+        ui.menu_button(tl!("Group"), |ui| {
+            if can_group {
+                menu_item(ui, app, "Group", "arrange.group", json!({}));
+            }
+            if has_group {
+                menu_item(ui, app, "Ungroup", "arrange.ungroup", json!({}));
+            }
+        });
+    }
+
+    ui.menu_button(tl!("Bring to Front"), |ui| {
+        menu_item(ui, app, "Bring to Front", "arrange.bringForward", json!({}));
+        menu_item(ui, app, "Bring Forward", "arrange.bringForward", json!({}));
+        menu_item(ui, app, "Bring in Front of Text", "arrange.wrap", json!({"wrap": "inFrontOfText"}));
+    });
+    ui.menu_button(tl!("Send to Back"), |ui| {
+        menu_item(ui, app, "Send to Back", "arrange.sendBackward", json!({}));
+        menu_item(ui, app, "Send Backward", "arrange.sendBackward", json!({}));
+        menu_item(ui, app, "Send Behind Text", "arrange.wrap", json!({"wrap": "behindText"}));
+    });
+    ui.separator();
+    ui.menu_button(tl!("Wrap Text"), |ui| crate::ribbon::wrap_text_items(ui, app));
+    ui.separator();
+    menu_item(ui, app, "View Alt Text…", "view.altTextPane", json!({"value": true}));
+    menu_item(ui, app, "Format Shape…", "ui.tab", json!({"tab": "Shape Format"}));
+}
+
+fn add_shape_text(app: &mut WordApp) {
+    if crate::objects::enter_text_box(app) {
+        return;
+    }
+    let Some((pos, _)) = wordcraft_engine::cmd::objects::selected(&app.session) else { return };
+    let empty_para = wordcraft_doc::Paragraph::with_text("", wordcraft_doc::props::CharProps::default());
+    let Ok(id) = app.session.doc.try_add_part(wordcraft_doc::PartKind::TextBox, vec![std::sync::Arc::new(wordcraft_doc::Block::Para(empty_para))])
+    else {
+        return;
+    };
+    if let Ok(para) = app.session.doc.para_mut(pos.story, &pos.path)
+        && let Some(wordcraft_doc::para::InlineObject::Shape { story, .. }) = para.object_at_mut(pos.off)
+    {
+        *story = Some(id);
+        para.touch();
+    }
+    app.session.relayout();
+    let end = app.session.doc.end_of(wordcraft_doc::StoryRef::Part(id));
+    let _ = app.run("caret.set", json!({"pos": end}));
+}
+
 fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     if app.session.math.is_some() {
         return equation_menu(app, ui);
     }
     ui.set_min_width(220.0);
-    let item = |ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: serde_json::Value| {
-        let sc = crate::widgets::shortcut_text(app, id);
-        let on = crate::widgets::enabled(app, id);
-        if ui.add_enabled(on, egui::Button::new(tl!(label)).shortcut_text(sc)).clicked() {
-            let _ = app.run(id, params);
-            ui.close();
-        }
-    };
+    if crate::ribbon::has_shape_selected(&app.session) {
+        return shape_menu(app, ui);
+    }
+    let item = |ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: serde_json::Value| menu_item(ui, app, label, id, params);
     if let Some(issue) = app.canvas.context_issue.clone() {
         let sugg: Vec<String> = issue
             .get("suggestions")
@@ -3784,6 +3865,53 @@ mod tests {
         }
         let o = wordcraft_engine::cmd::objects::selected(&h.state().session).unwrap().1;
         assert_eq!(o.frame().unwrap().2.wrap, wordcraft_doc::para::Wrap::Square);
+    }
+
+    #[test]
+    fn right_click_on_a_shape_shows_style_fill_outline_bar_and_shape_menu() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("insert.shape", json!({"kind": "rectangle", "width": 120, "height": 60})).unwrap();
+        let pos = wordcraft_engine::cmd::objects::selected(&a.session).unwrap().0;
+        a.session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 0));
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let rect = h.state_mut().session.layout().object(&pos, 0).expect("the shape is laid out").rect;
+        let at = crate::frame::to_screen(h.state().canvas.page_rects[0], h.state().canvas.scale, rect).center();
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        h.step();
+        assert!(h.state().canvas.context_menu_open, "context menu is open on shape right-click");
+        assert!(h.state().canvas.shape_bar.is_some(), "shape bar is placed above/below context menu");
+
+        // The shape bar offers Style, Fill, Outline buttons
+        assert!(h.query_by_label_contains("Style").is_some());
+        assert!(h.query_by_label_contains("Fill").is_some());
+        assert!(h.query_by_label_contains("Outline").is_some());
+
+        // The shape context menu contains Word items: Add Text, Format Shape…, Wrap Text, etc.
+        assert!(h.query_by_label_contains("Add Text").is_some());
+        assert!(h.query_by_label_contains("Wrap Text").is_some());
+        assert!(h.query_by_label_contains("Format Shape…").is_some());
+
+        // Clicking Add Text enters the shape's text box
+        h.get_by_label_contains("Add Text").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(matches!(h.state().session.sel.focus.story, wordcraft_doc::StoryRef::Part(_)), "caret is now inside the shape text box");
     }
 
     /// #1197: the context menu on a table of contents entry offers Update Field, as in Word, and
