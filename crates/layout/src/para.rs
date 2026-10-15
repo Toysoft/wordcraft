@@ -957,13 +957,19 @@ impl<'a> Builder<'a> {
     fn split_ligature_advances(&mut self, from: usize, spacing: f32, rtl: bool) {
         let mut i = from;
         while let Some(head) = self.clusters.get(i) {
-            let n =
-                self.clusters.get(i + 1..).unwrap_or(&[]).iter().take_while(|c| c.kind == ClKind::Text && c.g1 <= c.g0 && c.adv == spacing).count();
-            if head.kind != ClKind::Text || head.g1 <= head.g0 || n == 0 {
+            if head.kind != ClKind::Text || head.g1 <= head.g0 {
                 i += 1;
                 continue;
             }
-            let unit = head.adv / (n + 1) as f32;
+            let n =
+                self.clusters.get(i + 1..).unwrap_or(&[]).iter().take_while(|c| c.kind == ClKind::Text && c.g1 <= c.g0 && c.adv == spacing).count();
+            if n == 0 {
+                i += 1;
+                continue;
+            }
+            // The letters after the head are glyphless and carry only their character spacing, so
+            // the ligature's width is the glyph's advance (spacing included) plus those spacings.
+            let unit = (head.adv + spacing * n as f32) / (n + 1) as f32;
             let (g0, g1) = (head.g0 as usize, head.g1 as usize);
             if unit.is_finite() {
                 for c in self.clusters.get_mut(i..=i + n).unwrap_or(&mut []) {

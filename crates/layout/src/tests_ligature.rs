@@ -40,6 +40,28 @@ fn caret_between_the_letters_of_a_ligature_is_inside_it() {
     assert!((b - a - (c - b)).abs() < 0.05, "an even split: {a} {b} {c}");
 }
 
+/// Width of "fi" (both letters) with character spacing `sp` points per letter.
+fn fi_width_with_spacing(sp: Option<f32>) -> (DocLayout, f32) {
+    let mut d = Document::from_text("fi");
+    d.format_range(&Pos::body(0, 0), &Pos::body(0, 2), &|c| c.spacing = sp).unwrap();
+    let l = lay(&d);
+    let w = caret_x(&l, 2) - caret_x(&l, 0);
+    (l, w)
+}
+
+#[test]
+fn character_spacing_inside_a_ligature_is_kept() {
+    let (l0, plain) = fi_width_with_spacing(None);
+    assert!(has_fi_ligature(&l0), "the default font should draw fi as a ligature");
+    for sp in [3.0_f32, -0.5] {
+        let (l, w) = fi_width_with_spacing(Some(sp));
+        assert!(has_fi_ligature(&l), "fi stays a ligature with spacing {sp}");
+        assert!((w - (plain + 2.0 * sp)).abs() < 0.05, "spacing {sp}: width {w}, expected {}", plain + 2.0 * sp);
+        let (a, b, c) = (caret_x(&l, 0), caret_x(&l, 1), caret_x(&l, 2));
+        assert!(a < b && b < c, "caret inside the ligature with spacing {sp}: {a} {b} {c}");
+    }
+}
+
 #[test]
 fn clicks_inside_a_ligature_land_between_its_letters() {
     let l = lay(&Document::from_text("fi"));
@@ -56,6 +78,7 @@ fn clicks_inside_a_ligature_land_between_its_letters() {
 #[test]
 fn every_letter_of_a_three_letter_ligature_has_its_own_caret() {
     let l = lay(&Document::from_text("ffi"));
+    assert!(has_fi_ligature(&l), "the default font should draw ffi as a ligature");
     let xs: Vec<f32> = (0..=3).map(|o| caret_x(&l, o)).collect();
     assert!(xs.windows(2).all(|w| w[0] < w[1]), "{xs:?}");
 }
@@ -101,7 +124,7 @@ fn lam_alef_ligature() -> Option<DocLayout> {
 #[test]
 fn a_right_to_left_ligature_splits_mirrored() {
     let Some(l) = lam_alef_ligature() else {
-        eprintln!("skipped: no installed Arabic font draws lam-alef as one glyph");
+        eprintln!("skipped: no lam-alef ligature font");
         return;
     };
     // Logical offsets 0 (before lam), 2 (between lam and alef), 4 (after alef); the text runs leftward.
@@ -114,7 +137,7 @@ fn a_right_to_left_ligature_splits_mirrored() {
 fn a_right_to_left_ligature_is_drawn_from_its_left_edge() {
     // The glyph stays on lam, the rightmost letter; it must still start at alef's left edge.
     let Some(l) = lam_alef_ligature() else {
-        eprintln!("skipped: no installed Arabic font draws lam-alef as one glyph");
+        eprintln!("skipped: no lam-alef ligature font");
         return;
     };
     let pl = para_layout(&l);

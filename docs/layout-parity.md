@@ -160,6 +160,7 @@ No overall parity estimate changes from these probes.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | The caret, clicks and selection edges fall between the letters of a ligature (#1974) |
 | 2026-10-14 | trivial | Row table border exceptions draw without leaking into other rows |
 | 2026-10-14 | trivial | Consistent cell widths override a stale table grid |
 | 2026-10-14 | trivial | Paragraphs inside complex-field instructions take no flow height; empty result paragraphs keep their line. |
@@ -176,7 +177,6 @@ No overall parity estimate changes from these probes.
 | 2026-10-13 | trivial | Floats and floating tables aligned inside/outside, or placed in the inside/outside margin, swap sides on even pages; with mirrored margins, page-relative floats keep their place and left/right margin areas are each page's own (#1181) |
 | 2026-10-14 | trivial | Widow control: a three-line paragraph with room for two of its lines at the bottom of a page moves whole, as in Word (no two-and-one split leaving a widow); a paragraph continued from the previous page may still take one line along from two |
 | 2026-10-13 | trivial | PAGEREF in headers and footers shows its bookmark's page (#1477) |
-| 2026-10-15 | trivial | The caret, clicks and selection edges fall between the letters of a ligature (#1974) |
 | 2026-10-14 | trivial | All Caps and Small Caps draw ß as SS, as Word does, kept one character for the caret and selection (#1581) |
 | 2026-10-14 | trivial | A word too wide for the strip beside a square-wrapped object moves past it whole instead of being split across the strip (#1376) |
 | 2026-10-14 | trivial | Russian letter list formats (`russianLower`, `russianUpper`) draw а) б) в) … аа) бб) as Word does, instead of digits |
