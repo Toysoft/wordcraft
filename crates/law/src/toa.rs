@@ -45,8 +45,8 @@ pub fn build(s: &mut Session, v: &Value) -> Result<Value, CmdError> {
     s.touch();
 
     let existing = table_categories(s);
+    let used: Vec<u8> = CATEGORIES.iter().map(|(c, _)| *c).filter(|c| entries.iter().any(|e| category(&e.kind) == *c)).collect();
     let inserted = if existing.is_empty() {
-        let used: Vec<u8> = CATEGORIES.iter().map(|(c, _)| *c).filter(|c| entries.iter().any(|e| category(&e.kind) == *c)).collect();
         if used.is_empty() {
             Vec::new()
         } else {
@@ -61,8 +61,17 @@ pub fn build(s: &mut Session, v: &Value) -> Result<Value, CmdError> {
             used
         }
     } else {
+        // A category the table doesn't have yet (the brief's first statute, say) gets its own
+        // table after the last one; then every table is brought up to date.
+        let have: Vec<u8> = existing.iter().filter_map(|instr| field_category(instr)).collect();
+        let missing: Vec<u8> = used.iter().copied().filter(|c| !have.contains(c)).collect();
+        if !missing.is_empty()
+            && let Some(at) = after_last_table(s)
+        {
+            insert_tables(s, at, &missing, passim)?;
+        }
         s.run("references.updateAuthorities", &json!({}))?;
-        Vec::new()
+        missing
     };
     s.touch();
     Ok(json!({
@@ -110,6 +119,24 @@ fn table_categories(s: &Session) -> Vec<String> {
         }
     }
     out
+}
+
+/// The category a `TOA` field lists (`\c "2"` → 2).
+fn field_category(instr: &str) -> Option<u8> {
+    let rest = instr.split("\\c").nth(1)?;
+    rest.trim_start().trim_start_matches('"').chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+}
+
+/// The top-level block just after the last table of authorities' entries.
+fn after_last_table(s: &Session) -> Option<usize> {
+    let last = s.doc.body.iter().rposition(|b| {
+        b.as_para().is_some_and(|p| p.objects.iter().any(|o| matches!(o, InlineObject::Field { instr, .. } if instr.trim_start().starts_with("TOA"))))
+    })?;
+    let mut at = last + 1;
+    while s.doc.body.get(at).and_then(|b| b.as_para()).is_some_and(|p| p.props.style.as_deref() == Some(ENTRY_STYLE)) {
+        at += 1;
+    }
+    Some(at)
 }
 
 /// Insert one table of authorities per category at top-level block `at`, in order. They are

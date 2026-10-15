@@ -140,3 +140,29 @@ fn bad_parameters_and_no_citations() {
     assert_eq!(r["inserted"], json!([]));
     assert!(fields(&empty).is_empty());
 }
+
+/// A cases-only table, then the brief's first statute: building again adds a Statutes table
+/// instead of only updating the Cases one.
+#[test]
+fn rebuilding_adds_a_category_the_table_did_not_have() {
+    let mut s = law();
+    insert(&mut s, &format!("The court held in Thummel v. King, {CASE}, that it applies."));
+    run(&mut s, "text.newParagraph", json!({}));
+    insert(&mut s, "Argument");
+    run(&mut s, "caret.docStart", json!({}));
+    let r = run(&mut s, "law.toa.build", json!({"pack": "missouri"}));
+    assert_eq!(r["inserted"], json!([1]));
+    assert!(!s.doc.plain_text(StoryRef::Body).contains("Statutes"));
+
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "text.newParagraph", json!({}));
+    insert(&mut s, &format!("The statute, {STATUTE}, says so."));
+    let r = run(&mut s, "law.toa.build", json!({"pack": "missouri"}));
+    assert_eq!(r["inserted"], json!([2]), "{r}");
+    let t = s.doc.plain_text(StoryRef::Body);
+    let statutes = t.find("Statutes").expect("a Statutes table");
+    assert!(t[statutes..].contains(&format!("{STATUTE}\t1")), "{t}");
+    assert!(fields(&s).contains(&"TOA \\c \"2\" \\p".to_string()));
+    // Building once more adds nothing new.
+    assert_eq!(run(&mut s, "law.toa.build", json!({"pack": "missouri"}))["inserted"], json!([]));
+}
