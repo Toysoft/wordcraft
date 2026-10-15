@@ -499,19 +499,23 @@ fn lin_operand(a: &[MNode], s: &mut String, depth: usize) {
     }
 }
 
-/// A script or limit operand. The parser reads a script as one letter or a number (`x_10`), so a
-/// longer run is grouped: `V_(dd)`, not `V_dd` (which reads back as V_d then d).
+/// A script or limit operand. The parser reads a run of letters or digits up to the next space or
+/// operator, so `V_dd` is written bare as Word's Linear format shows it (`V_(dd)` reads back the same).
 fn lin_script(a: &[MNode], s: &mut String, depth: usize) {
+    // Bare only when the parser reads the whole run back: a number, or letters then digits.
     if let [MNode::Run(r)] = a
         && r.text.chars().nth(1).is_some()
-        && !(r.text.starts_with(|c: char| c.is_ascii_digit()) && r.text.chars().all(|c| c.is_ascii_digit() || c == '.'))
     {
-        s.push('(');
-        s.push_str(&r.text);
-        s.push(')');
-    } else {
-        lin_operand(a, s, depth);
+        let number = r.text.starts_with(|c: char| c.is_ascii_digit()) && r.text.chars().all(|c| c.is_ascii_digit() || c == '.');
+        let word = r.text.starts_with(char::is_alphabetic) && r.text.chars().all(char::is_alphanumeric);
+        if !number && !word {
+            s.push('(');
+            s.push_str(&r.text);
+            s.push(')');
+            return;
+        }
     }
+    lin_operand(a, s, depth);
 }
 
 fn lin_node(n: &MNode, s: &mut String, depth: usize) {
@@ -962,7 +966,8 @@ mod tests {
 
     #[test]
     fn multi_letter_scripts_round_trip() {
-        // A script reads one letter or a number, so `V_dd` is V_d then d: longer scripts are grouped.
+        // Word for Mac 16.113.4 (#1609): a script is the whole run up to a space or operator, and Word's
+        // Linear format shows it bare (`V_dd`); the parenthesised form reads back identically.
         let script = |kind, sub: &str, sup: &str| MNode::Script { kind, base: vec![run("V")], sub: parse_linear(sub), sup: parse_linear(sup) };
         for n in [
             vec![script(ScriptKind::Sub, "dd", "")],
@@ -985,6 +990,28 @@ mod tests {
         // Numbers and single letters stay bare.
         assert_eq!(to_linear(&[script(ScriptKind::SubSup, "10", "2.5")]), "V_10^2.5");
         assert_eq!(to_linear(&[script(ScriptKind::Sub, "d", "")]), "V_d");
+        assert_eq!(to_linear(&[script(ScriptKind::Sub, "dd", "")]), "V_dd");
+        assert_eq!(to_linear(&[script(ScriptKind::Sup, "", "ab")]), "V^ab");
+    }
+
+    #[test]
+    fn multi_letter_script_operands_follow_word() {
+        // #1609, Word for Mac 16.113.4: `V_dd` and `V_(dd)` build up the same; `dd` is all subscript.
+        let sub_dd = MNode::Script { kind: ScriptKind::Sub, base: vec![run("V")], sub: vec![run("dd")], sup: vec![] };
+        assert_eq!(parse_linear("V_dd"), vec![sub_dd.clone()]);
+        assert_eq!(parse_linear("V_(dd)"), vec![sub_dd]);
+        let sup_ab = MNode::Script { kind: ScriptKind::Sup, base: vec![run("x")], sub: vec![], sup: vec![run("ab")] };
+        assert_eq!(parse_linear("x^ab"), vec![sup_ab.clone()]);
+        assert_eq!(parse_linear("x^(ab)"), vec![sup_ab]);
+        // Delimiters still end the operand.
+        let both = MNode::Script { kind: ScriptKind::SubSup, base: vec![run("x")], sub: vec![run("i")], sup: vec![run("2")] };
+        assert_eq!(parse_linear("x_i^2"), vec![both]);
+        let a_i = MNode::Script { kind: ScriptKind::Sub, base: vec![run("a")], sub: vec![run("i")], sup: vec![] };
+        assert_eq!(parse_linear("a_i b"), vec![a_i, run("b")]);
+        let both2 = MNode::Script { kind: ScriptKind::SubSup, base: vec![run("x")], sub: vec![run("ij")], sup: vec![run("kl")] };
+        assert_eq!(parse_linear("x_ij^kl"), vec![both2]);
+        // Round trip is Word's bare form.
+        assert_eq!(to_linear(&parse_linear("V_(dd)")), "V_dd");
     }
 
     #[test]
