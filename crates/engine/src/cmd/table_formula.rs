@@ -188,6 +188,9 @@ fn group_thousands(digits: &str) -> String {
 /// negative. Anything else (letters included) makes the cell text, not a number.
 pub fn parse_number(text: &str, lang: Option<&str>) -> Option<f64> {
     let t = text.trim();
+    if let Some(x) = wordcraft_doc::locale_number::parse_number(t, lang) {
+        return x.is_finite().then_some(x);
+    }
     let (t, negative) = match t.strip_prefix('(').and_then(|x| x.strip_suffix(')')) {
         Some(inner) => (inner.trim(), true),
         None => (t, false),
@@ -829,6 +832,9 @@ mod tests {
         assert_eq!(parse_number("$1,200", None), Some(1200.0));
         assert_eq!(parse_number(" 12% ", None), Some(12.0));
         assert_eq!(parse_number("(5)", None), Some(-5.0));
+        assert_eq!(parse_number("($1,200)", None), Some(-1200.0));
+        assert_eq!(parse_number("$(1,200)", None), Some(-1200.0));
+        assert_eq!(parse_number("(1 200) zł", Some("pl-PL")), Some(-1200.0));
         assert_eq!(parse_number("x9", None), None);
         assert_eq!(parse_number("1a", None), None);
         assert_eq!(parse_number("inf", None), None);

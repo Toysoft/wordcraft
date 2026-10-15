@@ -21,7 +21,7 @@ pub fn decimal_separator(lang: Option<&str>) -> char {
 }
 
 const SPACES: &[char] = &[' ', '\u{a0}', '\u{202f}', '\u{2009}'];
-const CURRENCY: &[char] = &['$', '€', '£', '¥', '¢', '₽', '₴', '₺', '₹', '₩', '₪', '₫', '฿', '₱', '₸', '₼', '₾'];
+const CURRENCY: &[char] = &['$', '€', '£', '¥', '¢', '₽', '₴', '₺', '₹', '₩', '₪', '₫', '฿', '₱', '₸', '₼', '₾', '৳'];
 
 /// Strip a currency symbol or a short currency word (`zł`, `kr`, `PLN`) from either end.
 fn strip_currency(s: &str) -> &str {
@@ -63,13 +63,20 @@ fn grouped_digits(int: &str, groups: &[char]) -> Option<String> {
 /// currency sign or short currency word is ignored, and so is a trailing `%` (`12 %` is 12, as
 /// table sort reads it). In comma languages a lone `.` that cannot be a group separator (`1.5`)
 /// is read as a decimal point. A trailing separator with no digits after it (`1.`, an ordinal
-/// in a numbered column) is the whole number. A minus may be `-`, `−` or an en dash.
+/// in a numbered column) is the whole number. A minus may be `-`, `−` or an en dash, or the
+/// number may be enclosed in parentheses as an accounting negative (`(1,250.50)` or `($1,250.50)`).
 pub fn parse_number(s: &str, lang: Option<&str>) -> Option<f64> {
     let dec = decimal_separator(lang);
     let s = s.trim();
     let s = s.strip_suffix('%').map_or(s, str::trim_end);
     let mut body = strip_currency(s);
     let mut neg = false;
+    if let Some(inner) = body.strip_prefix('(').and_then(|x| x.strip_suffix(')')) {
+        neg = true;
+        let inner = inner.trim();
+        let inner = inner.strip_suffix('%').map_or(inner, str::trim_end);
+        body = strip_currency(inner);
+    }
     if let Some(rest) = body.strip_prefix(['-', '\u{2212}', '\u{2013}']) {
         neg = true;
         body = strip_currency(rest);
@@ -102,7 +109,7 @@ pub fn parse_number(s: &str, lang: Option<&str>) -> Option<f64> {
         return None;
     }
     let v: f64 = format!("0{int_digits}.{frac_digits}0").parse().ok()?;
-    Some(if neg { -v } else { v })
+    Some(if neg && v != 0.0 { -v } else { v })
 }
 
 /// Write `v` the way language `lang` writes a formula result: whole numbers without decimals,
@@ -174,4 +181,28 @@ mod tests {
         }
         assert_eq!(format_number(f64::NAN, None), "0");
     }
+
+    #[test]
+    fn accounting_negative_numbers() {
+        let en = Some("en-US");
+        let pl = Some("pl-PL");
+        assert_eq!(parse_number("(1,250.50)", en), Some(-1250.5));
+        assert_eq!(parse_number("($1,250.50)", en), Some(-1250.5));
+        assert_eq!(parse_number("$(1,250.50)", en), Some(-1250.5));
+        assert_eq!(parse_number("$ (1,250.50)", en), Some(-1250.5));
+        assert_eq!(parse_number("(5)", en), Some(-5.0));
+        assert_eq!(parse_number("(0)", en), Some(0.0));
+        assert_eq!(parse_number("(0.00)", en), Some(0.0));
+        assert_eq!(parse_number("(1 250,00 zł)", pl), Some(-1250.0));
+        assert_eq!(parse_number("(1 250,00) zł", pl), Some(-1250.0));
+        assert_eq!(parse_number("PLN (1 250,00)", pl), Some(-1250.0));
+        assert_eq!(parse_number("(12%)", en), Some(-12.0));
+        assert_eq!(parse_number("(12) %", en), Some(-12.0));
+        assert_eq!(parse_number("()", en), None);
+        assert_eq!(parse_number("(abc)", en), None);
+        assert_eq!(parse_number("(1,2,3)", en), None);
+        assert_eq!(parse_number("(1.5", en), None);
+        assert_eq!(parse_number("1.5)", en), None);
+    }
 }
+
