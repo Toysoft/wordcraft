@@ -2630,3 +2630,13 @@
 	Server:	Máy chủ:
 	Use your own LanguageTool server by entering its address, such as http://localhost:8081.	Dùng máy chủ LanguageTool riêng của bạn bằng cách nhập địa chỉ, ví dụ http://localhost:8081.
 	Username:	Tên người dùng:
+# LanguageTool checking in Options › Proofing (#575, #1283)
+	A paragraph is too long to check ({bytes} bytes; at most {max}).	Một đoạn văn quá dài để kiểm tra ({bytes} byte; tối đa {max}).
+	Changes to these fields apply when you press Enter or leave the field.	Thay đổi trong các trường này được áp dụng khi bạn nhấn Enter hoặc rời khỏi trường.
+	Couldn't reach the LanguageTool server: {reason}	Không thể kết nối tới máy chủ LanguageTool: {reason}
+	The LanguageTool server address isn't a web address: {address}	Địa chỉ máy chủ LanguageTool không phải là địa chỉ web: {address}
+	The LanguageTool server answered {status}: {message}	Máy chủ LanguageTool trả lời {status}: {message}
+	The LanguageTool server didn't answer in time.	Máy chủ LanguageTool không trả lời kịp thời.
+	The LanguageTool server is limiting requests; checking resumes in a minute.	Máy chủ LanguageTool đang giới hạn yêu cầu; việc kiểm tra sẽ tiếp tục sau một phút.
+	The username and API key are only sent over https:// or to this computer. Use an https:// server address.	Tên người dùng và khóa API chỉ được gửi qua https:// hoặc tới máy tính này. Hãy dùng địa chỉ máy chủ https://.
+	Unexpected answer from the LanguageTool server: {reason}	Câu trả lời không mong đợi từ máy chủ LanguageTool: {reason}
