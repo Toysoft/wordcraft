@@ -91,6 +91,9 @@ struct Writer {
     lists: Vec<[bool; 9]>,
     /// Authors of tracked changes (`\revtbl` entries after "Unknown"), when the text has any.
     authors: Option<Vec<String>>,
+    /// The character formatting the current paragraph's style gives its runs (heading bold and
+    /// size, code font…): what a run's formatting without a direct value resolves to.
+    base: Fmt,
 }
 
 const HEAD_SIZES: [f32; 6] = [20.0, 16.0, 14.0, 12.0, 12.0, 11.0];
@@ -170,8 +173,10 @@ impl Writer {
     /// The character formatting control words that turn `cur` back into `old`: only the
     /// properties that differ, with explicit "off" values (`\b0`, `\ulnone`, `\cf0`…).
     fn char_diff(&mut self, old: &Fmt, cur: &Fmt) -> String {
-        // A link's underline and colour are the link's, before the change and after.
-        let old = &Fmt { link: cur.link.clone(), ..old.clone() };
+        // A link's underline and colour are the link's, before the change and after; what a run
+        // doesn't set directly is its paragraph style's, as Word writes resolved values.
+        let old = &styled(&self.base, &Fmt { link: cur.link.clone(), ..old.clone() });
+        let cur = &styled(&self.base, cur);
         let mut ctl = String::new();
         let underline = |f: &Fmt| f.underline || f.link.is_some();
         let flags = [
@@ -197,14 +202,14 @@ impl Writer {
         let font = |f: &Fmt| if f.code { Some(model::MONO_FONT.to_string()) } else { f.font.clone() };
         let old_font = font(old);
         if old_font != font(cur) {
-            // No font is the document's default font, font 0.
+            // No font is the document's default font, font 0 (Normal's).
             let i = old_font.map_or(0, |n| self.t.font(&n));
             ctl.push_str(&format!("\\f{i}"));
         }
         let half_points = |s: Option<f32>| s.map(|s| (s * 2.0).round().clamp(2.0, 3276.0) as i32);
         let old_size = half_points(old.size);
         if old_size != half_points(cur.size) {
-            // No size is RTF's default, 12 pt.
+            // No size is Normal's, RTF's default 12 pt.
             ctl.push_str(&format!("\\fs{}", old_size.unwrap_or(24)));
         }
         let color = |f: &Fmt| f.color.or(if f.link.is_some() { Some(Rgb(0x05, 0x63, 0xC1)) } else { None });
@@ -328,7 +333,9 @@ impl Writer {
             out.push_str(&format!(" {{\\listtext\\pard\\plain {}\\tab}}", esc(label)));
         }
         out.push(' ');
+        self.base = style_fmt(p.kind);
         self.inlines(&p.inlines, out);
+        self.base = Fmt::default();
         // A tracked paragraph mark is the `\par` inside the revision's group.
         let marks = self.rev_ctl(p.mark_ins.as_deref(), p.mark_del.as_deref());
         if end == "\\par" && !marks.is_empty() {
@@ -592,7 +599,7 @@ pub fn iso_to_dttm(s: &str) -> Option<u32> {
 pub fn export(doc: &Document) -> String {
     let flow = model::from_doc_tracked(doc);
     let base_font = doc.styles.default_chr.font.clone().unwrap_or_else(|| wordcraft_doc::styles::BODY_FONT.to_string());
-    let mut w = Writer { t: Tables { fonts: vec![base_font], colors: Vec::new() }, lists: Vec::new(), authors: None };
+    let mut w = Writer { t: Tables { fonts: vec![base_font], colors: Vec::new() }, lists: Vec::new(), authors: None, base: Fmt::default() };
     let mut body = String::new();
     w.blocks(&flow.blocks, false, "\\par", &mut body, 0);
     export_with(&flow.meta, &w, &body, &doc.last_section)
@@ -1756,8 +1763,10 @@ impl Reader {
                 }
                 return;
             }
-            // Old formatting takes formatting words only: no text, structure or document state.
+            // Old formatting takes formatting words only: no text, structure or document state,
+            // and no paragraph reset among the character formatting.
             Dest::OldProps(_) if !is_format_word(w) => return,
+            Dest::OldProps(false) if w == "pard" => return,
             // Border words there would edit the cell definition being read, not the group's copy.
             Dest::OldProps(_) if self.cell_side.is_some() && w.starts_with("brdr") => return,
             Dest::OldProps(false) => {
@@ -1986,20 +1995,48 @@ impl Reader {
     }
 }
 
-/// Clear from `f` the formatting a paragraph of kind `kind` gets from its style.
-fn drop_style_formatting(kind: Kind, f: &mut Fmt) {
-    if matches!(kind, Kind::Heading(_) | Kind::Code | Kind::Title) {
-        f.size = None;
-        if kind != Kind::Title {
-            f.bold = false;
-        }
-        if kind == Kind::Code {
-            f.code = false;
-            f.font = None;
-        }
+/// The character formatting the paragraph style of `kind` gives its runs, as the writer's
+/// stylesheet and paragraph properties set it.
+fn style_fmt(kind: Kind) -> Fmt {
+    match kind {
+        Kind::Heading(n) => Fmt { bold: true, size: HEAD_SIZES.get(usize::from(n.clamp(1, 6)) - 1).copied(), ..Default::default() },
+        Kind::Title => Fmt { size: Some(28.0), ..Default::default() },
+        Kind::Quote => Fmt { italic: true, ..Default::default() },
+        Kind::Code => Fmt { code: true, size: Some(10.0), ..Default::default() },
+        Kind::Normal | Kind::Rule => Fmt::default(),
     }
-    if kind == Kind::Quote {
+}
+
+/// `f` with what it doesn't set directly taken from its paragraph style's formatting `base`.
+fn styled(base: &Fmt, f: &Fmt) -> Fmt {
+    let mut e = f.clone();
+    e.bold |= base.bold;
+    e.italic |= base.italic;
+    if e.size.is_none() {
+        e.size = base.size;
+    }
+    if !e.code && e.font.is_none() {
+        e.code = base.code;
+    }
+    e
+}
+
+/// Clear from `f` the formatting a paragraph of kind `kind` gets from its style: its bold,
+/// italic and code font, and its size when it is the style's (another size is the run's own).
+fn drop_style_formatting(kind: Kind, f: &mut Fmt) {
+    let style = style_fmt(kind);
+    if style.size.is_some() && f.size == style.size {
+        f.size = None;
+    }
+    if style.bold {
+        f.bold = false;
+    }
+    if style.italic {
         f.italic = false;
+    }
+    if style.code && f.code {
+        f.code = false;
+        f.font = None;
     }
 }
 
@@ -3137,6 +3174,73 @@ mod tests {
             (old.italic, old.underline, old.size, old.color, old.font.as_deref()),
             "{rtf}"
         );
+    }
+
+    #[test]
+    fn old_formatting_in_styled_paragraphs_is_the_styles() {
+        use model::{FmtChange, Kind};
+        let mark = || RevMark { author: "Alice".into(), date: "2024-03-15T10:30:00Z".into(), id: None };
+        // A heading 2 run grown to 20 pt and a code run grown to 14 pt, both from no direct
+        // formatting: Reject gives back the style's size, not RTF's default 12 pt. (A code run's
+        // own font doesn't reach the flow from a document, so the code font is checked below.)
+        let mut head = Para { kind: Kind::Heading(2), ..Default::default() };
+        head.push_text(
+            "Head",
+            &Fmt { size: Some(20.0), fmt_change: Some(Box::new(FmtChange { mark: mark(), old: Fmt::default() })), ..Default::default() },
+        );
+        let mut code = Para { kind: Kind::Code, ..Default::default() };
+        code.push_text(
+            "let x",
+            &Fmt { size: Some(14.0), fmt_change: Some(Box::new(FmtChange { mark: mark(), old: Fmt::default() })), ..Default::default() },
+        );
+        let flow = Flow { blocks: vec![FBlock::Para(head), FBlock::Para(code)], meta: Meta::default() };
+        let rtf = export(&model::to_doc(&flow));
+        let back = parse(rtf.as_bytes()).unwrap();
+        let runs: Vec<&Fmt> = back
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                FBlock::Para(p) => p.inlines.first().and_then(|i| if let Inline::Text(_, f) = i { Some(f) } else { None }),
+                _ => None,
+            })
+            .collect();
+        let head = runs.first().expect("heading run");
+        assert_eq!(head.size, Some(20.0), "{rtf}");
+        let old = &head.fmt_change.as_deref().expect("heading change").old;
+        assert!(old.size.is_none_or(|s| s == 16.0), "{old:?}\n{rtf}");
+        let code = runs.get(1).expect("code run");
+        assert_eq!(code.size, Some(14.0), "{rtf}");
+        let old = &code.fmt_change.as_deref().expect("code change").old;
+        assert!(old.size.is_none_or(|s| s == 10.0), "{old:?}\n{rtf}");
+        assert!(old.font.is_none() || old.code, "{old:?}\n{rtf}");
+    }
+
+    #[test]
+    fn old_formatting_in_a_code_paragraph_has_the_code_font() {
+        use model::{FmtChange, Kind};
+        // A code run set in Arial from no direct font: the old font written is the code font.
+        let mark = RevMark { author: "Alice".into(), date: String::new(), id: None };
+        let mut p = Para { kind: Kind::Code, ..Default::default() };
+        p.push_text(
+            "x",
+            &Fmt { font: Some("Arial".into()), fmt_change: Some(Box::new(FmtChange { mark, old: Fmt::default() })), ..Default::default() },
+        );
+        let mut w = Writer { t: Tables { fonts: vec!["Aptos".into()], colors: Vec::new() }, lists: Vec::new(), authors: None, base: Fmt::default() };
+        let mut out = String::new();
+        w.para(&p, false, None, "\\par", &mut out);
+        let mono = w.t.font(model::MONO_FONT);
+        assert!(out.contains(&format!("{{\\*\\oldcprops \\f{mono}\\crauth1}}")), "{out}");
+    }
+
+    #[test]
+    fn pard_inside_oldcprops_keeps_the_words_before_it() {
+        let doc = import(br"{\rtf1{\*\revtbl {Unknown;}{Alice;}}{\b{\*\oldcprops \i\crauth1\pard\b0}x}\par}").unwrap();
+        let paras = doc_paras(&doc);
+        let cp = paras.first().unwrap().props_of_char(0);
+        let c = cp.fmt_change.as_deref().expect("change kept");
+        assert_eq!(c.old.italic, Some(true));
+        assert_ne!(c.old.bold, Some(true));
+        assert_eq!(rev_of(&doc, Some(c.rev)).map(|r| r.1).as_deref(), Some("Alice"));
     }
 
     #[test]
