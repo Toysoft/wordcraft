@@ -9,11 +9,33 @@ use wordcraft_doc::props::{
 };
 use wordcraft_doc::section::{
     Columns, DocGrid, DocGridType, LineNumberRestart, LineNumbering, MAX_CHAR_SPACE, MAX_GRID_PITCH, NotePos, NoteProps, NoteRestart, NumFormat,
-    SectionProps, SectionStart,
+    PageVAlign, SectionProps, SectionStart,
 };
 
 use super::drawing_color::adjust_lum;
 use crate::units::{int, measure, on_off, tw, u32_of};
+
+/// A text frame (`w:framePr` without a drop cap, ECMA-376 §17.3.1.11), sizes and offsets in
+/// points (clamped), names kept as OOXML writes them.
+fn text_frame(k: &El) -> wordcraft_doc::props::TextFrame {
+    let len = |name: &str| tw(k, name).filter(|v| v.is_finite()).map(|v| v.clamp(-1584.0, 1584.0));
+    let word = |name: &str, allowed: &[&str], default: &str| k.attr(name).filter(|v| allowed.contains(v)).unwrap_or(default).to_string();
+    let align = |name: &str, allowed: &[&str]| k.attr(name).filter(|v| allowed.contains(v)).map(str::to_string);
+    wordcraft_doc::props::TextFrame {
+        w: len("w:w").filter(|v| *v > 0.0),
+        h: len("w:h").map(f32::abs).filter(|v| *v > 0.0),
+        h_exact: k.attr("w:hRule") == Some("exact"),
+        x: len("w:x").unwrap_or(0.0),
+        y: len("w:y").unwrap_or(0.0),
+        x_align: align("w:xAlign", &["left", "center", "right", "inside", "outside"]),
+        y_align: align("w:yAlign", &["top", "center", "bottom", "inside", "outside"]),
+        h_anchor: word("w:hAnchor", &["text", "margin", "page"], "page"),
+        v_anchor: word("w:vAnchor", &["text", "margin", "page"], "page"),
+        wrap: word("w:wrap", &["around", "auto", "notBeside", "none", "tight", "through"], "auto"),
+        h_space: len("w:hSpace").unwrap_or(0.0).max(0.0),
+        v_space: len("w:vSpace").unwrap_or(0.0).max(0.0),
+    }
+}
 use crate::xml::El;
 
 /// Context for property reading: theme fonts and colours, and style id aliases.
@@ -21,6 +43,9 @@ use crate::xml::El;
 pub struct PropCtx {
     pub major_font: String,
     pub minor_font: String,
+    /// The theme's complex-script fonts (`a:cs`), which the `…Bidi` theme slots name.
+    pub major_cs: String,
+    pub minor_cs: String,
     /// The theme's colour scheme (dk1, lt1, dk2, lt2, accent1..6, hlink, folHlink); empty when the
     /// package has none, and then `w:themeColor` falls back to the fixed colour.
     pub theme_colors: Vec<Rgb>,
@@ -33,13 +58,37 @@ pub struct PropCtx {
     pub theme: Vec<Rgb>,
 }
 
+/// A `w:numPr` that gives a level (`w:ilvl`) and no list (`w:numId`): the list is the one the
+/// paragraph's style chain uses (ECMA-376 §17.3.1.19). A placeholder while reading, never left in
+/// a document (`resolve_list_levels`).
+pub(crate) const LEVEL_ONLY: u32 = u32::MAX;
+
+/// The list a level-only `numPr` refers to: the nearest numbering in style `style`'s based-on chain
+/// (its own included) that names a list. `None` when no style in the chain has one.
+pub(crate) fn chain_list(sheet: &wordcraft_doc::styles::StyleSheet, style: &str) -> Option<u32> {
+    sheet.chain(style).iter().rev().filter_map(|s| s.para.numbering).map(|n| n.num).find(|n| *n != LEVEL_ONLY)
+}
+
+/// Resolve level-only numbering in `p` against its style chain (`style` when it has none).
+pub(crate) fn resolve_level_only(sheet: &wordcraft_doc::styles::StyleSheet, p: &mut ParaProps, style: &str) {
+    if let Some(n) = p.numbering.as_mut().filter(|n| n.num == LEVEL_ONLY) {
+        match chain_list(sheet, p.style.as_deref().unwrap_or(style)) {
+            Some(num) => n.num = num,
+            None => p.numbering = None,
+        }
+    }
+}
+
 impl PropCtx {
     pub fn style_id(&self, id: &str) -> String {
         self.alias.get(id).cloned().unwrap_or_else(|| id.to_string())
     }
 
     fn theme_font(&self, t: &str) -> Option<String> {
-        let f = if t.starts_with("major") { &self.major_font } else { &self.minor_font };
+        let (latin, cs) = if t.starts_with("major") { (&self.major_font, &self.major_cs) } else { (&self.minor_font, &self.minor_cs) };
+        // Measured in Word: `minorBidi`/`majorBidi` name the complex-script font, and an empty one
+        // names nothing, so the font beside it or the inherited one applies.
+        let f = if t.ends_with("Bidi") { cs } else { latin };
         (!f.is_empty()).then(|| f.clone())
     }
 
@@ -194,6 +243,7 @@ impl PropCtx {
 
     /// `w:pPr` (without `w:sectPr`; `w:rPr` is the paragraph mark, returned separately).
     pub fn ppr(&self, e: &El) -> (ParaProps, CharProps) {
+        // (`w:numPr` with a level and no list sets `LEVEL_ONLY`, resolved by the caller.)
         let mut p = ParaProps::default();
         let mut mark = CharProps::default();
         for k in e.els() {
@@ -218,13 +268,21 @@ impl PropCtx {
                 "w:framePr" => {
                     if matches!(k.attr("w:dropCap"), Some("drop") | Some("margin")) {
                         p.drop_cap = Some(k.attr("w:lines").and_then(u32_of).unwrap_or(3).clamp(1, 10) as u8);
+                    } else {
+                        p.frame = Some(text_frame(k));
                     }
                 }
                 "w:numPr" => {
                     let num = k.child_val("w:numId").and_then(u32_of);
-                    let level = k.child_val("w:ilvl").and_then(u32_of).unwrap_or(0).min(8) as u8;
-                    if let Some(num) = num {
-                        p.numbering = Some(NumRef { num, level });
+                    let ilvl = k.child_val("w:ilvl").and_then(u32_of);
+                    let level = ilvl.unwrap_or(0).min(8) as u8;
+                    match (num, ilvl) {
+                        (Some(num), _) => p.numbering = Some(NumRef { num, level }),
+                        // A level without a list: the list comes from the based-on style, as in
+                        // a Heading 3 that only says "level 3" of Heading 2's list. Resolved once
+                        // the styles are read (`resolve_list_levels`).
+                        (None, Some(_)) => p.numbering = Some(NumRef { num: LEVEL_ONLY, level }),
+                        (None, None) => {}
                     }
                 }
                 "w:pBdr" => p.borders = Some(borders(k)),
@@ -239,6 +297,14 @@ impl PropCtx {
                     }
                     if let Some(v) = tw(k, "w:after") {
                         p.space_after = Some(v.max(0.0));
+                    }
+                    // HTML-style automatic spacing; "0" switches an inherited one off.
+                    let auto = |name| k.attr(name).map(|v| matches!(v.trim(), "1" | "true" | "on"));
+                    if let Some(a) = auto("w:beforeAutospacing") {
+                        p.space_before_auto = Some(a);
+                    }
+                    if let Some(a) = auto("w:afterAutospacing") {
+                        p.space_after_auto = Some(a);
                     }
                     if let Some(line) = k.attr("w:line") {
                         // Word reads the rule case-insensitively (`atleast` is seen in the wild).
@@ -450,10 +516,22 @@ pub fn trpr(e: &El) -> RowProps {
             }
             "w:tblHeader" => r.header = on_off(k),
             "w:cantSplit" => r.cant_split = on_off(k),
+            "w:gridBefore" => r.grid_before = k.attr("w:val").and_then(u32_of).unwrap_or(0).min(63),
+            "w:gridAfter" => r.grid_after = k.attr("w:val").and_then(u32_of).unwrap_or(0).min(63),
+            "w:wBefore" => r.w_before = gap_width(k),
+            "w:wAfter" => r.w_after = gap_width(k),
             _ => {}
         }
     }
     r
+}
+
+/// `w:wBefore`/`w:wAfter` in points: only a width in twips (`dxa`) is kept.
+fn gap_width(k: &El) -> Option<f32> {
+    match k.attr("w:type") {
+        None | Some("dxa") => tw(k, "w:w").filter(|v| *v >= 0.0).map(|v| v.min(crate::units::MAX_LEN_PT)),
+        _ => None,
+    }
 }
 
 /// `w:tcPr`; returns the props and whether the cell is a legacy `hMerge` continuation.
@@ -478,8 +556,12 @@ pub fn tcpr(pc: &PropCtx, e: &El) -> (CellProps, bool) {
             "w:tcBorders" => c.borders = Some(borders(k)),
             "w:shd" => c.shading = pc.shd_fill(k),
             "w:noWrap" => c.no_wrap = on_off(k),
+            "w:hideMark" => c.hide_mark = on_off(k),
             "w:tcMar" => c.margins = Some(margins(k)),
-            "w:textDirection" => c.text_direction = TextDirection::from_ooxml(k.attr("w:val").unwrap_or("")),
+            "w:textDirection" => {
+                c.text_direction = TextDirection::from_ooxml(k.attr("w:val").unwrap_or(""));
+                c.text_direction_set = k.attr("w:val") == Some("lrTb");
+            }
             "w:vAlign" => {
                 c.valign = match k.attr("w:val") {
                     Some("center") => VAlign::Center,
@@ -568,14 +650,19 @@ pub fn sectpr(e: &El) -> (SectionProps, Vec<HfRef>) {
             }
             "w:footnotePr" => s.footnote_pr = note_pr(k, true),
             "w:endnotePr" => s.endnote_pr = note_pr(k, true),
+            "w:formProt" => s.form_prot = Some(on_off(k)),
             "w:titlePg" => s.title_page = on_off(k),
             "w:bidi" => s.rtl = on_off(k),
-            "w:textDirection" => s.text_direction = wordcraft_doc::props::TextDirection::from_ooxml(k.attr("w:val").unwrap_or("")),
+            "w:textDirection" => {
+                s.text_direction = wordcraft_doc::props::TextDirection::from_ooxml(k.attr("w:val").unwrap_or(""));
+                s.text_direction_set = k.attr("w:val") == Some("lrTb");
+            }
             "w:pgNumType" => {
                 s.page_num_start = k.attr("w:start").and_then(u32_of);
                 if let Some(f) = k.attr("w:fmt") {
                     s.page_num_format = NumFormat::from_ooxml(f);
                 }
+                s.page_num_set = s.page_num_start.is_none() && s.page_num_format == NumFormat::Decimal;
             }
             "w:lnNumType" => {
                 let mut l = LineNumbering::default();
@@ -595,9 +682,10 @@ pub fn sectpr(e: &El) -> (SectionProps, Vec<HfRef>) {
             }
             "w:vAlign" => {
                 s.valign = match k.attr("w:val") {
-                    Some("center") | Some("both") => VAlign::Center,
-                    Some("bottom") => VAlign::Bottom,
-                    _ => VAlign::Top,
+                    Some("center") => PageVAlign::Center,
+                    Some("both") => PageVAlign::Justify,
+                    Some("bottom") => PageVAlign::Bottom,
+                    _ => PageVAlign::Top,
                 }
             }
             "w:pgBorders" => s.page_borders = Some(borders(k)),

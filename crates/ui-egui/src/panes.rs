@@ -111,8 +111,22 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
     }
     let qid = egui::Id::new("nav_query");
     let mut q = ui.data(|d| d.get_temp::<String>(qid)).unwrap_or_default();
-    let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(tl!("Search document")).desired_width(f32::INFINITY));
-    if r.changed() {
+    // Ctrl+F with text selected searches for it, as Word does (a selection within one line).
+    let focus = std::mem::take(&mut app.nav_search_focus);
+    let picked = focus.then(|| app.session.selected_text()).filter(|t| !t.is_empty() && !t.contains(['\n', '\r']) && t.chars().count() <= 255);
+    if let Some(t) = &picked {
+        q = t.clone();
+    }
+    let mut out = egui::TextEdit::singleline(&mut q).hint_text(tl!("Search document")).desired_width(f32::INFINITY).show(ui);
+    let r = out.response.clone();
+    if focus {
+        // Focused with its text selected, so typing replaces it.
+        r.request_focus();
+        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(q.chars().count()));
+        out.state.cursor.set_char_range(Some(all));
+        out.state.store(ui.ctx(), r.id);
+    }
+    if r.changed() || picked.is_some() {
         ui.data_mut(|d| d.insert_temp(qid, q.clone()));
         if !q.is_empty() {
             let _ = app.session.run("edit.find", &json!({"text": q}));
@@ -203,9 +217,12 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
 fn nav_heading(ui: &mut Ui, level: u8, text: &str, selected: bool) -> egui::Response {
     ui.horizontal(|ui| {
         ui.add_space(level as f32 * 14.0);
+        let label = egui::RichText::new(text).font(if level == 0 { semibold(12.5) } else { regular(12.5) });
         ui.add_sized(
             vec2(ui.available_width(), ui.spacing().interact_size.y),
-            egui::Button::selectable(selected, egui::RichText::new(text).font(if level == 0 { semibold(12.5) } else { regular(12.5) })).truncate(),
+            // The trailing grow atom takes the spare width, so the text starts flush left
+            // under its parent instead of centred, as in Word (#1199).
+            egui::Button::selectable(selected, (label, egui::Atom::grow())).truncate(),
         )
         .on_hover_text(text)
     })
@@ -758,5 +775,33 @@ mod navigation_tests {
             );
             output.drop_without_applying_deltas();
         }
+    }
+
+    /// Word lists headings flush left, each level indented under its parent (#1199).
+    #[test]
+    fn headings_align_left_and_indent_by_level() {
+        let text_left = |level: u8| {
+            let ctx = egui::Context::default();
+            crate::theme::install_fonts(&ctx);
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 600.0));
+            let mut panel_left = 0.0;
+            let output = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                let result = egui::Panel::left("navigation_test").default_size(260.0).show(ui, |ui| nav_heading(ui, level, "Kilns", false));
+                panel_left = result.response.rect.min.x;
+            });
+            let x = output
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == "Kilns" => Some(t.pos.x + t.galley.rect.min.x),
+                    _ => None,
+                })
+                .unwrap();
+            output.drop_without_applying_deltas();
+            x - panel_left
+        };
+        let (top, second) = (text_left(0), text_left(1));
+        assert!(top < 30.0, "a top-level heading starts at the pane's left edge, not centred: {top}px in");
+        assert!((second - top - 14.0).abs() < 0.5, "a level-2 heading is indented 14px under its parent: {top} / {second}");
     }
 }

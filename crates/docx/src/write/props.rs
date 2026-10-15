@@ -209,6 +209,35 @@ pub fn ppr_inner(w: &mut W, p: &ParaProps, framed: bool, num_change: Option<&Cha
             "w:framePr",
             &[("w:dropCap", "drop"), ("w:lines", &n(lines.min(10) as i64)), ("w:wrap", "around"), ("w:vAnchor", "text"), ("w:hAnchor", "text")],
         );
+    } else if let Some(f) = &p.frame {
+        let (fw, fh, fx, fy) = (f.w.map(twips), f.h.map(twips), twips(f.x), twips(f.y));
+        let (hs, vs) = (twips(f.h_space), twips(f.v_space));
+        let mut a: Vec<(&str, &str)> = Vec::new();
+        if let Some(v) = &fw {
+            a.push(("w:w", v));
+        }
+        if let Some(v) = &fh {
+            a.push(("w:h", v));
+            a.push(("w:hRule", if f.h_exact { "exact" } else { "atLeast" }));
+        }
+        if f.h_space > 0.0 {
+            a.push(("w:hSpace", &hs));
+        }
+        if f.v_space > 0.0 {
+            a.push(("w:vSpace", &vs));
+        }
+        a.push(("w:wrap", &f.wrap));
+        a.push(("w:vAnchor", &f.v_anchor));
+        a.push(("w:hAnchor", &f.h_anchor));
+        match &f.x_align {
+            Some(x) => a.push(("w:xAlign", x)),
+            None => a.push(("w:x", &fx)),
+        }
+        match &f.y_align {
+            Some(y) => a.push(("w:yAlign", y)),
+            None => a.push(("w:y", &fy)),
+        }
+        w.empty("w:framePr", &a);
     }
     toggle(w, "w:widowControl", p.widow_control);
     if let Some(nr) = p.numbering {
@@ -266,7 +295,12 @@ pub fn ppr_inner(w: &mut W, p: &ParaProps, framed: bool, num_change: Option<&Cha
     toggle(w, "w:autoSpaceDN", p.auto_space_dn);
     toggle(w, "w:bidi", p.bidi);
     toggle(w, "w:snapToGrid", p.snap_to_grid);
-    if p.space_before.is_some() || p.space_after.is_some() || p.line_spacing.is_some() {
+    if p.space_before.is_some()
+        || p.space_after.is_some()
+        || p.line_spacing.is_some()
+        || p.space_before_auto.is_some()
+        || p.space_after_auto.is_some()
+    {
         let before = p.space_before.map(|v| twips(v.max(0.0)));
         let after = p.space_after.map(|v| twips(v.max(0.0)));
         let line = p.line_spacing.map(|l| match l {
@@ -278,8 +312,14 @@ pub fn ppr_inner(w: &mut W, p: &ParaProps, framed: bool, num_change: Option<&Cha
         if let Some(b) = &before {
             a.push(("w:before", b));
         }
+        if let Some(on) = p.space_before_auto {
+            a.push(("w:beforeAutospacing", if on { "1" } else { "0" }));
+        }
         if let Some(x) = &after {
             a.push(("w:after", x));
+        }
+        if let Some(on) = p.space_after_auto {
+            a.push(("w:afterAutospacing", if on { "1" } else { "0" }));
         }
         if let Some((l, r)) = &line {
             a.push(("w:line", l));
@@ -424,8 +464,12 @@ fn tblpr_inner(w: &mut W, t: &TableProps) {
 
 /// `w:trPr` (when the row has any), with a tracked change last as for [`tblpr`].
 pub fn trpr(w: &mut W, r: &RowProps, change: Option<&ChangeAttrs>) {
+    if let Some(x) = &r.exceptions {
+        tblprex(w, x);
+    }
     let change = change.zip(r.fmt_change.as_ref());
-    if r.height.is_none() && !r.header && !r.cant_split && change.is_none() {
+    let gaps = r.grid_before > 0 || r.grid_after > 0 || r.w_before.is_some() || r.w_after.is_some();
+    if r.height.is_none() && !r.header && !r.cant_split && !gaps && change.is_none() {
         return;
     }
     w.open("w:trPr", &[]);
@@ -436,7 +480,48 @@ pub fn trpr(w: &mut W, r: &RowProps, change: Option<&ChangeAttrs>) {
     w.close("w:trPr");
 }
 
+/// `w:tblPrEx`: only the properties the row overrides (it takes no style, float or look).
+fn tblprex(w: &mut W, t: &TableProps) {
+    w.open("w:tblPrEx", &[]);
+    if let Some(p) = t.width_pct {
+        w.empty("w:tblW", &[("w:w", &n(round(p.clamp(0.0, 1000.0) * 50.0))), ("w:type", "pct")]);
+    } else if let Some(v) = t.width {
+        w.empty("w:tblW", &[("w:w", &twips(v.max(0.0))), ("w:type", "dxa")]);
+    }
+    if let Some(a) = t.align {
+        w.val("w:jc", align_val(if a == Align::Justify || a == Align::Distribute { Align::Left } else { a }));
+    }
+    if let Some(i) = t.indent {
+        w.empty("w:tblInd", &[("w:w", &twips(i)), ("w:type", "dxa")]);
+    }
+    if let Some(b) = &t.borders {
+        borders(w, "w:tblBorders", b, Some("w:insideH"), &[]);
+    }
+    if let Some(s) = t.shading {
+        w.empty("w:shd", &[("w:val", "clear"), ("w:color", "auto"), ("w:fill", &s.hex())]);
+    }
+    if t.fixed {
+        w.empty("w:tblLayout", &[("w:type", "fixed")]);
+    }
+    if let Some(m) = &t.cell_margins {
+        margins(w, "w:tblCellMar", m);
+    }
+    w.close("w:tblPrEx");
+}
+
 fn trpr_inner(w: &mut W, r: &RowProps) {
+    // The grid gaps go first, in the schema's order (as Word writes them).
+    if r.grid_before > 0 {
+        w.val("w:gridBefore", &n(r.grid_before.into()));
+    }
+    if r.grid_after > 0 {
+        w.val("w:gridAfter", &n(r.grid_after.into()));
+    }
+    for (name, width) in [("w:wBefore", r.w_before), ("w:wAfter", r.w_after)] {
+        if let Some(v) = width {
+            w.empty(name, &[("w:w", &twips(v)), ("w:type", "dxa")]);
+        }
+    }
     if r.cant_split {
         w.empty("w:cantSplit", &[]);
     }
@@ -489,13 +574,16 @@ fn tcpr_inner(w: &mut W, c: &CellProps) {
     if let Some(m) = &c.margins {
         margins(w, "w:tcMar", m);
     }
-    if c.text_direction.is_turned() {
+    if c.text_direction.is_turned() || c.text_direction_set {
         w.val("w:textDirection", c.text_direction.ooxml());
     }
     match c.valign {
         VAlign::Top => {}
         VAlign::Center => w.val("w:vAlign", "center"),
         VAlign::Bottom => w.val("w:vAlign", "bottom"),
+    }
+    if c.hide_mark {
+        w.empty("w:hideMark", &[]);
     }
 }
 

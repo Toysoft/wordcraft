@@ -65,24 +65,31 @@ impl Target {
     }
 }
 
-/// Word's tab letters. `File` (Backstage only) and `Help` (dialog-only content) have none.
+/// Word's tab letters, as Word for Windows shows them after Alt (File F, Design G, References S,
+/// Review R, View W, Help Y). File opens the Backstage.
 const TAB_LETTERS: [(&str, &str); 11] = [
-    ("File", ""),
+    ("File", "F"),
     ("Home", "H"),
     ("Insert", "N"),
     ("Draw", "D"),
-    ("Design", "L"),
+    ("Design", "G"),
     ("Layout", "P"),
-    ("References", "R"),
+    ("References", "S"),
     ("Mailings", "M"),
-    ("Review", "S"),
-    ("View", "V"),
-    ("Help", ""),
+    ("Review", "R"),
+    ("View", "W"),
+    ("Help", "Y"),
 ];
+
+/// Word's contextual table tabs take two letters (Alt, J, T and Alt, J, L), shown in a table.
+const TABLE_TAB_LETTERS: [(&str, &str); 2] = [("Table Design", "JT"), ("Table Layout", "JL")];
+
+/// The Search box's badge beside the tab badges (Word's Alt, Q).
+pub const SEARCH_LETTER: &str = "Q";
 
 /// The letter badge for a tab (empty when it has none).
 pub fn tab_letter(tab: &str) -> &'static str {
-    TAB_LETTERS.iter().find(|(t, _)| *t == tab).map(|(_, l)| *l).unwrap_or("")
+    TAB_LETTERS.iter().chain(&TABLE_TAB_LETTERS).find(|(t, _)| *t == tab).map(|(_, l)| *l).unwrap_or("")
 }
 
 /// The tabs that carry a badge, in display order.
@@ -168,7 +175,7 @@ fn controls(tab: &str) -> Vec<Control> {
             m("Line and Paragraph Spacing", "para.lineSpacing"),
             m("Shading", "para.shading"),
             m("Borders", "para.borders"),
-            d("Find", "find"),
+            c("Find", "edit.find"),
             d("Replace", "replace"),
             m("Select", "select.all"),
             c("Dictate", "tools.dictate"),
@@ -329,6 +336,7 @@ fn controls(tab: &str) -> Vec<Control> {
             c("New Window", "view.newWindow"),
             c("Arrange All", "view.arrangeAll"),
             c("Split", "view.split"),
+            c("Full Screen", "view.fullScreen"),
             c("Macros", "tools.macros"),
         ],
         "Help" => vec![d("Help", "about"), c("Community Discord", "ui.discord"), d("Commands", "commands")],
@@ -482,10 +490,11 @@ pub fn badge(ui: &Ui, rect: Rect, letter: &str) {
     p.text(r.center(), Align2::CENTER_CENTER, letter, font, t.on_accent);
 }
 
-/// Record a tab badge over a tab's real rect, called as each tab is laid out.
-pub fn record_tab(rect: Rect, tab: &str, out: &mut Vec<(Rect, String)>) {
+/// Record a tab badge over a tab's real rect, called as each tab is laid out. After a typed
+/// prefix (J, or Quick Access Toolbar digits) only the badges it can still complete show.
+pub fn record_tab(rect: Rect, tab: &str, prefix: &str, out: &mut Vec<(Rect, String)>) {
     let l = tab_letter(tab);
-    if !l.is_empty() {
+    if !l.is_empty() && l.starts_with(prefix) {
         out.push((rect, l.to_string()));
     }
 }
@@ -523,23 +532,32 @@ pub fn handle_key(app: &mut WordApp, key: egui::Key) -> bool {
                     app.ui.keytip_prefix.clear();
                     return true;
                 };
-                if app.ui.keytips == Phase::Tabs && (name.chars().all(|c| c.is_ascii_digit()) || !app.ui.keytip_prefix.is_empty()) {
+                // Quick Access Toolbar badges are all digits; a pending prefix keeps its kind.
+                let typed = if app.ui.keytip_prefix.is_empty() { name.as_str() } else { app.ui.keytip_prefix.as_str() };
+                if app.ui.keytips == Phase::Tabs && typed.chars().all(|c| c.is_ascii_digit()) {
                     qat_key(app, &name);
                     return true;
                 }
                 match app.ui.keytips {
                     Phase::Tabs => {
-                        let mut hit: Option<&'static str> = None;
-                        for tab in badge_tabs(app) {
-                            if tab_letter(tab) == name {
-                                hit = Some(tab);
-                                break;
-                            }
+                        let name = format!("{}{name}", app.ui.keytip_prefix);
+                        let tabs = badge_tabs(app);
+                        let hit = tabs.iter().copied().find(|t| tab_letter(t) == name);
+                        // J waits for the table tab's second letter.
+                        if hit.is_none() && tabs.iter().any(|t| tab_letter(t).starts_with(&name)) {
+                            app.ui.keytip_prefix = name;
+                            return true;
                         }
                         match hit {
                             Some(tab) => {
                                 let _ = app.run("ui.tab", serde_json::json!({ "tab": tab }));
-                                app.ui.keytips = Phase::Commands;
+                                // File opens the Backstage: no ribbon commands to badge.
+                                app.ui.keytips = if tab == "File" { Phase::Off } else { Phase::Commands };
+                            }
+                            // Q is the title bar's Search box, as in Word (#819).
+                            None if name == SEARCH_LETTER => {
+                                app.ui.keytips = Phase::Off;
+                                let _ = app.run("tools.search", serde_json::json!({}));
                             }
                             None => app.ui.keytips = Phase::Off,
                         }
@@ -662,6 +680,9 @@ pub fn logic(app: &mut WordApp, ctx: &egui::Context) {
     // On macOS Option+key types accents, so Alt must never arm keytips there.
     const ALT_ARMS: bool = !cfg!(target_os = "macos");
     let events: Vec<egui::Event> = ctx.input(|i| i.events.clone());
+    // Alt pressed or let go while dragging (an object, a selection) is part of the drag (Alt
+    // moves an object freely), not a keytip tap.
+    let dragging = app.canvas.obj_drag.is_some() || ctx.input(|i| i.pointer.any_down());
     let mut other_key = false;
     let mut alt_released = false;
     let mut f10 = false;
@@ -686,6 +707,9 @@ pub fn logic(app: &mut WordApp, ctx: &egui::Context) {
                 app.ui.alt_chord_used = true;
             }
             _ => {}
+        }
+        if dragging && app.ui.alt_pressed {
+            app.ui.alt_chord_used = true;
         }
     }
     // Route letter/navigation keys to the keytips while they are showing.
@@ -841,16 +865,19 @@ mod tests {
 
     #[test]
     fn tab_letters_match_word() {
+        // Observed in Word for Windows (Microsoft 365): Alt shows these over the tabs.
+        assert_eq!(tab_letter("File"), "F");
         assert_eq!(tab_letter("Home"), "H");
         assert_eq!(tab_letter("Insert"), "N");
-        assert_eq!(tab_letter("Design"), "L");
+        assert_eq!(tab_letter("Design"), "G");
         assert_eq!(tab_letter("Layout"), "P");
-        assert_eq!(tab_letter("References"), "R");
+        assert_eq!(tab_letter("References"), "S");
         assert_eq!(tab_letter("Mailings"), "M");
-        assert_eq!(tab_letter("Review"), "S");
-        assert_eq!(tab_letter("View"), "V");
-        assert_eq!(tab_letter("File"), "");
-        assert_eq!(tab_letter("Help"), "");
+        assert_eq!(tab_letter("Review"), "R");
+        assert_eq!(tab_letter("View"), "W");
+        assert_eq!(tab_letter("Help"), "Y");
+        assert_eq!(tab_letter("Table Design"), "JT");
+        assert_eq!(tab_letter("Table Layout"), "JL");
     }
 
     #[test]
@@ -862,7 +889,7 @@ mod tests {
         let a = app();
         let catalog: Vec<&str> = wordcraft_engine::catalog::entries().into_iter().map(|e| e.3).collect();
         let mut missing = Vec::new();
-        for (tab, _) in TAB_LETTERS {
+        for (tab, _) in TAB_LETTERS.iter().chain(&TABLE_TAB_LETTERS) {
             for ctrl in controls(tab) {
                 if let Target::Cmd { id, .. } = ctrl.target
                     && a.session.registry.get(id).is_none()
@@ -970,6 +997,53 @@ mod tests {
         assert_eq!(a.ui.keytips, Phase::Commands);
         assert!(handle_key(&mut a, egui::Key::F));
         assert_eq!(a.ui.keytips, Phase::Off);
+        // Alt, F: the Backstage, and keytips end.
+        a.ui.backstage = false;
+        activate(&mut a);
+        assert!(handle_key(&mut a, egui::Key::F));
+        assert!(a.ui.backstage, "Alt, F opens File");
+        assert_eq!(a.ui.keytips, Phase::Off);
+        // Alt, W: View; Alt, R: Review (Word's letters, not V and S).
+        a.ui.backstage = false;
+        activate(&mut a);
+        assert!(handle_key(&mut a, egui::Key::W));
+        assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("View", Phase::Commands));
+        a.ui.keytips = Phase::Off;
+        activate(&mut a);
+        assert!(handle_key(&mut a, egui::Key::R));
+        assert_eq!(a.ui.tab, "Review");
+    }
+
+    /// Word's contextual table tabs take two letters (#1183): Alt, J, T is Table Design and
+    /// Alt, J, L is Table Layout. J alone waits for the second letter.
+    #[test]
+    fn alt_j_t_and_alt_j_l_open_the_table_tabs() {
+        let mut a = app();
+        a.run("insert.table", serde_json::json!({"rows": 2, "cols": 2})).unwrap();
+        assert!(crate::ribbon::in_table_public(&a));
+        for (second, tab) in [(egui::Key::T, "Table Design"), (egui::Key::L, "Table Layout")] {
+            a.run("ui.tab", serde_json::json!({"tab": "Home"})).unwrap();
+            activate(&mut a);
+            assert!(handle_key(&mut a, egui::Key::J));
+            assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("Home", Phase::Tabs), "J waits for the second letter");
+            assert!(handle_key(&mut a, second));
+            assert_eq!((a.ui.tab.as_str(), a.ui.keytips), (tab, Phase::Commands));
+            assert!(a.ui.keytip_prefix.is_empty());
+            assert!(!letters_for(&a, tab).is_empty(), "{tab} badges its controls");
+            a.ui.keytips = Phase::Off;
+        }
+        // J then a letter no table tab uses ends keytips without switching tabs.
+        a.run("ui.tab", serde_json::json!({"tab": "Home"})).unwrap();
+        activate(&mut a);
+        handle_key(&mut a, egui::Key::J);
+        handle_key(&mut a, egui::Key::X);
+        assert_eq!((a.ui.tab.as_str(), a.ui.keytips), ("Home", Phase::Off));
+        assert!(a.ui.keytip_prefix.is_empty());
+        // Outside a table there is no J tab.
+        let mut b = app();
+        activate(&mut b);
+        handle_key(&mut b, egui::Key::J);
+        assert_eq!(b.ui.keytips, Phase::Off);
     }
 
     #[test]
@@ -1099,5 +1173,18 @@ mod tests {
         assert_eq!(b.ui.keytips, Phase::Off);
         b.apply_prefs(serde_json::from_str("{}").unwrap());
         assert!(b.ui.keytips_enabled, "older preferences retain enabled KeyTips");
+    }
+
+    /// Alt, then Q opens Search like Alt+Q (#819); no tab owns Q.
+    #[test]
+    fn alt_then_q_opens_search() {
+        let mut a = app();
+        a.ui.backstage = false;
+        a.dialog = None;
+        assert!(TAB_LETTERS.iter().all(|(_, l)| *l != SEARCH_LETTER));
+        activate(&mut a);
+        assert!(handle_key(&mut a, egui::Key::Q));
+        assert_eq!(a.ui.keytips, Phase::Off);
+        assert!(matches!(a.dialog, Some(crate::dialogs::Dialog::Commands { .. })), "{:?}", a.dialog.as_ref().map(|d| d.name()));
     }
 }

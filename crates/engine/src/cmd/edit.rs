@@ -7,6 +7,26 @@ use wordcraft_doc::{Pos, StoryRef};
 use super::{delete_selection, find_pattern, pos_json, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
+/// Undo several steps at once: the Undo button's list (#701). `count` is validated here and
+/// clamped to the undo depth, so hostile numbers never reach the stack.
+fn undo_to(s: &mut Session, v: &Value) -> CmdResult {
+    let n = p::u64(v, "count").ok_or_else(|| CmdError::Params("`count` (whole number, 1 or more) is required".into()))?;
+    if n == 0 {
+        return Err(CmdError::Params("`count` must be 1 or more".into()));
+    }
+    let n = usize::try_from(n).unwrap_or(usize::MAX).min(s.undo_depth());
+    if s.step_lifts_protection(false) {
+        return Err(CmdError::Disabled("edit.undoTo: use Stop Protection to lift the document's protection".into()));
+    }
+    let undone = s.undo_steps(n);
+    let mut r = sel_result(s)?;
+    if let Some(m) = r.as_object_mut() {
+        m.insert("undone".into(), json!(undone));
+        m.insert("depth".into(), json!(s.undo_depth()));
+    }
+    Ok(r)
+}
+
 fn has_sel(s: &Session) -> Option<&'static str> {
     if s.sel.is_collapsed() { Some("nothing is selected") } else { None }
 }
@@ -22,6 +42,14 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .key("Mod+Z")
         .pure(),
+        CommandSpec::new("edit.undoTo", "Undo Actions", "Quick Access Toolbar", undo_to)
+            .params(r#"{"count": n (1 = the newest step, like edit.undo; n undoes the newest n steps at once; at most the undo depth)}"#)
+            .when(|s| if s.can_undo() { None } else { Some("there is nothing to undo") })
+            .pure(),
+        CommandSpec::new("edit.undoHistory", "Undo History", "Quick Access Toolbar", |s, _| {
+            Ok(json!({"undo": s.undo_history(), "depth": s.undo_depth(), "redo": s.redo_label()}))
+        })
+        .pure(),
         CommandSpec::new("edit.redo", "Redo", "Quick Access Toolbar", |s, _| {
             if s.step_lifts_protection(true) {
                 return Err(CmdError::Disabled("edit.redo: use Stop Protection to lift the document's protection".into()));
@@ -32,8 +60,8 @@ pub fn specs() -> Vec<CommandSpec> {
         .key("Mod+Y / Mod+Shift+Z")
         .pure(),
         CommandSpec::new("edit.cut", "Cut", "Home › Clipboard", cut).key("Mod+X").when(has_sel),
-        CommandSpec::new("edit.copy", "Copy", "Home › Clipboard", copy).key("Mod+C").pure(),
-        CommandSpec::new("edit.paste", "Paste", "Home › Clipboard", paste).key("Mod+V").params(r#"{"text"?: string, "html"?: string, "rtf"?: string}"#),
+        CommandSpec::new("edit.copy", "Copy", "Home › Clipboard", copy).key("Mod+C / Mod+Insert").pure(),
+        CommandSpec::new("edit.paste", "Paste", "Home › Clipboard", paste).key("Mod+V / Shift+Insert").params(r#"{"text"?: string, "html"?: string, "rtf"?: string}"#),
         CommandSpec::new("edit.pasteText", "Paste: Keep Text Only", "Home › Clipboard › Paste", paste_text)
             .params(r#"{"text"?: string}"#)
             .key("Mod+Shift+Alt+V"),
@@ -75,7 +103,7 @@ pub fn specs() -> Vec<CommandSpec> {
             read_opts(s, v);
             step(s, 1)
         })
-        .key("Mod+G / F3 / Mod+PageDown")
+        .key("Mod+G / F3 / Shift+F4 / Mod+PageDown")
         .params(r#"{"text"?: string, "matchCase"?: bool, "wholeWord"?: bool, "regex"?: bool}"#)
         .pure(),
         CommandSpec::new("edit.findPrevious", "Find Previous", "Home › Editing › Find", |s, v| {
@@ -86,12 +114,26 @@ pub fn specs() -> Vec<CommandSpec> {
         .key(super::mac_or("Mod+Shift+G / Mod+PageUp", "Mod+PageUp"))
         .params(r#"{"text"?: string, "matchCase"?: bool, "wholeWord"?: bool, "regex"?: bool}"#)
         .pure(),
-        CommandSpec::new("edit.replace", "Replace", "Home › Editing", replace).key("Mod+H").params(r#"{"text": string, "with": string, …options of edit.replaceAll}"#),
+        CommandSpec::new("edit.replace", "Replace", "Home › Editing", replace).params(r#"{"text": string, "with": string, …options of edit.replaceAll}"#),
+        // Ctrl+H, Home › Replace: the Find and Replace dialog on its Replace tab (#712). Opening
+        // it changes nothing, so it is its own command and never marks the document edited.
+        CommandSpec::new("edit.findReplace", "Find and Replace", "Home › Editing", |s, v| {
+            let tab = match p::str(v, "tab").unwrap_or("replace") {
+                t @ ("find" | "replace" | "goto") => t,
+                other => return Err(CmdError::Params(format!("`tab` is find, replace or goto, not `{other}`"))),
+            };
+            s.ui_requests.push(json!({"open": tab}));
+            Ok(json!({"open": tab}))
+        })
+        // Word for Mac's own key is ⌃H.
+        .key(super::mac_or("Mod+H / Ctrl+H", "Mod+H"))
+        .params(r#"{"tab"?: "find|replace|goto" (default replace)}"#)
+        .pure(),
         CommandSpec::new("edit.replaceAll", "Replace All", "Home › Editing › Replace", replace_all)
             .params(r#"{"text": string, "with": string (^p ^t ^& ^c …; \\1 with wildcards), …options of edit.find}"#),
         CommandSpec::new("edit.goto", "Go To", "Home › Editing › Find", goto)
             .key("Mod+Alt+G / F5")
-            .params(r#"{"page"?: n, "bookmark"?: string, "paragraph"?: n}"#)
+            .params(r#"{"page"?: n, "pageBy"?: int (pages forward, negative back, from the caret's page), "bookmark"?: string (selects its text), "paragraph"?: n}; none opens Find and Replace on its Go To tab"#)
             .pure(),
         CommandSpec::new("edit.goBack", "Go Back", "Navigation", |s, _| {
             let p = s.go_back().ok_or_else(|| CmdError::Failed("no edits to go back to yet".into()))?;
@@ -99,7 +141,7 @@ pub fn specs() -> Vec<CommandSpec> {
             s.goal_x = None;
             sel_result(s)
         })
-        .key("Shift+F5")
+        .key("Shift+F5 / Mod+Alt+Z")
         .pure(),
         CommandSpec::new("edit.formatPainter", "Format Painter", "Home › Clipboard", painter).params(r#"{"sticky"?: bool}"#).pure(),
         CommandSpec::new("edit.copyFormat", "Copy Formatting", "Home › Clipboard", |s, _| {
@@ -118,10 +160,20 @@ fn copy(s: &mut Session, _: &Value) -> CmdResult {
         return Ok(json!({"text": ""}));
     }
     let f = s.doc.copy_range(&a, &b);
-    s.clipboard_text = f.plain_text();
+    s.clipboard_text = f.clipboard_text();
     s.clip_history.push(&f, &s.clipboard_text);
     s.clipboard = Some(f);
-    Ok(json!({"text": s.clipboard_text}))
+    Ok(copy_result(s))
+}
+
+/// What Copy and Cut return: the clipboard's text, and the copy as HTML (equations as MathML,
+/// #816) for the host to put on the system clipboard too, so other programs keep the formatting.
+pub(crate) fn copy_result(s: &mut Session) -> Value {
+    s.clipboard_html = match &s.clipboard {
+        Some(f) => wordcraft_formats::html::export_fragment(&f.to_document()),
+        None => String::new(),
+    };
+    if s.clipboard_html.is_empty() { json!({"text": s.clipboard_text}) } else { json!({"text": s.clipboard_text, "html": s.clipboard_html}) }
 }
 
 fn cut(s: &mut Session, v: &Value) -> CmdResult {
@@ -493,8 +545,10 @@ fn read_opts(s: &mut Session, v: &Value) {
 fn find(s: &mut Session, v: &Value) -> CmdResult {
     read_opts(s, v);
     if p::str(v, "text").is_none() {
+        // Word's Ctrl+F: the Navigation pane with its search box ready to type in (#712); the
+        // Find and Replace dialog is Advanced Find.
         s.view.nav_pane = true;
-        s.ui_requests.push(json!({"open": "find"}));
+        s.ui_requests.push(json!({"focus": "navSearch"}));
         return Ok(json!({"count": s.find.results.len()}));
     }
     let story = s.sel.focus.story;
@@ -581,6 +635,7 @@ fn replace_all(s: &mut Session, v: &Value) -> CmdResult {
     let story = s.sel.focus.story;
     let results = search_full(s, story, true)?;
     let n = results.len();
+    super::controls::check_deletions(s, story, results.iter().map(|f| (&f.a, &f.b)))?;
     for Found { a, b, rep } in results.into_iter().rev() {
         let with = rep.unwrap_or_default();
         if s.doc.settings.track_changes {
@@ -605,7 +660,13 @@ fn replace_all(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 fn goto(s: &mut Session, v: &Value) -> CmdResult {
-    if let Some(pg) = p::u64(v, "page") {
+    // Relative pages, Go To's "+2" / "-1": from the page the caret is on.
+    let by = v.get("pageBy").and_then(Value::as_i64);
+    let rel = by.map(|by| {
+        let here = s.layout().caret_on(&s.sel.focus, s.page_hint).map_or(0, |c| c.page) as i64;
+        (here + 1).saturating_add(by).max(1) as u64
+    });
+    if let Some(pg) = rel.or_else(|| p::u64(v, "page")) {
         let l = s.layout();
         let idx = (pg.max(1) as usize - 1).min(l.pages.len().saturating_sub(1));
         let target = l.pages.get(idx).and_then(|page| {
@@ -624,8 +685,14 @@ fn goto(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     }
     if let Some(name) = p::str(v, "bookmark") {
-        let bm = s.doc.bookmarks().into_iter().find(|(n, _)| n == name).ok_or_else(|| CmdError::Failed(format!("no bookmark `{name}`")))?;
-        s.sel = Selection::caret(bm.1);
+        // Word's built-in bookmark: the top of the document.
+        if name == "_top" {
+            s.sel = Selection::caret(Pos::body(0, 0));
+            return sel_result(s);
+        }
+        // As in Word, the bookmark's text is selected (a caret for an empty bookmark).
+        let (from, to) = super::insert::bookmark_range(&s.doc, name).ok_or_else(|| CmdError::Failed(format!("no bookmark `{name}`")))?;
+        s.sel = Selection { anchor: from, focus: to };
         return sel_result(s);
     }
     if let Some(n) = p::u64(v, "paragraph") {

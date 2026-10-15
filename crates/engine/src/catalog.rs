@@ -31,9 +31,11 @@ File|Backstage|Recover Unsaved|file.recover
 File|Backstage|New from Template|file.newFromTemplate
 File|Backstage|Save as Template|file.saveTemplate
 Quick Access|Toolbar|Undo|edit.undo
+Quick Access|Toolbar|Undo List|edit.undoTo
 Quick Access|Toolbar|Redo|edit.redo
 Quick Access|Toolbar|Repeat|edit.repeat
 Quick Access|Toolbar|AutoSave|file.autosave
+Title Bar|Search|Search (Tell Me)|tools.search
 Home|Clipboard|Paste|edit.paste
 Home|Clipboard|Paste Keep Text Only|edit.pasteText
 Home|Clipboard|Paste Merge Formatting|edit.pasteMerge
@@ -263,6 +265,8 @@ Mailings|Create|Labels|mailings.labels
 Mailings|Start Mail Merge|Start Mail Merge|mailings.start
 Mailings|Start Mail Merge|Select Recipients|mailings.recipients
 Mailings|Start Mail Merge|Edit Recipient List|mailings.editRecipients
+Mailings|Start Mail Merge|Filter Recipients|mailings.filterRecipients
+Mailings|Start Mail Merge|Sort Recipients|mailings.sortRecipients
 Mailings|Write & Insert Fields|Highlight Merge Fields|mailings.highlightFields
 Mailings|Write & Insert Fields|Address Block|mailings.addressBlock
 Mailings|Write & Insert Fields|Greeting Line|mailings.greetingLine
@@ -356,6 +360,7 @@ Table Design|Borders|Borders|table.borders
 Table Design|Borders|Border Painter|table.borderPainter
 Table Layout|Table|Select Table|table.selectTable
 Table Layout|Table|Select Row|table.selectRow
+Table Layout|Table|Select Column|table.selectColumn
 Table Layout|Table|Select Cell|table.selectCell
 Table Layout|Table|View Gridlines|table.viewGridlines
 Table Layout|Table|Properties|table.properties
