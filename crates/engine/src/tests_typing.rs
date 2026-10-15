@@ -1140,3 +1140,26 @@ fn typing_after_a_citation_goes_outside_its_field() {
     let inside = Pos { off: f[0].start.off + wordcraft_doc::para::OBJ.len_utf8(), ..f[0].start.clone() };
     assert_eq!(s.doc.copy_range(&inside, &f[0].end).plain_text(), "(Smith 2020)");
 }
+
+#[test]
+fn right_arrow_moves_through_a_ligature_one_letter_at_a_time() {
+    // The default font draws "ffi" as one glyph; each Right press moves the drawn caret (#1974).
+    let mut s = typed("ffi");
+    let drawn_as_one_glyph = s
+        .layout()
+        .pages
+        .iter()
+        .flat_map(|p| p.items.iter())
+        .any(|it| matches!(it, wordcraft_layout::Placed::Lines { para, .. } if para.glyphs.len() < para.clusters.len()));
+    assert!(drawn_as_one_glyph, "the default font should draw ffi as a ligature");
+    run(&mut s, "caret.home", json!({}));
+    let mut xs = Vec::new();
+    for _ in 0..4 {
+        let l = s.layout();
+        xs.push((s.sel.focus.off, l.caret(&s.sel.focus).unwrap().x));
+        run(&mut s, "caret.right", json!({}));
+    }
+    let offs: Vec<usize> = xs.iter().map(|p| p.0).collect();
+    assert_eq!(offs, [0, 1, 2, 3]);
+    assert!(xs.windows(2).all(|w| w[0].1 < w[1].1), "caret x after each Right press: {xs:?}");
+}
