@@ -2232,3 +2232,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Schmal
 	Medium	Mittel
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Weitere Füllfarben…
+	More Outline Colors…	Weitere Konturfarben…
+	Dashes	Striche
+	Solid	Durchgezogen
+	Round Dot	Runde Punkte
+	Square Dot	Quadratische Punkte
+	Dash	Strich
+	Dash Dot	Strich-Punkt
+	Long Dash	Langer Strich
+	Long Dash Dot	Langer Strich-Punkt
+	Long Dash Dot Dot	Langer Strich-Punkt-Punkt
+	Theme Styles	Designformate
+	Colored Outline	Farbige Kontur
+	Colored Fill	Farbige Füllung
+	Light 1 Outline, Colored Fill	Kontur Hell 1, farbige Füllung
+	Subtle Effect	Schwacher Effekt
+	Moderate Effect	Mittlerer Effekt
+	Intense Effect	Intensiver Effekt
+	Dark 1	Dunkel 1

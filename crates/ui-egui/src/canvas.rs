@@ -2891,6 +2891,17 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         item(ui, app, "Size and Crop…", "ui.tab", json!({"tab": "Picture Format"}));
     }
     if object {
+        // Style, Fill and Outline, as Word's mini toolbar offers on a right-click (#1674): a shape
+        // or text box gets all three, a drawing canvas Fill and Outline, a picture none.
+        if crate::widgets::enabled(app, "shape.style") {
+            ui.menu_button(tl!("Style"), |ui| crate::ribbon::shape_style_gallery(ui, app));
+        }
+        if crate::widgets::enabled(app, "shape.fill") {
+            ui.menu_button(tl!("Fill"), |ui| crate::ribbon::shape_fill_items(ui, app));
+        }
+        if crate::widgets::enabled(app, "shape.outline") {
+            ui.menu_button(tl!("Outline"), |ui| crate::ribbon::shape_outline_items(ui, app));
+        }
         ui.menu_button(tl!("Wrap Text"), |ui| crate::ribbon::wrap_text_items(ui, app));
     }
     if app.session.sel.focus.path.cell().is_some() {
@@ -3784,6 +3795,98 @@ mod tests {
         }
         let o = wordcraft_engine::cmd::objects::selected(&h.state().session).unwrap().1;
         assert_eq!(o.frame().unwrap().2.wrap, wordcraft_doc::para::Wrap::Square);
+    }
+
+    /// #1674: right-clicking a shape offers Style, Fill and Outline above Wrap Text, as Word's
+    /// mini toolbar does, and the picks run `shape.style`, `shape.fill` and `shape.outline` on
+    /// the shape. Text gets none of them; Shift+F10 on a selected shape shows the same entries.
+    #[test]
+    fn right_click_on_a_shape_offers_style_fill_and_outline() {
+        use egui_kittest::kittest::Queryable;
+        use wordcraft_doc::para::InlineObject;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Some text"})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        a.run("insert.shape", json!({"kind": "rectangle"})).unwrap();
+        a.run("arrange.bounds", json!({"width": 100, "height": 60, "page": 0, "x": 200, "y": 300})).unwrap();
+        let pos = wordcraft_engine::cmd::objects::selected(&a.session).unwrap().0;
+        a.session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 0));
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(0.25).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        let shape = |h: &H| match wordcraft_engine::cmd::objects::selected(&h.state().session) {
+            Some((_, InlineObject::Shape { fill, stroke, effects, extra, .. })) => (fill, stroke, effects.shadow.is_some(), extra.dash),
+            o => panic!("{o:?}"),
+        };
+        let rect = h.state_mut().session.layout().object(&pos, 0).expect("the shape is laid out").rect;
+        let at = crate::frame::to_screen(h.state().canvas.page_rects[0], h.state().canvas.scale, rect).center();
+        // Open the menu on the shape and hover one of its submenus.
+        let open = |h: &mut H, submenu: &str| {
+            right_click(h, at);
+            let picked = wordcraft_engine::cmd::objects::object_selection(&h.state().session).map(|(p, _)| p);
+            assert_eq!(picked, Some(pos.clone()), "the right-click selected the shape");
+            for label in ["Style", "Fill", "Outline", "Wrap Text"] {
+                assert!(menu_entry(h, label).is_some(), "{label} is offered");
+            }
+            let entry = menu_entry(h, submenu).unwrap();
+            h.event(egui::Event::PointerMoved(entry));
+            steps(h, 3);
+        };
+        // Fill › a theme colour, then No Fill.
+        let accent2 = wordcraft_doc::THEME_COLORS[5];
+        open(&mut h, "Fill");
+        assert!(menu_entry(&h, "More Fill Colors…").is_some(), "Word's wording");
+        h.get_by_label(&accent2.hex()).click();
+        steps(&mut h, 3);
+        assert_eq!(shape(&h).0, Some(accent2), "the swatch filled the shape");
+        assert!(!h.state().canvas.context_menu_open, "a pick closes the menu");
+        open(&mut h, "Fill");
+        h.get_by_label_contains("No Fill").click();
+        steps(&mut h, 3);
+        assert_eq!(shape(&h).0, None);
+        // Outline › No Outline, then Dashes › Round Dot (which gives the outline back, black).
+        open(&mut h, "Outline");
+        assert!(menu_entry(&h, "More Outline Colors…").is_some());
+        h.get_by_label_contains("No Outline").click();
+        steps(&mut h, 3);
+        assert_eq!(shape(&h).1, None);
+        open(&mut h, "Outline");
+        let dashes = menu_entry(&h, "Dashes").unwrap();
+        h.event(egui::Event::PointerMoved(dashes));
+        steps(&mut h, 3);
+        h.get_by_label_contains("Round Dot").click();
+        steps(&mut h, 3);
+        assert_eq!((shape(&h).1, shape(&h).3), (Some(wordcraft_doc::Rgb::BLACK), Some(wordcraft_doc::connector::LineDash::SysDot)));
+        // Style › Intense Effect in Accent 3.
+        open(&mut h, "Style");
+        h.get_by_label("Intense Effect - Accent 3").click();
+        steps(&mut h, 3);
+        let (fill, stroke, shadow, _) = shape(&h);
+        assert!(fill.is_some() && stroke.is_none() && shadow, "fill {fill:?}, stroke {stroke:?}, shadow {shadow}");
+        // Shift+F10 (and `ui.contextMenu`) on the selected shape: the same entries.
+        h.state_mut().run("ui.contextMenu", json!({})).unwrap();
+        steps(&mut h, 3);
+        assert!(h.state().canvas.context_menu_open);
+        for label in ["Style", "Fill", "Outline"] {
+            assert!(menu_entry(&h, label).is_some(), "{label} from the keyboard");
+        }
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+        steps(&mut h, 3);
+        // Text: none of them.
+        h.state_mut().session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 2));
+        h.state_mut().run("ui.contextMenu", json!({})).unwrap();
+        steps(&mut h, 3);
+        assert!(h.state().canvas.context_menu_open);
+        assert!(menu_entry(&h, "Paste").is_some());
+        for label in ["Style", "Fill", "Outline"] {
+            assert!(menu_entry(&h, label).is_none(), "{label} is not for text");
+        }
     }
 
     /// #1197: the context menu on a table of contents entry offers Update Field, as in Word, and

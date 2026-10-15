@@ -2233,3 +2233,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	狭い
 	Medium	中
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	その他の塗りつぶしの色…
+	More Outline Colors…	その他の線の色…
+	Dashes	実線/点線
+	Solid	実線
+	Round Dot	点線 (丸)
+	Square Dot	点線 (角)
+	Dash	破線
+	Dash Dot	一点鎖線
+	Long Dash	長破線
+	Long Dash Dot	長鎖線
+	Long Dash Dot Dot	長二点鎖線
+	Theme Styles	テーマ スタイル
+	Colored Outline	色付き枠線
+	Colored Fill	色付き塗りつぶし
+	Light 1 Outline, Colored Fill	淡色 1 の枠線、色付き塗りつぶし
+	Subtle Effect	控えめな効果
+	Moderate Effect	中程度の効果
+	Intense Effect	強い効果
+	Dark 1	濃色 1

@@ -2624,3 +2624,24 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Další barvy výplně…
+	More Outline Colors…	Další barvy obrysu…
+	Dashes	Čárkování
+	Solid	Plná
+	Round Dot	Kulaté tečky
+	Square Dot	Čtvercové tečky
+	Dash	Čárka
+	Dash Dot	Čerchovaná
+	Long Dash	Dlouhá čárka
+	Long Dash Dot	Dlouhá čerchovaná
+	Long Dash Dot Dot	Dlouhá dvojitě čerchovaná
+	Theme Styles	Styly motivu
+	Colored Outline	Barevný obrys
+	Colored Fill	Barevná výplň
+	Light 1 Outline, Colored Fill	Obrys Světlá 1, barevná výplň
+	Subtle Effect	Jemný efekt
+	Moderate Effect	Střední efekt
+	Intense Effect	Výrazný efekt
+	Dark 1	Tmavá 1

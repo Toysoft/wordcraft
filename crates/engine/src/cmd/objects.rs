@@ -4,6 +4,7 @@
 //! caret). Picture adjustments re-encode the bitmap (originals are kept for Reset Picture).
 
 use serde_json::{Value, json};
+use wordcraft_doc::connector::LineDash;
 use wordcraft_doc::para::{Float, InlineObject, Wrap, WrapText};
 use wordcraft_doc::props::{Rgb, TextVert, VAlign};
 use wordcraft_doc::{Pos, StoryRef, TextBody};
@@ -375,11 +376,23 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("shape.outline", "Shape Outline", "Shape Format › Shape Styles", |s, v| {
             let c = p::str(v, "color").and_then(Rgb::parse);
             let w = p::f32(v, "width").map(|w| w.clamp(0.0, 72.0));
+            // `None` leaves the dashes as they are; `solid` takes them off.
+            let dash = match p::str(v, "dash") {
+                None => None,
+                Some("solid") => Some(None),
+                Some(d) => Some(Some(LineDash::parse(d).ok_or_else(|| CmdError::Params(format!("unknown dash `{d}`")))?)),
+            };
             with_obj(s, |o| {
-                if let InlineObject::Shape { stroke, stroke_width, .. } = o {
+                if let InlineObject::Shape { stroke, stroke_width, extra, freeform, .. } = o {
                     *stroke = c;
                     if let Some(w) = w {
                         *stroke_width = w;
+                    }
+                    // Ink is drawn with its pen: no dashes.
+                    if let Some(d) = dash
+                        && !freeform.as_ref().is_some_and(|f| f.is_ink())
+                    {
+                        extra.dash = d;
                     }
                 } else if let Some(style) = super::canvas::style_mut(o) {
                     style.stroke = c;
@@ -389,8 +402,38 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
             })
         })
-        .params(r#"{"color": "RRGGBB" | null, "width"?: pt}  (a selected drawing canvas: its border)"#)
+        .params(
+            r#"{"color": "RRGGBB" | null, "width"?: pt, "dash"?: "solid|sysDot|sysDash|dash|dashDot|lgDash|lgDashDot|lgDashDotDot"}  (a selected drawing canvas: its border; a canvas and ink take no dashes)"#,
+        )
         .when(has_shape_or_canvas),
+        CommandSpec::new("shape.style", "Shape Styles", "Shape Format › Shape Styles", |s, v| {
+            let style = p::req_str(v, "style")?;
+            let color = p::str(v, "color").unwrap_or("accent1");
+            let qs = quick_style(style, color, &s.doc.settings.theme_colors)
+                .ok_or_else(|| CmdError::Params(format!("unknown shape style `{style}` or colour `{color}`")))?;
+            with_obj(s, move |o| {
+                if let InlineObject::Shape { kind, fill, stroke, stroke_width, effects, float, extra, freeform, .. } = o {
+                    let ink = freeform.as_ref().is_some_and(|f| f.is_ink());
+                    // Lines, connectors, ink and open paths show only their outline: they keep
+                    // one (in the fill's colour when the style has none).
+                    let open = kind.is_open() || ink || freeform.as_ref().is_some_and(|f| f.paths.iter().any(|p| !p.closed));
+                    *fill = if kind.is_open() { None } else { qs.fill };
+                    *stroke = if open { qs.stroke.or(qs.fill) } else { qs.stroke };
+                    // Ink keeps its pen's thickness.
+                    if !ink {
+                        *stroke_width = if open { qs.stroke_width.max(0.75) } else { qs.stroke_width };
+                    }
+                    // The styles' lines are solid.
+                    extra.dash = None;
+                    effects.shadow = qs.shadow;
+                    float.effect = effects.extent();
+                }
+            })
+        })
+        .params(
+            r#"{"style": "coloredOutline|coloredFill|lightOutline|subtleEffect|moderateEffect|intenseEffect", "color"?: "dk1|accent1|accent2|accent3|accent4|accent5|accent6"}  (the Shape Styles gallery: a row and a theme colour, accent1 when left out; sets the fill, a solid outline and the shadow; a line, connector, ink or open path always keeps an outline)"#,
+        )
+        .when(has_shape),
         CommandSpec::new("shape.effects", "Shape Effects", "Shape Format › Shape Styles", shape_effects)
             .params(
                 r#"{"shadow"?: preset|{"preset"?, "color"?: "RRGGBB", "transparency"?: %, "blur"?: pt, "distance"?: pt, "angle"?: deg}|null, "glow"?: pt|{"color"?: "RRGGBB", "size"?: pt, "transparency"?: %}|null, "softEdge"?: pt|null}  (shadow presets: offsetBottomRight, offsetBottom, offsetBottomLeft, offsetRight, offsetCenter, offsetLeft, offsetTopRight, offsetTop, offsetTopLeft; an omitted key is left as it is; applies to every shape in the selection)"#,
@@ -663,6 +706,73 @@ fn shape_effects(s: &mut Session, v: &Value) -> CmdResult {
         }
     }
     Ok(json!({"shapes": targets.len(), "effects": serde_json::to_value(last).unwrap_or(Value::Null)}))
+}
+
+/// The Shape Styles gallery's rows (Word's Theme Styles, top to bottom): id, label.
+pub const SHAPE_STYLES: [(&str, &str); 6] = [
+    ("coloredOutline", "Colored Outline"),
+    ("coloredFill", "Colored Fill"),
+    ("lightOutline", "Light 1 Outline, Colored Fill"),
+    ("subtleEffect", "Subtle Effect"),
+    ("moderateEffect", "Moderate Effect"),
+    ("intenseEffect", "Intense Effect"),
+];
+
+/// The gallery's columns, left to right: a theme colour's name and its slot in the document's
+/// theme colours (Dark 1, then Accent 1 to 6).
+pub const SHAPE_STYLE_COLORS: [(&str, usize); 7] =
+    [("dk1", 0), ("accent1", 4), ("accent2", 5), ("accent3", 6), ("accent4", 7), ("accent5", 8), ("accent6", 9)];
+
+/// What a gallery style comes to on a shape.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct QuickStyle {
+    pub fill: Option<Rgb>,
+    pub stroke: Option<Rgb>,
+    pub stroke_width: f32,
+    pub shadow: Option<wordcraft_doc::effects::Shadow>,
+}
+
+/// A fraction 0–1; anything else (NaN) is 0.
+fn fraction(k: f32) -> f32 {
+    if k.is_finite() { k.clamp(0.0, 1.0) } else { 0.0 }
+}
+
+/// `c` moved a fraction `k` toward white.
+fn tint(c: Rgb, k: f32) -> Rgb {
+    let k = fraction(k);
+    let f = |v: u8| (v as f32 + (255.0 - v as f32) * k).round() as u8;
+    Rgb(f(c.0), f(c.1), f(c.2))
+}
+
+/// `c` moved a fraction `k` toward black.
+fn shade(c: Rgb, k: f32) -> Rgb {
+    let k = 1.0 - fraction(k);
+    let f = |v: u8| (v as f32 * k).round() as u8;
+    Rgb(f(c.0), f(c.1), f(c.2))
+}
+
+/// The gallery style `style` in the theme colour `color` (see [`SHAPE_STYLES`] and
+/// [`SHAPE_STYLE_COLORS`]) under `theme`; `None` for an unknown style or colour. The ribbon's
+/// gallery and the shape's context menu paint their swatches from this.
+pub fn quick_style(style: &str, color: &str, theme: &[Rgb]) -> Option<QuickStyle> {
+    use wordcraft_doc::effects::Shadow;
+    let slot = SHAPE_STYLE_COLORS.iter().find(|(n, _)| *n == color)?.1;
+    let accent = theme.get(slot).or_else(|| wordcraft_doc::THEME_COLORS.get(slot)).copied()?;
+    let light = theme.get(1).copied().unwrap_or(Rgb::WHITE);
+    Some(match style {
+        "coloredOutline" => QuickStyle { fill: Some(light), stroke: Some(accent), stroke_width: 1.0, shadow: None },
+        "coloredFill" => QuickStyle { fill: Some(accent), stroke: Some(shade(accent, 0.5)), stroke_width: 0.75, shadow: None },
+        "lightOutline" => QuickStyle { fill: Some(accent), stroke: Some(light), stroke_width: 1.5, shadow: None },
+        "subtleEffect" => QuickStyle { fill: Some(tint(accent, 0.8)), stroke: Some(accent), stroke_width: 0.75, shadow: None },
+        "moderateEffect" => QuickStyle {
+            fill: Some(accent),
+            stroke: Some(shade(accent, 0.25)),
+            stroke_width: 0.75,
+            shadow: Some(Shadow { transparency: 70.0, blur: 3.0, distance: 2.0, angle: 90.0, ..Shadow::default() }),
+        },
+        "intenseEffect" => QuickStyle { fill: Some(shade(accent, 0.25)), stroke: None, stroke_width: 0.75, shadow: Some(Shadow::default()) },
+        _ => return None,
+    })
 }
 
 /// Smallest width/height an object can be resized to, points (a text box keeps room for a line).
@@ -1472,6 +1582,148 @@ mod tests {
         image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut b), image::ImageFormat::Png).unwrap();
         b
     }
+    /// #1674: the Shape Styles gallery sets a shape's fill, outline and shadow from a row and a
+    /// theme colour; every cell resolves; an unknown row or colour is refused.
+    #[test]
+    fn shape_style_sets_fill_outline_and_shadow() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "rectangle"})).unwrap();
+        s.run("shape.outline", &json!({"color": "C00000", "dash": "dash"})).unwrap();
+        s.run("shape.style", &json!({"style": "intenseEffect", "color": "accent2"})).unwrap();
+        let accent2 = wordcraft_doc::THEME_COLORS[5];
+        let Some((_, InlineObject::Shape { fill, stroke, effects, float, extra, .. })) = selected(&s) else { panic!() };
+        assert_eq!((fill, stroke, extra.dash), (Some(shade(accent2, 0.25)), None, None), "a style's line is solid");
+        assert!(effects.shadow.is_some(), "Intense Effect casts a shadow");
+        assert_eq!(float.effect, effects.extent(), "room for the shadow");
+        s.run("shape.style", &json!({"style": "coloredOutline", "color": "dk1"})).unwrap();
+        let Some((_, InlineObject::Shape { fill, stroke, stroke_width, effects, .. })) = selected(&s) else { panic!() };
+        assert_eq!((fill, stroke, stroke_width), (Some(Rgb::WHITE), Some(Rgb::BLACK), 1.0));
+        assert_eq!(effects.shadow, None, "the shadow goes with the style");
+        // Accent 1 when no colour is given; a line keeps no fill.
+        s.run("shape.style", &json!({"style": "coloredFill"})).unwrap();
+        let Some((_, InlineObject::Shape { fill, .. })) = selected(&s) else { panic!() };
+        assert_eq!(fill, Some(wordcraft_doc::THEME_COLORS[4]));
+        s.run("shape.change", &json!({"kind": "line"})).unwrap();
+        s.run("shape.style", &json!({"style": "subtleEffect"})).unwrap();
+        let Some((_, InlineObject::Shape { fill, stroke, .. })) = selected(&s) else { panic!() };
+        assert_eq!((fill, stroke), (None, Some(wordcraft_doc::THEME_COLORS[4])));
+        assert!(s.run("shape.style", &json!({"style": "bogus"})).is_err());
+        assert!(s.run("shape.style", &json!({"style": "subtleEffect", "color": "accent9"})).is_err());
+        assert!(s.run("shape.style", &json!({})).is_err());
+        for (id, _) in SHAPE_STYLES {
+            for (c, _) in SHAPE_STYLE_COLORS {
+                assert!(quick_style(id, c, &wordcraft_doc::THEME_COLORS).is_some(), "{id} {c}");
+                assert!(quick_style(id, c, &[]).is_some(), "{id} {c} without theme colours");
+            }
+        }
+        s.run("edit.undo", &json!({})).unwrap();
+        let Some((_, InlineObject::Shape { fill, .. })) = selected(&s) else { panic!() };
+        assert_eq!(fill, Some(wordcraft_doc::THEME_COLORS[4]), "one undo step per style");
+        assert_eq!(tint(Rgb(100, 100, 100), f32::NAN), Rgb(100, 100, 100));
+    }
+
+    /// #1674: a style never leaves a line, connector or ink stroke without its outline (Intense
+    /// Effect has none of its own), and a later outline colour keeps a visible width.
+    #[test]
+    fn shape_style_keeps_lines_and_ink_visible() {
+        let accent3 = wordcraft_doc::THEME_COLORS[6];
+        for kind in ["line", "straightConnector"] {
+            let mut s = Session::new(wordcraft_doc::Document::new());
+            s.run("insert.shape", &json!({"kind": kind})).unwrap();
+            s.run("shape.style", &json!({"style": "intenseEffect", "color": "accent3"})).unwrap();
+            let Some((_, InlineObject::Shape { fill, stroke, stroke_width, .. })) = selected(&s) else { panic!() };
+            assert_eq!((fill, stroke), (None, Some(shade(accent3, 0.25))), "{kind}: the fill's colour as its line");
+            assert!(stroke_width >= 0.75, "{kind}: {stroke_width}");
+            let page = s.layout().pages.first().cloned().unwrap();
+            let draws = wordcraft_layout::display::page_display(&s.doc, &page, &Default::default());
+            let drawn = draws.iter().any(|d| match d {
+                wordcraft_layout::display::Draw::Shape { stroke, .. } | wordcraft_layout::display::Draw::Path { stroke, .. } => stroke.is_some(),
+                _ => false,
+            });
+            assert!(drawn, "{kind}: still on the page: {draws:?}");
+        }
+        // A rectangle after Intense Effect: no line, but an outline colour gets a real width.
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "rectangle"})).unwrap();
+        s.run("shape.style", &json!({"style": "intenseEffect"})).unwrap();
+        s.run("shape.outline", &json!({"color": "C00000"})).unwrap();
+        let Some((_, InlineObject::Shape { stroke_width, .. })) = selected(&s) else { panic!() };
+        assert_eq!(stroke_width, 0.75);
+        // Ink: the style's colour, its own thickness, and no dashes.
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("text.insert", &json!({"text": "x"})).unwrap();
+        let pen =
+            wordcraft_doc::freeform::Freeform::ink(wordcraft_doc::freeform::InkTool::Pen, 80.0, 30.0, vec![[0.0, 0.0], [40.0, 30.0], [80.0, 0.0]]);
+        let ink = InlineObject::Shape {
+            kind: wordcraft_doc::para::ShapeKind::Freeform,
+            w: 80.0,
+            h: 30.0,
+            fill: None,
+            stroke: Some(Rgb::BLACK),
+            stroke_width: 3.0,
+            float: Float::default(),
+            story: None,
+            freeform: Some(std::sync::Arc::new(pen)),
+            effects: Default::default(),
+            extra: Default::default(),
+        };
+        let at = Pos::body(0, 1);
+        let end = s.doc.insert_object(&at, ink, &Default::default()).unwrap();
+        s.sel = Selection { anchor: at, focus: end };
+        s.run("shape.style", &json!({"style": "intenseEffect", "color": "accent3"})).unwrap();
+        s.run("shape.outline", &json!({"color": shade(accent3, 0.25).hex(), "dash": "sysDot"})).unwrap();
+        let Some((_, InlineObject::Shape { stroke, stroke_width, extra, .. })) = selected(&s) else { panic!() };
+        assert_eq!((stroke, stroke_width, extra.dash), (Some(shade(accent3, 0.25)), 3.0, None));
+    }
+
+    /// Junk parameters to the shape commands with a shape selected change nothing they shouldn't
+    /// and never panic.
+    #[test]
+    fn shape_commands_take_junk_with_a_shape_selected() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "ellipse"})).unwrap();
+        let junk = [json!(5), json!(""), json!(null), json!("accent99"), json!(1e30), json!(-1e30), json!([1]), json!({"a": 1}), json!(true)];
+        for v in &junk {
+            for (cmd, key) in [
+                ("shape.style", "style"),
+                ("shape.style", "color"),
+                ("shape.outline", "dash"),
+                ("shape.outline", "width"),
+                ("shape.outline", "color"),
+                ("shape.fill", "color"),
+            ] {
+                let _ = s.run(cmd, &json!({key: v}));
+                let _ = s.run(cmd, &json!({"style": "subtleEffect", key: v}));
+            }
+        }
+        let Some((_, InlineObject::Shape { stroke_width, .. })) = selected(&s) else { panic!("the shape is still selected") };
+        assert!(stroke_width.is_finite() && (0.0..=72.0).contains(&stroke_width), "{stroke_width}");
+        assert!(s.run("shape.outline", &json!({"color": "000000", "dash": 5})).is_ok(), "a non-string dash is left alone");
+    }
+
+    /// #1674: Shape Outline › Dashes: `dash` sets the pattern, `solid` takes it off, the
+    /// colour and width stay, and an unknown name is refused.
+    #[test]
+    fn shape_outline_dashes() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "ellipse"})).unwrap();
+        s.run("shape.outline", &json!({"color": "C00000", "width": 2.25, "dash": "lgDashDot"})).unwrap();
+        let Some((_, InlineObject::Shape { stroke, stroke_width, extra, .. })) = selected(&s) else { panic!() };
+        assert_eq!((stroke, stroke_width, extra.dash), (Rgb::parse("C00000"), 2.25, Some(LineDash::LgDashDot)));
+        s.run("shape.outline", &json!({"color": "C00000", "width": 3.0})).unwrap();
+        let Some((_, InlineObject::Shape { extra, stroke_width, .. })) = selected(&s) else { panic!() };
+        assert_eq!((extra.dash, stroke_width), (Some(LineDash::LgDashDot), 3.0), "no `dash` leaves it");
+        s.run("shape.outline", &json!({"color": "C00000", "dash": "solid"})).unwrap();
+        let Some((_, InlineObject::Shape { extra, .. })) = selected(&s) else { panic!() };
+        assert_eq!(extra.dash, None);
+        assert!(s.run("shape.outline", &json!({"color": "C00000", "dash": "wavy"})).is_err());
+        // The page draws the dashes.
+        s.run("shape.outline", &json!({"color": "C00000", "dash": "sysDot"})).unwrap();
+        let page = s.layout().pages.first().cloned().unwrap();
+        let draws = wordcraft_layout::display::page_display(&s.doc, &page, &Default::default());
+        assert!(draws.iter().any(|d| matches!(d, wordcraft_layout::display::Draw::Shape { dash: Some(LineDash::SysDot), .. })), "{draws:?}");
+    }
+
     /// The laid-out area of the only picture or shape (not a text box).
     fn object_area(s: &mut Session) -> wordcraft_layout::hit::ObjectHit {
         s.layout().find_object(0, |o| o.text_box.is_none()).unwrap()

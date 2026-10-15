@@ -2632,3 +2632,24 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Više boja ispune…
+	More Outline Colors…	Više boja obrisa…
+	Dashes	Crtice
+	Solid	Puna
+	Round Dot	Okrugle točke
+	Square Dot	Četvrtaste točke
+	Dash	Crtica
+	Dash Dot	Crtica-točka
+	Long Dash	Duga crtica
+	Long Dash Dot	Duga crtica-točka
+	Long Dash Dot Dot	Duga crtica-točka-točka
+	Theme Styles	Stilovi teme
+	Colored Outline	Obojeni obris
+	Colored Fill	Obojena ispuna
+	Light 1 Outline, Colored Fill	Obris Svijetla 1, obojena ispuna
+	Subtle Effect	Suptilni efekt
+	Moderate Effect	Umjereni efekt
+	Intense Effect	Jaki efekt
+	Dark 1	Tamna 1

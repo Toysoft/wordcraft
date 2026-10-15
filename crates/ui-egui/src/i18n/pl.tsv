@@ -2622,3 +2622,24 @@ preview	Title	Tytuł
 # Reading Mode column widths (#1040)
 	Narrow	Wąska
 	Medium	Średnia
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Więcej kolorów wypełnienia…
+	More Outline Colors…	Więcej kolorów konturu…
+	Dashes	Kreski
+	Solid	Ciągła
+	Round Dot	Kropki okrągłe
+	Square Dot	Kropki kwadratowe
+	Dash	Kreska
+	Dash Dot	Kreska-kropka
+	Long Dash	Długa kreska
+	Long Dash Dot	Długa kreska-kropka
+	Long Dash Dot Dot	Długa kreska-kropka-kropka
+	Theme Styles	Style motywu
+	Colored Outline	Kolorowy kontur
+	Colored Fill	Kolorowe wypełnienie
+	Light 1 Outline, Colored Fill	Kontur Jasny 1, kolorowe wypełnienie
+	Subtle Effect	Subtelny efekt
+	Moderate Effect	Umiarkowany efekt
+	Intense Effect	Intensywny efekt
+	Dark 1	Ciemny 1

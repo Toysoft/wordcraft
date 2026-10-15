@@ -2629,3 +2629,24 @@ preview	Title	Örnek
 # Reading Mode column widths (#1040)
 	Narrow	Dar
 	Medium	Orta
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Diğer Dolgu Renkleri…
+	More Outline Colors…	Diğer Anahat Renkleri…
+	Dashes	Kesik Çizgiler
+	Solid	Düz
+	Round Dot	Yuvarlak Nokta
+	Square Dot	Kare Nokta
+	Dash	Kesik Çizgi
+	Dash Dot	Kesik Çizgi Nokta
+	Long Dash	Uzun Kesik Çizgi
+	Long Dash Dot	Uzun Kesik Çizgi Nokta
+	Long Dash Dot Dot	Uzun Kesik Çizgi Nokta Nokta
+	Theme Styles	Tema Stilleri
+	Colored Outline	Renkli Anahat
+	Colored Fill	Renkli Dolgu
+	Light 1 Outline, Colored Fill	Açık 1 Anahat, Renkli Dolgu
+	Subtle Effect	Hafif Efekt
+	Moderate Effect	Orta Efekt
+	Intense Effect	Yoğun Efekt
+	Dark 1	Koyu 1

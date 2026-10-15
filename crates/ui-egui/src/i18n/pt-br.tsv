@@ -2245,3 +2245,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Estreita
 	Medium	Média
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Mais cores de preenchimento…
+	More Outline Colors…	Mais cores de contorno…
+	Dashes	Traços
+	Solid	Sólida
+	Round Dot	Ponto redondo
+	Square Dot	Ponto quadrado
+	Dash	Traço
+	Dash Dot	Traço e ponto
+	Long Dash	Traço longo
+	Long Dash Dot	Traço longo e ponto
+	Long Dash Dot Dot	Traço longo, ponto, ponto
+	Theme Styles	Estilos do tema
+	Colored Outline	Contorno colorido
+	Colored Fill	Preenchimento colorido
+	Light 1 Outline, Colored Fill	Contorno Claro 1, preenchimento colorido
+	Subtle Effect	Efeito sutil
+	Moderate Effect	Efeito moderado
+	Intense Effect	Efeito intenso
+	Dark 1	Escuro 1

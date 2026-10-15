@@ -479,6 +479,7 @@ pub(crate) fn swatch(ui: &mut Ui, c: wordcraft_doc::Rgb) -> bool {
         Stroke::new(if resp.hovered() { 1.5 } else { 0.5 }, if resp.hovered() { t.accent } else { t.border_strong }),
         egui::StrokeKind::Inside,
     );
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, c.hex()));
     resp.on_hover_text(format!("#{}", c.hex())).clicked()
 }
 

@@ -2267,3 +2267,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Kitsas
 	Medium	Keskmine
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Rohkem täitevärve…
+	More Outline Colors…	Rohkem kontuurivärve…
+	Dashes	Kriipsjooned
+	Solid	Pidev
+	Round Dot	Ümarad punktid
+	Square Dot	Ruudukujulised punktid
+	Dash	Kriips
+	Dash Dot	Kriips-punkt
+	Long Dash	Pikk kriips
+	Long Dash Dot	Pikk kriips-punkt
+	Long Dash Dot Dot	Pikk kriips-punkt-punkt
+	Theme Styles	Kujunduse stiilid
+	Colored Outline	Värviline kontuur
+	Colored Fill	Värviline täide
+	Light 1 Outline, Colored Fill	Kontuur Hele 1, värviline täide
+	Subtle Effect	Peen efekt
+	Moderate Effect	Mõõdukas efekt
+	Intense Effect	Tugev efekt
+	Dark 1	Tume 1

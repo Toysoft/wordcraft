@@ -2240,3 +2240,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Étroite
 	Medium	Moyenne
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Autres couleurs de remplissage…
+	More Outline Colors…	Autres couleurs de contour…
+	Dashes	Tirets
+	Solid	Continu
+	Round Dot	Points ronds
+	Square Dot	Points carrés
+	Dash	Tiret
+	Dash Dot	Tiret-point
+	Long Dash	Tiret long
+	Long Dash Dot	Tiret long-point
+	Long Dash Dot Dot	Tiret long-point-point
+	Theme Styles	Styles du thème
+	Colored Outline	Contour coloré
+	Colored Fill	Remplissage coloré
+	Light 1 Outline, Colored Fill	Contour Clair 1, remplissage coloré
+	Subtle Effect	Effet discret
+	Moderate Effect	Effet modéré
+	Intense Effect	Effet intense
+	Dark 1	Foncé 1

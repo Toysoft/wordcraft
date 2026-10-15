@@ -1043,6 +1043,9 @@ impl Writer<'_> {
                     w.empty("a:srgbClr", &[("val", &c.hex())]);
                 }
                 w.close("a:solidFill");
+                if let Some(d) = extra.dash {
+                    w.empty("a:prstDash", &[("val", d.ooxml())]);
+                }
                 if ink {
                     w.empty("a:round", &[]);
                 }

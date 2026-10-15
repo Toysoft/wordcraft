@@ -2243,3 +2243,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Uska
 	Medium	Srednja
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Još boja popune…
+	More Outline Colors…	Još boja konture…
+	Dashes	Crtice
+	Solid	Puna
+	Round Dot	Okrugle tačke
+	Square Dot	Kvadratne tačke
+	Dash	Crtica
+	Dash Dot	Crtica-tačka
+	Long Dash	Duga crtica
+	Long Dash Dot	Duga crtica-tačka
+	Long Dash Dot Dot	Duga crtica-tačka-tačka
+	Theme Styles	Stilovi teme
+	Colored Outline	Obojena kontura
+	Colored Fill	Obojena popuna
+	Light 1 Outline, Colored Fill	Kontura Svetla 1, obojena popuna
+	Subtle Effect	Suptilan efekat
+	Moderate Effect	Umeren efekat
+	Intense Effect	Jak efekat
+	Dark 1	Tamna 1

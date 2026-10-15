@@ -2245,3 +2245,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Вузька
 	Medium	Середня
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Інші кольори заливки…
+	More Outline Colors…	Інші кольори контуру…
+	Dashes	Штрихи
+	Solid	Суцільна
+	Round Dot	Круглі крапки
+	Square Dot	Квадратні крапки
+	Dash	Штрих
+	Dash Dot	Штрих-пунктир
+	Long Dash	Довгий штрих
+	Long Dash Dot	Довгий штрих-пунктир
+	Long Dash Dot Dot	Довгий штрих-пунктир з двома крапками
+	Theme Styles	Стилі теми
+	Colored Outline	Кольоровий контур
+	Colored Fill	Кольорова заливка
+	Light 1 Outline, Colored Fill	Контур Світлий 1, кольорова заливка
+	Subtle Effect	Слабкий ефект
+	Moderate Effect	Помірний ефект
+	Intense Effect	Сильний ефект
+	Dark 1	Темний 1

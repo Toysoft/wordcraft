@@ -2630,3 +2630,24 @@ preview	Title	Пример
 # Reading Mode column widths (#1040)
 	Narrow	Узкая
 	Medium	Средняя
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Другие цвета заливки…
+	More Outline Colors…	Другие цвета контура…
+	Dashes	Штрихи
+	Solid	Сплошная
+	Round Dot	Круглые точки
+	Square Dot	Квадратные точки
+	Dash	Штрих
+	Dash Dot	Штрих-пунктир
+	Long Dash	Длинный штрих
+	Long Dash Dot	Длинный штрих-пунктир
+	Long Dash Dot Dot	Длинный штрих-пунктир с двумя точками
+	Theme Styles	Стили темы
+	Colored Outline	Цветной контур
+	Colored Fill	Цветная заливка
+	Light 1 Outline, Colored Fill	Контур Светлый 1, цветная заливка
+	Subtle Effect	Слабый эффект
+	Moderate Effect	Средний эффект
+	Intense Effect	Сильный эффект
+	Dark 1	Темный 1

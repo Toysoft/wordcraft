@@ -456,6 +456,7 @@ Chart Design|Chart Layouts|Data Labels|chart.dataLabels
 Shape Format|Shape Styles|Shape Fill|shape.fill
 Shape Format|Shape Styles|Shape Outline|shape.outline
 Shape Format|Shape Styles|Shape Effects|shape.effects
+Shape Format|Shape Styles|Shape Styles gallery|shape.style
 Shape Format|WordArt Styles|WordArt Quick Styles|wordArt.style
 Shape Format|WordArt Styles|Text Fill|wordArt.textFill
 Shape Format|WordArt Styles|Text Outline|wordArt.textOutline

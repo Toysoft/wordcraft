@@ -1,5 +1,6 @@
 //! Page → draw items, shared by the raster renderer, the PDF exporter and thumbnails.
 
+use wordcraft_doc::connector::LineDash;
 use wordcraft_doc::graphic::{Graphic, GraphicItem, GraphicKind, PathSeg, TextAlign};
 use wordcraft_doc::para::{InlineObject, ShapeKind};
 use wordcraft_doc::props::{Border, BorderStyle, Rgb, TextColor, TextDirection, Underline};
@@ -81,12 +82,14 @@ pub enum Draw {
         effects: wordcraft_doc::effects::ShapeEffects,
         /// A rounded rectangle's corner ([`wordcraft_doc::connector::ShapeExtra::corner`]).
         corner: Option<u32>,
+        /// The outline's dash pattern; `None` is solid.
+        dash: Option<LineDash>,
     },
     /// An ink stroke: a line through `pts` (page points) with round ends and joins, `width`
     /// wide, in `color` at opacity `alpha`.
     Ink { pts: Vec<(f32, f32)>, color: Rgb, width: f32, alpha: f32 },
     /// A vector path (a chart's or diagram's polygons, slices, lines): filled, then stroked.
-    Path { segs: Vec<PathSeg>, fill: Option<Rgb>, stroke: Option<Rgb>, stroke_width: f32 },
+    Path { segs: Vec<PathSeg>, fill: Option<Rgb>, stroke: Option<Rgb>, stroke_width: f32, dash: Option<LineDash> },
     /// An inline chart or diagram's draws, as one figure with its alt text (for tagged PDF).
     Figure { alt: String, kind: GraphicKind, draws: Vec<Draw> },
     /// A formatting mark (¶ · → ↵) in the UI's mark colour, or in `color` (a tracked
@@ -1057,6 +1060,7 @@ fn lines(
                 stroke_width: e.stroke,
                 effects: Default::default(),
                 corner: None,
+                dash: None,
             });
         }
         // Ruby (Phonetic Guide) text over its base text, in runs of one style.
@@ -1274,10 +1278,11 @@ fn graphic_draws(doc: &Document, g: &Graphic, rect: Rect, alpha: f32) -> Vec<Dra
                 stroke_width: stroke_width * k,
                 effects: Default::default(),
                 corner: None,
+                dash: None,
             }),
             GraphicItem::Path { segs, fill, stroke, stroke_width } => {
                 let segs = page_segs(segs, |x, y| (rect.x + x * sx, rect.y + y * sy));
-                out.push(Draw::Path { segs, fill: *fill, stroke: *stroke, stroke_width: stroke_width * k })
+                out.push(Draw::Path { segs, fill: *fill, stroke: *stroke, stroke_width: stroke_width * k, dash: None })
             }
             GraphicItem::Text { rect: r, .. } => out.extend(text_glyphs(doc, inside(r), it, alpha, k)),
             GraphicItem::Image { rect: r, media } => {
@@ -1353,7 +1358,7 @@ fn shape_draws(
         return;
     }
     let Some(f) = freeform.filter(|_| kind == ShapeKind::Freeform) else {
-        out.push(Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner: extra.corner });
+        out.push(Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner: extra.corner, dash: extra.dash });
         return;
     };
     if f.is_ink() && opts.hide_ink {
@@ -1361,7 +1366,8 @@ fn shape_draws(
     }
     let width = if stroke_width.is_finite() { stroke_width.clamp(0.0, 200.0) } else { 0.75 };
     for (pts, closed) in f.placed(rect.x, rect.y, rect.w, rect.h) {
-        if f.is_ink() || (!closed && fill.is_none()) {
+        // An open path with dashes is drawn as a path, which can be dashed.
+        if f.is_ink() || (!closed && fill.is_none() && extra.dash.is_none()) {
             if let Some(color) = stroke {
                 let mut pts: Vec<(f32, f32)> = pts.iter().map(|[x, y]| (*x, *y)).collect();
                 if closed && let Some(first) = pts.first().copied() {
@@ -1384,7 +1390,7 @@ fn shape_draws(
         if closed {
             segs.push(PathSeg::Close);
         }
-        out.push(Draw::Path { segs, fill: if closed { fill } else { None }, stroke, stroke_width: width });
+        out.push(Draw::Path { segs, fill: if closed { fill } else { None }, stroke, stroke_width: width, dash: extra.dash });
         if !closed
             && extra.arrow_end
             && let Some(color) = stroke
@@ -1412,7 +1418,7 @@ fn path_arrowhead(points: &[(f32, f32)], color: Rgb, stroke_width: f32) -> Optio
     let (bx, by) = (tip.0 - dx * len, tip.1 - dy * len);
     let (nx, ny) = (-dy * len * 0.45, dx * len * 0.45);
     let segs = vec![PathSeg::Move(tip.0, tip.1), PathSeg::Line(bx + nx, by + ny), PathSeg::Line(bx - nx, by - ny), PathSeg::Close];
-    Some(Draw::Path { segs, fill: Some(color), stroke: None, stroke_width: 0.0 })
+    Some(Draw::Path { segs, fill: Some(color), stroke: None, stroke_width: 0.0, dash: None })
 }
 
 /// A line or connector at `rect` (its unflipped frame: flips are the frame's turn), with its
@@ -1438,9 +1444,9 @@ fn line_draws(
                     PathSeg::Close => PathSeg::Close,
                 })
                 .collect();
-            out.push(Draw::Path { segs, fill: None, stroke, stroke_width });
+            out.push(Draw::Path { segs, fill: None, stroke, stroke_width, dash: extra.dash });
         }
-        None => out.push(Draw::Shape { rect, kind, fill: None, stroke, stroke_width, effects, corner: None }),
+        None => out.push(Draw::Shape { rect, kind, fill: None, stroke, stroke_width, effects, corner: None, dash: extra.dash }),
     }
     let Some(color) = stroke else { return };
     // Our line runs from the bottom-left corner to the top-right; connectors from the top-left
@@ -1457,7 +1463,7 @@ fn line_draws(
         let (bx, by) = (tip.0 - dx * len, tip.1 - dy * len);
         let (nx, ny) = (-dy * len * 0.45, dx * len * 0.45);
         let segs = vec![PathSeg::Move(tip.0, tip.1), PathSeg::Line(bx + nx, by + ny), PathSeg::Line(bx - nx, by - ny), PathSeg::Close];
-        out.push(Draw::Path { segs, fill: Some(color), stroke: None, stroke_width: 0.0 });
+        out.push(Draw::Path { segs, fill: Some(color), stroke: None, stroke_width: 0.0, dash: None });
     }
 }
 
@@ -1627,6 +1633,7 @@ fn canvas_background(rect: Rect, c: &wordcraft_doc::para::CanvasStyle) -> Draw {
         stroke_width: c.stroke_width,
         effects: Default::default(),
         corner: None,
+        dash: None,
     }
 }
 

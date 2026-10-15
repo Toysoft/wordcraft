@@ -1969,6 +1969,37 @@ fn shape_effects_round_trip() {
     }
 }
 
+/// A dashed outline (#1674): `a:prstDash` round-trips in schema order, after the line's fill.
+#[test]
+fn shape_outline_dash_round_trip() {
+    use wordcraft_doc::connector::{LineDash, ShapeExtra};
+    let shape = InlineObject::Shape {
+        kind: ShapeKind::Ellipse,
+        w: 100.0,
+        h: 50.0,
+        fill: Some(Rgb(0x15, 0x60, 0x82)),
+        stroke: Some(Rgb(0x0E, 0x40, 0x5A)),
+        stroke_width: 2.25,
+        float: Float::default(),
+        story: None,
+        freeform: None,
+        effects: Default::default(),
+        extra: ShapeExtra { dash: Some(LineDash::LgDashDot), ..Default::default() },
+    };
+    let mut p = Paragraph::with_text("x", CharProps::default());
+    p.insert_object(1, shape, &CharProps::default()).unwrap();
+    let bytes = wordcraft_docx::write(&doc_with(vec![p])).expect("write");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+    let mut xml = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("word/document.xml").unwrap(), &mut xml).unwrap();
+    assert!(xml.contains(r#"<a:ln w="28575"><a:solidFill><a:srgbClr val="0E405A"/></a:solidFill><a:prstDash val="lgDashDot"/></a:ln>"#), "{xml}");
+    let r = wordcraft_docx::read(&bytes).expect("read");
+    match paras(&r)[0].objects.first() {
+        Some(InlineObject::Shape { extra, .. }) => assert_eq!(extra.dash, Some(LineDash::LgDashDot)),
+        o => panic!("{o:?}"),
+    }
+}
+
 #[test]
 fn equation_manual_breaks_round_trip() {
     use wordcraft_doc::math::{MNode, MRun, Math};

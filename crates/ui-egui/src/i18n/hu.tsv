@@ -2628,3 +2628,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Keskeny
 	Medium	Közepes
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	További kitöltőszínek…
+	More Outline Colors…	További körvonalszínek…
+	Dashes	Szaggatás
+	Solid	Folytonos
+	Round Dot	Kerek pontok
+	Square Dot	Szögletes pontok
+	Dash	Szaggatott
+	Dash Dot	Pont-vonal
+	Long Dash	Hosszú szaggatott
+	Long Dash Dot	Hosszú pont-vonal
+	Long Dash Dot Dot	Hosszú pont-pont-vonal
+	Theme Styles	Témastílusok
+	Colored Outline	Színes körvonal
+	Colored Fill	Színes kitöltés
+	Light 1 Outline, Colored Fill	Világos 1 körvonal, színes kitöltés
+	Subtle Effect	Finom effektus
+	Moderate Effect	Mérsékelt effektus
+	Intense Effect	Erős effektus
+	Dark 1	Sötét 1

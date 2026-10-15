@@ -195,11 +195,16 @@ impl Target {
 
     /// The command and params a pick of `hex` runs (`None` for a field).
     pub fn command(&self, hex: &str) -> Option<(String, Value)> {
+        self.command_with(json!(hex))
+    }
+
+    /// The command and params with `color` (a hex string, or null for no colour) in the slot.
+    pub fn command_with(&self, color: Value) -> Option<(String, Value)> {
         let Target::Run { cmd, params, at, .. } = self else { return None };
         let mut p = params.clone();
         match p.pointer_mut(at) {
-            Some(slot) => *slot = json!(hex),
-            None => p["color"] = json!(hex),
+            Some(slot) => *slot = color,
+            None => p["color"] = color,
         }
         Some((cmd.clone(), p))
     }
@@ -244,7 +249,24 @@ fn current_of(app: &mut WordApp, target: &Target) -> Option<Rgb> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pick {
     Color(String),
+    /// The drop-down's "none" entry (No Fill, No Outline…).
+    None,
     More,
+}
+
+/// A colour drop-down's own entries: the "none" item shown between the colours and More
+/// Colors… (No Fill, No Outline…; none by default) and the label of More Colors… itself (Shape
+/// Fill says More Fill Colors…).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Labels {
+    pub none: Option<&'static str>,
+    pub more: &'static str,
+}
+
+impl Default for Labels {
+    fn default() -> Self {
+        Labels { none: None, more: "More Colors…" }
+    }
 }
 
 fn recent_id() -> Id {
@@ -274,6 +296,11 @@ struct FieldResult(String);
 
 /// The drop-down's body: theme and standard colours, Recent Colors, More Colors….
 pub fn palette(ui: &mut Ui, theme: &[Rgb]) -> Option<Pick> {
+    palette_with(ui, theme, Labels::default())
+}
+
+/// [`palette`] with its own "none" entry and More Colors… label.
+pub fn palette_with(ui: &mut Ui, theme: &[Rgb], labels: Labels) -> Option<Pick> {
     let mut picked = crate::widgets::color_grid(ui, theme).map(Pick::Color);
     let recent: Vec<String> = ui.data(|d| d.get_temp::<Vec<String>>(recent_id())).unwrap_or_default();
     let recent = self::recent(&recent);
@@ -291,19 +318,34 @@ pub fn palette(ui: &mut Ui, theme: &[Rgb]) -> Option<Pick> {
     }
     ui.add_space(2.0);
     ui.separator();
-    if more_item(ui).clicked() {
+    if let Some(none) = labels.none
+        && row_item(ui, none).0.clicked()
+    {
+        picked = Some(Pick::None);
+    }
+    if more_item(ui, labels.more).clicked() {
         picked = Some(Pick::More);
     }
     picked
 }
 
-/// The More Colors… row: a small rainbow wheel and the label.
-fn more_item(ui: &mut Ui) -> egui::Response {
+/// A drop-down row with its label after an icon's room, so the rows' labels line up; returns the
+/// response and the row.
+fn row_item(ui: &mut Ui, label: &str) -> (egui::Response, Rect) {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(180.0, 22.0), Sense::click());
     if resp.hovered() {
         ui.painter().rect_filled(r, 2.0, t.hover);
     }
+    ui.painter().text(pos2(r.min.x + 22.0, r.center().y), egui::Align2::LEFT_CENTER, tl!(label), egui::TextStyle::Button.resolve(ui.style()), t.text);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!(label)));
+    (resp, r)
+}
+
+/// The More Colors… row: a small rainbow wheel and the label.
+fn more_item(ui: &mut Ui, label: &str) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let (resp, r) = row_item(ui, label);
     let c = pos2(r.min.x + 10.0, r.center().y);
     for i in 0..12 {
         let a0 = (i as f32) * std::f32::consts::TAU / 12.0;
@@ -313,22 +355,27 @@ fn more_item(ui: &mut Ui) -> egui::Response {
         ui.painter().add(egui::Shape::convex_polygon(vec![c, p(a0), p(a1)], col, Stroke::NONE));
     }
     ui.painter().circle_stroke(c, 6.5, Stroke::new(0.5, t.border_strong));
-    ui.painter().text(
-        pos2(r.min.x + 22.0, r.center().y),
-        egui::Align2::LEFT_CENTER,
-        tl!("More Colors…"),
-        egui::TextStyle::Button.resolve(ui.style()),
-        t.text,
-    );
     resp
 }
 
 /// A command colour drop-down's body: picks run `target`, More Colors… opens the Colors dialog.
 pub fn menu(ui: &mut Ui, app: &mut WordApp, theme: &[Rgb], target: Target) {
-    match palette(ui, theme) {
+    menu_with(ui, app, theme, target, Labels::default())
+}
+
+/// [`menu`] with its own "none" entry (which runs `target` with no colour) and More Colors…
+/// label.
+pub fn menu_with(ui: &mut Ui, app: &mut WordApp, theme: &[Rgb], target: Target, labels: Labels) {
+    match palette_with(ui, theme, labels) {
         Some(Pick::Color(hex)) => {
             let ctx = ui.ctx().clone();
             apply(app, &ctx, &target, &hex);
+            ui.close();
+        }
+        Some(Pick::None) => {
+            if let Some((cmd, p)) = target.command_with(Value::Null) {
+                let _ = app.run(&cmd, p);
+            }
             ui.close();
         }
         Some(Pick::More) => {
@@ -347,6 +394,10 @@ pub fn field_menu(ui: &mut Ui, theme: &[Rgb], id: Id, value: &mut String) {
     match palette(ui, theme) {
         Some(Pick::Color(hex)) => {
             *value = hex;
+            ui.close();
+        }
+        Some(Pick::None) => {
+            value.clear();
             ui.close();
         }
         Some(Pick::More) => {

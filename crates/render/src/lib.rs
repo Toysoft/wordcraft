@@ -849,7 +849,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 ctx.pop_layer();
             }
         }
-        Draw::Path { segs, fill, stroke, stroke_width } => {
+        Draw::Path { segs, fill, stroke, stroke_width, dash } => {
             let path = wordcraft_layout::display::seg_path(segs);
             if path.elements().is_empty() {
                 return;
@@ -863,7 +863,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 // Width 0 (or none) is a hairline.
                 let w = if stroke_width.is_finite() && *stroke_width > 0.0 { stroke_width.clamp(0.25, 200.0) } else { 0.75 };
                 ctx.set_paint(color(opts.ink(*s), 1.0));
-                ctx.set_stroke(kurbo::Stroke::new(w as f64));
+                ctx.set_stroke(dashed(kurbo::Stroke::new(w as f64), *dash, w, &path));
                 ctx.stroke_path(&path);
             }
         }
@@ -904,7 +904,7 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             ctx.set_stroke(kurbo::Stroke::new(w as f64).with_caps(kurbo::Cap::Round).with_join(kurbo::Join::Round));
             ctx.stroke_path(&path);
         }
-        Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner } => {
+        Draw::Shape { rect, kind, fill, stroke, stroke_width, effects, corner, dash } => {
             let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
             let path = shape_path(*kind, r, *corner);
             ctx.set_transform(view);
@@ -958,7 +958,8 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             }
             if let Some(s) = stroke {
                 ctx.set_paint(color(opts.ink(*s), 1.0));
-                ctx.set_stroke(kurbo::Stroke::new(stroke_width.max(0.25) as f64));
+                let w = stroke_width.max(0.25);
+                ctx.set_stroke(dashed(kurbo::Stroke::new(w as f64), *dash, w, &path));
                 ctx.stroke_path(&path);
             }
         }
@@ -1012,6 +1013,22 @@ fn ink_path(pts: &[(f32, f32)]) -> Option<BezPath> {
         p.line_to(only);
     }
     Some(p)
+}
+
+/// Most dashes one outline is cut into; a longer one is drawn solid.
+const MAX_DASHES: f64 = 20_000.0;
+
+/// `stroke` for `path` with the dash pattern of `dash` (its lengths are in line widths), with flat
+/// ends so the gaps stay open as in Word and the PDF; solid when there is no dash or too many.
+fn dashed(stroke: kurbo::Stroke, dash: Option<wordcraft_doc::connector::LineDash>, width: f32, path: &BezPath) -> kurbo::Stroke {
+    let Some(d) = dash else { return stroke };
+    let lengths = d.lengths(width);
+    let period: f64 = lengths.iter().map(|l| f64::from(*l)).sum();
+    let length = kurbo::Shape::perimeter(path, 1.0);
+    if !(period > 0.0 && length.is_finite()) || length / period * lengths.len() as f64 > MAX_DASHES {
+        return stroke;
+    }
+    stroke.with_caps(kurbo::Cap::Butt).with_dashes(0.0, lengths.into_iter().map(f64::from))
 }
 
 /// Outline of a basic shape in a rectangle; `corner` is a rounded rectangle's
@@ -1174,6 +1191,7 @@ mod tests {
             stroke_width: 0.0,
             effects: Default::default(),
             corner: None,
+            dash: None,
         };
         let at = |x: f32, y: f32| {
             let mut bg = [255.0; 3];
@@ -1218,6 +1236,64 @@ mod tests {
         assert_eq!(ink(TextDirection::Horizontal), 0, "horizontal text stays in its line");
         assert!(ink(TextDirection::Down) > 30, "down");
         assert!(ink(TextDirection::Up) > 30, "up");
+    }
+
+    /// #1674: a dashed outline leaves its gaps open on screen, as in the PDF: Round Dot and Square
+    /// Dot have gaps one line width long, which round caps would close.
+    #[test]
+    fn dashed_outlines_keep_their_gaps() {
+        use wordcraft_doc::connector::{LineDash, ShapeExtra};
+        use wordcraft_doc::para::InlineObject;
+        // Light pixels and samples along the middle of the top edge's stroke.
+        let gaps = |dash: Option<LineDash>| {
+            let mut d = Document::from_text("");
+            let shape = InlineObject::Shape {
+                kind: ShapeKind::Rectangle,
+                w: 300.0,
+                h: 100.0,
+                fill: None,
+                stroke: Some(Rgb::BLACK),
+                stroke_width: 6.0,
+                float: Default::default(),
+                story: None,
+                freeform: None,
+                effects: Default::default(),
+                extra: ShapeExtra { dash, ..Default::default() },
+            };
+            let at = wordcraft_doc::Pos { story: wordcraft_doc::StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 0 };
+            d.insert_object(&at, shape, &Default::default()).unwrap();
+            let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+            let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+            let dark: Vec<(u32, u32)> = (0..612).flat_map(|x| (0..300).map(move |y| (x, y))).filter(|(x, y)| img.pixel(*x, *y)[0] < 100).collect();
+            let (x0, x1) = (dark.iter().map(|p| p.0).min().unwrap(), dark.iter().map(|p| p.0).max().unwrap());
+            let y = dark.iter().map(|p| p.1).min().unwrap() + 3;
+            let row: Vec<u32> = (x0 + 20..x1 - 20).collect();
+            (row.iter().filter(|x| img.pixel(**x, y)[0] > 200).count(), row.len())
+        };
+        assert_eq!(gaps(None).0, 0, "a solid line has no gaps");
+        let (light, n) = gaps(Some(LineDash::SysDot));
+        assert!(light * 3 > n, "Round Dot: half its length is gaps ({light} of {n})");
+        let (light, n) = gaps(Some(LineDash::SysDash));
+        assert!(light * 8 > n, "Square Dot: a quarter is gaps ({light} of {n})");
+    }
+
+    /// #1674: an outline that would be cut into too many dashes is drawn solid, and a dashed
+    /// stroke has flat ends.
+    #[test]
+    fn dashes_are_capped_and_flat() {
+        use wordcraft_doc::connector::LineDash;
+        let line = |len: f64| {
+            let mut p = BezPath::new();
+            p.move_to((0.0, 0.0));
+            p.line_to((len, 0.0));
+            p
+        };
+        let s = dashed(kurbo::Stroke::new(1.0), Some(LineDash::Dash), 1.0, &line(500.0));
+        assert_eq!((s.dash_pattern.len(), s.start_cap), (2, kurbo::Cap::Butt));
+        let s = dashed(kurbo::Stroke::new(0.25), Some(LineDash::SysDot), 0.25, &line(14_400.0 * 4.0));
+        assert!(s.dash_pattern.is_empty(), "too many dashes: solid");
+        let s = dashed(kurbo::Stroke::new(1.0), None, 1.0, &line(500.0));
+        assert!(s.dash_pattern.is_empty());
     }
 
     /// Shape Effects (#275): an outer shadow paints dark pixels beside the shape on the side it is

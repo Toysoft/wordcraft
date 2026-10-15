@@ -38,6 +38,95 @@ pub struct ShapeExtra {
     /// 100000ths of the shorter side, at most [`MAX_CORNER`]; `None` draws [`DEFAULT_CORNER`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corner: Option<u32>,
+    /// The outline's dash pattern (`a:prstDash`); `None` is solid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dash: Option<LineDash>,
+}
+
+/// A preset dash pattern for a shape's outline (DrawingML `a:prstDash`, ECMA-376 §20.1.10.48).
+/// The names are the schema's; [`LineDash::pattern`] gives the dashes and gaps in line widths.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LineDash {
+    Dot,
+    Dash,
+    LgDash,
+    DashDot,
+    LgDashDot,
+    LgDashDotDot,
+    SysDash,
+    SysDot,
+    SysDashDot,
+    SysDashDotDot,
+}
+
+/// The Dashes menu in Word's order: `prstDash` value (`solid` for none) and label.
+pub const DASH_STYLES: [(&str, &str); 8] = [
+    ("solid", "Solid"),
+    ("sysDot", "Round Dot"),
+    ("sysDash", "Square Dot"),
+    ("dash", "Dash"),
+    ("dashDot", "Dash Dot"),
+    ("lgDash", "Long Dash"),
+    ("lgDashDot", "Long Dash Dot"),
+    ("lgDashDotDot", "Long Dash Dot Dot"),
+];
+
+impl LineDash {
+    /// The `prstDash` value.
+    pub fn ooxml(self) -> &'static str {
+        match self {
+            LineDash::Dot => "dot",
+            LineDash::Dash => "dash",
+            LineDash::LgDash => "lgDash",
+            LineDash::DashDot => "dashDot",
+            LineDash::LgDashDot => "lgDashDot",
+            LineDash::LgDashDotDot => "lgDashDotDot",
+            LineDash::SysDash => "sysDash",
+            LineDash::SysDot => "sysDot",
+            LineDash::SysDashDot => "sysDashDot",
+            LineDash::SysDashDotDot => "sysDashDotDot",
+        }
+    }
+
+    /// A `prstDash` value; `None` for `solid` or anything unknown.
+    pub fn parse(s: &str) -> Option<LineDash> {
+        Some(match s.trim() {
+            "dot" => LineDash::Dot,
+            "dash" => LineDash::Dash,
+            "lgDash" => LineDash::LgDash,
+            "dashDot" => LineDash::DashDot,
+            "lgDashDot" => LineDash::LgDashDot,
+            "lgDashDotDot" => LineDash::LgDashDotDot,
+            "sysDash" => LineDash::SysDash,
+            "sysDot" => LineDash::SysDot,
+            "sysDashDot" => LineDash::SysDashDot,
+            "sysDashDotDot" => LineDash::SysDashDotDot,
+            _ => return None,
+        })
+    }
+
+    /// Dash and gap lengths, in multiples of the line width (ECMA-376 §20.1.10.48).
+    pub fn pattern(self) -> &'static [f32] {
+        match self {
+            LineDash::Dot => &[1.0, 3.0],
+            LineDash::Dash => &[4.0, 3.0],
+            LineDash::LgDash => &[8.0, 3.0],
+            LineDash::DashDot => &[4.0, 3.0, 1.0, 3.0],
+            LineDash::LgDashDot => &[8.0, 3.0, 1.0, 3.0],
+            LineDash::LgDashDotDot => &[8.0, 3.0, 1.0, 3.0, 1.0, 3.0],
+            LineDash::SysDash => &[3.0, 1.0],
+            LineDash::SysDot => &[1.0, 1.0],
+            LineDash::SysDashDot => &[3.0, 1.0, 1.0, 1.0],
+            LineDash::SysDashDotDot => &[3.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        }
+    }
+
+    /// The pattern in points for a line `width` points wide (a hairline counts as 0.75 pt).
+    pub fn lengths(self, width: f32) -> Vec<f32> {
+        let w = if width.is_finite() && width > 0.0 { width.clamp(0.25, 200.0) } else { 0.75 };
+        self.pattern().iter().map(|k| k * w).collect()
+    }
 }
 
 fn is_zero(v: &u32) -> bool {
@@ -266,6 +355,24 @@ mod tests {
         assert!(near(corner_radius(Some(u32::MAX), 200.0, 100.0), 50.0), "capped at a half-circle end");
         assert!(near(corner_radius(Some(10_000), f32::NAN, 100.0), 0.0));
         assert!(near(corner_radius(Some(10_000), -5.0, 100.0), 0.0));
+    }
+
+    #[test]
+    fn dash_presets_round_trip_their_names_and_scale_with_the_width() {
+        for (id, _) in DASH_STYLES {
+            match LineDash::parse(id) {
+                Some(d) => assert_eq!(d.ooxml(), id),
+                None => assert_eq!(id, "solid"),
+            }
+        }
+        assert_eq!(LineDash::parse("bogus"), None);
+        assert_eq!(LineDash::Dash.lengths(2.0), vec![8.0, 6.0]);
+        assert_eq!(LineDash::SysDot.lengths(0.0), vec![0.75, 0.75], "a hairline dashes as 0.75 pt");
+        assert_eq!(LineDash::Dot.lengths(f32::NAN), vec![0.75, 2.25]);
+        let extra = ShapeExtra { dash: Some(LineDash::LgDashDotDot), ..Default::default() };
+        let json = serde_json::to_string(&extra).unwrap();
+        assert_eq!(json, r#"{"dash":"lgDashDotDot"}"#);
+        assert_eq!(serde_json::from_str::<ShapeExtra>(&json).unwrap(), extra);
     }
 
     #[test]

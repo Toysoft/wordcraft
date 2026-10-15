@@ -2621,3 +2621,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Още цветове за запълване…
+	More Outline Colors…	Още цветове за контур…
+	Dashes	Прекъсвания
+	Solid	Плътна
+	Round Dot	Кръгли точки
+	Square Dot	Квадратни точки
+	Dash	Тире
+	Dash Dot	Тире-точка
+	Long Dash	Дълго тире
+	Long Dash Dot	Дълго тире-точка
+	Long Dash Dot Dot	Дълго тире-точка-точка
+	Theme Styles	Стилове на темата
+	Colored Outline	Цветен контур
+	Colored Fill	Цветно запълване
+	Light 1 Outline, Colored Fill	Контур Светъл 1, цветно запълване
+	Subtle Effect	Лек ефект
+	Moderate Effect	Умерен ефект
+	Intense Effect	Силен ефект
+	Dark 1	Тъмно 1

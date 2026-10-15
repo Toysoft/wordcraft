@@ -2123,30 +2123,106 @@ fn chart_design(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// Shape Styles › Shape Fill's menu: the colours, No Fill, More Fill Colors…. The ribbon's
+/// button and the shape's context menu share it (#1674); a selected Drawing Canvas gets its
+/// background.
+pub(crate) fn shape_fill_items(ui: &mut Ui, app: &mut WordApp) {
+    let theme = app.session.doc.settings.theme_colors.clone();
+    let labels = crate::colors::Labels { none: Some("No Fill"), more: "More Fill Colors…" };
+    crate::colors::menu_with(ui, app, &theme, Target::cmd("shape.fill"), labels);
+}
+
+/// Shape Styles › Shape Outline's menu: the colours, No Outline, More Outline Colors…, then
+/// Weight and Dashes, which keep the outline's colour (black for one without). A drawing canvas
+/// (its border) and ink have no Dashes. Shared by the ribbon and the shape's context menu (#1674).
+pub(crate) fn shape_outline_items(ui: &mut Ui, app: &mut WordApp) {
+    use wordcraft_doc::para::InlineObject;
+    let theme = app.session.doc.settings.theme_colors.clone();
+    // The outline's colour, its dash, and whether it can take dashes.
+    let (stroke, dash, dashes) = match wordcraft_engine::cmd::objects::selected(&app.session) {
+        Some((_, InlineObject::Shape { stroke, extra, freeform, .. })) => (stroke, extra.dash, !freeform.is_some_and(|f| f.is_ink())),
+        Some((_, o)) => (o.canvas_style().and_then(|c| c.stroke), None, false),
+        None => (None, None, false),
+    };
+    let labels = crate::colors::Labels { none: Some("No Outline"), more: "More Outline Colors…" };
+    crate::colors::menu_with(ui, app, &theme, Target::cmd("shape.outline"), labels);
+    ui.separator();
+    let color = stroke.unwrap_or(wordcraft_doc::Rgb::BLACK).hex();
+    ui.menu_button(tl!("Weight"), |ui| {
+        for w in [0.25, 0.5, 0.75, 1.0, 1.5, 2.25, 3.0, 4.5, 6.0] {
+            mi(ui, app, &format!("{w} pt"), "shape.outline", json!({"color": color, "width": w}));
+        }
+    });
+    if dashes {
+        ui.menu_button(tl!("Dashes"), |ui| {
+            for (id, label) in wordcraft_doc::connector::DASH_STYLES {
+                let on = dash.map_or(id == "solid", |d| d.ooxml() == id);
+                mi_check(ui, app, label, on, "shape.outline", json!({"color": color, "dash": id}));
+            }
+        });
+    }
+}
+
+/// A Shape Styles gallery cell's name, as Word's tooltip: "Intense Effect - Accent 3".
+fn shape_style_name(label: &str, color: &str) -> String {
+    let color = match color.strip_prefix("accent") {
+        Some(n) => crate::i18n::fmt(tl!("Accent {n}"), &[("n", n)]),
+        None => tl!("Dark 1").to_owned(),
+    };
+    format!("{} - {color}", tl!(label))
+}
+
+/// Shape Styles gallery: Word's theme styles, a row per look and a column per theme colour,
+/// each cell painted from the style it applies (`shape.style`). Shared by the ribbon and the
+/// shape's context menu (#1674).
+pub(crate) fn shape_style_gallery(ui: &mut Ui, app: &mut WordApp) {
+    use wordcraft_engine::cmd::objects::{SHAPE_STYLE_COLORS, SHAPE_STYLES, quick_style};
+    let theme = app.session.doc.settings.theme_colors.clone();
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(tl!("Theme Styles")).small().weak());
+    egui::Grid::new("shape-styles").spacing(vec2(3.0, 3.0)).show(ui, |ui| {
+        for (style, label) in SHAPE_STYLES {
+            for (color, _) in SHAPE_STYLE_COLORS {
+                let Some(qs) = quick_style(style, color, &theme) else { continue };
+                let (r, resp) = ui.allocate_exact_size(vec2(32.0, 26.0), Sense::click());
+                ui.painter().rect_filled(r, 2.0, if resp.hovered() { t.hover } else { t.input });
+                let inner = r.shrink(5.0);
+                if let Some(sh) = qs.shadow {
+                    let (dx, dy) = sh.offset();
+                    let shadow = inner.translate(vec2(dx.clamp(-3.0, 3.0), dy.clamp(-3.0, 3.0)));
+                    ui.painter().rect_filled(shadow, 2.0, egui::Color32::from_black_alpha(70));
+                }
+                if let Some(f) = qs.fill {
+                    ui.painter().rect_filled(inner, 2.0, crate::theme::c32(f));
+                }
+                if let Some(c) = qs.stroke {
+                    let w = qs.stroke_width.clamp(1.0, 2.0);
+                    ui.painter().rect_stroke(inner, 2.0, Stroke::new(w, crate::theme::c32(c)), egui::StrokeKind::Inside);
+                }
+                let name = shape_style_name(label, color);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+                if resp.on_hover_text(name).clicked() {
+                    let _ = app.run("shape.style", json!({"style": style, "color": color}));
+                    ui.close();
+                }
+            }
+            ui.end_row();
+        }
+    });
+}
+
 /// Shape Format: fill, outline and effects of the selected shape, and its arrangement.
 fn shape_format(app: &mut WordApp, ui: &mut Ui) {
-    let (stroke, glow_size) = match wordcraft_engine::cmd::objects::selected(&app.session) {
-        Some((_, wordcraft_doc::para::InlineObject::Shape { stroke, effects, .. })) => (stroke, effects.glow.map(|g| g.size)),
-        _ => (None, None),
+    let glow_size = match wordcraft_engine::cmd::objects::selected(&app.session) {
+        Some((_, wordcraft_doc::para::InlineObject::Shape { effects, .. })) => effects.glow.map(|g| g.size),
+        _ => None,
     };
     let theme = app.session.doc.settings.theme_colors.clone();
     group(ui, "Shape Styles", None, app, |ui, app| {
+        menu_button(ui, app, "shapes", Some("Styles"), "Shape Styles", true, "shape.style", shape_style_gallery);
         stack(ui, |ui| {
-            menu_button(ui, app, "shading", Some("Shape Fill"), "Shape Fill", false, "shape.fill", |ui, app| {
-                mi(ui, app, "No Color", "shape.fill", json!({"color": null}));
-                crate::colors::menu(ui, app, &theme, Target::cmd("shape.fill"));
-            });
-            menu_button(ui, app, "pen", Some("Shape Outline"), "Shape Outline", false, "shape.outline", |ui, app| {
-                mi(ui, app, "No Color", "shape.outline", json!({"color": null}));
-                crate::colors::menu(ui, app, &theme, Target::cmd("shape.outline"));
-                ui.separator();
-                ui.menu_button(tl!("Weight"), |ui| {
-                    let color = stroke.unwrap_or(wordcraft_doc::Rgb::BLACK).hex();
-                    for w in [0.25, 0.5, 0.75, 1.0, 1.5, 2.25, 3.0, 4.5, 6.0] {
-                        mi(ui, app, &format!("{w} pt"), "shape.outline", json!({"color": color, "width": w}));
-                    }
-                });
-            });
+            menu_button(ui, app, "shading", Some("Shape Fill"), "Shape Fill", false, "shape.fill", shape_fill_items);
+            menu_button(ui, app, "pen", Some("Shape Outline"), "Shape Outline", false, "shape.outline", shape_outline_items);
             menu_button(ui, app, "shapeEffects", Some("Shape Effects"), "Shadow, glow and soft edges", false, "shape.effects", |ui, app| {
                 shape_effects_menu(ui, app, &theme, glow_size)
             });
@@ -2874,6 +2950,72 @@ mod tests {
         app.session.run("select.collapse", &json!({"end": true})).unwrap();
         app.session.run("text.insert", &json!({"text": "x"})).unwrap();
         assert!(!contextual_tabs(&app.session).contains(&"Chart Design"));
+    }
+
+    /// #1674: the Shape Format tab's Shape Fill menu and Shape Styles gallery are the shared
+    /// builders the context menu uses: No Fill empties the fill, a gallery cell applies its style.
+    #[test]
+    fn shape_format_fill_menu_and_style_gallery_work() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("insert.shape", json!({"kind": "ellipse"})).unwrap();
+        app.run("ui.tab", json!({"tab": "Shape Format"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1600.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(6);
+        let fill = |h: &egui_kittest::Harness<WordApp>| match wordcraft_engine::cmd::objects::selected(&h.state().session) {
+            Some((_, wordcraft_doc::para::InlineObject::Shape { fill, .. })) => fill,
+            o => panic!("{o:?}"),
+        };
+        assert!(fill(&h).is_some());
+        use egui::accesskit::Role;
+        h.get_by_role_and_label(Role::Button, tl!("Shape Fill")).click();
+        h.run_steps(3);
+        h.get_by_label_contains("No Fill").click();
+        h.run_steps(3);
+        assert_eq!(fill(&h), None, "No Fill from the ribbon");
+        h.get_by_role_and_label(Role::Button, tl!("Shape Styles")).click();
+        h.run_steps(3);
+        h.get_by_label("Subtle Effect - Accent 1").click();
+        h.run_steps(3);
+        let want = wordcraft_engine::cmd::objects::quick_style("subtleEffect", "accent1", &wordcraft_doc::THEME_COLORS).unwrap().fill;
+        assert_eq!(fill(&h), want, "the gallery cell applied its style");
+    }
+
+    /// #1674: on a drawing canvas, Shape Outline › Weight keeps the border's colour, and there
+    /// are no Dashes (a canvas border takes none).
+    #[test]
+    fn canvas_outline_weight_keeps_its_colour_and_offers_no_dashes() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        app.run("insert.canvas", json!({})).unwrap();
+        app.run("shape.outline", json!({"color": "C00000", "width": 1.0})).unwrap();
+        app.run("ui.tab", json!({"tab": "Shape Format"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1600.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(6);
+        h.get_by_role_and_label(Role::Button, tl!("Shape Outline")).click();
+        h.run_steps(3);
+        assert!(h.query_by_label_contains("Dashes").is_none(), "no Dashes for a canvas");
+        h.get_by_label_contains("Weight").hover();
+        h.run_steps(3);
+        h.get_by_label_contains("3 pt").click();
+        h.run_steps(3);
+        let style = wordcraft_engine::cmd::objects::selected(&h.state().session).and_then(|(_, o)| o.canvas_style().cloned()).unwrap();
+        assert_eq!((style.stroke, style.stroke_width), (wordcraft_doc::Rgb::parse("C00000"), 3.0), "the colour stays");
     }
 
     /// No group's content runs into its label: View › Show stacked four check boxes in a column

@@ -2234,3 +2234,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	其他填滿色彩…
+	More Outline Colors…	其他外框色彩…
+	Dashes	虛線
+	Solid	實線
+	Round Dot	圓點
+	Square Dot	方點
+	Dash	短虛線
+	Dash Dot	虛線 - 點
+	Long Dash	長虛線
+	Long Dash Dot	長虛線 - 點
+	Long Dash Dot Dot	長虛線 - 點 - 點
+	Theme Styles	佈景主題樣式
+	Colored Outline	彩色外框
+	Colored Fill	彩色填滿
+	Light 1 Outline, Colored Fill	淺色 1 外框，彩色填滿
+	Subtle Effect	細微效果
+	Moderate Effect	中等效果
+	Intense Effect	強烈效果
+	Dark 1	深色 1

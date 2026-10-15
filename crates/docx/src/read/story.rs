@@ -1340,6 +1340,8 @@ impl Reader<'_> {
         let arrow = |tag: &str| ln.and_then(|l| l.child(tag)).and_then(|e| e.attr("type")).is_some_and(|t| t != "none");
         extra.arrow_start = arrow("a:headEnd");
         extra.arrow_end = arrow("a:tailEnd");
+        // The outline's dash pattern (`a:prstDash`, ECMA-376 §20.1.10.48); `solid` is none.
+        extra.dash = ln.and_then(|l| l.child("a:prstDash")).and_then(|d| d.attr("val")).and_then(wordcraft_doc::connector::LineDash::parse);
         // A connector's glued ends (ECMA-376 §20.1.2.2.36, §20.1.2.2.13).
         if let Some(cn) = wsp.child("wps:cNvCnPr") {
             let end = |tag: &str| {

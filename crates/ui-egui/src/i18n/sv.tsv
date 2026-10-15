@@ -2647,3 +2647,24 @@ preview	Title	Titel
 	Bottom Right Cell	Nedre högra cellen
 	Inside Horizontal Border	Inre vågrät kantlinje
 	Inside Vertical Border	Inre lodrät kantlinje
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Fler fyllningsfärger…
+	More Outline Colors…	Fler konturfärger…
+	Dashes	Streck
+	Solid	Heldragen
+	Round Dot	Runda prickar
+	Square Dot	Fyrkantiga prickar
+	Dash	Streckad
+	Dash Dot	Streck-punkt
+	Long Dash	Långt streck
+	Long Dash Dot	Långt streck-punkt
+	Long Dash Dot Dot	Långt streck-punkt-punkt
+	Theme Styles	Temaformat
+	Colored Outline	Färgad kontur
+	Colored Fill	Färgad fyllning
+	Light 1 Outline, Colored Fill	Kontur Ljus 1, färgad fyllning
+	Subtle Effect	Diskret effekt
+	Moderate Effect	Måttlig effekt
+	Intense Effect	Kraftig effekt
+	Dark 1	Mörk 1

@@ -2672,3 +2672,24 @@ template	Letter	Thư
 # Reading Mode column widths (#1040)
 	Narrow	Hẹp
 	Medium	Trung bình
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Màu tô khác…
+	More Outline Colors…	Màu viền khác…
+	Dashes	Nét đứt
+	Solid	Nét liền
+	Round Dot	Chấm tròn
+	Square Dot	Chấm vuông
+	Dash	Gạch ngang
+	Dash Dot	Gạch chấm
+	Long Dash	Gạch dài
+	Long Dash Dot	Gạch dài chấm
+	Long Dash Dot Dot	Gạch dài chấm chấm
+	Theme Styles	Kiểu chủ đề
+	Colored Outline	Viền màu
+	Colored Fill	Tô màu
+	Light 1 Outline, Colored Fill	Viền Sáng 1, tô màu
+	Subtle Effect	Hiệu ứng nhẹ
+	Moderate Effect	Hiệu ứng vừa
+	Intense Effect	Hiệu ứng mạnh
+	Dark 1	Tối 1

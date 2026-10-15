@@ -2247,3 +2247,24 @@
 # Reading Mode column widths (#1040)
 	Narrow	Уска
 	Medium	Средња
+
+# Shape context menu and Shape Styles gallery: Style, Fill, Outline, Dashes (#1674)
+	More Fill Colors…	Још боја попуне…
+	More Outline Colors…	Још боја контуре…
+	Dashes	Цртице
+	Solid	Пуна
+	Round Dot	Округле тачке
+	Square Dot	Квадратне тачке
+	Dash	Цртица
+	Dash Dot	Цртица-тачка
+	Long Dash	Дуга цртица
+	Long Dash Dot	Дуга цртица-тачка
+	Long Dash Dot Dot	Дуга цртица-тачка-тачка
+	Theme Styles	Стилови теме
+	Colored Outline	Обојена контура
+	Colored Fill	Обојена попуна
+	Light 1 Outline, Colored Fill	Контура Светла 1, обојена попуна
+	Subtle Effect	Суптилан ефекат
+	Moderate Effect	Умерен ефекат
+	Intense Effect	Јак ефекат
+	Dark 1	Тамна 1
