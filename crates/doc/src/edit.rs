@@ -54,6 +54,19 @@ impl Fragment {
     }
 }
 
+/// Whether block `b`, in a block list the paragraph walk reaches at `depth`, has cells the walk
+/// skips ([`crate::PARA_WALK_DEPTH`]). Bounded by that depth.
+fn deeper_than_walk(b: &Block, depth: usize) -> bool {
+    match b {
+        Block::Para(_) => false,
+        Block::Table(t) => t
+            .rows
+            .iter()
+            .flat_map(|r| &r.cells)
+            .any(|c| depth + 1 > crate::PARA_WALK_DEPTH || c.blocks.iter().any(|x| deeper_than_walk(x, depth + 1))),
+    }
+}
+
 fn order(a: &Pos, b: &Pos) -> (Pos, Pos) {
     if a <= b { (a.clone(), b.clone()) } else { (b.clone(), a.clone()) }
 }
@@ -419,8 +432,11 @@ impl Document {
             let pre = block_path(i);
             paths.iter().filter(|q| q.0.len() > pre.0.len() && q.0.starts_with(&pre.0)).collect()
         };
-        let a_covers = a.path.0.len() > level + 1 && a.off == 0 && inside(ia).first() == Some(&&a.path);
-        let b_covers = b.path.0.len() > level + 1 && inside(ib).last() == Some(&&b.path) && b_at_end;
+        // A table with cells deeper than the paragraph walk goes has paragraphs `inside` never
+        // lists, so where it starts or ends isn't known: it is never taken as covered.
+        let walked = |i: usize| self.container(a.story, &block_path(i)).and_then(|bl| bl.get(i)).is_some_and(|b| !deeper_than_walk(b, level / 3));
+        let a_covers = a.path.0.len() > level + 1 && a.off == 0 && walked(ia) && inside(ia).first() == Some(&&a.path);
+        let b_covers = b.path.0.len() > level + 1 && walked(ib) && inside(ib).last() == Some(&&b.path) && b_at_end;
         let first = if a_covers { ia } else { ia + 1 };
         let last = if b_covers { ib } else { ib - 1 };
         let mut removed = 0;
@@ -949,5 +965,158 @@ mod tests {
         let c = d.clamp(&Pos::body(9, 9));
         assert_eq!(c, Pos::body(0, 2));
         assert!(d.delete_range(&Pos { story: StoryRef::Part(3), path: Path::top(0), off: 0 }, &Pos::body(0, 0)).is_err());
+    }
+
+    // delete_range over whole tables (#1844), in the body, a header and a footnote.
+
+    /// A document whose story (the body, or a header or footnote part) holds `lines`.
+    fn story_doc(kind: Option<PartKind>, lines: &[&str]) -> (Document, StoryRef) {
+        match kind {
+            None => (doc(lines), StoryRef::Body),
+            Some(k) => {
+                let mut d = doc(&["body"]);
+                let blocks = lines.iter().map(|l| para_block(Paragraph::with_text(l, CharProps::default()))).collect();
+                let id = d.add_part(k, blocks);
+                (d, StoryRef::Part(id))
+            }
+        }
+    }
+
+    const STORIES: [Option<PartKind>; 3] = [None, Some(PartKind::Header), Some(PartKind::Footnote)];
+
+    fn at(story: StoryRef, path: &[u32], off: usize) -> Pos {
+        Pos { story, path: Path(path.to_vec()), off }
+    }
+
+    /// Insert an `rows`×`cols` table at `path` whose cells hold `texts`, row by row.
+    fn put_table(d: &mut Document, story: StoryRef, path: &[u32], rows: usize, cols: usize, texts: &[&str]) {
+        d.insert_block(story, &Path(path.to_vec()), Block::Table(Table::new(rows, cols, 200.0))).unwrap();
+        for (k, t) in texts.iter().enumerate() {
+            let mut p = path.to_vec();
+            p.extend([(k / cols) as u32, (k % cols) as u32, 0]);
+            d.insert_text(&at(story, &p, 0), t, &CharProps::default()).unwrap();
+        }
+    }
+
+    /// The story's top-level blocks: a paragraph's text, or `[table]`.
+    fn shape(d: &Document, story: StoryRef) -> Vec<String> {
+        d.story(story).unwrap().iter().map(|b| b.as_para().map_or("[table]".to_string(), |p| p.text.clone())).collect()
+    }
+
+    fn cell_text(d: &Document, story: StoryRef, table: &[u32], r: u32, c: u32) -> String {
+        let mut p = table.to_vec();
+        p.extend([r, c, 0]);
+        d.para(story, &Path(p)).map(|p| p.text.clone()).unwrap_or_else(|| "<none>".into())
+    }
+
+    #[test]
+    fn a_range_ending_at_the_end_of_a_cell_that_isnt_the_last_keeps_the_table() {
+        for kind in STORIES {
+            for (r, c) in [(0, 1), (1, 0)] {
+                let (mut d, st) = story_doc(kind, &["before", "after"]);
+                put_table(&mut d, st, &[1], 2, 2, &["a", "b", "c", "d"]);
+                d.delete_range(&at(st, &[0], 0), &at(st, &[1, r, c, 0], 1)).unwrap();
+                assert_eq!(shape(&d, st), ["", "[table]", "after"], "{kind:?} ({r},{c})");
+                assert_eq!(cell_text(&d, st, &[1], 1, 1), "d", "{kind:?} ({r},{c})");
+            }
+        }
+    }
+
+    #[test]
+    fn a_range_from_the_start_of_one_table_into_the_middle_of_the_next_removes_only_the_first() {
+        for kind in STORIES {
+            let (mut d, st) = story_doc(kind, &["x", "mid", "y"]);
+            put_table(&mut d, st, &[2], 2, 2, &["e", "f", "g", "h"]);
+            put_table(&mut d, st, &[1], 2, 2, &["a", "b", "c", "d"]);
+            assert_eq!(shape(&d, st), ["x", "[table]", "mid", "[table]", "y"]);
+            let to = d.delete_range(&at(st, &[1, 0, 0, 0], 0), &at(st, &[3, 0, 1, 0], 1)).unwrap();
+            assert_eq!(shape(&d, st), ["x", "", "[table]", "y"], "{kind:?}");
+            assert_eq!([cell_text(&d, st, &[2], 0, 0), cell_text(&d, st, &[2], 0, 1), cell_text(&d, st, &[2], 1, 0)], ["", "", "g"], "{kind:?}");
+            assert!(d.para(st, &to.path).is_some(), "{kind:?}: {to:?}");
+        }
+    }
+
+    #[test]
+    fn a_range_from_a_cell_paragraph_to_the_end_of_a_table_nested_in_that_cell_removes_only_the_nested_table() {
+        for kind in STORIES {
+            let (mut d, st) = story_doc(kind, &["before", "after"]);
+            put_table(&mut d, st, &[1], 1, 1, &["p"]);
+            put_table(&mut d, st, &[1, 0, 0, 1], 1, 1, &["n"]);
+            d.insert_block(st, &Path(vec![1, 0, 0, 2]), Block::Para(Paragraph::with_text("q", CharProps::default()))).unwrap();
+            let to = d.delete_range(&at(st, &[1, 0, 0, 0], 1), &at(st, &[1, 0, 0, 1, 0, 0, 0], 1)).unwrap();
+            assert_eq!(shape(&d, st), ["before", "[table]", "after"], "{kind:?}");
+            let cell = d.container(st, &Path(vec![1, 0, 0, 0])).unwrap();
+            let cell: Vec<String> = cell.iter().map(|b| b.as_para().map_or("[table]".to_string(), |p| p.text.clone())).collect();
+            assert_eq!(cell, ["pq"], "{kind:?}");
+            assert_eq!(to, at(st, &[1, 0, 0, 0], 1), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn two_whole_tables_at_the_end_of_a_story_leave_one_empty_paragraph() {
+        for kind in STORIES {
+            for trailing in [true, false] {
+                let (mut d, st) = story_doc(kind, &[""]);
+                put_table(&mut d, st, &[0], 1, 2, &["a", "b"]);
+                put_table(&mut d, st, &[1], 2, 1, &["c", "d"]);
+                if !trailing {
+                    // A story that ends in a table (a hostile file).
+                    d.story_mut(st).unwrap().pop();
+                }
+                let to = d.delete_range(&at(st, &[0, 0, 0, 0], 0), &at(st, &[1, 1, 0, 0], 1)).unwrap();
+                assert_eq!(shape(&d, st), [""], "{kind:?} trailing {trailing}");
+                assert_eq!(to, at(st, &[0], 0), "{kind:?} trailing {trailing}");
+            }
+        }
+    }
+
+    /// Content controls pair their markers within one block list (a story, or a cell), so a
+    /// marker in a table never has its partner outside it: a control inside a table removed whole
+    /// goes with it, and one the range only enters keeps both markers (the control is emptied).
+    #[test]
+    fn removing_a_whole_table_keeps_a_control_the_range_only_partly_covers() {
+        use crate::control::ContentControl;
+        let start = || InlineObject::ControlStart { control: Box::new(ContentControl::default()) };
+        for kind in STORIES {
+            let (mut d, st) = story_doc(kind, &["before", "after"]);
+            put_table(&mut d, st, &[1], 1, 1, &["c"]);
+            // One control around "efo" in "before", one around the cell's text.
+            d.insert_object(&at(st, &[0], 4), InlineObject::ControlEnd, &CharProps::default()).unwrap();
+            let in_before = d.insert_object(&at(st, &[0], 1), start(), &CharProps::default()).unwrap();
+            d.insert_object(&at(st, &[1, 0, 0, 0], 1), InlineObject::ControlEnd, &CharProps::default()).unwrap();
+            d.insert_object(&at(st, &[1, 0, 0, 0], 0), start(), &CharProps::default()).unwrap();
+            assert_eq!(d.control_ranges(st).len(), 2, "setup");
+            let end = d.para(st, &Path(vec![1, 0, 0, 0])).unwrap().len();
+            // From inside the first control to the end of the table.
+            d.delete_range(&Pos { off: in_before.off + 1, ..in_before }, &at(st, &[1, 0, 0, 0], end)).unwrap();
+            assert_eq!(shape(&d, st), ["b\u{FFFC}e\u{FFFC}after"], "{kind:?}: the table goes, the paragraphs join");
+            let ranges = d.control_ranges(st);
+            assert_eq!(ranges.len(), 1, "{kind:?}: {ranges:?}");
+            assert!(ranges.iter().all(|r| r.start.path == Path::top(0) && r.end.path == Path::top(0)), "{kind:?}");
+            let objects = d.para(st, &Path::top(0)).map_or(0, |p| p.objects.len());
+            assert_eq!(objects, 2, "{kind:?}: no orphan markers left");
+        }
+    }
+
+    #[test]
+    fn a_table_nested_deeper_than_the_paragraph_walk_is_never_removed_whole() {
+        // 20 tables, each in the first cell of the one around it, ahead of that cell's paragraph:
+        // the innermost paragraphs come first in the document but the paragraph walk stops short.
+        let mut t = Table::new(1, 1, 200.0);
+        if let Some(cell) = t.rows.get_mut(0).and_then(|r| r.cells.get_mut(0)) {
+            cell.blocks = vec![para_block(Paragraph::with_text("deep", CharProps::default()))];
+        }
+        for _ in 0..20 {
+            let mut outer = Table::new(1, 1, 200.0);
+            if let Some(cell) = outer.rows.get_mut(0).and_then(|r| r.cells.get_mut(0)) {
+                cell.blocks.insert(0, Arc::new(Block::Table(t)));
+            }
+            t = outer;
+        }
+        let mut d = doc(&["before", "after"]);
+        d.insert_block(StoryRef::Body, &Path::top(1), Block::Table(t)).unwrap();
+        let first = d.para_paths(StoryRef::Body).into_iter().find(|p| p.0.first() == Some(&1)).unwrap();
+        d.delete_range(&Pos { story: StoryRef::Body, path: first, off: 0 }, &Pos::body(2, 0)).unwrap();
+        assert!(d.body.get(1).is_some_and(|b| b.as_table().is_some()), "a table with paragraphs the walk never saw was removed");
     }
 }

@@ -1310,3 +1310,20 @@ fn tracked_backspace_on_a_selected_table_marks_its_text_deleted_like_delete_tabl
     assert_eq!(s.doc.final_text(StoryRef::Body).replace(['\t', '\n'], ""), "Beforea1b1c1a2b2c2a3b3c3after");
     assert!(s.doc.revisions.is_empty());
 }
+
+/// One selected cell isn't a whole row or column, even in a one-row or one-column table:
+/// Backspace clears it (Word's cell selection has no end-of-row mark).
+#[test]
+fn backspace_on_one_selected_cell_of_a_one_row_or_one_column_table_clears_it() {
+    for (rows, cols, at) in [(1, 3, [0, 1]), (3, 1, [1, 0])] {
+        let mut s = typed("before\n");
+        run(&mut s, "insert.table", json!({"rows": rows, "cols": cols}));
+        typ(&mut s, "x\ty\tz");
+        run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, at[0], at[1], 0], "off": 0}}));
+        run(&mut s, "table.selectCell", json!({}));
+        run(&mut s, "text.backspace", json!({}));
+        let want: Vec<Vec<String>> =
+            if rows == 1 { vec![vec!["x".into(), "".into(), "z".into()]] } else { vec![vec!["x".into()], vec!["".into()], vec!["z".into()]] };
+        assert_eq!(table_cells(&s), want, "{rows}×{cols}");
+    }
+}
