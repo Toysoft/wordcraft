@@ -801,16 +801,54 @@ pub fn format_date(fmt: &str) -> String {
 
 /// Format a date and time with a Word picture; `days_since` (days since 1970-01-01) gives the weekday.
 pub fn format_date_parts(fmt: &str, y: i64, m: usize, d: u32, (hh, mm, ss): (u32, u32, u32), days_since: i64) -> String {
-    const MONTHS: [&str; 12] =
+    const MONTHS_EN: [&str; 12] =
         ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const DAYS: [&str; 7] = ["Thursday", "Friday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday"];
-    let month = MONTHS.get(m.saturating_sub(1)).copied().unwrap_or("January");
-    let day = DAYS.get(days_since.rem_euclid(7) as usize).copied().unwrap_or("Monday");
+    const MONTHS_ES: [&str; 12] =
+        ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+    const DAYS_EN: [&str; 7] = ["Thursday", "Friday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday"];
+    const DAYS_ES: [&str; 7] = ["jueves", "viernes", "sábado", "domingo", "lunes", "martes", "miércoles"];
+
+    let is_spanish = fmt.contains("'de'")
+        || fmt.contains("' de '")
+        || fmt.contains("'del'")
+        || fmt.contains("' del '")
+        || fmt.contains(" de ")
+        || fmt.contains(" del ");
+
+    let months = if is_spanish { &MONTHS_ES } else { &MONTHS_EN };
+    let days = if is_spanish { &DAYS_ES } else { &DAYS_EN };
+
+    let month = months.get(m.saturating_sub(1)).copied().unwrap_or(if is_spanish { "enero" } else { "January" });
+    let day = days.get(days_since.rem_euclid(7) as usize).copied().unwrap_or(if is_spanish { "lunes" } else { "Monday" });
     let mut out = String::new();
     let chars: Vec<char> = fmt.chars().collect();
     let mut i = 0;
     while i < chars.len() {
         let c = chars.get(i).copied().unwrap_or(' ');
+        // Single quotes enclose literal text in Word date format pictures (e.g. 'de', 'del').
+        if c == '\'' {
+            if chars.get(i + 1) == Some(&'\'') {
+                out.push('\'');
+                i += 2;
+                continue;
+            }
+            i += 1;
+            while i < chars.len() {
+                if chars[i] == '\'' {
+                    if chars.get(i + 1) == Some(&'\'') {
+                        out.push('\'');
+                        i += 2;
+                    } else {
+                        i += 1;
+                        break;
+                    }
+                } else {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            }
+            continue;
+        }
         // `am/pm` (any case) is one token: AM or PM.
         if chars.get(i..i + 5).is_some_and(|w| w.iter().collect::<String>().eq_ignore_ascii_case("am/pm")) {
             out.push_str(if hh < 12 { "AM" } else { "PM" });
@@ -1135,6 +1173,8 @@ mod tests {
         let t = format_date("h:mm:ss am/pm");
         assert!(t.ends_with(" AM") || t.ends_with(" PM"), "{t}");
         assert_eq!(t.matches(':').count(), 2, "{t}");
+        assert_eq!(format_date_parts("d 'de' MMMM 'del' yyyy", 2026, 10, 10, (0, 0, 0), 0), "10 de octubre del 2026");
+        assert_eq!(format_date_parts("d' de 'MMMM' del 'yyyy", 2026, 10, 10, (0, 0, 0), 0), "10 de octubre del 2026");
         use super::super::references::date_picture;
         assert_eq!(date_picture(r#"DATE \@ "MMMM d, yyyy" \* MERGEFORMAT"#).as_deref(), Some("MMMM d, yyyy"));
         assert_eq!(date_picture(r#"TIME \@ HH:mm"#).as_deref(), Some("HH:mm"));

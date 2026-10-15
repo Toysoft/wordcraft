@@ -109,17 +109,43 @@ fn symbol_param(v: &Value, k: &str) -> Option<char> {
     (it.next().is_none() && !c.is_control() && c != OBJ).then_some(c)
 }
 
-/// A date `YYYY-MM-DD` (a full ISO date-time is fine too): (year, month, day), checked.
+/// A date `YYYY-MM-DD` or `DD/MM/YYYY` / `DD/MM/YY` (a full ISO date-time is fine too): (year, month, day), checked.
 pub fn parse_date(t: &str) -> Option<(i64, u32, u32)> {
     let t = t.trim();
-    let y: i64 = t.get(0..4)?.parse().ok()?;
-    let m: u32 = t.get(5..7)?.parse().ok()?;
-    let d: u32 = t.get(8..10)?.parse().ok()?;
-    if t.get(4..5) != Some("-") || t.get(7..8) != Some("-") || !(1..=9999).contains(&y) || !(1..=12).contains(&m) || d == 0 || d > days_in_month(y, m)
+    if let Some(y) = t.get(0..4).and_then(|x| x.parse::<i64>().ok())
+        && t.get(4..5) == Some("-")
+        && let Some(m) = t.get(5..7).and_then(|x| x.parse::<u32>().ok())
+        && t.get(7..8) == Some("-")
+        && let Some(d) = t.get(8..10).and_then(|x| x.parse::<u32>().ok())
     {
-        return None;
+        if (1..=9999).contains(&y) && (1..=12).contains(&m) && d > 0 && d <= days_in_month(y, m) {
+            return Some((y, m, d));
+        }
     }
-    Some((y, m, d))
+    if t.contains('/') {
+        let parts: Vec<&str> = t.split('/').collect();
+        if parts.len() == 3 {
+            let p0: i64 = parts[0].trim().parse().ok()?;
+            let p1: u32 = parts[1].trim().parse().ok()?;
+            let p2: i64 = parts[2].trim().parse().ok()?;
+            if p0 > 1000 {
+                let y = p0;
+                let m = p1;
+                let d = u32::try_from(p2).ok()?;
+                if (1..=9999).contains(&y) && (1..=12).contains(&m) && d > 0 && d <= days_in_month(y, m) {
+                    return Some((y, m, d));
+                }
+            } else {
+                let d = u32::try_from(p0).ok()?;
+                let m = p1;
+                let y = if p2 < 100 { if p2 < 50 { 2000 + p2 } else { 1900 + p2 } } else { p2 };
+                if (1..=9999).contains(&y) && (1..=12).contains(&m) && d > 0 && d <= days_in_month(y, m) {
+                    return Some((y, m, d));
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn days_in_month(y: i64, m: u32) -> u32 {
@@ -723,6 +749,8 @@ mod tests {
         assert_eq!(parse_date("2025-02-29"), None);
         assert_eq!(parse_date("20x6-1-1"), None);
         assert_eq!(parse_date("é"), None);
+        assert_eq!(parse_date("10/10/26"), Some((2026, 10, 10)));
+        assert_eq!(parse_date("10/10/2026"), Some((2026, 10, 10)));
         assert_eq!(format_date_value("dddd, MMMM d, yyyy", 2026, 10, 11), "Sunday, October 11, 2026");
         assert_eq!(format_date_value("M/d/yyyy", 1970, 1, 1), "1/1/1970");
         assert_eq!(days_from_civil(1970, 1, 1), 0);
