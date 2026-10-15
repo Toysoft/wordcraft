@@ -1625,6 +1625,11 @@
 	Add Font…	Aggiungi carattere…
 	Added Fonts	Caratteri aggiunti
 	Remove Added Font	Rimuovi carattere aggiunto
+	Load System Installed Fonts…	Carica caratteri di sistema installati…
+	All system fonts are already available.	Tutti i caratteri di sistema sono già disponibili.
+	Local font access is not supported by your browser.	L'accesso ai caratteri locali non è supportato dal browser.
+	Local font access was denied.	L'accesso ai caratteri locali è stato negato.
+	Loaded {count} system fonts.	Caricati {count} caratteri di sistema.
 	Recent Colors	Colori recenti
 	More Colors…	Altri colori…
 	Standard	Standard
@@ -2510,7 +2515,7 @@ preview	Title	Esempio
 	Remove my name from comments, changes and file properties when saving	Rimuovi il mio nome da commenti, modifiche e proprietà del file al salvataggio
 	Leave out the date and time of comments and tracked changes when saving	Ometti data e ora di commenti e revisioni al salvataggio
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	Il documento che stai modificando conserva nomi e date; solo il file salvato li omette.
-	Privacy Settings	Impostazioni di privacy attuali
+	Privacy Settings	Impostazioni di privacy
 	Waiting for the save to finish…	In attesa del termine del salvataggio…
 	Saving {name} was cancelled, so it is still open and nothing was lost.	Il salvataggio di {name} è stato annullato: il documento è ancora aperto e non è andato perso nulla.
 	Paper	Carta
@@ -2545,6 +2550,24 @@ preview	Title	Esempio
 	Suggested	Suggerimenti
 	Set Proofing Language…	Imposta lingua di correzione…
 	Language Preferences…	Preferenze lingua…
+	Printer	Stampante
+	Select a printer	Seleziona una stampante
+	Refresh printers	Aggiorna stampanti
+	Two-sided printing	Stampa fronte-retro
+	Printer default	Predefinito della stampante
+	One-sided	Solo fronte
+	Two-sided: long edge	Fronte-retro: lato lungo
+	Two-sided: short edge	Fronte-retro: lato corto
+	Grayscale	Scala di grigi
+	Finding printers…	Ricerca stampanti in corso…
+	No printers found. Configure a system printer or export a PDF.	Nessuna stampante trovata. Configura una stampante di sistema oppure esporta un PDF.
+	Printer discovery failed.	Ricerca stampanti non riuscita.
+	Submitting print job…	Invio del lavoro di stampa in corso…
+	Print job submitted.	Lavoro di stampa inviato.
+	Print job submitted: {receipt}	Lavoro di stampa inviato: {receipt}
+	Print failed: the printing worker stopped.	Stampa non riuscita: il processo di stampa si è interrotto.
+	Print settings	Impostazioni di stampa
+	Submit print job	Invia lavoro di stampa
 
 # Cross-reference dialog (#1003)
 	For which item:	Per quale elemento:
@@ -2597,3 +2620,11 @@ preview	Title	Esempio
 	Existing File or Web Page	File o pagina Web esistente
 	Link to:	Collega a:
 	Place in This Document	Posizione nel documento
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Colonna {n}
+	Header row	Riga di intestazione
+	No header row	Nessuna riga di intestazione
+	My list has	L’elenco ha
+# Table Layout › Formula dialog (#1210)
+	Formula:	Formula:
+	Paste function:	Incolla funzione:

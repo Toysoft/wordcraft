@@ -1809,6 +1809,11 @@ preview	Title	Пример
 	Add Font…	Добавить шрифт…
 	Added Fonts	Добавленные шрифты
 	Remove Added Font	Удалить добавленный шрифт
+	Load System Installed Fonts…	Загрузить установленные системные шрифты…
+	All system fonts are already available.	Все системные шрифты уже доступны.
+	Local font access is not supported by your browser.	Ваш браузер не поддерживает доступ к локальным шрифтам.
+	Local font access was denied.	Доступ к локальным шрифтам отклонен.
+	Loaded {count} system fonts.	Загружено системных шрифтов: {count}.
 	Print Markup	Печатать исправления и примечания
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Примечания рядом с каждой страницей и отслеживаемые изменения в PDF, при печати и в изображениях; список примечаний в конце веб-страниц, Markdown и текста.
 	Recent Colors	Последние цвета
@@ -2560,6 +2565,24 @@ preview	Title	Пример
 	Suggested	Предлагаемые
 	Set Proofing Language…	Выбрать язык проверки правописания…
 	Language Preferences…	Языковые параметры…
+	Printer	Принтер
+	Select a printer	Выберите принтер
+	Refresh printers	Обновить принтеры
+	Two-sided printing	Двусторонняя печать
+	Printer default	По умолчанию принтера
+	One-sided	Односторонняя
+	Two-sided: long edge	Двусторонняя: длинный край
+	Two-sided: short edge	Двусторонняя: короткий край
+	Grayscale	Оттенки серого
+	Finding printers…	Поиск принтеров…
+	No printers found. Configure a system printer or export a PDF.	Принтеры не найдены. Настройте системный принтер или экспортируйте PDF.
+	Printer discovery failed.	Не удалось найти принтеры.
+	Submitting print job…	Отправка задания на печать…
+	Print job submitted.	Задание на печать отправлено.
+	Print job submitted: {receipt}	Задание на печать отправлено: {receipt}
+	Print failed: the printing worker stopped.	Печать не удалась: процесс печати остановлен.
+	Print settings	Параметры печати
+	Submit print job	Отправить задание на печать
 
 # Cross-reference dialog (#1003)
 	For which item:	Для какого элемента:
@@ -2586,3 +2609,11 @@ preview	Title	Пример
 	Existing File or Web Page	Файл или веб-страница
 	Link to:	Связать с:
 	Place in This Document	Место в документе
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Столбец {n}
+	Header row	Строка заголовка
+	No header row	Без строки заголовка
+	My list has	Мой список содержит
+# Table Layout › Formula dialog (#1210)
+	Formula:	Формула:
+	Paste function:	Вставить функцию:

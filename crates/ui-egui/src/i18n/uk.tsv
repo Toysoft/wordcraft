@@ -1573,6 +1573,11 @@
 	Add Font…	Додати шрифт…
 	Added Fonts	Додані шрифти
 	Remove Added Font	Видалити доданий шрифт
+	Load System Installed Fonts…	Завантажити встановлені системні шрифти…
+	All system fonts are already available.	Усі системні шрифти вже доступні.
+	Local font access is not supported by your browser.	Ваш браузер не підтримує доступ до локальних шрифтів.
+	Local font access was denied.	У доступі до локальних шрифтів відмовлено.
+	Loaded {count} system fonts.	Завантажено системних шрифтів: {count}.
 	Recent Colors	Останні кольори
 	More Colors…	Інші кольори…
 	Standard	Стандартні
@@ -2182,6 +2187,24 @@
 	Suggested	Пропоновані
 	Set Proofing Language…	Вибрати мову перевірки правопису…
 	Language Preferences…	Мовні параметри…
+	Printer	Принтер
+	Select a printer	Виберіть принтер
+	Refresh printers	Оновити принтери
+	Two-sided printing	Двосторонній друк
+	Printer default	За замовчуванням принтера
+	One-sided	Односторонній
+	Two-sided: long edge	Двосторонній: довгий край
+	Two-sided: short edge	Двосторонній: короткий край
+	Grayscale	Відтінки сірого
+	Finding printers…	Пошук принтерів…
+	No printers found. Configure a system printer or export a PDF.	Принтерів не знайдено. Налаштуйте системний принтер або експортуйте PDF.
+	Printer discovery failed.	Не вдалося знайти принтери.
+	Submitting print job…	Надсилання завдання на друк…
+	Print job submitted.	Завдання на друк надіслано.
+	Print job submitted: {receipt}	Завдання на друк надіслано: {receipt}
+	Print failed: the printing worker stopped.	Друк не вдався: процес друку зупинився.
+	Print settings	Параметри друку
+	Submit print job	Надіслати завдання на друк
 
 # Dictionaries folder (#1063)
 	Dictionaries	Словники
@@ -2201,3 +2224,11 @@
 	Existing File or Web Page	Файл або веб-сторінка
 	Link to:	Зв'язати з:
 	Place in This Document	Місце в документі
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Стовпець {n}
+	Header row	Рядок заголовка
+	No header row	Без рядка заголовка
+	My list has	Мій список містить
+# Table Layout › Formula dialog (#1210)
+	Formula:	Формула:
+	Paste function:	Вставити функцію:

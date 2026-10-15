@@ -49,6 +49,7 @@ pub mod pl;
 pub mod pt;
 pub mod ru;
 pub mod tr;
+pub mod vi;
 
 use std::collections::HashSet;
 use std::ops::Range;
@@ -581,7 +582,8 @@ fn enclosing_token(text: &str, a: usize, b: usize) -> (usize, usize, bool) {
 /// classification of the word's enclosing token, from [`enclosing_token`].
 fn spelling_issue(text: &str, a: usize, b: usize, lang: ProofLang, opts: &Options, internet: bool) -> Option<Issue> {
     let w = text.get(a..b)?;
-    if (opts.ignore_internet && internet) || is_correct_in_with(w, lang, opts) {
+    // A word with a Vietnamese-only letter (a name like Nguyễn in English text) isn't English.
+    if (opts.ignore_internet && internet) || (lang == ProofLang::En && vi::is_vietnamese_word(w)) || is_correct_in_with(w, lang, opts) {
         return None;
     }
     let message = match lang {
@@ -668,9 +670,19 @@ pub fn check_text_with(text: &str, spans: &[(Range<usize>, ProofLang)], opts: &O
             _ => merged.push((r.clone(), *l)),
         }
     }
+    // A paragraph typed in Vietnamese under the default English language is Vietnamese, which
+    // has no proofing tools: no marks (Word detects the language the same way).
+    let default = if vi::looks_vietnamese(text) {
+        for (_, l) in merged.iter_mut().filter(|(_, l)| *l == ProofLang::En) {
+            *l = ProofLang::Other;
+        }
+        ProofLang::Other
+    } else {
+        ProofLang::En
+    };
     let lang_at = |i: usize| -> ProofLang {
         let k = merged.partition_point(|(r, _)| r.end <= i);
-        merged.get(k).filter(|(r, _)| r.start <= i).map_or(ProofLang::En, |s| s.1)
+        merged.get(k).filter(|(r, _)| r.start <= i).map_or(default, |s| s.1)
     };
     let mut v: Vec<Issue> = spelling_issues(text, lang_at, opts);
     if !grammar {
@@ -686,7 +698,7 @@ pub fn check_text_with(text: &str, spans: &[(Range<usize>, ProofLang)], opts: &O
         covered = covered.max(r.end);
     }
     if covered < text.len() || merged.is_empty() {
-        langs.push(ProofLang::En);
+        langs.push(default);
     }
     langs.sort();
     langs.dedup();
@@ -1299,13 +1311,18 @@ mod tests {
         }
 
         #[test]
+        fn italian_suggestions_never_panic(s in "[a-zàèéìòóùA-ZÀÈÉÌÒÓÙ'’ -]{0,14}") {
+            let _ = suggest_in(&s, 4, ProofLang::It);
+        }
+
+        #[test]
         fn turkish_suggestions_never_panic(s in "[a-zçğıöşüA-ZÇĞİÖŞÜ'’ -]{0,14}") {
             let _ = suggest_in(&s, 4, ProofLang::Tr);
         }
 
         #[test]
-        fn mixed_spans_never_panic(s in "\\PC{0,60}", cuts in proptest::collection::vec((0usize..80, 0usize..80, 0u8..6), 0..6)) {
-            let langs = [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::Tr, ProofLang::Ru, ProofLang::Other];
+        fn mixed_spans_never_panic(s in "\\PC{0,60}", cuts in proptest::collection::vec((0usize..80, 0usize..80, 0u8..7), 0..6)) {
+            let langs = [ProofLang::En, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Tr, ProofLang::Ru, ProofLang::Other];
             let spans: Vec<(Range<usize>, ProofLang)> = cuts.iter().map(|&(a, b, l)| (a.min(b)..a.max(b), langs[l as usize % langs.len()])).collect();
             for i in check_text(&s, &spans) {
                 proptest::prop_assert!(i.start <= i.end && i.end <= s.len());
