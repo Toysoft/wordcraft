@@ -2621,3 +2621,55 @@
 # Reading Mode column widths (#1040)
 	Narrow	Тясна
 	Medium	Средна
+
+# Dictate and Translate Document, with local models
+	Translate Document	Превод на документа
+	English	Английски
+	German	Немски
+	French	Френски
+	Spanish	Испански
+	Portuguese	Португалски
+	Chinese	Китайски
+	Bulgarian	Български
+	Hungarian	Унгарски
+	Romanian	Румънски
+	Vietnamese	Виетнамски
+	Detect automatically	Автоматично разпознаване
+	Translate into:	Превод на:
+	From:	От:
+	Language:	Език:
+	Not set	Не е зададено
+	Model files	Файлове на модела
+	The whole document	Целият документ
+	The selected paragraphs	Избраните абзаци
+	Put the translation in:	Постави превода в:
+	A new document	Нов документ
+	Model: {name}	Модел: {name}
+	No translation model for this language pair.	Няма модел за превод за тази езикова двойка.
+	Choose a folder of translation models in File › Options › Language.	Изберете папка с модели за превод от Файл › Опции › Език.
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	Форматирането, таблиците, картините и стиловете се запазват. Отмяната връща оригинала.
+	There is no text to translate.	Няма текст за превод.
+	Translate isn't available in the web version of WordCraft.	Преводът не е наличен в уеб версията на WordCraft.
+	The translation was for a document that is no longer open.	Преводът беше за документ, който вече не е отворен.
+	Translated paragraphs: {count}	Преведени абзаци: {count}
+	Loading the translation model…	Зареждане на модела за превод…
+	Translating… {done} of {total}	Превод… {done} от {total}
+	Translation cancelled.	Преводът е отказан.
+	Still writing down what you said…	Казаното все още се записва…
+	Dictate isn't available in the web version of WordCraft.	Диктуването не е налично в уеб версията на WordCraft.
+	No microphone is available.	Няма наличен микрофон.
+	Couldn't open the microphone: {error}	Микрофонът не можа да бъде отворен: {error}
+	Loading the speech model…	Зареждане на речевия модел…
+	The microphone stopped: {error}	Микрофонът спря: {error}
+	Writing down what you said…	Казаното се записва…
+	Listening…	Слушане…
+	Speak now: text appears at the cursor when you pause.	Говорете: текстът се появява при курсора, когато направите пауза.
+	Dictation	Диктуване
+	Dictation and translation	Диктуване и превод
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	Диктуването и преводът работят на този компютър с избрани от вас файлове на модели: нищо не се изпраща по интернет.
+	Where to get the models: docs/local-models.md in WordCraft's source.	Откъде да вземете моделите: docs/local-models.md в изходния код на WordCraft.
+	Speech model folder (Whisper):	Папка на речевия модел (Whisper):
+	Dictation language:	Език на диктуването:
+	Translation models folder (OPUS-MT):	Папка с модели за превод (OPUS-MT):
+	No translation models found in this folder.	В тази папка не са намерени модели за превод.
+	Language pairs: {pairs}	Езикови двойки: {pairs}

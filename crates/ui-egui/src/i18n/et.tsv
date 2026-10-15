@@ -2267,3 +2267,55 @@
 # Reading Mode column widths (#1040)
 	Narrow	Kitsas
 	Medium	Keskmine
+
+# Dictate and Translate Document, with local models
+	Translate Document	Tõlgi dokument
+	English	Inglise
+	German	Saksa
+	French	Prantsuse
+	Spanish	Hispaania
+	Portuguese	Portugali
+	Chinese	Hiina
+	Bulgarian	Bulgaaria
+	Hungarian	Ungari
+	Romanian	Rumeenia
+	Vietnamese	Vietnami
+	Detect automatically	Tuvasta automaatselt
+	Translate into:	Tõlgi keelde:
+	From:	Lähtekeel:
+	Language:	Keel:
+	Not set	Määramata
+	Model files	Mudelifailid
+	The whole document	Kogu dokument
+	The selected paragraphs	Valitud lõigud
+	Put the translation in:	Pane tõlge:
+	A new document	Uude dokumenti
+	Model: {name}	Mudel: {name}
+	No translation model for this language pair.	Selle keelepaari jaoks pole tõlkemudelit.
+	Choose a folder of translation models in File › Options › Language.	Valige tõlkemudelite kaust menüüs Fail › Suvandid › Keel.
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	Vorming, tabelid, pildid ja laadid säilivad. Võta tagasi toob algse teksti tagasi.
+	There is no text to translate.	Tõlgitavat teksti pole.
+	Translate isn't available in the web version of WordCraft.	Tõlkimine pole WordCrafti veebiversioonis saadaval.
+	The translation was for a document that is no longer open.	Tõlge oli dokumendi jaoks, mis pole enam avatud.
+	Translated paragraphs: {count}	Tõlgitud lõike: {count}
+	Loading the translation model…	Tõlkemudeli laadimine…
+	Translating… {done} of {total}	Tõlkimine… {done}/{total}
+	Translation cancelled.	Tõlkimine katkestati.
+	Still writing down what you said…	Öeldut kirjutatakse veel üles…
+	Dictate isn't available in the web version of WordCraft.	Dikteerimine pole WordCrafti veebiversioonis saadaval.
+	No microphone is available.	Mikrofoni pole saadaval.
+	Couldn't open the microphone: {error}	Mikrofoni ei saanud avada: {error}
+	Loading the speech model…	Kõnemudeli laadimine…
+	The microphone stopped: {error}	Mikrofon lõpetas töö: {error}
+	Writing down what you said…	Öeldut kirjutatakse üles…
+	Listening…	Kuulan…
+	Speak now: text appears at the cursor when you pause.	Rääkige: tekst ilmub kursori kohale, kui teete pausi.
+	Dictation	Dikteerimine
+	Dictation and translation	Dikteerimine ja tõlkimine
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	Dikteerimine ja tõlkimine töötavad selles arvutis teie valitud mudelifailidega: midagi ei saadeta internetti.
+	Where to get the models: docs/local-models.md in WordCraft's source.	Kust mudelid saada: WordCrafti lähtekoodis docs/local-models.md.
+	Speech model folder (Whisper):	Kõnemudeli kaust (Whisper):
+	Dictation language:	Dikteerimise keel:
+	Translation models folder (OPUS-MT):	Tõlkemudelite kaust (OPUS-MT):
+	No translation models found in this folder.	Selles kaustas tõlkemudeleid ei leitud.
+	Language pairs: {pairs}	Keelepaarid: {pairs}

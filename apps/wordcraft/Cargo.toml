@@ -78,3 +78,7 @@ pollster = "0.4"
 arboard = { workspace = true, features = ["image-data"] }
 # The control server's random key.
 getrandom = "0.3"
+# Dictate's microphone (`microphone.rs`): cpal (Apache-2.0), the system's default input through
+# Core Audio, WASAPI or ALSA. On Linux and the BSDs it links the ALSA library (libasound2-dev /
+# alsa-lib to build), which the release builds already install.
+cpal = "0.18"

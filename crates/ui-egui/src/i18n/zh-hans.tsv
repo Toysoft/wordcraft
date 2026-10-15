@@ -2245,3 +2245,55 @@
 # Reading Mode column widths (#1040)
 	Narrow	窄
 	Medium	中等
+
+# Dictate and Translate Document, with local models
+	Translate Document	翻译文档
+	English	英语
+	German	德语
+	French	法语
+	Spanish	西班牙语
+	Portuguese	葡萄牙语
+	Chinese	中文
+	Bulgarian	保加利亚语
+	Hungarian	匈牙利语
+	Romanian	罗马尼亚语
+	Vietnamese	越南语
+	Detect automatically	自动检测
+	Translate into:	翻译为：
+	From:	源语言：
+	Language:	语言：
+	Not set	未设置
+	Model files	模型文件
+	The whole document	整个文档
+	The selected paragraphs	所选段落
+	Put the translation in:	将译文放入：
+	A new document	新文档
+	Model: {name}	模型：{name}
+	No translation model for this language pair.	没有用于此语言对的翻译模型。
+	Choose a folder of translation models in File › Options › Language.	请在“文件 › 选项 › 语言”中选择翻译模型文件夹。
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	格式、表格、图片和样式都会保留。撤销可恢复原文。
+	There is no text to translate.	没有可翻译的文本。
+	Translate isn't available in the web version of WordCraft.	WordCraft 网页版不提供翻译功能。
+	The translation was for a document that is no longer open.	译文所属的文档已不再打开。
+	Translated paragraphs: {count}	已翻译段落：{count}
+	Loading the translation model…	正在加载翻译模型…
+	Translating… {done} of {total}	正在翻译… {done}/{total}
+	Translation cancelled.	已取消翻译。
+	Still writing down what you said…	仍在记录你说的话…
+	Dictate isn't available in the web version of WordCraft.	WordCraft 网页版不提供听写功能。
+	No microphone is available.	没有可用的麦克风。
+	Couldn't open the microphone: {error}	无法打开麦克风：{error}
+	Loading the speech model…	正在加载语音模型…
+	The microphone stopped: {error}	麦克风已停止：{error}
+	Writing down what you said…	正在记录你说的话…
+	Listening…	正在聆听…
+	Speak now: text appears at the cursor when you pause.	请开始说话：停顿时文字会出现在光标处。
+	Dictation	听写
+	Dictation and translation	听写和翻译
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	听写和翻译使用你选择的模型文件在本机运行：不会通过互联网发送任何内容。
+	Where to get the models: docs/local-models.md in WordCraft's source.	模型获取方式：见 WordCraft 源代码中的 docs/local-models.md。
+	Speech model folder (Whisper):	语音模型文件夹 (Whisper)：
+	Dictation language:	听写语言：
+	Translation models folder (OPUS-MT):	翻译模型文件夹 (OPUS-MT)：
+	No translation models found in this folder.	此文件夹中没有找到翻译模型。
+	Language pairs: {pairs}	语言对：{pairs}

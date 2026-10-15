@@ -61,6 +61,7 @@ pub mod icons;
 pub mod ink;
 pub mod keys;
 pub mod keytips;
+pub mod local_ai;
 pub mod mini_toolbar;
 pub mod objects;
 pub mod options;
@@ -167,6 +168,9 @@ pub struct Services {
     /// `xdg-mime`. `None` (web, macOS) hides the button; macOS shows how to do it in Finder
     /// instead. An error means nothing changed.
     pub make_default_app: Option<Box<dyn Fn() -> Result<DefaultApp, String>>>,
+    /// Desktop: open the default microphone for Dictate ([`local_ai::Microphone`]). `None` (the
+    /// web, or no audio support) makes Dictate say there is no microphone.
+    pub microphone: Option<local_ai::OpenMicrophone>,
 }
 
 /// How Save in the Save Changes prompt went.
@@ -515,6 +519,10 @@ pub struct WordApp {
     pub(crate) outline_prev_tab: Option<String>,
     /// Zotero commands in flight (`ui.zotero.*`).
     pub zotero: zotero::ZoteroLink,
+    /// Dictate: recording and transcribing ([`local_ai`]).
+    pub(crate) dictation: local_ai::Dictation,
+    /// Translate Document: the translation running on a worker thread.
+    pub(crate) translation: Option<local_ai::TranslationJob>,
     /// The egui context, once the first frame has run (background work wakes the UI with it).
     pub(crate) ctx: Option<egui::Context>,
     /// Read Aloud: the start of the sentence the caret was last moved to, and the last error shown.
@@ -623,6 +631,8 @@ impl WordApp {
             smart_art_typing: None,
             outline_prev_tab: None,
             zotero: zotero::ZoteroLink::default(),
+            dictation: Default::default(),
+            translation: None,
             ctx: None,
             read_aloud_at: None,
             read_aloud_error: None,
@@ -754,6 +764,10 @@ impl WordApp {
         if id == "file.recover" && params.as_object().is_none_or(|p| p.is_empty()) {
             self.ui.backstage = true;
             self.ui.backstage_page = "recover".into();
+        }
+        // Dictate without text or audio: start or stop listening to the microphone.
+        if id == "tools.dictate" && params.as_object().is_none_or(|p| p.is_empty()) && widgets::enabled(self, id) {
+            return local_ai::toggle(self);
         }
         // A button whose command needs input the user hasn't given yet opens its dialog (#240).
         if let Some(name) = input_dialog(id, &params)
@@ -1809,6 +1823,8 @@ impl WordApp {
         self.drain_control(ctx);
         zotero::poll(self, ctx);
         read_aloud::poll(self, ctx);
+        local_ai::poll(self, ctx);
+        local_ai::poll_translation(self, ctx);
         self.clear_stale_change_picture();
         let _ = self.poll_file_dialog();
         self.drain_inbox();
@@ -2027,6 +2043,8 @@ impl WordApp {
         colors::show(self, &ctx);
         zotero::show_alert(self, &ctx);
         read_aloud::show(self, &ctx);
+        local_ai::show(self, &ctx);
+        local_ai::show_translation(self, &ctx);
         crate::keytips::show(self, &ctx, ui);
         keys::global_shortcuts(self, &ctx);
         self.refocus_after_chrome_click(&ctx);
@@ -2345,6 +2363,8 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "styles.organizer" if !has("path") => Some("organizer"),
         // Language, Envelopes and Labels without settings show their dialogs (#407).
         "review.language" if params.as_object().is_none_or(|m| m.is_empty()) => Some("language"),
+        // Translate without a target language asks for one (Translate Document).
+        "review.translate" if !has("to") => Some("translate"),
         "mailings.envelopes" if params.as_object().is_none_or(|m| m.is_empty()) => Some("envelopes"),
         "mailings.labels" if params.as_object().is_none_or(|m| m.is_empty()) => Some("labels"),
         _ => None,
@@ -2407,6 +2427,8 @@ fn discards_document(id: &str, params: &Value) -> bool {
         "file.open" => params.get("path").is_some(),
         "file.recover" => params.get("restore").is_some(),
         "mailings.finish" => params.get("path").and_then(Value::as_str).is_none(),
+        // A finished translation into a new document takes this one's place.
+        "review.translate" => params.get("translations").is_some() && params.get("showIn").and_then(Value::as_str) == Some("new"),
         _ => false,
     }
 }

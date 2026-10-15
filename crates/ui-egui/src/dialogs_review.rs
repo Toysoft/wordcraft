@@ -19,6 +19,8 @@ use crate::theme::semibold;
 pub enum ReviewDialog {
     Compare(CompareForm),
     AutoCorrect(Box<AutoCorrectForm>),
+    /// Translate Document (`review.translate`, [`crate::local_ai`]).
+    Translate(Box<crate::local_ai::TranslateForm>),
 }
 
 impl ReviewDialog {
@@ -27,6 +29,7 @@ impl ReviewDialog {
             ReviewDialog::Compare(f) if f.combine => "combine",
             ReviewDialog::Compare(_) => "compare",
             ReviewDialog::AutoCorrect(_) => "autoCorrect",
+            ReviewDialog::Translate(_) => "translate",
         }
     }
 
@@ -36,6 +39,7 @@ impl ReviewDialog {
             ReviewDialog::Compare(f) if f.combine => "Combine Documents",
             ReviewDialog::Compare(_) => "Compare Documents",
             ReviewDialog::AutoCorrect(_) => "AutoCorrect",
+            ReviewDialog::Translate(_) => "Translate Document",
         }
     }
 }
@@ -46,6 +50,7 @@ pub fn open(name: &str, app: &mut WordApp) -> Option<ReviewDialog> {
     Some(match name {
         "compare" | "combine" => ReviewDialog::Compare(CompareForm::new(app, name == "combine")),
         "autoCorrect" => ReviewDialog::AutoCorrect(Box::new(AutoCorrectForm::new(app))),
+        "translate" => ReviewDialog::Translate(Box::new(crate::local_ai::TranslateForm::new(app))),
         "restrictEditing" => {
             app.restrict.open = true;
             return None;
@@ -59,6 +64,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut ReviewDialog) -> bool {
     match d {
         ReviewDialog::Compare(f) => compare_ui(app, ui, f),
         ReviewDialog::AutoCorrect(f) => autocorrect_ui(app, ui, f),
+        ReviewDialog::Translate(f) => crate::local_ai::translate_ui(app, ui, f),
     }
 }
 

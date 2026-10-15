@@ -995,7 +995,9 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
         });
     });
     group(ui, "Voice", None, app, |ui, app| {
-        big(ui, app, "dictate", "Dictate", "tools.dictate", json!({}), false);
+        // Pressed while listening; pressing it again stops (`crate::local_ai`).
+        let dictating = app.dictation.active();
+        big_toggle(ui, app, "dictate", "Dictate", "tools.dictate", dictating);
     });
     group(ui, "Editor", None, app, |ui, app| {
         big(ui, app, "editor", "Editor", "review.spelling", json!({}), false);
@@ -1753,6 +1755,8 @@ fn review(app: &mut WordApp, ui: &mut Ui) {
         stack(ui, |ui| {
             small(ui, app, "thesaurus", Some("Thesaurus"), "Thesaurus", "review.thesaurus", json!({}), false);
             small(ui, app, "wordCount", Some("Word Count"), "Word Count", "ui.dialog", json!({"name": "wordCount"}), false);
+            // The whole document into another language, with local models (`crate::local_ai`).
+            small(ui, app, "translate", Some("Translate Document"), "Translate Document", "review.translate", json!({}), false);
         });
     });
     group(ui, "Speech", None, app, |ui, app| {

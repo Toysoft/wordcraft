@@ -2599,3 +2599,55 @@ preview	Title	Título
 # Reading Mode column widths (#1040)
 	Narrow	Estrecha
 	Medium	Media
+
+# Dictate and Translate Document, with local models
+	Translate Document	Traducir documento
+	English	Inglés
+	German	Alemán
+	French	Francés
+	Spanish	Español
+	Portuguese	Portugués
+	Chinese	Chino
+	Bulgarian	Búlgaro
+	Hungarian	Húngaro
+	Romanian	Rumano
+	Vietnamese	Vietnamita
+	Detect automatically	Detectar automáticamente
+	Translate into:	Traducir a:
+	From:	Desde:
+	Language:	Idioma:
+	Not set	Sin establecer
+	Model files	Archivos de modelo
+	The whole document	Todo el documento
+	The selected paragraphs	Los párrafos seleccionados
+	Put the translation in:	Poner la traducción en:
+	A new document	Un documento nuevo
+	Model: {name}	Modelo: {name}
+	No translation model for this language pair.	No hay ningún modelo de traducción para este par de idiomas.
+	Choose a folder of translation models in File › Options › Language.	Elija una carpeta de modelos de traducción en Archivo › Opciones › Idioma.
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	Se conservan el formato, las tablas, las imágenes y los estilos. Deshacer recupera el original.
+	There is no text to translate.	No hay texto que traducir.
+	Translate isn't available in the web version of WordCraft.	Traducir no está disponible en la versión web de WordCraft.
+	The translation was for a document that is no longer open.	La traducción era de un documento que ya no está abierto.
+	Translated paragraphs: {count}	Párrafos traducidos: {count}
+	Loading the translation model…	Cargando el modelo de traducción…
+	Translating… {done} of {total}	Traduciendo… {done} de {total}
+	Translation cancelled.	Traducción cancelada.
+	Still writing down what you said…	Aún se está escribiendo lo que dijo…
+	Dictate isn't available in the web version of WordCraft.	Dictar no está disponible en la versión web de WordCraft.
+	No microphone is available.	No hay ningún micrófono disponible.
+	Couldn't open the microphone: {error}	No se pudo abrir el micrófono: {error}
+	Loading the speech model…	Cargando el modelo de voz…
+	The microphone stopped: {error}	El micrófono se detuvo: {error}
+	Writing down what you said…	Escribiendo lo que dijo…
+	Listening…	Escuchando…
+	Speak now: text appears at the cursor when you pause.	Hable ahora: el texto aparece en el cursor cuando hace una pausa.
+	Dictation	Dictado
+	Dictation and translation	Dictado y traducción
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	Dictar y Traducir se ejecutan en este equipo con los archivos de modelo que elija: no se envía nada por Internet.
+	Where to get the models: docs/local-models.md in WordCraft's source.	Dónde conseguir los modelos: docs/local-models.md en el código fuente de WordCraft.
+	Speech model folder (Whisper):	Carpeta del modelo de voz (Whisper):
+	Dictation language:	Idioma del dictado:
+	Translation models folder (OPUS-MT):	Carpeta de modelos de traducción (OPUS-MT):
+	No translation models found in this folder.	No se encontraron modelos de traducción en esta carpeta.
+	Language pairs: {pairs}	Pares de idiomas: {pairs}

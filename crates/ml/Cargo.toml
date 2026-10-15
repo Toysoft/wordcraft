@@ -1,0 +1,27 @@
+[package]
+name = "wordcraft-ml"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WordCraft local models: Whisper speech recognition (Dictate) and Marian/OPUS-MT translation (Translate), run offline on the CPU with candle; audio resampling and pause detection, SentencePiece and byte-level BPE tokens. Standalone: no WordCraft crate below it"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+# The models run on candle (Hugging Face; MIT OR Apache-2.0), pure Rust on the CPU. Pinned to
+# 0.9.2, the last release whose `candle-core` doesn't pull in the `tokenizers` crate with its C
+# regex library (Oniguruma): this crate reads the tokenizer files itself. Desktop only: the web
+# build has no models and says so.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+candle-core = "=0.9.2"
+candle-nn = "=0.9.2"
+candle-transformers = "=0.9.2"
+
+[dev-dependencies]
+proptest = { workspace = true }

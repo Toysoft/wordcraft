@@ -514,6 +514,14 @@ pub struct Prefs {
     /// Proofing, #1063): an app started from Finder or the Dock doesn't see
     /// `WORDCRAFT_DICTIONARIES`. `None` searches the system locations only.
     pub dictionaries_folder: Option<String>,
+    /// The Whisper speech model folder Dictate uses (File › Options › Language); `None`: not set,
+    /// and Dictate says how to get one.
+    pub speech_model: Option<String>,
+    /// The language Dictate hears (a code such as `he`); `None` detects it.
+    pub dictation_language: Option<String>,
+    /// The folder of translation models Translate picks from (one `opus-mt-xx-yy` folder per
+    /// language pair, or one model folder); `None`: not set.
+    pub translation_models: Option<String>,
     /// Formatting marks shown even while Show/Hide ¶ is off.
     pub marks: wordcraft_layout::display::FormattingMarks,
     /// Mark grammar errors as you type (with Check spelling as you type on).
@@ -539,6 +547,9 @@ impl Default for Prefs {
             units: Default::default(),
             region: None,
             dictionaries_folder: None,
+            speech_model: None,
+            dictation_language: None,
+            translation_models: None,
             marks: Default::default(),
             mark_grammar: true,
             ignore_uppercase: true,

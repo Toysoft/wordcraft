@@ -23,6 +23,7 @@ pub mod ink_shape;
 pub mod insert;
 pub mod inspector;
 pub mod lists;
+pub mod local_ai;
 pub mod mailings;
 pub mod moves;
 pub mod objects;
@@ -100,6 +101,7 @@ pub fn registry() -> Registry {
     v.extend(protect::specs());
     v.extend(speech::specs());
     v.extend(controls::specs());
+    v.extend(local_ai::specs());
     Registry::new(v)
 }
 

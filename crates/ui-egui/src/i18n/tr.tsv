@@ -2629,3 +2629,55 @@ preview	Title	Örnek
 # Reading Mode column widths (#1040)
 	Narrow	Dar
 	Medium	Orta
+
+# Dictate and Translate Document, with local models
+	Translate Document	Belgeyi Çevir
+	English	İngilizce
+	German	Almanca
+	French	Fransızca
+	Spanish	İspanyolca
+	Portuguese	Portekizce
+	Chinese	Çince
+	Bulgarian	Bulgarca
+	Hungarian	Macarca
+	Romanian	Rumence
+	Vietnamese	Vietnamca
+	Detect automatically	Otomatik algıla
+	Translate into:	Çevrilecek dil:
+	From:	Kaynak dil:
+	Language:	Dil:
+	Not set	Ayarlanmadı
+	Model files	Model dosyaları
+	The whole document	Belgenin tamamı
+	The selected paragraphs	Seçili paragraflar
+	Put the translation in:	Çevirinin konacağı yer:
+	A new document	Yeni bir belge
+	Model: {name}	Model: {name}
+	No translation model for this language pair.	Bu dil çifti için çeviri modeli yok.
+	Choose a folder of translation models in File › Options › Language.	Dosya › Seçenekler › Dil bölümünde bir çeviri modelleri klasörü seçin.
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	Biçimlendirme, tablolar, resimler ve stiller korunur. Geri Al orijinali geri getirir.
+	There is no text to translate.	Çevrilecek metin yok.
+	Translate isn't available in the web version of WordCraft.	Çeviri, WordCraft'ın web sürümünde kullanılamaz.
+	The translation was for a document that is no longer open.	Çeviri, artık açık olmayan bir belge içindi.
+	Translated paragraphs: {count}	Çevrilen paragraf: {count}
+	Loading the translation model…	Çeviri modeli yükleniyor…
+	Translating… {done} of {total}	Çevriliyor… {done}/{total}
+	Translation cancelled.	Çeviri iptal edildi.
+	Still writing down what you said…	Söyledikleriniz hâlâ yazılıyor…
+	Dictate isn't available in the web version of WordCraft.	Dikte, WordCraft'ın web sürümünde kullanılamaz.
+	No microphone is available.	Kullanılabilir mikrofon yok.
+	Couldn't open the microphone: {error}	Mikrofon açılamadı: {error}
+	Loading the speech model…	Konuşma modeli yükleniyor…
+	The microphone stopped: {error}	Mikrofon durdu: {error}
+	Writing down what you said…	Söyledikleriniz yazılıyor…
+	Listening…	Dinleniyor…
+	Speak now: text appears at the cursor when you pause.	Şimdi konuşun: duraksadığınızda metin imlecin olduğu yere yazılır.
+	Dictation	Dikte
+	Dictation and translation	Dikte ve çeviri
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	Dikte ve Çeviri, seçtiğiniz model dosyalarıyla bu bilgisayarda çalışır: internet üzerinden hiçbir şey gönderilmez.
+	Where to get the models: docs/local-models.md in WordCraft's source.	Modellerin nereden alınacağı: WordCraft kaynak kodundaki docs/local-models.md.
+	Speech model folder (Whisper):	Konuşma modeli klasörü (Whisper):
+	Dictation language:	Dikte dili:
+	Translation models folder (OPUS-MT):	Çeviri modelleri klasörü (OPUS-MT):
+	No translation models found in this folder.	Bu klasörde çeviri modeli bulunamadı.
+	Language pairs: {pairs}	Dil çiftleri: {pairs}

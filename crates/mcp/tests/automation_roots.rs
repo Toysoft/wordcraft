@@ -108,6 +108,10 @@ fn commands_that_read_a_path_are_held_to_the_read_root() {
         ("styles.organizer", json!({"path": s(&base.join("outside/t.docx"))})),
         ("tools.updateStyles", json!({"path": s(&base.join("outside/t.docx"))})),
         ("styles.copyFrom", json!({"path": s(&base.join("outside/t.docx")), "styles": ["Heading 1"]})),
+        // Dictate's audio and model, Translate's model folder.
+        ("tools.dictate", json!({"path": outside})),
+        ("tools.dictate", json!({"path": s(&base.join("in/a.txt")), "model": s(&base.join("outside"))})),
+        ("review.translate", json!({"to": "de", "model": s(&base.join("outside"))})),
     ] {
         let (error, text) = run(&mut server, command, params);
         assert!(error && text.contains("outside the read root"), "{command}: {text}");

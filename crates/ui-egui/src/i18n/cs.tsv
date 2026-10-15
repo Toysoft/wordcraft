@@ -2624,3 +2624,55 @@ preview	Title	Ukázka
 # Reading Mode column widths (#1040)
 	Narrow	Úzká
 	Medium	Střední
+
+# Dictate and Translate Document, with local models
+	Translate Document	Přeložit dokument
+	English	Angličtina
+	German	Němčina
+	French	Francouzština
+	Spanish	Španělština
+	Portuguese	Portugalština
+	Chinese	Čínština
+	Bulgarian	Bulharština
+	Hungarian	Maďarština
+	Romanian	Rumunština
+	Vietnamese	Vietnamština
+	Detect automatically	Rozpoznat automaticky
+	Translate into:	Přeložit do:
+	From:	Z:
+	Language:	Jazyk:
+	Not set	Nenastaveno
+	Model files	Soubory modelu
+	The whole document	Celý dokument
+	The selected paragraphs	Vybrané odstavce
+	Put the translation in:	Umístit překlad do:
+	A new document	Nový dokument
+	Model: {name}	Model: {name}
+	No translation model for this language pair.	Pro tuto dvojici jazyků není k dispozici model překladu.
+	Choose a folder of translation models in File › Options › Language.	Vyberte složku s modely překladu v nabídce Soubor › Možnosti › Jazyk.
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	Formátování, tabulky, obrázky a styly zůstanou zachovány. Zpět vrátí původní text.
+	There is no text to translate.	Není co přeložit.
+	Translate isn't available in the web version of WordCraft.	Překlad není ve webové verzi WordCraft k dispozici.
+	The translation was for a document that is no longer open.	Překlad patřil k dokumentu, který už není otevřený.
+	Translated paragraphs: {count}	Přeložené odstavce: {count}
+	Loading the translation model…	Načítání modelu překladu…
+	Translating… {done} of {total}	Překládání… {done} z {total}
+	Translation cancelled.	Překlad byl zrušen.
+	Still writing down what you said…	Stále se zapisuje, co jste řekli…
+	Dictate isn't available in the web version of WordCraft.	Diktování není ve webové verzi WordCraft k dispozici.
+	No microphone is available.	Není k dispozici žádný mikrofon.
+	Couldn't open the microphone: {error}	Mikrofon nelze otevřít: {error}
+	Loading the speech model…	Načítání řečového modelu…
+	The microphone stopped: {error}	Mikrofon přestal nahrávat: {error}
+	Writing down what you said…	Zapisuje se, co jste řekli…
+	Listening…	Poslouchám…
+	Speak now: text appears at the cursor when you pause.	Mluvte: text se objeví u kurzoru, když se odmlčíte.
+	Dictation	Diktování
+	Dictation and translation	Diktování a překlad
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	Diktování a překlad běží na tomto počítači s vybranými soubory modelů: nic se neodesílá přes internet.
+	Where to get the models: docs/local-models.md in WordCraft's source.	Kde modely získat: docs/local-models.md ve zdrojovém kódu WordCraft.
+	Speech model folder (Whisper):	Složka řečového modelu (Whisper):
+	Dictation language:	Jazyk diktování:
+	Translation models folder (OPUS-MT):	Složka modelů překladu (OPUS-MT):
+	No translation models found in this folder.	V této složce nebyly nalezeny žádné modely překladu.
+	Language pairs: {pairs}	Jazykové dvojice: {pairs}

@@ -2632,3 +2632,55 @@ preview	Title	Naslov
 	Bottom Right Cell	Donja desna ćelija
 	Inside Horizontal Border	Unutarnji vodoravni obrub
 	Inside Vertical Border	Unutarnji okomiti obrub
+
+# Dictate and Translate Document, with local models
+	Translate Document	Prevedi dokument
+	English	Engleski
+	German	Njemački
+	French	Francuski
+	Spanish	Španjolski
+	Portuguese	Portugalski
+	Chinese	Kineski
+	Bulgarian	Bugarski
+	Hungarian	Mađarski
+	Romanian	Rumunjski
+	Vietnamese	Vijetnamski
+	Detect automatically	Automatski prepoznaj
+	Translate into:	Prevedi na:
+	From:	Iz:
+	Language:	Jezik:
+	Not set	Nije postavljeno
+	Model files	Datoteke modela
+	The whole document	Cijeli dokument
+	The selected paragraphs	Odabrani odlomci
+	Put the translation in:	Stavi prijevod u:
+	A new document	Novi dokument
+	Model: {name}	Model: {name}
+	No translation model for this language pair.	Nema modela prijevoda za ovaj jezični par.
+	Choose a folder of translation models in File › Options › Language.	Odaberite mapu s modelima prijevoda u Datoteka › Mogućnosti › Jezik.
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	Oblikovanje, tablice, slike i stilovi ostaju sačuvani. Poništavanje vraća izvornik.
+	There is no text to translate.	Nema teksta za prijevod.
+	Translate isn't available in the web version of WordCraft.	Prevođenje nije dostupno u web-inačici programa WordCraft.
+	The translation was for a document that is no longer open.	Prijevod je bio za dokument koji više nije otvoren.
+	Translated paragraphs: {count}	Prevedeni odlomci: {count}
+	Loading the translation model…	Učitavanje modela prijevoda…
+	Translating… {done} of {total}	Prevođenje… {done} od {total}
+	Translation cancelled.	Prevođenje je otkazano.
+	Still writing down what you said…	Još se zapisuje izgovoreno…
+	Dictate isn't available in the web version of WordCraft.	Diktiranje nije dostupno u web-inačici programa WordCraft.
+	No microphone is available.	Nema dostupnog mikrofona.
+	Couldn't open the microphone: {error}	Mikrofon se ne može otvoriti: {error}
+	Loading the speech model…	Učitavanje govornog modela…
+	The microphone stopped: {error}	Mikrofon je prestao raditi: {error}
+	Writing down what you said…	Zapisuje se izgovoreno…
+	Listening…	Slušam…
+	Speak now: text appears at the cursor when you pause.	Govorite: tekst se pojavljuje kod pokazivača kad zastanete.
+	Dictation	Diktiranje
+	Dictation and translation	Diktiranje i prevođenje
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	Diktiranje i prevođenje rade na ovom računalu s datotekama modela koje odaberete: ništa se ne šalje internetom.
+	Where to get the models: docs/local-models.md in WordCraft's source.	Gdje nabaviti modele: docs/local-models.md u izvornom kodu programa WordCraft.
+	Speech model folder (Whisper):	Mapa govornog modela (Whisper):
+	Dictation language:	Jezik diktiranja:
+	Translation models folder (OPUS-MT):	Mapa modela prijevoda (OPUS-MT):
+	No translation models found in this folder.	U ovoj mapi nisu pronađeni modeli prijevoda.
+	Language pairs: {pairs}	Jezični parovi: {pairs}

@@ -22,7 +22,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("file.options", "Options", "File", options)
             .params(
-                r#"{"pane"?: "general|display|proofing|save|language|accessibility|advanced|agents", "author"?: string, "initials"?: string, "units"?: "inches|centimeters|millimeters|points|picas|auto" (auto: the region's), "region"?: string (a locale tag like pl-PL, saved: the paper File › New starts on, the default units and the decimal separator; auto: the system's), "typingReplacesSelection"?: bool, "insertKeyOvertype"?: bool, "overtype"?: bool, "marks"?: {"tabs"?: bool, "spaces"?: bool, "paragraphs"?: bool, "hidden"?: bool}, "checkSpelling"?: bool, "markGrammar"?: bool, "ignoreUppercase"?: bool, "ignoreNumbers"?: bool, "ignoreInternet"?: bool, "dictionariesFolder"?: string (a folder of Hunspell .aff/.dic files searched first, saved; auto: the system locations only), "addWords"?: [string], "removeWords"?: [string]} — with any setting it changes them and opens nothing; without, it opens File › Options (at `pane`). Returns the settings."#,
+                r#"{"pane"?: "general|display|proofing|save|language|accessibility|advanced|agents", "author"?: string, "initials"?: string, "units"?: "inches|centimeters|millimeters|points|picas|auto" (auto: the region's), "region"?: string (a locale tag like pl-PL, saved: the paper File › New starts on, the default units and the decimal separator; auto: the system's), "typingReplacesSelection"?: bool, "insertKeyOvertype"?: bool, "overtype"?: bool, "marks"?: {"tabs"?: bool, "spaces"?: bool, "paragraphs"?: bool, "hidden"?: bool}, "checkSpelling"?: bool, "markGrammar"?: bool, "ignoreUppercase"?: bool, "ignoreNumbers"?: bool, "ignoreInternet"?: bool, "dictionariesFolder"?: string (a folder of Hunspell .aff/.dic files searched first, saved; auto: the system locations only), "speechModel"?: string (the Whisper model folder Dictate uses, saved; auto: none), "dictationLanguage"?: string (what Dictate hears: a code such as he; auto: detect), "translationModels"?: string (the folder of translation models Translate uses, saved; auto: none), "addWords"?: [string], "removeWords"?: [string]} — with any setting it changes them and opens nothing; without, it opens File › Options (at `pane`). Returns the settings."#,
             )
             .pure(),
         CommandSpec::new("text.overtype", "Overtype", "File › Options › Advanced", |s, v| {
@@ -115,10 +115,16 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
         }
         Some(_) => return Err(CmdError::Params("`region` must be a locale tag like pl-PL, or auto".into())),
     };
-    let folder = match v.get("dictionariesFolder") {
+    let folder = folder_setting(v, "dictionariesFolder")?;
+    let speech_model = folder_setting(v, "speechModel")?;
+    let translation_models = folder_setting(v, "translationModels")?;
+    let dictation_language = match v.get("dictationLanguage") {
         None | Some(Value::Null) => None,
-        Some(Value::String(f)) => Some(dictionaries_folder(f)?),
-        Some(_) => return Err(CmdError::Params("`dictionariesFolder` must be a folder path, or auto".into())),
+        Some(Value::String(t)) if t.trim().is_empty() || t.trim().eq_ignore_ascii_case("auto") => Some(None),
+        Some(Value::String(t)) if (2..=8).contains(&t.trim().len()) && t.trim().chars().all(|c| c.is_ascii_alphabetic() || c == '-') => {
+            Some(Some(wordcraft_ml::lang::normalize(t)))
+        }
+        Some(_) => return Err(CmdError::Params("`dictationLanguage` must be a language code such as he or en, or auto".into())),
     };
     let mut flag_values = Vec::new();
     for (k, f) in flags() {
@@ -147,6 +153,9 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
         || units.is_some()
         || region.is_some()
         || folder.is_some()
+        || speech_model.is_some()
+        || translation_models.is_some()
+        || dictation_language.is_some()
         || !flag_values.is_empty()
         || !mark_values.is_empty()
         || check_spelling.is_some()
@@ -167,6 +176,15 @@ fn options(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(f) = folder {
         use_dictionaries_folder(f.as_deref());
         s.prefs.dictionaries_folder = f;
+    }
+    if let Some(f) = speech_model {
+        s.prefs.speech_model = f;
+    }
+    if let Some(f) = translation_models {
+        s.prefs.translation_models = f;
+    }
+    if let Some(l) = dictation_language {
+        s.prefs.dictation_language = l;
     }
     for (f, b) in flag_values {
         *f(&mut s.prefs) = b;
@@ -221,6 +239,9 @@ pub fn current(s: &Session) -> Value {
         "ignoreInternet": pr.ignore_internet,
         "dictionary": wordcraft_proof::user_dictionary(),
         "dictionariesFolder": pr.dictionaries_folder,
+        "speechModel": pr.speech_model,
+        "dictationLanguage": pr.dictation_language,
+        "translationModels": pr.translation_models,
         "dictionaries": wordcraft_proof::installed_dictionaries()
             .into_iter()
             .map(|(lang, dic)| json!({"language": lang.code(), "file": dic.map(|d| d.to_string_lossy().into_owned())}))
@@ -228,15 +249,25 @@ pub fn current(s: &Session) -> Value {
     })
 }
 
-/// The `dictionariesFolder` setting: `auto` (or nothing) forgets it; otherwise an existing
-/// folder, given as an absolute path or one starting with `~/`.
-fn dictionaries_folder(f: &str) -> Result<Option<String>, CmdError> {
+/// A folder setting (`dictionariesFolder`, `speechModel`, `translationModels`) from the params:
+/// `None` when not given, `Some(None)` to forget it, `Some(Some(folder))` to set it.
+fn folder_setting(v: &Value, key: &str) -> Result<Option<Option<String>>, CmdError> {
+    match v.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(f)) => Ok(Some(folder_path(key, f)?)),
+        Some(_) => Err(CmdError::Params(format!("`{key}` must be a folder path, or auto"))),
+    }
+}
+
+/// A folder setting's value: `auto` (or nothing) forgets it; otherwise an existing folder, given
+/// as an absolute path or one starting with `~/`.
+fn folder_path(key: &str, f: &str) -> Result<Option<String>, CmdError> {
     let f = f.trim();
     if f.is_empty() || f.eq_ignore_ascii_case("auto") {
         return Ok(None);
     }
     if f.chars().count() > MAX_FOLDER_CHARS || f.chars().any(char::is_control) {
-        return Err(CmdError::Params("`dictionariesFolder` isn't a folder path".into()));
+        return Err(CmdError::Params(format!("`{key}` isn't a folder path")));
     }
     let home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(std::path::PathBuf::from);
     let path = match (f.strip_prefix("~/"), home) {
@@ -244,7 +275,7 @@ fn dictionaries_folder(f: &str) -> Result<Option<String>, CmdError> {
         _ => std::path::PathBuf::from(f),
     };
     if !path.is_absolute() {
-        return Err(CmdError::Params(format!("`dictionariesFolder`: {f:?} isn't a full path")));
+        return Err(CmdError::Params(format!("`{key}`: {f:?} isn't a full path")));
     }
     if !path.is_dir() {
         return Err(CmdError::Failed(format!("no folder at {}", path.display())));

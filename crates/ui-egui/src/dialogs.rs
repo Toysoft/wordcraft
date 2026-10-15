@@ -872,7 +872,7 @@ impl Dialog {
         if let Some(d) = crate::dialogs_layout::open(name, app) {
             return Some(Dialog::Layout(Box::new(d)));
         }
-        if matches!(name, "compare" | "combine" | "autoCorrect" | "restrictEditing") {
+        if matches!(name, "compare" | "combine" | "autoCorrect" | "restrictEditing" | "translate") {
             return crate::dialogs_review::open(name, app).map(|d| Dialog::Review(Box::new(d)));
         }
         let st = app.session.run("format.state", &json!({})).unwrap_or_default();

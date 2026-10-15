@@ -2488,3 +2488,56 @@ preview	Title	제목
 	Bottom Right Cell	오른쪽 아래 셀
 	Inside Horizontal Border	안쪽 가로 테두리
 	Inside Vertical Border	안쪽 세로 테두리
+
+# Dictate and Translate Document, with local models
+	Translate Document	문서 번역
+	English	영어
+	German	독일어
+	French	프랑스어
+	Spanish	스페인어
+	Portuguese	포르투갈어
+	Chinese	중국어
+	Bulgarian	불가리아어
+	Hungarian	헝가리어
+	Romanian	루마니아어
+	Vietnamese	베트남어
+	Detect automatically	자동 감지
+	Translate into:	번역할 언어:
+	From:	원본 언어:
+	Language:	언어:
+	Not set	설정 안 됨
+	Model files	모델 파일
+	The whole document	문서 전체
+	The selected paragraphs	선택한 단락
+	Put the translation in:	번역 결과 위치:
+	A new document	새 문서
+	Model: {name}	모델: {name}
+	No translation model for this language pair.	이 언어 쌍에 대한 번역 모델이 없습니다.
+	Choose a folder of translation models in File › Options › Language.	파일 › 옵션 › 언어에서 번역 모델 폴더를 선택하세요.
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	서식, 표, 그림 및 스타일은 유지됩니다. 실행 취소하면 원문으로 돌아갑니다.
+	There is no text to translate.	번역할 텍스트가 없습니다.
+	Translate isn't available in the web version of WordCraft.	웹 버전 WordCraft에서는 번역을 사용할 수 없습니다.
+	The translation was for a document that is no longer open.	번역 대상 문서가 더 이상 열려 있지 않습니다.
+	Translated paragraphs: {count}	번역한 단락: {count}
+	Loading the translation model…	번역 모델을 불러오는 중…
+	Translating… {done} of {total}	번역 중… {done}/{total}
+	Translation cancelled.	번역을 취소했습니다.
+	Still writing down what you said…	말씀하신 내용을 아직 받아쓰는 중…
+	Dictate isn't available in the web version of WordCraft.	웹 버전 WordCraft에서는 받아쓰기를 사용할 수 없습니다.
+	No microphone is available.	사용할 수 있는 마이크가 없습니다.
+	Couldn't open the microphone: {error}	마이크를 열 수 없습니다: {error}
+	Loading the speech model…	음성 모델을 불러오는 중…
+	The microphone stopped: {error}	마이크가 중지되었습니다: {error}
+	Writing down what you said…	말씀하신 내용을 받아쓰는 중…
+	Listening…	듣는 중…
+	Speak now: text appears at the cursor when you pause.	말씀하세요. 잠시 멈추면 커서 위치에 텍스트가 나타납니다.
+	Dictation	받아쓰기
+	Dictation and translation	받아쓰기 및 번역
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	받아쓰기와 번역은 선택한 모델 파일로 이 컴퓨터에서 실행되며, 인터넷으로 아무것도 보내지 않습니다.
+	Where to get the models: docs/local-models.md in WordCraft's source.	모델을 구하는 방법: WordCraft 소스의 docs/local-models.md를 참고하세요.
+	Speech model folder (Whisper):	음성 모델 폴더(Whisper):
+	Dictation language:	받아쓰기 언어:
+	Translation models folder (OPUS-MT):	번역 모델 폴더(OPUS-MT):
+	No translation models found in this folder.	이 폴더에서 번역 모델을 찾지 못했습니다.
+	Language pairs: {pairs}	언어 쌍: {pairs}
+	Croatian	크로아티아어

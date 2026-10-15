@@ -2628,3 +2628,55 @@
 # Reading Mode column widths (#1040)
 	Narrow	Keskeny
 	Medium	Közepes
+
+# Dictate and Translate Document, with local models
+	Translate Document	Dokumentum fordítása
+	English	Angol
+	German	Német
+	French	Francia
+	Spanish	Spanyol
+	Portuguese	Portugál
+	Chinese	Kínai
+	Bulgarian	Bolgár
+	Hungarian	Magyar
+	Romanian	Román
+	Vietnamese	Vietnami
+	Detect automatically	Automatikus felismerés
+	Translate into:	Fordítás nyelve:
+	From:	Forrásnyelv:
+	Language:	Nyelv:
+	Not set	Nincs beállítva
+	Model files	Modellfájlok
+	The whole document	A teljes dokumentum
+	The selected paragraphs	A kijelölt bekezdések
+	Put the translation in:	A fordítás helye:
+	A new document	Új dokumentum
+	Model: {name}	Modell: {name}
+	No translation model for this language pair.	Ehhez a nyelvpárhoz nincs fordítási modell.
+	Choose a folder of translation models in File › Options › Language.	Válasszon fordítási modelleket tartalmazó mappát a Fájl › Beállítások › Nyelv lapon.
+	Formatting, tables, pictures and styles are kept. Undo brings the original back.	A formázás, a táblázatok, a képek és a stílusok megmaradnak. A Visszavonás visszahozza az eredetit.
+	There is no text to translate.	Nincs lefordítandó szöveg.
+	Translate isn't available in the web version of WordCraft.	A fordítás nem érhető el a WordCraft webes változatában.
+	The translation was for a document that is no longer open.	A fordítás egy már nem megnyitott dokumentumhoz készült.
+	Translated paragraphs: {count}	Lefordított bekezdések: {count}
+	Loading the translation model…	A fordítási modell betöltése…
+	Translating… {done} of {total}	Fordítás… {done}/{total}
+	Translation cancelled.	A fordítás megszakítva.
+	Still writing down what you said…	A mondottak leírása még folyamatban…
+	Dictate isn't available in the web version of WordCraft.	A diktálás nem érhető el a WordCraft webes változatában.
+	No microphone is available.	Nincs elérhető mikrofon.
+	Couldn't open the microphone: {error}	Nem sikerült megnyitni a mikrofont: {error}
+	Loading the speech model…	A beszédmodell betöltése…
+	The microphone stopped: {error}	A mikrofon leállt: {error}
+	Writing down what you said…	A mondottak leírása…
+	Listening…	Figyelés…
+	Speak now: text appears at the cursor when you pause.	Beszéljen: a szöveg szünetkor megjelenik a kurzornál.
+	Dictation	Diktálás
+	Dictation and translation	Diktálás és fordítás
+	Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.	A diktálás és a fordítás ezen a számítógépen fut, az Ön által választott modellfájlokkal: semmi sem megy ki az internetre.
+	Where to get the models: docs/local-models.md in WordCraft's source.	Honnan szerezhetők be a modellek: a WordCraft forráskódjában a docs/local-models.md.
+	Speech model folder (Whisper):	Beszédmodell mappája (Whisper):
+	Dictation language:	Diktálás nyelve:
+	Translation models folder (OPUS-MT):	Fordítási modellek mappája (OPUS-MT):
+	No translation models found in this folder.	Ebben a mappában nincs fordítási modell.
+	Language pairs: {pairs}	Nyelvpárok: {pairs}

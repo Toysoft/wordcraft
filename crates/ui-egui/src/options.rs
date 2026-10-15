@@ -424,6 +424,11 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     ui.add_space(8.0);
     section(ui, "Proofing language");
     note(ui, "Spelling and grammar are checked in English (United States).");
+    ui.add_space(8.0);
+    section(ui, "Dictation and translation");
+    note(ui, "Dictate and Translate run on this computer with model files you choose: nothing is sent over the internet.");
+    note(ui, "Where to get the models: docs/local-models.md in WordCraft's source.");
+    crate::local_ai::model_settings(app, ui);
 }
 
 fn accessibility(app: &mut WordApp, ui: &mut Ui) {

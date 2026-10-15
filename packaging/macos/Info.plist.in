@@ -36,6 +36,10 @@
        Apple silicon and has the Metal feature set wgpu targets. -->
   <key>LSMinimumSystemVersion</key>
   <string>11.0</string>
+  <!-- Dictate records from the microphone (only while it is on); macOS asks the user first and
+       shows this reason. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>WordCraft listens while Dictate is on and turns your speech into text on this Mac.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
