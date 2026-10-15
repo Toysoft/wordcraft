@@ -1418,7 +1418,6 @@
 	Formatted	서식 지정됨
 	Deleted	삭제됨
 	Interface size:	인터페이스 크기:
-	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	시스템 디스플레이 배율에 더해 리본, 메뉴, 대화상자의 크기를 조정합니다. 문서 확대/축소는 별도로 설정됩니다.
 	Resize Table by Dragging	드래그하여 표 크기 조정
 	Print Markup	변경 내용 표시 인쇄
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	PDF, 인쇄물, 이미지에서는 각 페이지 옆에 주석과 변경 내용 추적을 표시하고, 웹 페이지, Markdown, 텍스트에서는 끝에 주석 목록을 표시합니다.
@@ -2140,15 +2139,6 @@
 	DRAFT	초안
 	SAMPLE	견본
 	URGENT	긴급
-	Letter   8.50" × 11.00"	Letter   8.50" × 11.00"
-	Legal   8.50" × 14.00"	Legal   8.50" × 14.00"
-	Executive   7.25" × 10.50"	Executive   7.25" × 10.50"
-	Statement   5.50" × 8.50"	Statement   5.50" × 8.50"
-	Tabloid   11.00" × 17.00"	Tabloid   11.00" × 17.00"
-	B4 (JIS)   10.12" × 14.33"	B4 (JIS)   10.12" × 14.33"
-	B5 (JIS)   7.17" × 10.12"	B5 (JIS)   7.17" × 10.12"
-	Envelope #10   4.12" × 9.50"	봉투 #10   4.12" × 9.50"
-	Envelope DL   4.33" × 8.66"	봉투 DL   4.33" × 8.66"
 	Plain Table 1	일반 표 1
 	Grid Table 1 Light	눈금 표 1 밝게
 	Convert between built-up and linear form	전문 형식과 선형 형식 간 전환
@@ -2463,3 +2453,24 @@
 	Logical OR	논리합
 	Logical OR with Limits	논리합 (한계 포함)
 preview	Title	제목
+# Added while landing (#1216): labels and dialogs that landed after this catalog
+	Copy to	다른 위치에 복사
+	Delete Bookmark	책갈피 삭제
+	Filter Recipients	받는 사람 필터
+	Full Screen	전체 화면
+	Load System Installed Fonts…	시스템에 설치된 글꼴 불러오기…
+	Privacy Options	개인 정보 옵션
+	Privacy Settings	개인 정보 설정
+	Rename Document	문서 이름 바꾸기
+	Sort Recipients	받는 사람 정렬
+	Type Character Code	문자 코드 입력
+	All system fonts are already available.	모든 시스템 글꼴을 이미 사용할 수 있습니다.
+	Local font access is not supported by your browser.	이 브라우저는 로컬 글꼴 액세스를 지원하지 않습니다.
+	Local font access was denied.	로컬 글꼴 액세스가 거부되었습니다.
+	Loaded {count} system fonts.	시스템 글꼴 {count}개를 불러왔습니다.
+	Column {n}	열 {n}
+	Header row	머리글 행 있음
+	No header row	머리글 행 없음
+	My list has	목록 첫 행
+	Formula:	수식:
+	Paste function:	함수 붙여넣기:
