@@ -7263,3 +7263,35 @@ fn row_nil_overrides_style() {
     d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
     assert_eq!(rules_on_page0(&lay(&d)), vec![2.0]);
 }
+
+#[test]
+fn footer_wrap_reserves_body() {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    use wordcraft_doc::props::LineSpacing;
+    for wrap in [Wrap::TopAndBottom, Wrap::BehindText] {
+        let mut d = Document::new();
+        let mut table = Table::new(32, 1, 468.0);
+        table.props.cell_margins = Some([0.0; 4]);
+        for row in &mut table.rows {
+            let mut p = wordcraft_doc::Paragraph::with_text("Technical reading", Default::default());
+            p.props =
+                ParaProps { space_before: Some(0.0), space_after: Some(0.0), line_spacing: Some(LineSpacing::Exactly(20.0)), ..Default::default() };
+            row.cells[0].blocks = vec![wordcraft_doc::para_block(p)];
+            row.props.cant_split = true;
+        }
+        d.body = vec![std::sync::Arc::new(Block::Table(table))];
+        let float = Float { wrap, h_rel: Anchor::Page, v_rel: Anchor::Page, x: 72.0, y: 650.0, ..Default::default() };
+        let mut p = wordcraft_doc::Paragraph::new();
+        p.insert_object(0, rect_shape(468.0, 40.0, float), &Default::default()).unwrap();
+        let id = d.add_part(wordcraft_doc::PartKind::Footer, vec![wordcraft_doc::para_block(p)]);
+        d.last_section.footers.default = Some(id);
+        let l = lay(&d);
+        let bottom = l.pages[0].items.iter().map(v_span).map(|(_, bottom)| bottom).fold(0.0, f32::max);
+        if wrap == Wrap::TopAndBottom {
+            assert!(bottom <= 650.01, "table bottom {bottom} crosses wrapping footer");
+            assert!(l.pages.len() > 1);
+        } else {
+            assert!(bottom > 650.0, "nonwrapping footer must not reserve body space");
+        }
+    }
+}
