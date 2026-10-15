@@ -291,10 +291,15 @@ fn main() -> eframe::Result {
         options.viewport = window.apply(options.viewport);
     }
     #[cfg(all(unix, not(target_os = "macos")))]
-    // winit has no file drag-and-drop on Wayland (only on X11), so dropping files from the file
-    // manager showed a "no" cursor. Run through XWayland when it's there; WORDCRAFT_WAYLAND=1
-    // keeps the native Wayland backend.
-    if std::env::var_os("DISPLAY").is_some() && std::env::var_os("WORDCRAFT_WAYLAND").is_none() {
+    // winit has no file drag-and-drop on Wayland (only on X11), so use XWayland for X11 sessions.
+    // When both displays exist, prefer native Wayland: XWayland can prevent the file portal from
+    // opening in some sessions (#1956). WORDCRAFT_WAYLAND=1 also keeps native Wayland when DISPLAY
+    // is the only available hint.
+    if should_use_x11(
+        std::env::var_os("DISPLAY").is_some(),
+        std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        std::env::var_os("WORDCRAFT_WAYLAND").is_some(),
+    ) {
         options.event_loop_builder = Some(Box::new(|b| {
             use winit::platform::x11::EventLoopBuilderExtX11;
             b.with_x11();
@@ -357,4 +362,30 @@ fn main() -> eframe::Result {
             )))
         }),
     )
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn should_use_x11(display: bool, wayland_display: bool, force_wayland: bool) -> bool {
+    display && !wayland_display && !force_wayland
+}
+
+#[cfg(all(test, unix, not(target_os = "macos")))]
+mod tests {
+    use super::should_use_x11;
+
+    #[test]
+    fn native_wayland_wins_when_both_displays_are_available() {
+        assert!(!should_use_x11(true, true, false));
+    }
+
+    #[test]
+    fn x11_is_used_when_wayland_is_unavailable() {
+        assert!(should_use_x11(true, false, false));
+        assert!(!should_use_x11(false, false, false));
+    }
+
+    #[test]
+    fn explicit_wayland_override_wins() {
+        assert!(!should_use_x11(true, false, true));
+    }
 }
