@@ -299,15 +299,34 @@ pub const MATH_SUBSTITUTES: &[&str] = &[
     "Noto Sans Math",
 ];
 
+const MATH_CACHE_MAX: usize = 1024;
+
+/// Math names longer than this (bytes) are resolved but never remembered.
+const MATH_KEY_MAX: usize = 256;
+
+/// Resolutions tagged with the [`FontDb::generation`] they were made at.
+type MathMemo = (u64, HashMap<String, (FaceRef, Option<Arc<MathTable>>)>);
+
+fn math_cache() -> &'static Mutex<MathMemo> {
+    static CACHE: OnceLock<Mutex<MathMemo>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new((0, HashMap::new())))
+}
+
 /// The face to set math in: `family` when installed and it has a `MATH` table, else the first
 /// installed substitute that has one, else `family` (or its text substitute) without one.
 pub fn resolve_math(family: &str) -> (FaceRef, Option<Arc<MathTable>>) {
-    static CACHE: OnceLock<Mutex<HashMap<String, (FaceRef, Option<Arc<MathTable>>)>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(v) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(family) {
-        return v.clone();
-    }
+    let cache = math_cache();
     let db = FontDb::global();
+    let generation = db.generation();
+    {
+        let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if c.0 != generation {
+            *c = (generation, HashMap::new());
+        }
+        if let Some(v) = c.1.get(family) {
+            return v.clone();
+        }
+    }
     let mut found = None;
     for fam in std::iter::once(family).chain(MATH_SUBSTITUTES.iter().copied()) {
         if !db.has_family(fam) {
@@ -322,13 +341,48 @@ pub fn resolve_math(family: &str) -> (FaceRef, Option<Arc<MathTable>>) {
         }
     }
     let v = found.unwrap_or_else(|| (crate::word::resolve(family, false, false).face, None));
-    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(family.to_string(), v.clone());
+    if family.len() <= MATH_KEY_MAX {
+        let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if c.0 == generation {
+            if c.1.len() >= MATH_CACHE_MAX {
+                c.1.clear();
+            }
+            c.1.insert(family.to_string(), v.clone());
+        }
+    }
     v
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cached(family: &str) -> bool {
+        math_cache().lock().unwrap_or_else(|e| e.into_inner()).1.contains_key(family)
+    }
+
+    #[test]
+    fn math_resolution_is_forgotten_when_fonts_change() {
+        let fam = "Zz Math Generation Probe";
+        let _ = resolve_math(fam);
+        assert!(cached(fam));
+        FontDb::global().fonts_changed();
+        // The next lookup starts from an empty cache, so a newly installed (or removed) math
+        // font is seen instead of the stale choice.
+        let _ = resolve_math("Zz Other Probe");
+        assert!(!cached(fam), "stale math resolution survived a font change");
+    }
+
+    #[test]
+    fn math_cache_stays_bounded() {
+        for i in 0..(MATH_CACHE_MAX + 50) {
+            let _ = resolve_math(&format!("Zz Bound Probe {i}"));
+        }
+        assert!(math_cache().lock().unwrap_or_else(|e| e.into_inner()).1.len() <= MATH_CACHE_MAX);
+        let long = "L".repeat(10_000);
+        let _ = resolve_math(&long);
+        assert!(!cached(&long), "absurdly long names must not be cached");
+    }
 
     #[test]
     fn garbage_tables_never_panic() {
