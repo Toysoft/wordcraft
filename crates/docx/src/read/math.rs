@@ -61,7 +61,7 @@ pub fn read_math_pr(e: &El) -> MathProps {
 fn on(e: &El) -> bool {
     match e.attr("m:val") {
         None => true,
-        Some(v) => !matches!(v.trim(), "0" | "false" | "off" | "False" | "FALSE"),
+        Some(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off"),
     }
 }
 
@@ -180,7 +180,7 @@ fn node(k: &El, depth: usize, out: &mut Arg) {
             let c = chr(k.child("m:accPr"), "m:chr").map(|c| c.unwrap_or('\u{302}')).unwrap_or('\u{302}');
             out.push(MNode::Acc { chr: c, e: sub_arg(k, "m:e", d) });
         }
-        "m:bar" => out.push(MNode::Bar { top: val(k.child("m:barPr"), "m:pos") == Some("top"), e: sub_arg(k, "m:e", d) }),
+        "m:bar" => out.push(MNode::Bar { top: val(k.child("m:barPr"), "m:pos") != Some("bot"), e: sub_arg(k, "m:e", d) }),
         "m:borderBox" => {
             let pr = k.child("m:borderBoxPr");
             out.push(MNode::BorderBox {
@@ -363,5 +363,16 @@ mod tests {
         assert_eq!((*beg, *end, *sep, elems.len()), (Some('['), None, Some('|'), 2));
         assert!(matches!(m.nodes[2], MNode::Nary { chr: '∫', .. }));
         assert!(matches!(&m.nodes[3], MNode::Matrix { rows, .. } if rows.len() == 1 && rows[0].len() == 2));
+    }
+
+    #[test]
+    fn reads_bar_defaults_and_explicit_pos() {
+        let e = omath(r#"<m:bar><m:e><m:r><m:t>x</m:t></m:r></m:e></m:bar><m:bar><m:barPr><m:pos m:val="bot"/></m:barPr><m:e><m:r><m:t>y</m:t></m:r></m:e></m:bar>"#);
+        let m = read_omath(&e, MathJc::CenterGroup);
+        assert_eq!(m.nodes.len(), 2);
+        let MNode::Bar { top: top1, .. } = &m.nodes[0] else { panic!() };
+        assert!(*top1, "omitted m:barPr/m:pos defaults to top (overbar)");
+        let MNode::Bar { top: top2, .. } = &m.nodes[1] else { panic!() };
+        assert!(!*top2, "explicit m:pos bot produces underbar");
     }
 }
