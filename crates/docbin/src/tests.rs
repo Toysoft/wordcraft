@@ -1355,6 +1355,14 @@ fn fields_and_hyperlinks() {
 }
 
 #[test]
+fn hyperlink_target_sublocation_and_quotes() {
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK "http://example.com" \l "heading""#), Some("http://example.com#heading".into()));
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK \l "heading""#), Some("#heading".into()));
+    assert_eq!(super::hyperlink_target(r#"Hyperlink "http://example.com/a path""#), Some("http://example.com/a path".into()));
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK "http://example.com" \o "Help text""#), Some("http://example.com".into()));
+}
+
+#[test]
 fn bookmarks_become_objects() {
     let text = "Hello world\r";
     let ccp = text.chars().count() as u32;
