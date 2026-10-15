@@ -2704,9 +2704,7 @@ fn crop_menu(ui: &mut egui::Ui, app: &mut WordApp) {
     });
     ui.menu_button(tl!("Aspect Ratio"), |ui| {
         let on = crate::widgets::enabled(app, "picture.cropAspect");
-        for (i, group) in
-            [&["1:1"][..], &["2:3", "3:4", "3:5", "4:5"], &["3:2", "4:3", "5:3", "5:4", "16:9", "16:10"], &["9:16", "10:16"]].into_iter().enumerate()
-        {
+        for (i, group) in [&["1:1"][..], &["2:3", "3:4", "3:5", "4:5"], &["3:2", "4:3", "5:3", "5:4", "16:9", "16:10"]].into_iter().enumerate() {
             if i > 0 {
                 ui.separator();
             }

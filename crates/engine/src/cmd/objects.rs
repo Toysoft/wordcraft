@@ -92,7 +92,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(r#"{"shape": "rectangle|roundedRectangle|ellipse|flowchartOr|triangle|rightTriangle|diamond|arrow|star|heart" (the outline the picture is clipped to, keeping its crop and size; rectangle takes it off)}"#)
             .when(has_picture),
         CommandSpec::new("picture.cropAspect", "Aspect Ratio", "Picture Format › Size", crop_aspect)
-            .params(r#"{"ratio": "1:1|2:3|3:2|3:4|4:3|3:5|5:3|4:5|5:4|16:9|9:16|16:10|10:16"} (crops what shows, centred, to the ratio; the box takes the ratio keeping its width)"#)
+            .params(r#"{"ratio": "1:1|2:3|3:4|3:5|4:5|3:2|4:3|5:3|5:4|16:9|16:10"} (crops what shows, centred, to the largest rectangle of the ratio inside it, never enlarging; the box takes that size, keeping its top-left)"#)
             .when(has_picture),
         CommandSpec::new("picture.cropFill", "Fill", "Picture Format › Size", |s, _| crop_to_box(s, false))
             .params("{} (crops the whole picture, centred, so it covers its box keeping its proportions)")
@@ -998,7 +998,7 @@ fn crop(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// The ratios Picture Format › Crop › Aspect Ratio offers (width:height).
-const ASPECT_RATIOS: [&str; 13] = ["1:1", "2:3", "3:2", "3:4", "4:3", "3:5", "5:3", "4:5", "5:4", "16:9", "9:16", "16:10", "10:16"];
+const ASPECT_RATIOS: [&str; 11] = ["1:1", "2:3", "3:2", "3:4", "4:3", "3:5", "5:3", "4:5", "5:4", "16:9", "16:10"];
 
 /// `picture.cropToShape`: clip the picture to a closed shape's outline (rectangle: none).
 fn crop_to_shape(s: &mut Session, v: &Value) -> CmdResult {
@@ -1021,8 +1021,9 @@ fn crop_side(v: f32) -> f32 {
     if v.is_finite() { v.clamp(MIN_CROP, MAX_CROP) } else { 0.0 }
 }
 
-/// `picture.cropAspect`: crop what shows, centred, to `ratio` (the longer side cropped equally
-/// on both ends) and make the box that ratio keeping its width.
+/// `picture.cropAspect`: crop what shows, centred, to the largest rectangle of `ratio` that fits
+/// inside it (the longer side cropped equally on both ends, never enlarging) and make the box
+/// that size, keeping its top-left corner.
 fn crop_aspect(s: &mut Session, v: &Value) -> CmdResult {
     let name = p::req_str(v, "ratio")?;
     let parsed = ASPECT_RATIOS
@@ -1050,8 +1051,10 @@ fn crop_aspect(s: &mut Session, v: &Value) -> CmdResult {
                 c[3] += cut;
             }
             *crop = c.map(crop_side);
-            *w = bw;
-            *h = (bw / ratio).clamp(1.0, 4000.0);
+            // Keep the side that fits: a shown picture wider than the ratio keeps its height.
+            let (nw, nh) = if shown > ratio { (bh * ratio, bh) } else { (bw, bw / ratio) };
+            *w = nw.clamp(1.0, 4000.0);
+            *h = nh.clamp(1.0, 4000.0);
         }
     })
 }
@@ -2170,35 +2173,72 @@ mod tests {
         assert_eq!(shape, Some(PictureShape::new(ShapeKind::Ellipse)));
     }
 
-    /// Aspect Ratio crops the visible picture, centred, to the ratio (the longer side cropped
-    /// equally on both sides) and resizes the box to it keeping its width.
+    /// Aspect Ratio crops the visible picture, centred, to the largest rectangle of the ratio
+    /// that fits inside it (as Word does, never enlarging): a tall picture keeps its width, a
+    /// wide one its height; the box takes the cropped size.
     #[test]
-    fn crop_aspect_crops_the_longer_side_centred_and_keeps_the_width() {
-        let mut s = picture_at(200.0, 100.0);
+    fn crop_aspect_keeps_the_side_that_fits_and_never_enlarges() {
+        let near = |s: &Session, w: f32, h: f32, c: [f32; 4]| {
+            let (bw, bh, bc, _) = cropped(s);
+            assert!((bw - w).abs() < 1e-2 && (bh - h).abs() < 1e-2, "{bw} x {bh}, wanted {w} x {h}");
+            assert!(close(bc, c), "{bc:?}, wanted {c:?}");
+        };
+        // Tall (1:3): the width is kept.
+        for (ratio, h, cut) in [("1:1", 100.0, 1.0 / 3.0), ("16:9", 56.25, 1.0 / 2.0 * (1.0 - 56.25 / 300.0)), ("2:3", 150.0, 0.25)] {
+            let mut s = picture_at(100.0, 300.0);
+            s.run("picture.cropAspect", &json!({"ratio": ratio})).unwrap();
+            near(&s, 100.0, h, [0.0, cut, 0.0, cut]);
+        }
+        // Wide (3:1): the height is kept.
+        for (ratio, w, cut) in [("1:1", 100.0, 1.0 / 3.0), ("3:4", 75.0, 0.375), ("16:9", 177.777_78, 1.0 / 2.0 * (1.0 - 177.777_78 / 300.0))] {
+            let mut s = picture_at(300.0, 100.0);
+            s.run("picture.cropAspect", &json!({"ratio": ratio})).unwrap();
+            near(&s, w, 100.0, [cut, 0.0, cut, 0.0]);
+        }
+        // One undo step.
+        let mut s = picture_at(300.0, 100.0);
         s.run("picture.cropAspect", &json!({"ratio": "1:1"})).unwrap();
-        let (w, h, c, _) = cropped(&s);
-        assert_eq!((w, h), (200.0, 200.0));
-        assert!(close(c, [0.25, 0.0, 0.25, 0.0]), "{c:?}");
         s.run("edit.undo", &json!({})).unwrap();
-        assert_eq!(cropped(&s), (200.0, 100.0, [0.0; 4], None), "one undo step");
+        assert_eq!(cropped(&s), (300.0, 100.0, [0.0; 4], None));
         // Relative to what is visible: a crop already there is kept and added to.
+        let mut s = picture_at(200.0, 100.0);
         s.run("picture.crop", &json!({"left": 0.2})).unwrap();
         s.run("picture.cropAspect", &json!({"ratio": "4:3"})).unwrap();
-        let (w, h, c, _) = cropped(&s);
-        assert!((w - 200.0).abs() < 1e-3 && (h - 150.0).abs() < 1e-3, "{w} x {h}");
-        assert!(close(c, [0.2 + 0.8 / 3.0 / 2.0, 0.0, 0.8 / 3.0 / 2.0, 0.0]), "{c:?}");
-        // Taller than the ratio: top and bottom are cropped.
-        let mut s = picture_at(100.0, 200.0);
-        s.run("picture.cropAspect", &json!({"ratio": "16:9"})).unwrap();
-        let (w, h, c, _) = cropped(&s);
-        assert!((w - 100.0).abs() < 1e-3 && (h - 56.25).abs() < 1e-3, "{w} x {h}");
-        assert!(close(c, [0.0, 0.359375, 0.0, 0.359375]), "{c:?}");
-        for bad in
-            [json!({}), json!({"ratio": "0:1"}), json!({"ratio": "1:0"}), json!({"ratio": "7:2"}), json!({"ratio": "abc"}), json!({"ratio": 1.5})]
-        {
+        near(&s, 133.333_33, 100.0, [0.2 + 0.8 / 3.0 / 2.0, 0.0, 0.8 / 3.0 / 2.0, 0.0]);
+        // Word's list only: no 9:16 or 10:16, and junk is refused without a change.
+        let before = cropped(&s);
+        for bad in [
+            json!({}),
+            json!({"ratio": "9:16"}),
+            json!({"ratio": "10:16"}),
+            json!({"ratio": "0:1"}),
+            json!({"ratio": "1:0"}),
+            json!({"ratio": "7:2"}),
+            json!({"ratio": "abc"}),
+            json!({"ratio": 1.5}),
+        ] {
             assert!(s.run("picture.cropAspect", &bad).is_err(), "{bad}");
         }
-        assert!(close(cropped(&s).2, c), "refused ratios leave the crop");
+        assert_eq!(cropped(&s), before, "refused ratios change nothing");
+        for ok in ["1:1", "2:3", "3:4", "3:5", "4:5", "3:2", "4:3", "5:3", "5:4", "16:9", "16:10"] {
+            s.run("picture.cropAspect", &json!({"ratio": ok})).unwrap();
+        }
+    }
+
+    /// Fill and Fit start from the whole picture: a manual crop is discarded, the box kept.
+    #[test]
+    fn crop_fill_and_fit_discard_a_manual_crop() {
+        for cmd in ["picture.cropFill", "picture.cropFit"] {
+            let mut s = picture_at(100.0, 100.0);
+            let whole = {
+                s.run(cmd, &json!({})).unwrap();
+                cropped(&s)
+            };
+            s.run("picture.crop", &json!({"left": 0.1, "top": 0.2, "right": 0.05, "bottom": 0.3})).unwrap();
+            s.run(cmd, &json!({})).unwrap();
+            assert_eq!(cropped(&s), whole, "{cmd} ignores the manual crop");
+            assert_eq!((whole.0, whole.1), (100.0, 100.0));
+        }
     }
 
     /// Fill crops the whole picture to cover its box (centred); Fit shows all of it inside the
