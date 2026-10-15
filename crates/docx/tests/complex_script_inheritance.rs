@@ -31,11 +31,14 @@ fn paragraph(d: &Document) -> &Paragraph {
 
 fn check_generations(bytes: &[u8], check: impl Fn(&Document)) {
     let mut d = wordcraft_docx::read(bytes).unwrap();
-    for _ in 0..3 {
+    for generation in 0..3 {
         check(&d);
         let next = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
         assert_eq!(paragraph(&next).text, paragraph(&d).text);
-        assert_eq!(paragraph(&next).runs, paragraph(&d).runs);
+        // The first save splits the mixed Hebrew/Latin run by direction (#1543); then it's stable.
+        if generation > 0 {
+            assert_eq!(paragraph(&next).runs, paragraph(&d).runs);
+        }
         assert_eq!(paragraph(&next).props.bidi, Some(true));
         d = next;
     }

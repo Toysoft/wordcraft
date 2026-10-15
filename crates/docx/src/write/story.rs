@@ -247,7 +247,12 @@ impl Writer<'_> {
         // Split into pieces with their props.
         let mut pieces: Vec<(Piece, &CharProps)> = Vec::new();
         let mut k = 0usize;
-        for (range, props) in p.run_ranges() {
+        // Runs of mixed direction are split so Word orders them as WordCraft does (#1543).
+        let rtl_para = self.doc.styles.resolve_para(&p.props).bidi;
+        let spans = super::bidi::direction_spans(&p.text, rtl_para, p.run_ranges());
+        for (range, props) in &spans {
+            let props: &CharProps = props;
+            let range = range.clone();
             let base = range.start;
             let Some(text) = p.text.get(range) else { continue };
             let mut buf = String::new();
