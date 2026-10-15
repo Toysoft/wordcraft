@@ -243,17 +243,17 @@ impl<'d> EmbedWriter<'d> {
         if kept.len() == info.rels.len() && !lacked {
             return PartCheck::Fine;
         }
-        // Not XML: it can't name relationships.
-        let Some(missing) = missing_ids(bytes, &kept) else { return PartCheck::Fine };
-        if missing.is_empty() {
-            return PartCheck::Fine;
-        }
-        let mut fixed = bytes.to_vec();
-        for id in &missing {
-            fixed = remove_optional_links(&fixed, id);
-        }
+        let missing = match missing_ids(bytes, &kept) {
+            // Not XML: it can't name relationships.
+            Ids::NotXml => return PartCheck::Fine,
+            Ids::TooMany => return PartCheck::Broken,
+            Ids::Missing(m) if m.is_empty() => return PartCheck::Fine,
+            Ids::Missing(m) if m.len() > MAX_FIX_IDS => return PartCheck::Broken,
+            Ids::Missing(m) => m,
+        };
+        let fixed = remove_optional_links(bytes, &missing);
         match missing_ids(&fixed, &kept) {
-            Some(m) if m.is_empty() => PartCheck::Fixed(fixed),
+            Ids::Missing(m) if m.is_empty() => PartCheck::Fixed(fixed),
             _ => PartCheck::Broken,
         }
     }
@@ -426,11 +426,11 @@ impl super::Writer<'_> {
         };
         self.embeds.markup_bytes = left;
         let mut root = xml::parse(src.xml.as_bytes()).ok()?;
-        let mut used = Vec::new();
-        rel_attr_values(&root, &mut used, 0);
+        let mut used = HashSet::new();
+        let counted = rel_attr_values(&root, &mut used, 0);
         // Every relationship the markup uses must be writable, or the object would be broken.
         let writable = |id: &String| src.refs.iter().any(|r| r.id == *id && (r.external || self.embeds.available(&r.target)));
-        if !used.iter().all(writable) {
+        if !counted || !used.iter().all(writable) {
             log::warn!("docx: an embedded object's parts are missing; it is left out");
             self.embeds.lose(&object_name(src), LossKind::LeftOut, LEFT_OUT.into());
             return None;
@@ -685,66 +685,101 @@ fn set_attr(e: &mut El, k: &str, v: &str) {
 }
 
 /// Is attribute `k` a relationship id (see `read::embed::rel_ids`)?
-/// The relationship ids XML part `bytes` uses that aren't in `kept`; `None` when it isn't XML.
-fn missing_ids(bytes: &[u8], kept: &[&str]) -> Option<Vec<String>> {
-    let root = xml::parse(bytes).ok()?;
-    let mut used = Vec::new();
-    rel_attr_values(&root, &mut used, 0);
-    Some(used.into_iter().filter(|u| !kept.contains(&u.as_str())).collect())
+/// What [`missing_ids`] found.
+enum Ids {
+    /// Not XML: it can't name relationships.
+    NotXml,
+    /// More distinct ids than [`MAX_EMBEDDED_RELS`]: not checked.
+    TooMany,
+    /// The ids used that aren't kept.
+    Missing(Vec<String>),
 }
 
-/// `xml` without the [`OPTIONAL_LINKS`] elements (any prefix) whose start tag names relationship
-/// `id`. Unchanged when it isn't UTF-8 or has none.
-fn remove_optional_links(xml: &[u8], id: &str) -> Vec<u8> {
+/// The relationship ids XML part `bytes` uses that aren't in `kept`.
+fn missing_ids(bytes: &[u8], kept: &[&str]) -> Ids {
+    let Ok(root) = xml::parse(bytes) else { return Ids::NotXml };
+    let mut used = HashSet::new();
+    if !rel_attr_values(&root, &mut used, 0) {
+        return Ids::TooMany;
+    }
+    let kept: HashSet<&str> = kept.iter().copied().collect();
+    Ids::Missing(used.into_iter().filter(|u| !kept.contains(u.as_str())).collect())
+}
+
+/// Most lost relationship ids [`remove_optional_links`] removes links for; a part naming more
+/// is left out (like the reader's cap on one object's ids).
+const MAX_FIX_IDS: usize = 64;
+/// Longest element name, and start tag, [`remove_optional_links`] looks at.
+const MAX_NAME: usize = 64;
+const MAX_START_TAG: usize = 4096;
+
+/// `xml` without the [`OPTIONAL_LINKS`] elements (any prefix) whose start tag names one of the
+/// relationships `ids`, in one pass. Unchanged when it isn't UTF-8 or has none.
+fn remove_optional_links(xml: &[u8], ids: &[String]) -> Vec<u8> {
     let Ok(text) = std::str::from_utf8(xml) else { return xml.to_vec() };
-    let needle = format!("=\"{id}\"");
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(lt) = rest.find('<') {
-        let (before, tag_on) = rest.split_at(lt);
-        out.push_str(before);
-        let name_len = tag_on.get(1..).and_then(|t| t.find(|c: char| c.is_whitespace() || c == '/' || c == '>')).unwrap_or(0);
-        let name = tag_on.get(1..1 + name_len).unwrap_or("");
+    let ids: HashSet<&str> = ids.iter().take(MAX_FIX_IDS).map(String::as_str).collect();
+    let bytes = text.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    // Copied up to `copied`; looking for the next `<` from `pos`.
+    let (mut copied, mut pos) = (0usize, 0usize);
+    // Element names whose closing tag isn't in the rest of the part (not searched again).
+    let mut unclosed: HashSet<&str> = HashSet::new();
+    while let Some(lt) = text.get(pos..).and_then(|t| t.find('<')).map(|o| pos + o) {
+        pos = lt + 1;
+        let after = bytes.get(lt + 1..).unwrap_or(&[]);
+        let Some(name_len) = after.iter().take(MAX_NAME).position(|b| b.is_ascii_whitespace() || *b == b'/' || *b == b'>') else { continue };
+        let Some(name) = text.get(lt + 1..lt + 1 + name_len) else { continue };
         let local = name.rsplit(':').next().unwrap_or(name);
-        let start_end = tag_on.find('>');
-        if let (true, Some(gt)) = (OPTIONAL_LINKS.contains(&local), start_end) {
-            let start = tag_on.get(..=gt).unwrap_or("");
-            if start.contains(&needle) {
-                if start.ends_with("/>") {
-                    rest = tag_on.get(gt + 1..).unwrap_or("");
-                    continue;
-                }
-                let close = format!("</{name}>");
-                if let Some(c) = tag_on.find(&close) {
-                    rest = tag_on.get(c + close.len()..).unwrap_or("");
+        if !OPTIONAL_LINKS.contains(&local) {
+            continue;
+        }
+        let Some(gt) = after.iter().take(MAX_START_TAG).position(|b| *b == b'>').map(|o| lt + 1 + o) else { continue };
+        let start = text.get(lt..=gt).unwrap_or("");
+        let names_lost = start.split("=\"").skip(1).filter_map(|v| v.split('"').next()).any(|v| ids.contains(v));
+        if !names_lost {
+            continue;
+        }
+        let end = if start.ends_with("/>") {
+            gt + 1
+        } else if unclosed.contains(name) {
+            continue;
+        } else {
+            let close = format!("</{name}>");
+            match text.get(gt..).and_then(|t| t.find(&close)) {
+                Some(c) => gt + c + close.len(),
+                None => {
+                    unclosed.insert(name);
                     continue;
                 }
             }
-        }
-        // Not one to remove: keep the `<` and go on.
-        out.push('<');
-        rest = tag_on.get(1..).unwrap_or("");
+        };
+        out.extend_from_slice(bytes.get(copied..lt).unwrap_or(&[]));
+        copied = end;
+        pos = end;
     }
-    out.push_str(rest);
-    out.into_bytes()
+    out.extend_from_slice(bytes.get(copied..).unwrap_or(&[]));
+    out
 }
 
 fn is_rel_attr(k: &str) -> bool {
     k.starts_with("r:") || k == "o:relid"
 }
 
-fn rel_attr_values(e: &El, out: &mut Vec<String>, depth: usize) {
+/// Add the relationship ids `e` uses to `out`. False past [`MAX_EMBEDDED_RELS`] distinct ids
+/// (the rest aren't collected).
+fn rel_attr_values(e: &El, out: &mut HashSet<String>, depth: usize) -> bool {
     if depth > MAX_DEPTH {
-        return;
+        return true;
     }
     for (k, v) in &e.attrs {
         if is_rel_attr(k) && !out.contains(v) {
-            out.push(v.clone());
+            if out.len() >= MAX_EMBEDDED_RELS {
+                return false;
+            }
+            out.insert(v.clone());
         }
     }
-    for c in e.els() {
-        rel_attr_values(c, out, depth + 1);
-    }
+    e.els().all(|c| rel_attr_values(c, out, depth + 1))
 }
 
 fn set_rel_ids(e: &mut El, ids: &HashMap<String, String>, depth: usize) {
@@ -856,5 +891,44 @@ mod tests {
         assert_eq!(s, "z-index:3;width:2pt;height:3pt;rotation:329.5;flip:x y");
         // Unturned: no rotation or flip left behind.
         assert_eq!(vml_style_with("rotation:90;flip:y;width:1pt", 2.0, 3.0, &Float::default()), "width:2pt;height:3pt");
+    }
+}
+
+#[cfg(test)]
+mod loss_tests {
+    use super::*;
+
+    /// A part full of `<` that never close (a comment or CDATA), naming many lost relationships,
+    /// is cleaned in one bounded pass: no rescan per `<` or per id (#1343).
+    #[test]
+    fn removing_links_from_a_lt_heavy_part_is_linear() {
+        let ids: Vec<String> = (0..64).map(|i| format!("rId{i}")).collect();
+        let mut xml =
+            String::from(r#"<c:chartSpace xmlns:c="c" xmlns:r="r"><c:externalData r:id="rId3"><c:autoUpdate val="0"/></c:externalData><!--"#);
+        xml.push_str(&"<".repeat(20_000));
+        xml.push_str("--></c:chartSpace>");
+        let start = std::time::Instant::now();
+        let out = remove_optional_links(xml.as_bytes(), &ids);
+        assert!(start.elapsed() < std::time::Duration::from_secs(1), "took {:?}", start.elapsed());
+        let out = String::from_utf8(out).unwrap();
+        assert!(!out.contains("externalData"));
+        assert_eq!(out.len(), xml.len() - r#"<c:externalData r:id="rId3"><c:autoUpdate val="0"/></c:externalData>"#.len());
+    }
+
+    /// More distinct relationship ids than a part may have can't be checked: too many.
+    #[test]
+    fn a_part_naming_too_many_ids_is_too_many() {
+        let mut xml = String::from(
+            r#"<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">"#,
+        );
+        for i in 0..=MAX_EMBEDDED_RELS {
+            xml.push_str(&format!(r#"<c:x r:id="rId{i}"/>"#));
+        }
+        xml.push_str("</c:chartSpace>");
+        assert!(matches!(missing_ids(xml.as_bytes(), &[]), Ids::TooMany));
+        let one = r#"<c:x xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="x"/>"#.as_bytes();
+        assert!(matches!(missing_ids(one, &["x"]), Ids::Missing(m) if m.is_empty()));
+        assert!(matches!(missing_ids(one, &[]), Ids::Missing(m) if m == ["x"]));
+        assert!(matches!(missing_ids(b"\x00 not xml", &[]), Ids::NotXml));
     }
 }
