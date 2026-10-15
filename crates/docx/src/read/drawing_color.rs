@@ -40,7 +40,7 @@ pub(crate) fn color(e: &El, theme: &[Rgb]) -> Option<Rgb> {
     let c = if is_color(e) { e } else { e.els().find(|c| is_color(c))? };
     let base = match c.name.as_str() {
         "a:srgbClr" => Rgb::parse(c.attr("val")?)?,
-        "a:schemeClr" => *theme.get(scheme_slot(c.attr("val")?)?)?,
+        "a:schemeClr" => scheme(c.attr("val")?, theme)?,
         "a:sysClr" => match c.attr("lastClr").and_then(Rgb::parse) {
             Some(rgb) => rgb,
             None => sys_color(c.attr("val")?)?,
@@ -119,19 +119,20 @@ fn sys_color(name: &str) -> Option<Rgb> {
 
 /// Index into `Document::settings.theme_colors` (dk1, lt1, dk2, lt2, accent1..6, hlink, folHlink).
 fn scheme_slot(name: &str) -> Option<usize> {
-    Some(match name {
-        "dk1" | "tx1" => 0,
-        "lt1" | "bg1" => 1,
-        "dk2" | "tx2" => 2,
-        "lt2" | "bg2" => 3,
-        "accent1" => 4,
-        "accent2" => 5,
-        "accent3" => 6,
-        "accent4" => 7,
-        "accent5" => 8,
-        "accent6" => 9,
-        "hlink" => 10,
-        "folHlink" => 11,
+    let n = name.trim();
+    Some(match n {
+        s if s.eq_ignore_ascii_case("dk1") || s.eq_ignore_ascii_case("tx1") || s.eq_ignore_ascii_case("phClr") => 0,
+        s if s.eq_ignore_ascii_case("lt1") || s.eq_ignore_ascii_case("bg1") => 1,
+        s if s.eq_ignore_ascii_case("dk2") || s.eq_ignore_ascii_case("tx2") => 2,
+        s if s.eq_ignore_ascii_case("lt2") || s.eq_ignore_ascii_case("bg2") => 3,
+        s if s.eq_ignore_ascii_case("accent1") => 4,
+        s if s.eq_ignore_ascii_case("accent2") => 5,
+        s if s.eq_ignore_ascii_case("accent3") => 6,
+        s if s.eq_ignore_ascii_case("accent4") => 7,
+        s if s.eq_ignore_ascii_case("accent5") => 8,
+        s if s.eq_ignore_ascii_case("accent6") => 9,
+        s if s.eq_ignore_ascii_case("hlink") => 10,
+        s if s.eq_ignore_ascii_case("folHlink") => 11,
         _ => return None,
     })
 }
@@ -240,5 +241,17 @@ mod tests {
         let a = el("a:srgbClr", r#"val="808080""#, r#"<a:lumMod val="50000"/><a:lumOff val="50000"/>"#);
         let b = el("a:srgbClr", r#"val="808080""#, r#"<a:lumOff val="50000"/><a:lumMod val="50000"/>"#);
         assert_ne!(color(&a, &theme), color(&b, &theme));
+    }
+
+    #[test]
+    fn scheme_color_falls_back_to_default_theme_and_supports_phclr() {
+        let accent1 = el("a:schemeClr", r#"val="accent1""#, "");
+        assert_eq!(color(&accent1, &[]), Some(THEME_COLORS[4]));
+
+        let ph = el("a:schemeClr", r#"val="phClr""#, "");
+        assert_eq!(color(&ph, &[]), Some(THEME_COLORS[0]));
+
+        let custom_theme = vec![Rgb(10, 20, 30); 12];
+        assert_eq!(color(&accent1, &custom_theme), Some(Rgb(10, 20, 30)));
     }
 }
