@@ -983,9 +983,87 @@ impl Tagged {
         self.replace_with(from, to, true);
     }
 
-    /// [`Tagged::replace`] without a revision barrier for entries that have no distinct separate form.
-    fn replace_fused(&mut self, from: &str, to: &str) {
-        self.replace_with(from, to, false);
+    /// Replaces decomposed nuktas (`ড\u{09BC}` -> `ড়`, `ঢ\u{09BC}` -> `ঢ়`, `য\u{09BC}` -> `য়`).
+    /// When the consonant and nukta share a revision class, they fuse directly.
+    /// When they carry different tracked revisions (e.g. unchanged consonant + inserted nukta),
+    /// fusing into one untracked character would drop the revision marker and break Reject All.
+    /// Instead, we preserve both states by emitting a tracked replacement:
+    /// - An unchanged consonant with an inserted nukta becomes: base (deleted) followed by fused (inserted).
+    ///   Accept All yields fused, and Reject All restores base.
+    /// - An unchanged consonant with a deleted nukta becomes: fused (deleted) followed by base (inserted).
+    ///   Accept All yields base, and Reject All restores fused.
+    fn replace_decomposed_nuktas(&mut self) {
+        for (base, fused) in [('ড', '\u{09DC}'), ('ঢ', '\u{09DD}'), ('য', '\u{09DF}')] {
+            let mut out = Vec::with_capacity(self.chars.len());
+            let mut at = 0;
+            while at < self.chars.len() {
+                if self.char_at(at) == Some(base) && self.char_at(at + 1) == Some('\u{09BC}') {
+                    let tag_base = self.tag_at(at);
+                    let tag_nukta = self.tag_at(at + 1);
+                    if self.one_class(at..at + 2) {
+                        out.push((fused, tag_base));
+                        at += 2;
+                        continue;
+                    }
+                    let rev_base = self.revision_at(at);
+                    let rev_nukta = self.revision_at(at + 1);
+                    match (rev_base, rev_nukta) {
+                        (Revision::Live, Revision::Inserted) => {
+                            let ins_rev = self.prop(tag_nukta).and_then(|p| p.ins);
+                            let mut del_props = self.prop(tag_base).cloned().unwrap_or_default();
+                            del_props.del = ins_rev;
+                            del_props.ins = None;
+                            let del_tag = self.add_prop(del_props);
+
+                            let mut ins_props = self.prop(tag_base).cloned().unwrap_or_default();
+                            ins_props.ins = ins_rev;
+                            ins_props.del = None;
+                            let ins_tag = self.add_prop(ins_props);
+
+                            out.push((base, del_tag));
+                            out.push((fused, ins_tag));
+                            at += 2;
+                            continue;
+                        }
+                        (Revision::Live, Revision::Deleted) => {
+                            let del_rev = self.prop(tag_nukta).and_then(|p| p.del);
+                            let mut del_props = self.prop(tag_base).cloned().unwrap_or_default();
+                            del_props.del = del_rev;
+                            del_props.ins = None;
+                            let del_tag = self.add_prop(del_props);
+
+                            let mut ins_props = self.prop(tag_base).cloned().unwrap_or_default();
+                            ins_props.ins = del_rev;
+                            ins_props.del = None;
+                            let ins_tag = self.add_prop(ins_props);
+
+                            out.push((fused, del_tag));
+                            out.push((base, ins_tag));
+                            at += 2;
+                            continue;
+                        }
+                        (Revision::Deleted, Revision::Inserted) => {
+                            out.push((base, tag_base));
+                            out.push((fused, tag_nukta));
+                            at += 2;
+                            continue;
+                        }
+                        _ => {
+                            if let Some(&(c, tag)) = self.chars.get(at) {
+                                out.push((c, tag));
+                            }
+                            at += 1;
+                            continue;
+                        }
+                    }
+                }
+                if let Some(&(c, tag)) = self.chars.get(at) {
+                    out.push((c, tag));
+                }
+                at += 1;
+            }
+            self.chars = out;
+        }
     }
 
     /// Replaces `Av` with `আ`. When `A` and `v` share a revision class, they fuse directly.
@@ -1765,11 +1843,10 @@ pub fn unicode_to_ansi(text: &str) -> String {
 /// from; a glyph written for several characters (a conjunct) takes the tag of the first of them.
 pub(crate) fn unicode_to_ansi_tagged(mut s: Tagged) -> Tagged {
     // 0a. Decomposed nuktas: a consonant followed by U+09BC (which NFC leaves decomposed for ড়, ঢ়, য়)
-    // becomes the precomposed letter the glyph table has. One glyph can't show two runs' formatting, so the
-    // pair always fuses (as Av does).
-    for (from, to) in [("ড\u{09BC}", "\u{09DC}"), ("ঢ\u{09BC}", "\u{09DD}"), ("য\u{09BC}", "\u{09DF}")] {
-        s.replace_fused(from, to);
-    }
+    // becomes the precomposed letter the glyph table has. When the consonant and nukta carry different
+    // revision classes (e.g. an inserted or deleted nukta), a tracked replacement is emitted to preserve
+    // both Accept All and Reject All outcomes.
+    s.replace_decomposed_nuktas();
 
     // 0b. Reph: র + ্ + X -> X + ©, before the conjunct table turns ্X into a phala glyph (সর্বোচ্চ is
     // m‡ev©”P). The reph follows the whole cluster it belongs to: X with the conjuncts after it (র্ক্ত becomes
@@ -3417,6 +3494,27 @@ mod run_conversion_tests {
 
         let p = doc.body[0].as_para().unwrap();
         assert_eq!(both_states(p), (s("আ"), s("অ")), "{:?}", runs_with_marks(p));
+    }
+
+    #[test]
+    fn decomposed_nukta_fusion_preserves_tracked_revisions_for_both_states() {
+        // ড, ঢ, য with an inserted or deleted nukta (U+09BC).
+        // Converting to ANSI and decoding back to Unicode must preserve both Accept All and Reject All outcomes.
+        for (base, fused) in [("ড", "ড়"), ("ঢ", "ঢ়"), ("য", "য়")] {
+            // Case 1: Base consonant with an inserted nukta.
+            // Accepted -> fused (dotted consonant); Rejected -> base (undotted consonant).
+            let split_ins = convert(&[(base, CharProps::default()), ("\u{09BC}", inserted(1))], true);
+            let (acc, rej) = both_states(&split_ins);
+            assert_eq!(ansi_to_unicode(&acc), fused, "accepted for {base} + ins nukta");
+            assert_eq!(ansi_to_unicode(&rej), base, "rejected for {base} + ins nukta");
+
+            // Case 2: Base consonant with a deleted nukta.
+            // Accepted -> base (undotted consonant); Rejected -> fused (dotted consonant).
+            let split_del = convert(&[(base, CharProps::default()), ("\u{09BC}", deleted(1))], true);
+            let (acc, rej) = both_states(&split_del);
+            assert_eq!(ansi_to_unicode(&acc), base, "accepted for {base} + del nukta");
+            assert_eq!(ansi_to_unicode(&rej), fused, "rejected for {base} + del nukta");
+        }
     }
 
     #[test]
