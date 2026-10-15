@@ -7091,3 +7091,27 @@ fn justified_multi_column_pages_stay_at_the_top() {
     };
     assert_eq!(last(PageVAlign::Justify), last(PageVAlign::Top));
 }
+
+#[test]
+fn leading_break_spacing_flag() {
+    enum Spacing {
+        Keep,
+        Suppress,
+    }
+    let top = |spacing, after| {
+        let mut d = Document::from_text(&format!("Filler\n{}Probe", wordcraft_doc::para::PAGE_BREAK));
+        d.settings.suppress_break_spacing = matches!(spacing, Spacing::Suppress);
+        d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().props.space_after = Some(after);
+        d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().props.space_before = Some(6.0);
+        let l = lay(&d);
+        let c = l.caret(&Pos::body(1, 1)).unwrap();
+        assert_eq!(c.page, 1);
+        c.top
+    };
+    let plain = top(Spacing::Suppress, 6.0);
+    for after in [0.0f32, 2.0, 6.0, 10.0] {
+        let expected = (6.0 - after).max(0.0);
+        assert!((top(Spacing::Suppress, after) - plain - expected).abs() < 0.05, "flagged, after={after}");
+        assert!((top(Spacing::Keep, after) - plain - 6.0).abs() < 0.05, "unflagged, after={after}");
+    }
+}

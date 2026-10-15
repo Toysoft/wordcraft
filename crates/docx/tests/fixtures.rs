@@ -2660,3 +2660,19 @@ fn hyperlink_with_empty_target_is_no_link() {
     assert_eq!(p.props_of_char(0).link, None);
     assert_eq!(p.props_of_char(5).link.as_deref(), Some("mailto:a@example.com"));
 }
+
+#[test]
+fn break_spacing_flag_roundtrips() {
+    for (flag, expected) in [
+        ("", false),
+        (r#"<w:suppressSpBfAfterPgBrk w:val="0"/>"#, false),
+        (r#"<w:suppressSpBfAfterPgBrk/>"#, true),
+        (r#"<w:suppressSpBfAfterPgBrk w:val="1"/>"#, true),
+    ] {
+        let settings = format!("<w:compat>{flag}</w:compat>");
+        let d = with_settings(Some(&settings));
+        assert_eq!(d.settings.suppress_break_spacing, expected, "{flag}");
+        let reopened = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+        assert_eq!(reopened.settings.suppress_break_spacing, expected, "{flag}");
+    }
+}

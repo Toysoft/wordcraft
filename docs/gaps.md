@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (floating-table overlap ignores empty line-break lines; previously trivial: copies keep their formatting on the clipboard as HTML, #1523; previously trivial: sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** trivial (leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch; previously trivial: floating-table overlap ignores empty line-break lines; previously trivial: copies keep their formatting on the clipboard as HTML, #1523; previously trivial: sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -83,10 +83,13 @@ The same gaps grouped the way the parity documents are, for agents working in on
 - **Localization gaps:** #8, #11, #16, #17; native-speaker review of every catalog (human).
 - **Stability and performance gaps:** #3, #20.
 
+Leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch. Original spacing probes cover the merged gap after preceding paragraphs with 0, 2, 6 and 10pt after-spacing. Documents without the switch keep their existing layout. Adobe and Word for Mac can still differ when this switch is absent.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | leading page breaks honor the suppressSpBfAfterPgBrk compatibility switch; read/write and layout regressions |
 | 2026-10-14 | trivial | Field report: grouped `flowChartOr` omitted its crossing spokes; the preset now draws them; wider DOCX corpus work remains open |
 | 2026-10-14 | trivial | Floating-table overlap checks use visible line content; empty line-break lines no longer move a table |
 | 2026-10-13 | trivial | Gap #3: Behind Text pictures and shapes drag over text in the body and headers, selected or not; a click without movement still edits the text |
