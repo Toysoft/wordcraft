@@ -886,9 +886,12 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
 
 /// Turkish, Azerbaijani (and Crimean Tatar) map `i`/`İ` and `ı`/`I` as pairs (#1923).
 fn is_turkic(lang: Option<&str>) -> bool {
-    let Some(tag) = lang else { return false };
-    let primary = tag.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
-    matches!(primary.as_str(), "tr" | "az" | "crh")
+    if wordcraft_proof::ProofLang::from_tag(lang) == wordcraft_proof::ProofLang::Tr {
+        return true; // tr, tur, any region, same normalisation as proofing
+    }
+    let Some(tag) = lang.map(str::trim) else { return false };
+    let primary = tag.split(['-', '_']).next().unwrap_or("");
+    ["az", "aze", "crh"].iter().any(|c| primary.eq_ignore_ascii_case(c))
 }
 
 /// A letter in capitals: `i` → `İ` in Turkic languages, otherwise the Unicode default.

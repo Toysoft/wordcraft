@@ -1164,8 +1164,8 @@ fn autocorrect_capitalisation_follows_turkic_case_mapping() {
         assert_eq!(s.doc.plain_text(StoryRef::Body), "İstanbul ", "{tag}: cAPS LOCK fix");
         let mut s = self::s();
         run(&mut s, "review.language", json!({"lang": tag, "default": true}));
-        typ(&mut s, "kızım. ISparta ");
-        assert_eq!(s.doc.plain_text(StoryRef::Body), "Kızım. Isparta ", "{tag}: TWo INitial CApitals lowercases I to ı only before lowercase");
+        typ(&mut s, "kızım. TIklamak ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Kızım. Tıklamak ", "{tag}: TWo INitial CApitals lowercases I to ı");
     }
     // Other languages are unchanged; a stray İ still lowercases to a single "i".
     let mut s = s();
