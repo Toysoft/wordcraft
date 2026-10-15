@@ -32,6 +32,10 @@ pub struct Catalog {
     plain: HashMap<String, String>,
     /// (context, English source) → translation, for the few entries that need one.
     contextual: HashMap<(String, String), String>,
+    /// Display-only RTL labels; logical translations remain in `plain`.
+    visual_rtl: HashMap<String, String>,
+    visual_contextual_rtl: HashMap<(String, String), String>,
+    logical_rtl: HashMap<String, String>,
 }
 
 fn unescape(text: &str) -> Result<String, String> {
@@ -135,8 +139,43 @@ impl Catalog {
         self.plain.get(s).map(String::as_str)
     }
 
+    /// Prepare display strings once, leaving the catalog's logical translations intact for
+    /// document previews, matching, formatting and accessibility metadata.
+    pub fn prepare_rtl(&mut self) {
+        self.visual_rtl = self.plain.iter().map(|(key, value)| (key.clone(), crate::ui_bidi::template(value))).collect();
+        self.visual_contextual_rtl = self.contextual.iter().map(|(key, value)| (key.clone(), crate::ui_bidi::template(value))).collect();
+        self.logical_rtl =
+            self.plain.iter().filter_map(|(key, value)| self.visual_rtl.get(key).map(|shown| (shown.clone(), value.clone()))).collect();
+    }
+
+    pub fn logical_display<'a>(&'a self, text: &'a str) -> &'a str {
+        self.logical_rtl.get(text).map(String::as_str).unwrap_or(text)
+    }
+
+    pub fn visual(&self, s: &str) -> Option<&str> {
+        self.visual_rtl.get(s).map(String::as_str).or_else(|| self.plain(s))
+    }
+
     /// The entry for `s` in `context`, else the plain one.
     pub fn in_context(&self, context: &str, s: &str) -> Option<&str> {
         self.contextual.get(&(context.to_string(), s.to_string())).map(String::as_str).or_else(|| self.plain(s))
+    }
+
+    pub fn visual_in_context(&self, context: &str, s: &str) -> Option<&str> {
+        let key = (context.to_owned(), s.to_owned());
+        self.visual_contextual_rtl.get(&key).or_else(|| self.contextual.get(&key)).map(String::as_str).or_else(|| self.visual(s))
+    }
+}
+
+#[cfg(test)]
+mod rtl_tests {
+    #[test]
+    fn contextual_template_labels_keep_logical_values() {
+        let (mut catalog, errors) = super::Catalog::parse("template\tLetter\tواحد اثنين\n\tNormal\tواحد اثنين\n");
+        assert!(errors.is_empty());
+        catalog.prepare_rtl();
+        assert_eq!(catalog.in_context("template", "Letter"), Some("واحد اثنين"));
+        assert_eq!(catalog.visual_in_context("template", "Letter"), Some("اثنين واحد"));
+        assert_eq!(catalog.visual_in_context("template", "Normal"), catalog.visual("Normal"));
     }
 }

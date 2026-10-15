@@ -47,16 +47,26 @@ fn emoji_keep_their_colours_on_a_dark_page() {
     }
 }
 
-/// "Emoji test: 🧠 brain, ✅ check." rendered at 2x with `opts`, and each emoji glyph's box in
+/// Two emoji, the check explicitly in a colour font, rendered at 2x with `opts`, and each glyph's box in
 /// pixels; None (the test skips) when no colour emoji font is installed.
 #[cfg(not(target_arch = "wasm32"))]
 fn emoji_page(opts: &RenderOptions) -> Option<(Rendered, Vec<(u32, u32, u32, u32)>)> {
-    let has_colour_font = FontDb::global().fallback_for('🧠', u32::MAX).is_some_and(|f| COLOR_EMOJI.contains(&f.family.as_str()));
-    if !has_colour_font {
+    let face = FontDb::global().fallback_for('🧠', u32::MAX).filter(|f| COLOR_EMOJI.contains(&f.family.as_str()));
+    let Some(face) = face else {
         eprintln!("skipped: no colour emoji font installed");
         return None;
-    }
-    let d = Document::from_text("Emoji test: 🧠 brain, ✅ check.");
+    };
+    // Windows' ordinary text face may cover ✅ itself. Ask for colour on that run;
+    // keep the brain's automatic fallback and all colour-pixel assertions covered.
+    let (prefix, suffix) = ("Emoji test: 🧠 brain, ", " check.");
+    let mut p = wordcraft_doc::Paragraph::with_text(&format!("{prefix}✅{suffix}"), Default::default());
+    p.runs = vec![
+        wordcraft_doc::Run { len: prefix.len(), props: Default::default() },
+        wordcraft_doc::Run { len: '✅'.len_utf8(), props: wordcraft_doc::CharProps { font: Some(face.family.clone()), ..Default::default() } },
+        wordcraft_doc::Run { len: suffix.len(), props: Default::default() },
+    ];
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(p)];
     let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
     let page = &l.pages[0];
     let scale = 2.0;

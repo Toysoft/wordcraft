@@ -122,7 +122,7 @@ const SPECIAL_REPLACE: &[(&str, &str)] = &[
 /// The Special ▾ menu button; returns the code picked.
 fn special_menu(ui: &mut Ui, extra: &FindExtra) -> Option<&'static str> {
     let mut picked = None;
-    ui.menu_button(format!("{} ▾", tl!("Special")), |ui| {
+    crate::rtl::menu_button(ui, format!("{} ▾", tl!("Special")), |ui| {
         let wild_replace: &[(&str, &str)] = &[("Find What Expression", "\\1")];
         let lists: [&[(&str, &str)]; 2] = match (extra.to_replace, extra.wildcards) {
             (false, false) => [SPECIAL_FIND, &[]],
@@ -777,7 +777,7 @@ pub(crate) fn color_field(ui: &mut Ui, theme: &[wordcraft_doc::Rgb], value: &mut
         }
         ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
         let label = if c.is_some() { value.clone() } else { tl!(none_label).to_string() };
-        ui.menu_button(label, |ui| {
+        crate::rtl::menu_button(ui, label, |ui| {
             if ui.button(tl!(none_label)).clicked() {
                 *value = none_value.to_string();
                 ui.close();
@@ -1170,7 +1170,7 @@ pub fn table_grid_picker(ui: &mut Ui, app: &mut WordApp) {
     });
     let mut new_hover = (0, 0);
     let mut clicked = None;
-    egui::Grid::new("tgp").spacing(vec2(2.0, 2.0)).show(ui, |ui| {
+    crate::rtl::grid(ui, egui::Grid::new("tgp").spacing(vec2(2.0, 2.0)), |ui| {
         for r in 1..=8 {
             for c in 1..=10 {
                 let (rect, resp) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::click());
@@ -1294,7 +1294,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     let id = egui::Id::new(("dialog", title));
     let shown = place_dialog(ctx, id, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false)).open(&mut open).show(ctx, |ui| {
         ui.set_min_width(340.0);
-        close = body(app, ui, &mut d);
+        crate::rtl::root(ui, |ui| close = body(app, ui, &mut d));
     });
     if shown.is_some() {
         count_dialog_frame(ctx, id);
@@ -1397,7 +1397,7 @@ fn page_paper_group(ui: &mut Ui, paper: &mut (f32, f32), landscape: &mut bool, c
         let label = ui.label(tl!(l.size));
         let entry = paper_entry(*paper).filter(|_| !*custom);
         let shown = tl!(entry.unwrap_or(l.custom));
-        let combo = egui::ComboBox::from_id_salt("ps_paper_size").width(180.0).height(400.0).selected_text(shown).show_ui(ui, |ui| {
+        let combo = crate::rtl::ComboBox::from_id_salt("ps_paper_size").width(180.0).height(400.0).selected_text(shown).show_ui(ui, |ui| {
             for (n, w, h) in wordcraft_geom::PAPER_SIZES {
                 if ui.selectable_label(entry == Some(*n), tl!(n)).clicked() {
                     let (w, h) = (w / ppu, h / ppu);
@@ -1412,7 +1412,7 @@ fn page_paper_group(ui: &mut Ui, paper: &mut (f32, f32), landscape: &mut bool, c
         });
         combo.response.labelled_by(label.id);
     });
-    egui::Grid::new("ps_paper").num_columns(4).show(ui, |ui| {
+    crate::rtl::grid(ui, egui::Grid::new("ps_paper").num_columns(4), |ui| {
         use wordcraft_engine::cmd::page::{MAX_PAGE_SIDE, MIN_PAGE_SIDE};
         let range = MIN_PAGE_SIDE / ppu..=MAX_PAGE_SIDE / ppu;
         ui.label(tl!(l.width));
@@ -1427,22 +1427,31 @@ fn page_paper_group(ui: &mut Ui, paper: &mut (f32, f32), landscape: &mut bool, c
 }
 
 pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
-    let mut r = (false, false);
+    let mut result = (false, false);
     ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Enter and Escape belong to the Colors dialog while it is open above this one.
-            let keys = !crate::colors::is_open(ui.ctx());
-            if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
-                r.1 = true;
+    let keys = !crate::colors::is_open(ui.ctx());
+    if crate::i18n::current().is_rtl() {
+        ui.horizontal(|ui| {
+            if ui.add(crate::widgets::primary_button(ui, ok)).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                result.0 = true;
             }
-            let okb = ui.add(crate::widgets::primary_button(ui, ok));
-            if okb.clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                r.0 = true;
+            if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+                result.1 = true;
             }
         });
-    });
-    r
+    } else {
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+                    result.1 = true;
+                }
+                if ui.add(crate::widgets::primary_button(ui, ok)).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                    result.0 = true;
+                }
+            });
+        });
+    }
+    result
 }
 
 /// The character properties the Font dialog's fields stand for.
@@ -1560,7 +1569,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if *strike {
                 fmt.strikethrough = egui::Stroke::new(1.0, preview_color);
             }
-            egui::Grid::new("fontdlg").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("fontdlg").num_columns(2).spacing(vec2(10.0, 6.0)), |ui| {
                 // Word's two font boxes when East Asian text is in use: the Latin text font and
                 // the Asian text font, each with its own list (type to find a font).
                 let prev = app.previews.font_preview_fn();
@@ -1603,20 +1612,20 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             });
             ui.separator();
             ui.label(egui::RichText::new(tl!("Effects")).font(semibold(12.5)));
-            egui::Grid::new("fx").num_columns(2).show(ui, |ui| {
-                ui.checkbox(bold, tl!("Bold"));
-                ui.checkbox(italic, tl!("Italic"));
+            crate::rtl::grid(ui, egui::Grid::new("fx").num_columns(2), |ui| {
+                crate::rtl::checkbox(ui, bold, tl!("Bold"));
+                crate::rtl::checkbox(ui, italic, tl!("Italic"));
                 ui.end_row();
-                ui.checkbox(underline, tl!("Underline"));
-                ui.checkbox(strike, tl!("Strikethrough"));
+                crate::rtl::checkbox(ui, underline, tl!("Underline"));
+                crate::rtl::checkbox(ui, strike, tl!("Strikethrough"));
                 ui.end_row();
-                ui.checkbox(sup, tl!("Superscript"));
-                ui.checkbox(sub, tl!("Subscript"));
+                crate::rtl::checkbox(ui, sup, tl!("Superscript"));
+                crate::rtl::checkbox(ui, sub, tl!("Subscript"));
                 ui.end_row();
-                ui.checkbox(small_caps, tl!("Small caps"));
-                ui.checkbox(caps, tl!("All caps"));
+                crate::rtl::checkbox(ui, small_caps, tl!("Small caps"));
+                crate::rtl::checkbox(ui, caps, tl!("All caps"));
                 ui.end_row();
-                ui.checkbox(hidden, tl!("Hidden"));
+                crate::rtl::checkbox(ui, hidden, tl!("Hidden"));
                 ui.end_row();
             });
             // Live preview of the chosen font/size/colour/effects.
@@ -1667,7 +1676,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         // Neither while the selected paragraphs differ.
                         let blank = mixed.contains("bidi");
                         for (value, text) in [(true, tl!("Right-to-left")), (false, tl!("Left-to-right"))] {
-                            if ui.radio(!blank && *rtl == value, text).clicked() {
+                            if crate::rtl::radio(ui, !blank && *rtl == value, text).clicked() {
                                 *rtl = value;
                                 mixed.remove("bidi");
                             }
@@ -1681,7 +1690,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         } else {
                             ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l))
                         };
-                        egui::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
+                        crate::rtl::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
                             for (v, l) in ALIGNS {
                                 if ui.selectable_value(align, v.to_string(), tl!(l)).clicked() {
                                     mixed.remove("align");
@@ -1692,7 +1701,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     ui.label(egui::RichText::new(tl!("Indentation")).font(semibold(12.5)));
                     // Mirrored indents are the inside and outside ones (they swap on even pages).
                     let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
-                    egui::Grid::new("ind").num_columns(4).show(ui, |ui| {
+                    crate::rtl::grid(ui, egui::Grid::new("ind").num_columns(4), |ui| {
                         ui.label(tl!(l_label));
                         para_number(ui, left, ParaNumber::Length, "left", mixed);
                         ui.label(tl!(r_label));
@@ -1704,7 +1713,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     });
                     para_check(ui, &mut opts[0], tl!("Mirror indents"), "mirrorIndents", mixed);
                     ui.label(egui::RichText::new(tl!("Spacing")).font(semibold(12.5)));
-                    egui::Grid::new("sp").num_columns(4).show(ui, |ui| {
+                    crate::rtl::grid(ui, egui::Grid::new("sp").num_columns(4), |ui| {
                         ui.label(tl!("Before:"));
                         para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed);
                         ui.label(tl!("Line spacing:"));
@@ -1794,7 +1803,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.horizontal(|ui| {
                 ui.add_enabled(plain, egui::Checkbox::new(match_case, tl!("Match case")));
                 ui.add_enabled(plain, egui::Checkbox::new(whole_word, tl!("Whole words")));
-                ui.checkbox(&mut extra.wildcards, tl!("Use wildcards"));
+                crate::rtl::checkbox(ui, &mut extra.wildcards, tl!("Use wildcards"));
             });
             let arrow = if extra.more { "▾" } else { "▸" };
             if ui.selectable_label(extra.more, format!("{arrow} {}", tl!("Search Options"))).clicked() {
@@ -1810,7 +1819,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     ui.add_enabled(plain, egui::Checkbox::new(&mut extra.ignore_space, tl!("Ignore white-space characters")));
                 });
                 ui.horizontal(|ui| {
-                    ui.checkbox(regex, tl!("Regular expressions"));
+                    crate::rtl::checkbox(ui, regex, tl!("Regular expressions"));
                     if let Some(code) = special_menu(ui, extra) {
                         if extra.to_replace { replace.push_str(code) } else { query.push_str(code) }
                     }
@@ -1875,19 +1884,19 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.label(egui::RichText::new(tl!("Style")).font(semibold(12.5)));
             ui.horizontal(|ui| {
                 for (v, l) in [("none", "None"), ("shrink", "Shrink text"), ("enlarge", "Enlarge symbol")] {
-                    ui.radio_value(style, v.to_string(), tl!(l));
+                    crate::rtl::radio_value(ui, style, v.to_string(), tl!(l));
                 }
             });
             ui.add_space(6.0);
             ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
+                crate::rtl::column(ui, |ui| {
                     ui.label(tl!("Text:"));
                     ui.add(egui::TextEdit::singleline(text).desired_width(110.0).char_limit(2));
                     ui.add_space(6.0);
                     enclose_preview(ui, style, text, shape);
                 });
                 ui.add_space(12.0);
-                ui.vertical(|ui| {
+                crate::rtl::column(ui, |ui| {
                     ui.label(tl!("Enclosure"));
                     for (v, l) in [("circle", "Circle"), ("square", "Square"), ("triangle", "Triangle"), ("diamond", "Diamond")] {
                         ui.add_enabled_ui(style != "none", |ui| ui.selectable_value(shape, v.to_string(), tl!(l)));
@@ -1913,7 +1922,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ok || cancel
         }
         Dialog::InsertTable { rows, cols } => {
-            egui::Grid::new("it").num_columns(2).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("it").num_columns(2), |ui| {
                 ui.label(tl!("Number of columns:"));
                 ui.add(egui::DragValue::new(cols).range(1..=63));
                 ui.end_row();
@@ -1929,7 +1938,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         Dialog::PageSetup { top, bottom, left, right, landscape, mirror, rtl, grid, grid_was, paper, paper_was, paper_custom, message, valign } => {
             ui.label(egui::RichText::new(tl!("Margins")).font(semibold(12.5)));
-            egui::Grid::new("ps").num_columns(4).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("ps").num_columns(4), |ui| {
                 ui.label(tl!("Top:"));
                 ui.add(egui::DragValue::new(top).speed(3.6 / crate::options::unit().pt_per_unit()).measure(crate::options::unit()).max_decimals(2));
                 ui.label(tl!("Bottom:"));
@@ -1945,20 +1954,20 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             });
             ui.label(egui::RichText::new(tl!("Orientation")).font(semibold(12.5)));
             ui.horizontal(|ui| {
-                ui.radio_value(landscape, false, tl!("Portrait"));
-                ui.radio_value(landscape, true, tl!("Landscape"));
+                crate::rtl::radio_value(ui, landscape, false, tl!("Portrait"));
+                crate::rtl::radio_value(ui, landscape, true, tl!("Landscape"));
             });
             ui.label(egui::RichText::new(tl!("Pages")).font(semibold(12.5)));
-            ui.checkbox(mirror, tl!("Mirror margins"));
+            crate::rtl::checkbox(ui, mirror, tl!("Mirror margins"));
             page_paper_group(ui, paper, landscape, paper_custom);
             ui.label(egui::RichText::new(tl!("Document Grid")).font(semibold(12.5)));
             ui.horizontal_wrapped(|ui| {
-                ui.radio_value(&mut grid.0, 0, tl!("No grid"));
-                ui.radio_value(&mut grid.0, 1, tl!("Lines only"));
-                ui.radio_value(&mut grid.0, 2, tl!("Lines and characters"));
-                ui.radio_value(&mut grid.0, 3, tl!("Text snaps to characters"));
+                crate::rtl::radio_value(ui, &mut grid.0, 0, tl!("No grid"));
+                crate::rtl::radio_value(ui, &mut grid.0, 1, tl!("Lines only"));
+                crate::rtl::radio_value(ui, &mut grid.0, 2, tl!("Lines and characters"));
+                crate::rtl::radio_value(ui, &mut grid.0, 3, tl!("Text snaps to characters"));
             });
-            egui::Grid::new("ps_grid").num_columns(4).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("ps_grid").num_columns(4), |ui| {
                 ui.add_enabled(grid.0 >= 2, egui::Label::new(tl!("Characters per line:")));
                 ui.add_enabled(grid.0 >= 2, egui::DragValue::new(&mut grid.2).range(1..=1000));
                 ui.add_enabled(grid.0 >= 1, egui::Label::new(tl!("Lines per page:")));
@@ -1967,8 +1976,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             });
             ui.horizontal(|ui| {
                 ui.label(tl!("Section direction:"));
-                ui.radio_value(rtl, false, tl!("Left-to-right"));
-                ui.radio_value(rtl, true, tl!("Right-to-left"));
+                crate::rtl::radio_value(ui, rtl, false, tl!("Left-to-right"));
+                crate::rtl::radio_value(ui, rtl, true, tl!("Right-to-left"));
             });
             if !message.is_empty() {
                 ui.label(egui::RichText::new(message.as_str()).small().color(ui.visuals().error_fg_color));
@@ -2020,7 +2029,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 }
             });
             ui.add_space(4.0);
-            egui::Grid::new("lnk").num_columns(2).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("lnk").num_columns(2), |ui| {
                 ui.label(tl!("Text to display:"));
                 ui.text_edit_singleline(text);
                 ui.end_row();
@@ -2093,7 +2102,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         Dialog::Bookmark { name, by_location, hidden, deleted } => bookmark(app, ui, name, by_location, hidden, deleted),
         Dialog::WordCount { stats } => {
-            egui::Grid::new("wc").num_columns(2).spacing(vec2(30.0, 6.0)).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("wc").num_columns(2).spacing(vec2(30.0, 6.0)), |ui| {
                 for (l, k) in [
                     ("Pages", "pages"),
                     ("Words", "words"),
@@ -2108,7 +2117,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 }
             });
             let mut include = stats.get("includeTextBoxes").and_then(Value::as_bool).unwrap_or(true);
-            if ui.checkbox(&mut include, tl!("Count words in text boxes and notes")).changed()
+            if crate::rtl::checkbox(ui, &mut include, tl!("Count words in text boxes and notes")).changed()
                 && let Ok(v) = app.run("review.wordCount", json!({"includeTextBoxes": include}))
             {
                 *stats = v;
@@ -2119,7 +2128,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         Dialog::Zoom { percent } => {
             ui.horizontal(|ui| {
                 for p in [200.0, 100.0, 75.0] {
-                    ui.radio_value(percent, p, format!("{p}%"));
+                    crate::rtl::radio_value(ui, percent, p, format!("{p}%"));
                 }
             });
             // Logarithmic like the status bar slider, and wide enough to aim: the default 100 pt
@@ -2154,8 +2163,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.text_edit_singleline(text);
             });
             ui.horizontal(|ui| {
-                ui.radio_value(diagonal, true, tl!("Diagonal"));
-                ui.radio_value(diagonal, false, tl!("Horizontal"));
+                crate::rtl::radio_value(ui, diagonal, true, tl!("Diagonal"));
+                crate::rtl::radio_value(ui, diagonal, false, tl!("Horizontal"));
             });
             let (ok, cancel) = buttons(ui, tl!("OK"));
             if ok {
@@ -2174,7 +2183,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ("right", "Right"),
                 ("rightVertical", "Right (vertical)"),
             ];
-            egui::Grid::new("phonetic").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("phonetic").num_columns(2).spacing(vec2(10.0, 6.0)), |ui| {
                 ui.label(tl!("Base text:"));
                 ui.label(egui::RichText::new(base.as_str()).strong());
                 ui.end_row();
@@ -2183,7 +2192,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.end_row();
                 ui.label(tl!("Alignment:"));
                 let shown = ALIGNS.iter().find(|(k, _)| k == align).map_or("Center", |(_, l)| l);
-                egui::ComboBox::from_id_salt("phonetic_align").selected_text(tl!(shown)).show_ui(ui, |ui| {
+                crate::rtl::ComboBox::from_id_salt("phonetic_align").selected_text(tl!(shown)).show_ui(ui, |ui| {
                     for (k, l) in ALIGNS {
                         ui.selectable_value(align, k.to_string(), tl!(l));
                     }
@@ -2210,7 +2219,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ok || cancel || remove
         }
         Dialog::NewStyle { name, based_on, back } => {
-            egui::Grid::new("ns").num_columns(2).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("ns").num_columns(2), |ui| {
                 ui.label(tl!("Name:"));
                 ui.text_edit_singleline(name);
                 ui.end_row();
@@ -2231,7 +2240,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ok || cancel
         }
         Dialog::ModifyStyle { back, resume, id, name, font, size, bold, italic, color, before, after } => {
-            egui::Grid::new("ms").num_columns(2).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("ms").num_columns(2), |ui| {
                 ui.label(tl!("Name:"));
                 ui.text_edit_singleline(name);
                 ui.end_row();
@@ -2261,8 +2270,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.end_row();
             });
             ui.horizontal(|ui| {
-                ui.checkbox(bold, tl!("Bold"));
-                ui.checkbox(italic, tl!("Italic"));
+                crate::rtl::checkbox(ui, bold, tl!("Bold"));
+                crate::rtl::checkbox(ui, italic, tl!("Italic"));
             });
             let (ok, cancel) = buttons(ui, tl!("OK"));
             if ok {
@@ -2293,7 +2302,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if *swallow {
                 ui.ctx().input_mut(|i| i.events.retain(|e| !swallow_shortcut_text(swallow, e)));
             }
-            let r = ui.add(egui::TextEdit::singleline(query).hint_text(tl!("Type a command, e.g. \"insert table\"")).desired_width(380.0));
+            let r = ui.add(crate::rtl::singleline(query).hint_text(tl!("Type a command, e.g. \"insert table\"")).desired_width(380.0));
             r.request_focus();
             let reg = app.session.registry.clone();
             // An empty box suggests a few common commands, as Word's Search does.
@@ -2343,7 +2352,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             for (i, f) in formats.iter().enumerate() {
                 let label = wordcraft_engine::cmd::paste::FORMATS.iter().find(|(id, _)| id == f).map(|(_, l)| *l).unwrap_or(f.as_str());
-                ui.radio_value(choice, i, tl!(label));
+                crate::rtl::radio_value(ui, choice, i, tl!(label));
             }
             if let Some(f) = formats.get(*choice) {
                 ui.add_space(6.0);
@@ -2438,9 +2447,18 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.add_space(8.0);
             let buttons = ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let cancel = ui.button(tl!("Cancel"));
-                    let dont_save = ui.button(tl!("Don't Save"));
-                    let save = ui.add(crate::widgets::primary_button(ui, tl!("Save")));
+                    let rtl = crate::i18n::current().is_rtl();
+                    let (save, dont_save, cancel) = if rtl {
+                        let save = ui.add(crate::widgets::primary_button(ui, tl!("Save")));
+                        let dont_save = ui.button(tl!("Don't Save"));
+                        let cancel = ui.button(tl!("Cancel"));
+                        (save, dont_save, cancel)
+                    } else {
+                        let cancel = ui.button(tl!("Cancel"));
+                        let dont_save = ui.button(tl!("Don't Save"));
+                        let save = ui.add(crate::widgets::primary_button(ui, tl!("Save")));
+                        (save, dont_save, cancel)
+                    };
                     [(cancel, "cancel"), (dont_save, "dontSave"), (save, "save")]
                 })
                 .inner
@@ -2536,7 +2554,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         Dialog::EncryptPassword { password, confirm, message } => {
             ui.label(tl!("Anyone who opens the document will need this password."));
             ui.add_space(4.0);
-            egui::Grid::new("encrypt_password").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("encrypt_password").num_columns(2).spacing(vec2(10.0, 6.0)), |ui| {
                 ui.label(tl!("Password:"));
                 let r = ui.add(egui::TextEdit::singleline(password.as_mut_string()).password(true).desired_width(220.0));
                 if password.is_empty() && confirm.is_empty() && !r.has_focus() {
@@ -2626,7 +2644,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     }
                 });
             });
-            ui.checkbox(headers, tl!("First row of data contains column headers"));
+            crate::rtl::checkbox(ui, headers, tl!("First row of data contains column headers"));
             if !message.is_empty() {
                 ui.label(egui::RichText::new(message.as_str()).color(Tokens::get(ui.ctx()).red));
             }
@@ -2673,12 +2691,12 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 "Insert one text or another, depending on a field's value."
             }));
             ui.add_space(4.0);
-            egui::Grid::new("merge_rule").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+            crate::rtl::grid(ui, egui::Grid::new("merge_rule").num_columns(2).spacing(vec2(10.0, 6.0)), |ui| {
                 ui.label(tl!("Field:"));
                 if fields.is_empty() {
                     ui.text_edit_singleline(field);
                 } else {
-                    egui::ComboBox::from_id_salt("merge_rule_field").selected_text(field.as_str()).width(200.0).show_ui(ui, |ui| {
+                    crate::rtl::ComboBox::from_id_salt("merge_rule_field").selected_text(field.as_str()).width(200.0).show_ui(ui, |ui| {
                         for f in fields.iter() {
                             ui.selectable_value(field, f.clone(), f);
                         }
@@ -2711,7 +2729,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             } else {
                 ui.label(tl!("The recipient-list field that fills each part of an address block and greeting line."));
                 ui.add_space(4.0);
-                egui::Grid::new("match_fields").num_columns(2).spacing(vec2(24.0, 6.0)).striped(true).show(ui, |ui| {
+                crate::rtl::grid(ui, egui::Grid::new("match_fields").num_columns(2).spacing(vec2(24.0, 6.0)).striped(true), |ui| {
                     for (part, key) in ADDRESS_PARTS {
                         ui.label(tl!(part));
                         match address.get(key).and_then(Value::as_str) {
@@ -2784,7 +2802,7 @@ fn recipient_list(
     let mut remove_row = None;
     let mut x_w = X_W;
     egui::ScrollArea::horizontal().id_salt("recipients_h").max_width(720.0).show(ui, |ui| {
-        ui.vertical(|ui| {
+        crate::rtl::column(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.allocate_exact_size(vec2(NUM_W, ROW_H - 4.0), Sense::hover());
                 for (i, f) in fields.iter_mut().enumerate() {
@@ -2885,7 +2903,7 @@ fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter
     let names: Vec<String> = fields.iter().map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect();
     let field_combo = |ui: &mut Ui, id: (&str, usize), value: &mut String, none: bool| {
         let shown = if value.is_empty() { tl!("(none)").to_string() } else { value.clone() };
-        egui::ComboBox::from_id_salt(id).width(130.0).selected_text(shown).show_ui(ui, |ui| {
+        crate::rtl::ComboBox::from_id_salt(id).width(130.0).selected_text(shown).show_ui(ui, |ui| {
             if none {
                 ui.selectable_value(value, String::new(), tl!("(none)"));
             }
@@ -2895,7 +2913,7 @@ fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter
         });
     };
     let mut remove = None;
-    egui::Grid::new("recipient_filter").num_columns(5).spacing(vec2(6.0, 4.0)).show(ui, |ui| {
+    crate::rtl::grid(ui, egui::Grid::new("recipient_filter").num_columns(5).spacing(vec2(6.0, 4.0)), |ui| {
         ui.label("");
         ui.label(egui::RichText::new(tl!("Field")).weak());
         ui.label(egui::RichText::new(tl!("Comparison")).weak());
@@ -2905,13 +2923,16 @@ fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter
             if i == 0 {
                 ui.label("");
             } else {
-                egui::ComboBox::from_id_salt(("rf_join", i)).width(60.0).selected_text(tl!(if r.or { "Or" } else { "And" })).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut r.or, false, tl!("And"));
-                    ui.selectable_value(&mut r.or, true, tl!("Or"));
-                });
+                crate::rtl::ComboBox::from_id_salt(("rf_join", i)).width(60.0).selected_text(tl!(if r.or { "Or" } else { "And" })).show_ui(
+                    ui,
+                    |ui| {
+                        ui.selectable_value(&mut r.or, false, tl!("And"));
+                        ui.selectable_value(&mut r.or, true, tl!("Or"));
+                    },
+                );
             }
             field_combo(ui, ("rf_field", i), &mut r.field, false);
-            egui::ComboBox::from_id_salt(("rf_op", i)).width(150.0).selected_text(tl!(r.op.label())).show_ui(ui, |ui| {
+            crate::rtl::ComboBox::from_id_salt(("rf_op", i)).width(150.0).selected_text(tl!(r.op.label())).show_ui(ui, |ui| {
                 for op in FilterOp::ALL {
                     ui.selectable_value(&mut r.op, op, tl!(op.label()));
                 }
@@ -2937,18 +2958,18 @@ fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter
         }
     });
     ui.add_space(4.0);
-    egui::Grid::new("recipient_sort").num_columns(3).spacing(vec2(6.0, 4.0)).show(ui, |ui| {
+    crate::rtl::grid(ui, egui::Grid::new("recipient_sort").num_columns(3).spacing(vec2(6.0, 4.0)), |ui| {
         for (i, (field, desc)) in filter.sort.iter_mut().enumerate() {
             ui.label(tl!(if i == 0 { "Sort by" } else { "Then by" }));
             field_combo(ui, ("rs_field", i), field, true);
             ui.add_enabled_ui(!field.is_empty(), |ui| {
-                egui::ComboBox::from_id_salt(("rs_dir", i)).width(110.0).selected_text(tl!(if *desc { "Descending" } else { "Ascending" })).show_ui(
-                    ui,
-                    |ui| {
+                crate::rtl::ComboBox::from_id_salt(("rs_dir", i))
+                    .width(110.0)
+                    .selected_text(tl!(if *desc { "Descending" } else { "Ascending" }))
+                    .show_ui(ui, |ui| {
                         ui.selectable_value(desc, false, tl!("Ascending"));
                         ui.selectable_value(desc, true, tl!("Descending"));
-                    },
-                );
+                    });
             });
             ui.end_row();
         }
@@ -2966,14 +2987,14 @@ fn table_properties(ui: &mut Ui, f: &mut TableForm) {
         ui.label(egui::RichText::new(tl!(s)).font(semibold(12.5)));
     };
     heading(ui, "Table");
-    egui::Grid::new("tp_table").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-        ui.checkbox(&mut f.width_on, tl!("Preferred width:"));
+    crate::rtl::grid(ui, egui::Grid::new("tp_table").num_columns(2).spacing(vec2(10.0, 6.0)), |ui| {
+        crate::rtl::checkbox(ui, &mut f.width_on, tl!("Preferred width:"));
         ui.add_enabled(f.width_on, len(&mut f.width, 0.1, unit));
         ui.end_row();
         ui.label(tl!("Alignment:"));
         ui.horizontal(|ui| {
             for (v, l) in [("left", "Left"), ("center", "Center"), ("right", "Right")] {
-                ui.radio_value(&mut f.align, v.to_string(), tl!(l));
+                crate::rtl::radio_value(ui, &mut f.align, v.to_string(), tl!(l));
             }
         });
         ui.end_row();
@@ -2982,42 +3003,45 @@ fn table_properties(ui: &mut Ui, f: &mut TableForm) {
         ui.end_row();
         ui.label(tl!("Table direction:"));
         ui.horizontal(|ui| {
-            ui.radio_value(&mut f.rtl, false, tl!("Left-to-right"));
-            ui.radio_value(&mut f.rtl, true, tl!("Right-to-left"));
+            crate::rtl::radio_value(ui, &mut f.rtl, false, tl!("Left-to-right"));
+            crate::rtl::radio_value(ui, &mut f.rtl, true, tl!("Right-to-left"));
         });
         ui.end_row();
     });
     heading(ui, "Row");
-    egui::Grid::new("tp_row").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-        ui.checkbox(&mut f.row_height_on, tl!("Specify height:"));
+    crate::rtl::grid(ui, egui::Grid::new("tp_row").num_columns(2).spacing(vec2(10.0, 6.0)), |ui| {
+        crate::rtl::checkbox(ui, &mut f.row_height_on, tl!("Specify height:"));
         ui.horizontal(|ui| {
             ui.add_enabled(f.row_height_on, len(&mut f.row_height, 0.02, unit));
             ui.add_enabled_ui(f.row_height_on, |ui| {
-                egui::ComboBox::from_id_salt("tp_rule").selected_text(tl!(if f.row_exact { "Exactly" } else { "At least" })).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut f.row_exact, false, tl!("At least"));
-                    ui.selectable_value(&mut f.row_exact, true, tl!("Exactly"));
-                });
+                crate::rtl::ComboBox::from_id_salt("tp_rule").selected_text(tl!(if f.row_exact { "Exactly" } else { "At least" })).show_ui(
+                    ui,
+                    |ui| {
+                        ui.selectable_value(&mut f.row_exact, false, tl!("At least"));
+                        ui.selectable_value(&mut f.row_exact, true, tl!("Exactly"));
+                    },
+                );
             });
         });
         ui.end_row();
     });
-    ui.checkbox(&mut f.allow_break, tl!("Allow row to break across pages"));
-    ui.checkbox(&mut f.header_row, tl!("Repeat as header row on each page"));
+    crate::rtl::checkbox(ui, &mut f.allow_break, tl!("Allow row to break across pages"));
+    crate::rtl::checkbox(ui, &mut f.header_row, tl!("Repeat as header row on each page"));
     heading(ui, "Column");
-    egui::Grid::new("tp_col").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+    crate::rtl::grid(ui, egui::Grid::new("tp_col").num_columns(2).spacing(vec2(10.0, 6.0)), |ui| {
         ui.label(tl!("Preferred width:"));
         ui.add(len(&mut f.column_width, 0.1, unit));
         ui.end_row();
     });
     heading(ui, "Cell");
-    egui::Grid::new("tp_cell").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-        ui.checkbox(&mut f.cell_width_on, tl!("Preferred width:"));
+    crate::rtl::grid(ui, egui::Grid::new("tp_cell").num_columns(2).spacing(vec2(10.0, 6.0)), |ui| {
+        crate::rtl::checkbox(ui, &mut f.cell_width_on, tl!("Preferred width:"));
         ui.add_enabled(f.cell_width_on, len(&mut f.cell_width, 0.1, unit));
         ui.end_row();
         ui.label(tl!("Vertical alignment:"));
         ui.horizontal(|ui| {
             for (v, l) in [("top", "Top"), ("center", "Center"), ("bottom", "Bottom")] {
-                ui.radio_value(&mut f.valign, v.to_string(), tl!(l));
+                crate::rtl::radio_value(ui, &mut f.valign, v.to_string(), tl!(l));
             }
         });
         ui.end_row();
@@ -3112,8 +3136,8 @@ fn para_number(ui: &mut Ui, value: &mut f32, kind: ParaNumber, key: &str, mixed:
 /// it, it shows as neither on nor off, and a click turns it on for all of them.
 fn para_check(ui: &mut Ui, on: &mut bool, text: &str, key: &str, mixed: &mut BTreeSet<String>) {
     if !mixed.contains(key) {
-        ui.checkbox(on, text);
-    } else if ui.add(egui::Checkbox::new(&mut false, text).indeterminate(true)).clicked() {
+        crate::rtl::checkbox(ui, on, text);
+    } else if crate::rtl::checkbox_indeterminate(ui, &mut false, text).clicked() {
         *on = true;
         mixed.remove(key);
     }
@@ -3203,11 +3227,11 @@ fn bookmark(app: &mut WordApp, ui: &mut Ui, name: &mut String, by_location: &mut
     ui.horizontal_top(|ui| {
         ui.label(tl!("Sort by:"));
         ui.vertical(|ui| {
-            ui.radio_value(by_location, false, tl!("Name"));
-            ui.radio_value(by_location, true, tl!("Location"));
+            crate::rtl::radio_value(ui, by_location, false, tl!("Name"));
+            crate::rtl::radio_value(ui, by_location, true, tl!("Location"));
         });
     });
-    ui.checkbox(hidden, tl!("Hidden bookmarks"));
+    crate::rtl::checkbox(ui, hidden, tl!("Hidden bookmarks"));
     let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
     if add || (enter && wordcraft_engine::cmd::insert::bookmark_name_ok(name.trim())) {
         let _ = app.run("insert.bookmark", json!({"name": name.trim()}));
@@ -3241,7 +3265,7 @@ fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut bool, select
     }
     ui.horizontal(|ui| {
         ui.label(tl!("Sort order:"));
-        egui::ComboBox::from_id_salt("manage_styles_sort")
+        crate::rtl::ComboBox::from_id_salt("manage_styles_sort")
             .selected_text(if *alphabetical { tl!("Alphabetical") } else { tl!("As Recommended") })
             .show_ui(ui, |ui| {
                 ui.selectable_value(alphabetical, false, tl!("As Recommended"));
@@ -3304,12 +3328,12 @@ fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut bool, select
     let builtin = cur.get("builtIn").and_then(Value::as_bool).unwrap_or(true);
     if ty != "table" {
         let mut gallery = cur.get("inGallery").and_then(Value::as_bool).unwrap_or(false);
-        if ui.checkbox(&mut gallery, tl!("Show in the Styles gallery")).changed() {
+        if crate::rtl::checkbox(ui, &mut gallery, tl!("Show in the Styles gallery")).changed() {
             let _ = app.run("styles.setVisibility", json!({"style": selected, "gallery": gallery}));
         }
     }
     let mut hidden = cur.get("hidden").and_then(Value::as_bool).unwrap_or(false);
-    if ui.checkbox(&mut hidden, tl!("Hide from style lists")).changed() {
+    if crate::rtl::checkbox(ui, &mut hidden, tl!("Hide from style lists")).changed() {
         let _ = app.run("styles.setVisibility", json!({"style": selected, "hidden": hidden}));
     }
     ui.add_space(4.0);
@@ -3442,7 +3466,7 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
         Vec::new()
     };
     ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
+        crate::rtl::column(ui, |ui| {
             ui.label(tl!("Go to what:"));
             for (w, label) in [(GoToWhat::Page, "Page"), (GoToWhat::Bookmark, "Bookmark")] {
                 if ui.selectable_label(*what == w, tl!(label)).clicked() && *what != w {
@@ -3453,7 +3477,7 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
             }
         });
         ui.add_space(16.0);
-        ui.vertical(|ui| match what {
+        crate::rtl::column(ui, |ui| match what {
             GoToWhat::Page => {
                 ui.label(tl!("Enter page number:"));
                 ui.add(egui::TextEdit::singleline(target).desired_width(220.0)).request_focus();
@@ -3461,7 +3485,7 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
             }
             GoToWhat::Bookmark => {
                 ui.label(tl!("Enter bookmark name:"));
-                egui::ComboBox::from_id_salt("goto_bookmark").width(220.0).selected_text(target.as_str()).show_ui(ui, |ui| {
+                crate::rtl::ComboBox::from_id_salt("goto_bookmark").width(220.0).selected_text(target.as_str()).show_ui(ui, |ui| {
                     for b in &bookmarks {
                         ui.selectable_value(target, b.clone(), b.as_str());
                     }
@@ -3533,7 +3557,7 @@ fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, category: &mut
     let t = Tokens::get(ui.ctx());
     ui.set_width(560.0);
     // Typing goes to the search box (never to the document behind the dialog).
-    ui.add(egui::TextEdit::singleline(query).hint_text(tl!("Search icons")).desired_width(560.0)).request_focus();
+    ui.add(crate::rtl::singleline(query).hint_text(tl!("Search icons")).desired_width(560.0)).request_focus();
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
@@ -3640,7 +3664,7 @@ fn page_valign_combo(ui: &mut egui::Ui, valign: &mut wordcraft_doc::section::Pag
     ui.horizontal(|ui| {
         ui.label(tl!("Vertical alignment:"));
         let shown = CHOICES.iter().find(|(v, _)| v == valign).map_or("", |(_, l)| tl!(l));
-        egui::ComboBox::from_id_salt("ps_valign").selected_text(shown).show_ui(ui, |ui| {
+        crate::rtl::ComboBox::from_id_salt("ps_valign").selected_text(shown).show_ui(ui, |ui| {
             for (v, l) in CHOICES {
                 ui.selectable_value(valign, v, tl!(l));
             }

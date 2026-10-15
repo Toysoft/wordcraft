@@ -71,7 +71,7 @@ const ORIENTATIONS: [(&str, &str); 3] = [("auto", "Auto orientation"), ("portrai
 fn choice(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &str)]) -> bool {
     let shown = items.iter().find(|(id, _)| *id == current.as_str()).map_or("", |(_, l)| *l);
     let mut changed = false;
-    egui::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
+    crate::rtl::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
         for (id, label) in items {
             if ui.selectable_label(current == id, tl!(label)).clicked() && current != id {
                 *current = (*id).to_string();
@@ -126,7 +126,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     app.ui.print.preview = app.ui.print.preview.min(total.saturating_sub(1));
 
     ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
+        crate::rtl::column(ui, |ui| {
             ui.set_width(380.0);
             // The settings scroll on their own: the preview beside them keeps the whole height (#1156).
             egui::ScrollArea::vertical().id_salt("print_settings").show(ui, |ui| {
@@ -177,7 +177,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         ui.add(egui::DragValue::new(&mut n).range(1..=wordcraft_engine::print::MAX_COPIES).speed(0.2));
                         app.ui.print.copies = n.clamp(1, wordcraft_engine::print::MAX_COPIES);
                         if app.ui.print.copies > 1 {
-                            ui.checkbox(&mut app.ui.print.collate, tl!("Collate copies"));
+                            crate::rtl::checkbox(ui, &mut app.ui.print.collate, tl!("Collate copies"));
                         }
                     });
                 }
@@ -221,7 +221,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             });
         });
         ui.add_space(24.0);
-        ui.vertical(|ui| preview(app, ui, &lay, total));
+        crate::rtl::column(ui, |ui| preview(app, ui, &lay, total));
     });
 }
 

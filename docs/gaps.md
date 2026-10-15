@@ -1,6 +1,6 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** trivial (VML freeforms read and kept on save; previously trivial: consistent preferred cell widths; previously trivial: multi-paragraph field instructions no longer add blank lines; previously trivial: page-break-only list paragraphs hide their labels; previously trivial: floating-table overlap ignores empty line-break lines; previously trivial: copies keep their formatting on the clipboard as HTML, #1523; previously trivial: sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (RTL visual audit integrated with current main); previously trivial (VML freeforms read and kept on save; previously trivial: consistent preferred cell widths; previously trivial: multi-paragraph field instructions no longer add blank lines; previously trivial: page-break-only list paragraphs hide their labels; previously trivial: floating-table overlap ignores empty line-break lines; previously trivial: copies keep their formatting on the clipboard as HTML, #1523; previously trivial: sample-text formulas on Enter, #1067; previously trivial: #29: copied equations as MathML, OMML open as #1297, #816; previously trivial: the Font list no longer keeps every previewed font in memory, #848; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: first version; every known shortfall from the 2026-10-10 re-measure, ranked) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -19,6 +19,10 @@ Local desktop recovery now covers unsaved drafts and edits to existing files; se
 establish cross-platform reliability.
 
 Document renaming: desktop renaming requires a filesystem that supports hard links (exFAT/FAT drives and some network shares refuse it). Behaviour: [UI parity](ui-parity.md).
+
+RTL interface audit: Info columns/forms and plain search fields inherit direction; same-label ribbon spacing is mirrored. Ribbon scrolling now uses native egui ScrollArea with finite RTL content width; template search uses logical text and breadcrumbs follow reading order. Shared direction-aware containers and controls now cover nested columns, popups, choice markers and combo captions/arrows. English and a synthetic RTL catalog exercise interface surfaces without changing the document. Language catalogs remain separate; native window decorations and egui's full bidi text-field editing/line wrapping are still open.
+
+The visual follow-up keeps large-menu arrows beside the final caption line in both directions, measures choice controls instead of reserving full rows, and removes RTL-only template wrapping/row-height changes. Share, Search, Discord, Focus and recent-file icons use the reading edge; recent paths retain their logical text. Same-label geometry and navigation regressions guard these cases; this does not establish exhaustive pixel parity.
 
 ## Ranked
 
@@ -87,6 +91,11 @@ The same gaps grouped the way the parity documents are, for agents working in on
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Integrate main fd0bb2fb: preserve recovery, tab overflow, contextual template translations, Korean fonts, mixed Paragraph fields, new Tabs/Table Style forms and independently scrolling Print settings; RTL helpers cover the changed forms, with logical contextual-text and mixed-choice click regressions |
+| 2026-10-15 | minor | Visual RTL audit: large-menu arrows stay beside the final caption line; choice controls and template tiles retain intrinsic size; custom chrome and recent-file icons follow the reading edge. Geometry and interaction regressions cover identical English labels in both directions |
+| 2026-10-14 | trivial | Integrate current main while retaining RTL: empty Start screen, Close save prompt, accessible ribbon/status controls, Auto interface size and Italian editing defaults; interaction regressions cover both interface directions |
+| 2026-10-13 | minor | Shared RTL UI infrastructure and regression coverage: logical chart/preview text, reachable chart data, grid choice controls and preserved native LTR paths; catalogs, native frame and full bidi editing remain separate |
+| 2026-10-11 | trivial | #16: DOCX open/save preserves independent complex-script formatting inheritance; RTL sections, tables and typography remain open |
 | 2026-10-14 | trivial | Row table border exceptions fixed; other row table exceptions remain unsupported |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
 | 2026-10-12 | minor | Czech spelling from the installed Hunspell dictionary, runtime-table suggestions and generic checks; Czech interface writes cs-CZ documents; no Czech hyphenation patterns bundled; estimates unchanged |

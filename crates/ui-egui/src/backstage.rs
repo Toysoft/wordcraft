@@ -29,7 +29,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.ui.backstage_page = "home".into();
     }
     let mac = app.integrated_titlebar;
-    egui::Panel::left("backstage_nav")
+    let rtl = crate::i18n::current().is_rtl();
+    (if rtl { egui::Panel::right("backstage_nav") } else { egui::Panel::left("backstage_nav") })
         .exact_size(200.0)
         // Fixed width, as in Word: without this egui shows a resize handle that does nothing (#502).
         .resizable(false)
@@ -40,120 +41,136 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             bottom: 12,
         }))
         .show(ui, |ui| {
-            let back = if mac {
-                // macOS (#222): the Backstage covers the title bar, so its top band is the title
-                // bar: the back button sits beside the traffic lights, centred with them and as far
-                // from them as the title bar's own controls, and the rest of the band drags the window.
-                let (band, drag) = ui.allocate_exact_size(vec2(200.0, app.mac_titlebar.height), Sense::click_and_drag());
-                if drag.drag_started() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
-                // The chevron's stroke starts at the content edge.
-                let c = pos2(band.min.x + app.mac_titlebar.content_left + 3.0, band.center().y);
-                let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, band.height())), ui.id().with("backstage_back"), Sense::click());
-                icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);
-                resp
-            } else {
-                let (r, resp) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::click());
-                icons::paint(
-                    ui.painter(),
-                    Rect::from_center_size(pos2(r.min.x + 26.0, r.center().y), vec2(18.0, 18.0)),
-                    "chevronLeft",
-                    egui::Color32::WHITE,
-                    egui::Color32::WHITE,
-                );
-                resp
-            };
-            // Escape in the built-in file browser closes only the browser.
-            if back.clicked() || (!app.file_dialog_open() && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
-                app.ui.backstage = false;
-                app.canvas.want_focus = true;
-            }
-            ui.add_space(if mac { 12.0 } else { 6.0 });
-            for (id, label) in PAGES {
-                // No document open (#1129): Info, Save, Save As, Print and Export are greyed out.
-                let on = has_document || works_without_document(id);
-                let (r, resp) = ui.add_enabled_ui(on, |ui| ui.allocate_exact_size(vec2(200.0, 38.0), Sense::click())).inner;
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tl!(label)));
-                let active = app.ui.backstage_page == id;
-                if active {
-                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(46));
-                } else if on && resp.hovered() {
-                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
-                }
-                ui.painter().text(
-                    pos2(r.min.x + 22.0, r.center().y),
-                    Align2::LEFT_CENTER,
-                    tl!(label),
-                    if active { semibold(14.0) } else { medium(14.0) },
-                    if on { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(110) },
-                );
-                if resp.clicked() {
-                    match id {
-                        // A document without a file goes to the Save As page (as in Word) instead
-                        // of `file.save`, which would also open the native Save As dialog.
-                        // In the browser a save is a download, so it saves right away.
-                        "save" if app.session.path.is_none() && app.services.download.is_none() => {
-                            app.ui.backstage_page = "saveAs".into();
-                        }
-                        "save" => {
-                            let r = app.run("file.save", json!({}));
-                            if r.is_ok_and(|v| v.get("saved").and_then(serde_json::Value::as_bool) == Some(true) || v.get("downloaded").is_some()) {
-                                app.ui.backstage = false;
-                                app.canvas.want_focus = true;
-                            } else {
-                                app.ui.backstage_page = "saveAs".into();
-                            }
-                        }
-                        "saveAs" => {
-                            app.ui.backstage_page = "saveAs".into();
-                        }
-                        // Not a page: `file.close` asks Save / Don't Save / Cancel first when there
-                        // are unsaved changes, and Cancel leaves the Backstage where it was.
-                        "close" => {
-                            let _ = app.run("file.close", json!({}));
-                        }
-                        _ => app.ui.backstage_page = id.into(),
+            crate::rtl::root(ui, |ui| {
+                let back = if mac {
+                    // macOS (#222): the Backstage covers the title bar, so its top band is the title
+                    // bar: the back button sits beside the traffic lights, centred with them and as far
+                    // from them as the title bar's own controls, and the rest of the band drags the window.
+                    let (band, drag) = ui.allocate_exact_size(vec2(200.0, app.mac_titlebar.height), Sense::click_and_drag());
+                    if drag.drag_started() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                     }
+                    // The chevron's stroke starts at the content edge.
+                    let c = pos2(if rtl { band.max.x - 26.0 } else { band.min.x + app.mac_titlebar.content_left + 3.0 }, band.center().y);
+                    let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, band.height())), ui.id().with("backstage_back"), Sense::click());
+                    icons::paint(
+                        ui.painter(),
+                        Rect::from_center_size(c, vec2(18.0, 18.0)),
+                        if rtl { "chevronRight" } else { "chevronLeft" },
+                        egui::Color32::WHITE,
+                        egui::Color32::WHITE,
+                    );
+                    resp
+                } else {
+                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::click());
+                    icons::paint(
+                        ui.painter(),
+                        Rect::from_center_size(pos2(if rtl { r.max.x - 26.0 } else { r.min.x + 26.0 }, r.center().y), vec2(18.0, 18.0)),
+                        if rtl { "chevronRight" } else { "chevronLeft" },
+                        egui::Color32::WHITE,
+                        egui::Color32::WHITE,
+                    );
+                    resp
+                };
+                // Escape in the built-in file browser closes only the browser.
+                if back.clicked() || (!app.file_dialog_open() && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+                    app.ui.backstage = false;
+                    app.canvas.want_focus = true;
                 }
-            }
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                for (label, id) in [("About", "about"), ("Discord community", "discord")] {
-                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!(label)));
-                    if resp.hovered() {
+                ui.add_space(if mac { 12.0 } else { 6.0 });
+                for (id, label) in PAGES {
+                    // No document open (#1129): Info, Save, Save As, Print, Export and Close are greyed out.
+                    let on = has_document || works_without_document(id);
+                    let (r, resp) = ui.add_enabled_ui(on, |ui| ui.allocate_exact_size(vec2(200.0, 38.0), Sense::click())).inner;
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tl!(label)));
+                    let active = app.ui.backstage_page == id;
+                    if active {
+                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(46));
+                    } else if on && resp.hovered() {
                         ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
                     }
-                    ui.painter().text(pos2(r.min.x + 22.0, r.center().y), Align2::LEFT_CENTER, tl!(label), regular(13.0), egui::Color32::WHITE);
+                    ui.painter().text(
+                        pos2(if rtl { r.max.x - 22.0 } else { r.min.x + 22.0 }, r.center().y),
+                        if rtl { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER },
+                        tl!(label),
+                        if active { semibold(14.0) } else { medium(14.0) },
+                        if on { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(110) },
+                    );
                     if resp.clicked() {
-                        if id == "discord" {
-                            let _ = app.run("ui.discord", json!({}));
-                        } else {
-                            app.dialog = crate::dialogs::Dialog::open("about", app);
+                        match id {
+                            // A document without a file goes to the Save As page (as in Word) instead
+                            // of `file.save`, which would also open the native Save As dialog.
+                            // In the browser a save is a download, so it saves right away.
+                            "save" if app.session.path.is_none() && app.services.download.is_none() => {
+                                app.ui.backstage_page = "saveAs".into();
+                            }
+                            "save" => {
+                                let r = app.run("file.save", json!({}));
+                                if r.is_ok_and(|v| v.get("saved").and_then(serde_json::Value::as_bool) == Some(true) || v.get("downloaded").is_some())
+                                {
+                                    app.ui.backstage = false;
+                                    app.canvas.want_focus = true;
+                                } else {
+                                    app.ui.backstage_page = "saveAs".into();
+                                }
+                            }
+                            "saveAs" => {
+                                app.ui.backstage_page = "saveAs".into();
+                            }
+                            // Close asks Save / Don't Save / Cancel for unsaved changes.
+                            "close" => {
+                                let _ = app.run("file.close", json!({}));
+                            }
+                            _ => app.ui.backstage_page = id.into(),
                         }
                     }
                 }
-            });
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    for (label, id) in [("About", "about"), ("Discord community", "discord")] {
+                        let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!(label)));
+                        if resp.hovered() {
+                            ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
+                        }
+                        ui.painter().text(
+                            pos2(if rtl { r.max.x - 22.0 } else { r.min.x + 22.0 }, r.center().y),
+                            if rtl { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER },
+                            tl!(label),
+                            regular(13.0),
+                            egui::Color32::WHITE,
+                        );
+                        if resp.clicked() {
+                            if id == "discord" {
+                                let _ = app.run("ui.discord", json!({}));
+                            } else {
+                                app.dialog = crate::dialogs::Dialog::open("about", app);
+                            }
+                        }
+                    }
+                });
+            })
         });
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(if recovery { egui::Color32::BLACK } else { t.ribbon }).inner_margin(egui::Margin::symmetric(40, 30)))
         .show(ui, |ui| {
-            // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
-            if app.ui.backstage_page == "print" {
-                export_page(app, ui);
-                return;
-            }
-            egui::ScrollArea::vertical().show(ui, |ui| match app.ui.backstage_page.as_str() {
-                "home" => home_page(app, ui),
-                "new" => new_page(app, ui),
-                "open" => open_page(app, ui),
-                "saveAs" => save_as_page(app, ui),
-                "info" => info_page(app, ui),
-                "recover" => recovery_page(app, ui),
-                "print" | "export" => export_page(app, ui),
-                "options" => crate::options::page(app, ui),
-                _ => home_page(app, ui),
-            });
+            crate::rtl::root(ui, |ui| {
+                // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
+                if app.ui.backstage_page == "print" {
+                    export_page(app, ui);
+                    return;
+                }
+                egui::ScrollArea::vertical().show(ui, |ui| match app.ui.backstage_page.as_str() {
+                    "home" => home_page(app, ui),
+                    "new" => new_page(app, ui),
+                    "open" => open_page(app, ui),
+                    "saveAs" => save_as_page(app, ui),
+                    "info" => info_page(app, ui),
+                    "recover" => recovery_page(app, ui),
+                    "print" | "export" => export_page(app, ui),
+                    "options" => crate::options::page(app, ui),
+                    _ => home_page(app, ui),
+                });
+            })
         });
 }
 
@@ -177,7 +194,7 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
         ui.label(tl!("No recovery copies."));
     }
     let busy = app.session.recovery_busy();
-    egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)).show(ui, |ui| {
+    crate::rtl::grid(ui, egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)), |ui| {
         if !documents.is_empty() {
             ui.strong(tl!("Document"));
             ui.strong(tl!("Recovery copy"));
@@ -223,7 +240,7 @@ fn heading(ui: &mut Ui, s: &str) {
 
 fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
     let t = Tokens::get(ui.ctx());
-    ui.vertical(|ui| {
+    let add = |ui: &mut Ui| {
         // The label sits right under the thumbnail whatever row gap the gallery uses.
         ui.spacing_mut().item_spacing.y = 0.0;
         let (r, resp) = ui.allocate_exact_size(vec2(150.0, 194.0), Sense::click());
@@ -258,13 +275,21 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
             ui.painter().image(h.id(), r.shrink(1.0), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
         }
         // The caption opens the template too, as in Word.
-        let caption = ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tc("template", label)).font(regular(12.5))).sense(Sense::click()));
+        let caption =
+            ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tc_display("template", label)).font(regular(12.5))).sense(Sense::click()));
         if resp.clicked() || caption.clicked() {
             let _ = app.run("file.new", json!({"template": template}));
             app.ui.backstage = false;
             app.canvas.want_focus = true;
         }
-    });
+    };
+    if crate::i18n::current().is_rtl() {
+        let caption_width =
+            ui.ctx().fonts_mut(|f| f.layout_no_wrap(crate::i18n::tc_display("template", label).to_owned(), regular(12.5), t.text).size().x);
+        ui.allocate_ui_with_layout(vec2(caption_width.max(150.0), 0.0), egui::Layout::top_down(egui::Align::Max), add);
+    } else {
+        ui.vertical(add);
+    }
 }
 
 /// The built-in templates in gallery order: display label and the `file.new` template id.
@@ -300,14 +325,21 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
             "Good evening"
         },
     );
-    ui.horizontal(|ui| {
+    let gallery = |ui: &mut Ui| {
         ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
         for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
             template_tile(ui, app, label, template);
         }
-    });
+    };
+    if crate::i18n::current().is_rtl() {
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), 0.0), egui::Layout::right_to_left(egui::Align::Min), gallery);
+    } else {
+        ui.horizontal(gallery);
+    }
     ui.add_space(8.0);
-    let more = ui.add(egui::Label::new(egui::RichText::new(tl!("More templates →")).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
+    let more_label = tl!("More templates →");
+    let more_label = if crate::i18n::current().is_rtl() { more_label.replace('→', "←") } else { more_label.to_owned() };
+    let more = ui.add(egui::Label::new(egui::RichText::new(more_label).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
     if more.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         app.ui.backstage_page = "new".into();
     }
@@ -321,7 +353,7 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "New");
     let id = egui::Id::new("backstage_template_search");
     let mut query = ui.ctx().data(|d| d.get_temp::<String>(id)).unwrap_or_default();
-    let search = ui.add(egui::TextEdit::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0));
+    let search = ui.add(crate::rtl::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0));
     if search.changed() {
         ui.ctx().data_mut(|d| d.insert_temp(id, query.clone()));
     }
@@ -331,16 +363,24 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
         ui.label(egui::RichText::new(tl!("No templates match your search.")).color(t.text_dim));
         return;
     }
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(18.0, 18.0);
-        for (label, template) in found {
-            template_tile(ui, app, label, template);
-        }
-    });
+    ui.with_layout(
+        if crate::i18n::current().is_rtl() {
+            egui::Layout::right_to_left(egui::Align::Min).with_main_wrap(true)
+        } else {
+            egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true)
+        },
+        |ui| {
+            ui.spacing_mut().item_spacing = vec2(18.0, 18.0);
+            for (label, template) in found {
+                template_tile(ui, app, label, template);
+            }
+        },
+    );
 }
 
 fn open_list(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    let rtl = crate::i18n::current().is_rtl();
     ui.label(egui::RichText::new(tl!("Recent")).font(semibold(16.0)));
     ui.add_space(6.0);
     if app.ui.recent.is_empty() {
@@ -352,9 +392,17 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
         if resp.hovered() {
             ui.painter().rect_filled(r, 4.0, t.hover);
         }
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 18.0, r.center().y), vec2(22.0, 22.0)), "printLayout", t.icon, t.accent);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 13.0), Align2::LEFT_CENTER, &name, medium(13.0), t.text);
-        ui.painter().text(pos2(r.min.x + 40.0, r.min.y + 29.0), Align2::LEFT_CENTER, &p, regular(11.0), t.text_dim);
+        icons::paint(
+            ui.painter(),
+            Rect::from_center_size(pos2(if rtl { r.max.x - 18.0 } else { r.min.x + 18.0 }, r.center().y), vec2(22.0, 22.0)),
+            "printLayout",
+            t.icon,
+            t.accent,
+        );
+        let x = if rtl { r.max.x - 40.0 } else { r.min.x + 40.0 };
+        let align = if rtl { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER };
+        ui.painter().text(pos2(x, r.min.y + 13.0), align, &name, medium(13.0), t.text);
+        ui.painter().text(pos2(x, r.min.y + 29.0), align, &p, regular(11.0), t.text_dim);
         if resp.clicked() {
             let _ = app.run("file.open", json!({"path": p}));
             app.ui.backstage = false;
@@ -394,7 +442,7 @@ fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
 fn info_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Info");
     let info = app.session.run("file.info", &json!({})).unwrap_or_default();
-    ui.columns(2, |cols| {
+    crate::rtl::columns(ui, 2, |cols| {
         let ui = &mut cols[0];
         ui.label(egui::RichText::new(tl!("Properties")).font(semibold(15.0)));
         // The fields edit a copy of the document's properties that is read afresh every frame,
@@ -404,10 +452,16 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
         let mut props = app.session.doc.core.clone();
         let mut edited = None;
         let mut focused = None;
-        egui::Grid::new("props").num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
-            for (l, v) in [("Title", &mut props.title), ("Subject", &mut props.subject), ("Author", &mut props.creator), ("Keywords", &mut props.keywords), ("Category", &mut props.category)] {
-                let label = ui.label(tl!(l));
-                let r = ui.add(egui::TextEdit::singleline(v).id_salt(("info-prop", l))).labelled_by(label.id);
+        crate::rtl::grid(ui, egui::Grid::new("props").num_columns(2).spacing(vec2(12.0, 6.0)), |ui| {
+            for (l, v) in [
+                ("Title", &mut props.title),
+                ("Subject", &mut props.subject),
+                ("Author", &mut props.creator),
+                ("Keywords", &mut props.keywords),
+                ("Category", &mut props.category),
+            ] {
+                let edit = crate::rtl::singleline(v).id_salt(("info-prop", l));
+                let r = crate::rtl::form_field(ui, tl!(l), edit);
                 if r.changed() {
                     edited = Some(l);
                 }
@@ -448,9 +502,12 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
         let ui = &mut cols[1];
         ui.label(egui::RichText::new(tl!("Statistics")).font(semibold(15.0)));
         for (l, k) in [("Pages", "pages"), ("Words", "words"), ("Paragraphs", "paragraphs"), ("Sections", "sections"), ("Comments", "comments")] {
-            ui.label(format!("{}: {}", tl!(l), info.get(k).map(|v| v.to_string()).unwrap_or_default()));
+            ui.label(crate::i18n::fmt(
+                "{label}: {value}",
+                &[("label", crate::i18n::tr(crate::i18n::current(), l)), ("value", &info.get(k).map(|v| v.to_string()).unwrap_or_default())],
+            ));
         }
-        let path = info.get("path").and_then(|v| v.as_str()).unwrap_or(tl!("Not saved yet"));
+        let path = info.get("path").and_then(|v| v.as_str()).unwrap_or(crate::i18n::tr(crate::i18n::current(), "Not saved yet"));
         ui.label(crate::i18n::fmt(tl!("Location: {path}"), &[("path", path)]));
     });
 }
@@ -460,8 +517,7 @@ fn export_page(app: &mut WordApp, ui: &mut Ui) {
         heading(ui, "Print");
         // Print Markup (a print setting, as in Word): the comments beside each page.
         let mut markup = app.session.prefs.print_markup;
-        if ui
-            .checkbox(&mut markup, tl!("Print Markup"))
+        if crate::rtl::checkbox(ui, &mut markup, tl!("Print Markup"))
             .on_hover_text(tl!(
                 "Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text."
             ))
@@ -606,6 +662,15 @@ mod tests {
         assert_eq!(ids("re"), ["resume", "report"]);
         assert_eq!(ids("résumé"), ["resume"]);
         assert!(ids("no such template").is_empty());
+    }
+
+    #[test]
+    fn template_search_uses_logical_multiword_labels() {
+        let previous = crate::i18n::current();
+        crate::i18n::set_current(crate::i18n::Lang::from_code("qaa-rtl").unwrap());
+        let found = matching_templates("دليل الاستوديو");
+        crate::i18n::set_current(previous);
+        assert_eq!(found, [("Studio handbook (sample)", "sample")]);
     }
 
     /// Home and New are different pages (#141): Home has the short template row, the link to New
