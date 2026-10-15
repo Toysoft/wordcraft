@@ -1620,22 +1620,23 @@ fn next_tab(x: f32, tabs: &[TabStop], default_tab: f32, hanging_at: Option<f32>)
 /// [`crate::DocLayout::truncated_paragraphs`].
 pub const MAX_PARA_LINES: usize = 200_000;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-limits"))]
 thread_local! {
     static LINE_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(MAX_PARA_LINES) };
 }
 
 /// The line limit in force ([`MAX_PARA_LINES`], or a test's smaller one).
 fn line_limit() -> usize {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-limits"))]
     return LINE_LIMIT.with(std::cell::Cell::get);
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-limits")))]
     MAX_PARA_LINES
 }
 
-/// Run `f` with a smaller line limit (tests).
-#[cfg(test)]
-pub(crate) fn with_line_limit<T>(limit: usize, f: impl FnOnce() -> T) -> T {
+/// Run `f` with a smaller line limit (tests; other crates' tests through the `test-limits`
+/// feature).
+#[cfg(any(test, feature = "test-limits"))]
+pub fn with_line_limit<T>(limit: usize, f: impl FnOnce() -> T) -> T {
     let old = LINE_LIMIT.with(|c| c.replace(limit));
     let r = f();
     LINE_LIMIT.with(|c| c.set(old));

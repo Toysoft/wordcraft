@@ -7267,3 +7267,21 @@ fn paragraphs_past_the_line_limit_are_counted() {
     // The production limit leaves ordinary paragraphs alone.
     assert_eq!(lay(&d).truncated_paragraphs, 0);
 }
+
+/// #1341: the cut-paragraph warning is logged once per revision of the cut paragraphs, not on
+/// every relayout.
+#[test]
+fn the_line_limit_warning_is_logged_once_per_revision() {
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("L1\nL2\nL3\nTailEnd", Default::default()))];
+    let mut c = LayoutCache::new();
+    let opts = LayoutOptions::default();
+    para::with_line_limit(3, || {
+        layout(&d, &mut c, &opts);
+        layout(&d, &mut c, &opts);
+        assert_eq!(c.line_limit_warnings, 1, "a relayout of the same text doesn't warn again");
+        d.para_mut(StoryRef::Body, &Path::top(0)).unwrap().insert_text(0, "X", &Default::default()).unwrap();
+        layout(&d, &mut c, &opts);
+        assert_eq!(c.line_limit_warnings, 2, "an edit to the cut paragraph warns again");
+    });
+}
