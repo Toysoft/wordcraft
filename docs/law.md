@@ -13,10 +13,14 @@ their agents.
 
 ## Turning it on
 
-LawCraft is an opt-in module, off until the user turns it on. Set `law.enabled` in the editing
-preferences (`{"editing":{"modules":{"law":true}}}`) — the same flag the desktop app will expose
-on a settings page later. Only then are the `law.*` commands installed in the session, which is
-how every way into WordCraft reaches them. From a terminal, a headless run honours the same
+LawCraft is an add-in, off until the user turns it on: in the desktop app, File › Options ›
+Add-ins › LawCraft. That sets `law.enabled` in the editing preferences
+(`{"editing":{"modules":{"law":true}}}`; `file.options {"modules": {"law": true}}` does the same
+from a script). Only then are the `law.*` commands installed in the session, which is how every
+way into WordCraft reaches them, and File › Options gains a LawCraft page for court profiles
+(list, edit, import, export, approve). The interface side lives in its own crate,
+`wordcraft-law-ui`, which the desktop app hands to WordCraft's interface as an add-in; the
+interface code itself never names LawCraft. From a terminal, a headless run honours the same
 setting, or takes `WORDCRAFT_LAW=1` for one run:
 
 ```
